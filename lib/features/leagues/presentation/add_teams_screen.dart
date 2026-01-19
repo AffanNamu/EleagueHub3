@@ -26,10 +26,12 @@ class AddTeamsScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<AddTeamsScreen> createState() => _AddTeamsScreenState();
+  ConsumerState<AddTeamsScreen> createState() =>
+      _AddTeamsScreenState();
 }
 
-class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
+class _AddTeamsScreenState
+    extends ConsumerState<AddTeamsScreen> {
   late LocalLeaguesRepository _localRepo;
 
   /// Bulk text entry controller
@@ -88,6 +90,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     });
   }
 
+  /// Infer group label for a team (for preview)
+  String _groupLabelForTeam(Team t) {
+    if (widget.format == LeagueFormat.uclGroup) {
+      return t.groupId ?? 'Unassigned';
+    }
+    return 'League Pool';
+  }
+
   void _addTeam(String name) {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
@@ -142,13 +152,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     });
   }
 
-  /// When user taps "ADD TEAMS TO PREVIEW", show a popup to preview the names
-  /// that will be added, so mistakes are visible.
+  /// Bulk import with popup preview
   void _importBulk() {
     final text = _bulkController.text;
     if (text.isEmpty) return;
 
-    // Parse candidate names
     final rawNames = text.split(RegExp(r'[,\n]'));
     final names = rawNames
         .map((n) => n.trim())
@@ -166,7 +174,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       builder: (ctx) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding:
+                EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
+                    .add(const EdgeInsets.all(16)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
@@ -269,16 +279,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             Expanded(
                               child: FilledButton(
                                 onPressed: () {
-                                  // Actually add teams using the same logic
-                                  // as single _addTeam, so max + duplicates
-                                  // are still enforced.
                                   for (final n in names) {
                                     _addTeam(n);
                                   }
                                   _bulkController.clear();
                                   Navigator.of(ctx).pop();
                                 },
-                                child: const Text('Add to preview'),
+                                child: const Text(
+                                    'Add to preview'),
                               ),
                             ),
                           ],
@@ -308,44 +316,119 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     // Create Team objects for all new teams in this session
     final newTeams = _tempTeams.map((t) {
+      final groupName = t['group']!;
+      final groupId =
+          widget.format == LeagueFormat.uclGroup ? groupName : null;
+
       return Team(
         id: const Uuid().v4(),
         leagueId: widget.leagueId,
         name: t['name']!,
+        groupId: groupId,
         updatedAtMs: now,
         version: 1,
       );
     }).toList();
 
-    // Combine existing + new teams, so we don't wipe old ones
+    // Combine existing + new teams
     final allTeams = [..._existingTeams, ...newTeams];
 
     await _localRepo.saveTeams(widget.leagueId, allTeams);
 
+    // Get existing fixtures to know if we are regenerating or initial creation
+    final existingFixtures =
+        await _localRepo.getMatches(widget.leagueId);
+
     List<FixtureMatch> generatedFixtures = [];
 
-    // IMPORTANT: For now we only support full re-generation for classic leagues.
-    if (widget.format == LeagueFormat.classic) {
-      final teamIds = allTeams.map((t) => t.id).toList();
-      generatedFixtures = RoundRobinGenerator.generate(
-        leagueId: widget.leagueId,
-        teamIds: teamIds,
-        doubleRoundRobin: true,
-        startRoundNumber: 1,
-      );
+    if (existingFixtures.isEmpty) {
+      // FIRST TIME GENERATION
+      if (widget.format == LeagueFormat.classic) {
+        final teamIds = allTeams.map((t) => t.id).toList();
+        generatedFixtures = RoundRobinGenerator.generate(
+          leagueId: widget.leagueId,
+          teamIds: teamIds,
+          doubleRoundRobin: true,
+          startRoundNumber: 1,
+        );
+      } else if (widget.format == LeagueFormat.uclGroup) {
+        for (var groupName in _groups) {
+          final groupTeams = allTeams
+              .where((t) => t.groupId == groupName)
+              .map((t) => t.id)
+              .toList();
+
+          if (groupTeams.isNotEmpty) {
+            generatedFixtures.addAll(
+              RoundRobinGenerator.generate(
+                leagueId: widget.leagueId,
+                teamIds: groupTeams,
+                doubleRoundRobin: true,
+                groupId: groupName,
+                startRoundNumber: 1,
+              ),
+            );
+          }
+        }
+      } else if (widget.format == LeagueFormat.uclSwiss) {
+        // Swiss: generate only Round 1 using SwissPairingEngine.
+        generatedFixtures = SwissPairingEngine.generateInitialRound(
+          leagueId: widget.leagueId,
+          teams: allTeams,
+          roundNumber: 1,
+        );
+      }
     } else {
-      // For UCL Group and Swiss, we currently do not support re-generating
-      // fixtures after teams have been added once, because group/swiss
-      // seeding requires more data than Team currently stores.
-      // We keep existing fixtures in those formats.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Adding teams after fixtures exist is only supported for classic leagues right now.',
+      // RE-GENERATION AFTER TEAMS CHANGED
+      if (widget.format == LeagueFormat.classic) {
+        final teamIds = allTeams.map((t) => t.id).toList();
+        generatedFixtures = RoundRobinGenerator.generate(
+          leagueId: widget.leagueId,
+          teamIds: teamIds,
+          doubleRoundRobin: true,
+          startRoundNumber: 1,
+        );
+      } else if (widget.format == LeagueFormat.uclGroup) {
+        for (var groupName in _groups) {
+          final groupTeams = allTeams
+              .where((t) => t.groupId == groupName)
+              .map((t) => t.id)
+              .toList();
+
+          if (groupTeams.isNotEmpty) {
+            generatedFixtures.addAll(
+              RoundRobinGenerator.generate(
+                leagueId: widget.leagueId,
+                teamIds: groupTeams,
+                doubleRoundRobin: true,
+                groupId: groupName,
+                startRoundNumber: 1,
+              ),
+            );
+          }
+        }
+
+        if (generatedFixtures.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Group fixtures regenerated. Previous results were reset.',
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } else if (widget.format == LeagueFormat.uclSwiss) {
+        // Swiss does NOT support adding teams after rounds have started.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Adding teams after fixtures exist is not supported for Swiss leagues.',
+            ),
+            behavior: SnackBarBehavior.floating,
           ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+        );
+      }
     }
 
     if (generatedFixtures.isNotEmpty) {
@@ -538,22 +621,31 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 itemBuilder: (context, i) {
                   if (i < existingCount) {
                     final team = _existingTeams[i];
+                    final groupLabel = _groupLabelForTeam(team);
+                    final label = widget.format ==
+                            LeagueFormat.uclGroup
+                        ? 'Saved · $groupLabel'
+                        : 'Saved';
                     return _buildTeamTile(
                       index: i,
                       name: team.name,
-                      label: 'Saved',
+                      label: label,
                       isNew: false,
+                      onTap: () => _editExistingTeam(i),
                     );
                   } else {
                     final idx = i - existingCount;
                     final team = _tempTeams[idx];
                     final group = team['group'] ?? '';
-                    final label = group.isEmpty ? 'New' : 'New · $group';
+                    final label = group.isEmpty
+                        ? 'New'
+                        : 'New · $group';
                     return _buildTeamTile(
                       index: i,
                       name: team['name']!,
                       label: label,
                       isNew: true,
+                      onTap: null,
                     );
                   }
                 },
@@ -575,11 +667,202 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
+  void _editExistingTeam(int index) {
+    final team = _existingTeams[index];
+    final nameController = TextEditingController(text: team.name);
+    String selectedGroup =
+        team.groupId ?? _selectedGroup;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding:
+                EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
+                    .add(const EdgeInsets.all(16)),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
+                    child: StatefulBuilder(
+                      builder: (ctx, setModalState) {
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Edit Team',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: nameController,
+                              style: const TextStyle(
+                                  color: Colors.white),
+                              decoration: const InputDecoration(
+                                labelText: 'Team name',
+                                labelStyle: TextStyle(
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ),
+                            if (widget.format ==
+                                LeagueFormat.uclGroup) ...[
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment:
+                                    Alignment.centerLeft,
+                                child: Text(
+                                  'Group',
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: selectedGroup,
+                                  dropdownColor:
+                                      const Color(
+                                          0xFF000428),
+                                  style: const TextStyle(
+                                      color:
+                                          Colors.cyanAccent),
+                                  isExpanded: true,
+                                  items: _groups
+                                      .map(
+                                        (g) =>
+                                            DropdownMenuItem(
+                                          value: g,
+                                          child: Text(g),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (v) {
+                                    if (v == null) return;
+                                    setModalState(() {
+                                      selectedGroup = v;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextButton(
+                                    onPressed: () {
+                                      Navigator.of(ctx)
+                                          .pop();
+                                    },
+                                    child: const Text(
+                                      'Cancel',
+                                      style: TextStyle(
+                                        color: Colors
+                                            .white70,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: () {
+                                      final newName =
+                                          nameController
+                                              .text
+                                              .trim();
+                                      if (newName
+                                          .isEmpty) {
+                                        return;
+                                      }
+
+                                      setState(() {
+                                        _existingTeams[
+                                            index] = team.copyWith(
+                                          name: newName,
+                                          groupId: widget.format ==
+                                                  LeagueFormat
+                                                      .uclGroup
+                                              ? selectedGroup
+                                              : null,
+                                          updatedAtMs: DateTime
+                                                  .now()
+                                              .millisecondsSinceEpoch,
+                                        );
+                                      });
+
+                                      Navigator.of(ctx)
+                                          .pop();
+                                    },
+                                    child: const Text(
+                                      'Save',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment:
+                                  Alignment.centerRight,
+                              child: TextButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    _existingTeams.removeAt(
+                                        index);
+                                  });
+                                  Navigator.of(ctx)
+                                      .pop();
+                                },
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.redAccent,
+                                  size: 16,
+                                ),
+                                label: const Text(
+                                  'Remove team',
+                                  style: TextStyle(
+                                    color:
+                                        Colors.redAccent,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildTeamTile({
     required int index,
     required String name,
     required String label,
     required bool isNew,
+    required VoidCallback? onTap,
   }) {
     return Card(
       color: isNew
@@ -589,40 +872,48 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
-      child: ListTile(
-        dense: true,
-        leading: CircleAvatar(
-          radius: 14,
-          backgroundColor:
-              isNew ? Colors.cyanAccent.withOpacity(0.18) : Colors.white12,
-          child: Text(
-            '${index + 1}',
-            style: const TextStyle(
-              color: Colors.cyanAccent,
-              fontSize: 12,
-            ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 4,
+            vertical: 2,
           ),
-        ),
-        title: Text(
-          name,
-          style: const TextStyle(color: Colors.white),
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: isNew
-                ? Colors.cyanAccent.withOpacity(0.25)
-                : Colors.white.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
+          child: ListTile(
+            dense: true,
+            leading: CircleAvatar(
+              radius: 14,
+              backgroundColor: isNew
+                  ? Colors.cyanAccent.withOpacity(0.18)
+                  : Colors.white12,
+              child: Text(
+                '${index + 1}',
+                style: const TextStyle(
+                  color: Colors.cyanAccent,
+                  fontSize: 12,
+                ),
+              ),
             ),
+            title: Text(
+              name,
+              style: const TextStyle(color: Colors.white),
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 11,
+              ),
+            ),
+            trailing: !isNew && onTap != null
+                ? const Icon(
+                    Icons.edit,
+                    color: Colors.white54,
+                    size: 18,
+                  )
+                : null,
           ),
         ),
       ),

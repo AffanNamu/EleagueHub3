@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -49,6 +50,12 @@ class _LeagueDetailScreenState
   static String _lastSeenAnnKey(String leagueId) =>
       'ui_last_seen_ann_$leagueId';
 
+  // For auto-scrolling the announcements row
+  final ScrollController _annScrollController =
+      ScrollController();
+  Timer? _annScrollTimer;
+  int _annLastCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +71,13 @@ class _LeagueDetailScreenState
         _prefs.getInt(_lastSeenAnnKey(widget.leagueId)) ?? 0;
   }
 
+  @override
+  void dispose() {
+    _annScrollTimer?.cancel();
+    _annScrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _persistRound(int round) async {
     _lastViewedRound = round;
     if (mounted) setState(() {});
@@ -74,6 +88,41 @@ class _LeagueDetailScreenState
   Future<void> _markAnnouncementsSeen(int ms) async {
     _lastSeenAnnMs = ms;
     await _prefs.setInt(_lastSeenAnnKey(widget.leagueId), ms);
+  }
+
+  void _ensureAnnounceAutoScroll(int count) {
+    // Stop if 0 or 1 announcement: nothing to scroll
+    if (count <= 1) {
+      _annScrollTimer?.cancel();
+      _annScrollTimer = null;
+      _annLastCount = count;
+      return;
+    }
+
+    // If same count and timer already running, do nothing
+    if (_annLastCount == count && _annScrollTimer != null) {
+      return;
+    }
+
+    _annLastCount = count;
+    _annScrollTimer?.cancel();
+
+    _annScrollTimer =
+        Timer.periodic(const Duration(milliseconds: 40), (timer) {
+      if (!_annScrollController.hasClients) return;
+      final maxScroll =
+          _annScrollController.position.maxScrollExtent;
+      if (maxScroll <= 0) return;
+
+      final current = _annScrollController.offset;
+      final next = current + 1;
+
+      if (next >= maxScroll) {
+        _annScrollController.jumpTo(0);
+      } else {
+        _annScrollController.jumpTo(next);
+      }
+    });
   }
 
   Future<Map<String, dynamic>> _loadData() async {
@@ -294,6 +343,9 @@ class _LeagueDetailScreenState
                 });
               }
 
+              // Start / stop auto-scroll based on count
+              _ensureAnnounceAutoScroll(announcements.length);
+
               final isOwnerByLeague =
                   membership?.role ==
                       LeagueRole.organizer;
@@ -472,7 +524,6 @@ class _LeagueDetailScreenState
     final sorted = anns.toList()
       ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
     final formatter = DateFormat('MMM d • HH:mm');
-    final useMarquee = sorted.length > 1;
 
     return Glass(
       padding: const EdgeInsets.all(20),
@@ -518,6 +569,7 @@ class _LeagueDetailScreenState
           SizedBox(
             height: 120,
             child: ListView.separated(
+              controller: _annScrollController,
               scrollDirection: Axis.horizontal,
               itemCount: sorted.length,
               separatorBuilder: (_, __) =>
@@ -533,7 +585,6 @@ class _LeagueDetailScreenState
                   title: a.title,
                   message: a.message,
                   time: timeStr,
-                  marquee: useMarquee,
                 );
               },
             ),
@@ -543,10 +594,6 @@ class _LeagueDetailScreenState
     );
   }
 
-  // ... rest of file (quickActions, upcoming card, etc.) unchanged ...
-
-  // ...rest of your original file ( _quickActions, _upcomingMatchesCard, _roundChip, _fixtureRow, _actionButton, _pill, _generateSwissKnockouts, _generateGroupKnockouts ) remains unchanged...
-  
   Widget _quickActions(
     BuildContext context,
     League league,
@@ -835,7 +882,7 @@ class _LeagueDetailScreenState
       ),
     );
   }
-  
+
   Widget _upcomingMatchesCard(
     BuildContext context, {
     required List<FixtureMatch> fixtures,
