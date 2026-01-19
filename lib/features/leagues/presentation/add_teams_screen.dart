@@ -157,8 +157,8 @@ class _AddTeamsScreenState
     final text = _bulkController.text;
     if (text.isEmpty) return;
 
-    final rawNames = text.split(RegExp(r'[,\n]'));
-    final names = rawNames
+    final List<String> names = text
+        .split(RegExp(r'[,\n]'))
         .map((n) => n.trim())
         .where((n) => n.isNotEmpty)
         .toList();
@@ -315,9 +315,9 @@ class _AddTeamsScreenState
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // Create Team objects for all new teams in this session
-    final newTeams = _tempTeams.map((t) {
+    final List<Team> newTeams = _tempTeams.map<Team>((t) {
       final groupName = t['group']!;
-      final groupId =
+      final String? groupId =
           widget.format == LeagueFormat.uclGroup ? groupName : null;
 
       return Team(
@@ -331,7 +331,10 @@ class _AddTeamsScreenState
     }).toList();
 
     // Combine existing + new teams
-    final allTeams = [..._existingTeams, ...newTeams];
+    final List<Team> allTeams = <Team>[
+      ..._existingTeams,
+      ...newTeams,
+    ];
 
     await _localRepo.saveTeams(widget.leagueId, allTeams);
 
@@ -344,7 +347,8 @@ class _AddTeamsScreenState
     if (existingFixtures.isEmpty) {
       // FIRST TIME GENERATION
       if (widget.format == LeagueFormat.classic) {
-        final teamIds = allTeams.map((t) => t.id).toList();
+        final List<String> teamIds =
+            allTeams.map((t) => t.id).toList();
         generatedFixtures = RoundRobinGenerator.generate(
           leagueId: widget.leagueId,
           teamIds: teamIds,
@@ -353,7 +357,7 @@ class _AddTeamsScreenState
         );
       } else if (widget.format == LeagueFormat.uclGroup) {
         for (var groupName in _groups) {
-          final groupTeams = allTeams
+          final List<String> groupTeams = allTeams
               .where((t) => t.groupId == groupName)
               .map((t) => t.id)
               .toList();
@@ -381,7 +385,8 @@ class _AddTeamsScreenState
     } else {
       // RE-GENERATION AFTER TEAMS CHANGED
       if (widget.format == LeagueFormat.classic) {
-        final teamIds = allTeams.map((t) => t.id).toList();
+        final List<String> teamIds =
+            allTeams.map((t) => t.id).toList();
         generatedFixtures = RoundRobinGenerator.generate(
           leagueId: widget.leagueId,
           teamIds: teamIds,
@@ -390,7 +395,7 @@ class _AddTeamsScreenState
         );
       } else if (widget.format == LeagueFormat.uclGroup) {
         for (var groupName in _groups) {
-          final groupTeams = allTeams
+          final List<String> groupTeams = allTeams
               .where((t) => t.groupId == groupName)
               .map((t) => t.id)
               .toList();
@@ -793,7 +798,8 @@ class _AddTeamsScreenState
 
                                       setState(() {
                                         _existingTeams[
-                                            index] = team.copyWith(
+                                                index] =
+                                            team.copyWith(
                                           name: newName,
                                           groupId: widget.format ==
                                                   LeagueFormat
