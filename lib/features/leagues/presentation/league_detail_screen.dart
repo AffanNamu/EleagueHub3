@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../social/ui/widgets/glass_announcement.dart';
 import '../data/leagues_repository_local.dart';
+import '../data/league_announcements_local.dart';
 import '../domain/logic/tournament_controller.dart';
 import '../domain/standings/standings.dart';
 import '../domain/standings/standings_calculator.dart';
@@ -15,6 +18,7 @@ import '../models/league_format.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 import '../models/knockout_match.dart';
+import '../models/league_announcement.dart';
 
 class LeagueDetailScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -33,6 +37,7 @@ class _LeagueDetailScreenState
     extends ConsumerState<LeagueDetailScreen> {
   late final LocalLeaguesRepository _repo;
   late final PreferencesService _prefs;
+  late final LeagueAnnouncementsLocal _annRepo;
 
   int? _lastViewedRound;
   static String _lastRoundKey(String leagueId) =>
@@ -43,6 +48,7 @@ class _LeagueDetailScreenState
     super.initState();
     _prefs = ref.read(prefsServiceProvider);
     _repo = LocalLeaguesRepository(_prefs);
+    _annRepo = LeagueAnnouncementsLocal(_prefs);
 
     final raw =
         _prefs.getString(_lastRoundKey(widget.leagueId));
@@ -67,6 +73,8 @@ class _LeagueDetailScreenState
     final teams = await _repo.getTeams(widget.leagueId);
     final knockouts =
         await _repo.getKnockoutMatches(widget.leagueId);
+    final announcements =
+        await _annRepo.listForLeague(widget.leagueId);
 
     final currentUserId = _prefs.getCurrentUserId() ??
         _prefs.getString(
@@ -90,6 +98,7 @@ class _LeagueDetailScreenState
       'currentUserId': currentUserId,
       'membership': membership,
       'knockouts': knockouts,
+      'announcements': announcements,
     };
   }
 
@@ -237,6 +246,9 @@ class _LeagueDetailScreenState
               final knockouts =
                   snapshot.data!['knockouts']
                       as List<KnockoutMatch>;
+              final announcements =
+                  snapshot.data!['announcements']
+                      as List<LeagueAnnouncement>;
 
               final sorted = _sortedSchedule(fixtures);
               final rounds = _allRounds(sorted);
@@ -278,6 +290,10 @@ class _LeagueDetailScreenState
                       league,
                       isOwner,
                     ),
+                    if (announcements.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _announcementsCard(context, announcements),
+                    ],
                     const SizedBox(height: 16),
                     _quickActions(
                       context,
@@ -408,6 +424,56 @@ class _LeagueDetailScreenState
             spacing: 8,
             runSpacing: 8,
             children: rulePills,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _announcementsCard(
+    BuildContext context,
+    List<LeagueAnnouncement> anns,
+  ) {
+    final sorted = anns.toList()
+      ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+    final formatter = DateFormat('MMM d • HH:mm');
+
+    return Glass(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Announcements',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 120,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: sorted.length,
+              separatorBuilder: (_, __) =>
+                  const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final a = sorted[index];
+                final timeStr = formatter.format(
+                  DateTime.fromMillisecondsSinceEpoch(
+                    a.createdAtMs,
+                  ),
+                );
+                return GlassAnnouncement(
+                  title: a.title,
+                  message: a.message,
+                  time: timeStr,
+                );
+              },
+            ),
           ),
         ],
       ),

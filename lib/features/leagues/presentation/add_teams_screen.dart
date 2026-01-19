@@ -142,19 +142,167 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     });
   }
 
+  /// When user taps "ADD TEAMS TO PREVIEW", show a popup to preview the names
+  /// that will be added, so mistakes are visible.
   void _importBulk() {
     final text = _bulkController.text;
     if (text.isEmpty) return;
 
-    for (final name in text.split(RegExp(r'[,\n]'))) {
-      if (name.trim().isNotEmpty) _addTeam(name);
-    }
-    _bulkController.clear();
+    // Parse candidate names
+    final rawNames = text.split(RegExp(r'[,\n]'));
+    final names = rawNames
+        .map((n) => n.trim())
+        .where((n) => n.isNotEmpty)
+        .toList();
+
+    if (names.isEmpty) return;
+
     FocusScope.of(context).unfocus();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Preview teams to add',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Review the team names below. Duplicates or teams over the limit will be skipped automatically.',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxHeight: 260,
+                          ),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: names.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 4),
+                            itemBuilder: (context, index) {
+                              final name = names[index];
+                              return Glass(
+                                borderRadius: 16,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 13,
+                                        backgroundColor: Colors
+                                            .cyanAccent
+                                            .withOpacity(0.18),
+                                        child: Text(
+                                          '${index + 1}',
+                                          style: const TextStyle(
+                                            color:
+                                                Colors.cyanAccent,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          name,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                          ),
+                                          overflow:
+                                              TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextButton(
+                                onPressed: () =>
+                                    Navigator.of(ctx).pop(),
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () {
+                                  // Actually add teams using the same logic
+                                  // as single _addTeam, so max + duplicates
+                                  // are still enforced.
+                                  for (final n in names) {
+                                    _addTeam(n);
+                                  }
+                                  _bulkController.clear();
+                                  Navigator.of(ctx).pop();
+                                },
+                                child: const Text('Add to preview'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _generateAndSave() async {
-    if (_tempTeams.isEmpty) return;
+    if (_tempTeams.isEmpty && _existingTeams.isEmpty) {
+      // Nothing to save
+      if (mounted) {
+        context.go('/leagues/${widget.leagueId}');
+      }
+      return;
+    }
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -174,56 +322,38 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     await _localRepo.saveTeams(widget.leagueId, allTeams);
 
-    // Only generate fixtures if none exist yet, to avoid duplicate schedules
-    final existingFixtures = await _localRepo.getMatches(widget.leagueId);
     List<FixtureMatch> generatedFixtures = [];
 
-    if (existingFixtures.isEmpty) {
-      if (widget.format == LeagueFormat.classic) {
-        // Full round robin for all teams (double round robin based on rules).
-        final teamIds = allTeams.map((t) => t.id).toList();
-        generatedFixtures = RoundRobinGenerator.generate(
-          leagueId: widget.leagueId,
-          teamIds: teamIds,
-          doubleRoundRobin: true,
-          startRoundNumber: 1,
-        );
-      } else if (widget.format == LeagueFormat.uclGroup) {
-        // Round robin per group for new teams only (initial creation case).
-        for (var groupName in _groups) {
-          final groupTeams = newTeams
-              .where((t) =>
-                  _tempTeams.firstWhere(
-                    (temp) => temp['name'] == t.name,
-                  )['group'] ==
-                  groupName)
-              .map((t) => t.id)
-              .toList();
-
-          if (groupTeams.isNotEmpty) {
-            generatedFixtures.addAll(
-              RoundRobinGenerator.generate(
-                leagueId: widget.leagueId,
-                teamIds: groupTeams,
-                doubleRoundRobin: true,
-                groupId: groupName,
-                startRoundNumber: 1,
-              ),
-            );
-          }
-        }
-      } else if (widget.format == LeagueFormat.uclSwiss) {
-        // Swiss: generate only Round 1 using SwissPairingEngine.
-        generatedFixtures = SwissPairingEngine.generateInitialRound(
-          leagueId: widget.leagueId,
-          teams: allTeams,
-          roundNumber: 1,
-        );
-      }
+    // IMPORTANT: For now we only support full re-generation for classic leagues.
+    if (widget.format == LeagueFormat.classic) {
+      final teamIds = allTeams.map((t) => t.id).toList();
+      generatedFixtures = RoundRobinGenerator.generate(
+        leagueId: widget.leagueId,
+        teamIds: teamIds,
+        doubleRoundRobin: true,
+        startRoundNumber: 1,
+      );
+    } else {
+      // For UCL Group and Swiss, we currently do not support re-generating
+      // fixtures after teams have been added once, because group/swiss
+      // seeding requires more data than Team currently stores.
+      // We keep existing fixtures in those formats.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Adding teams after fixtures exist is only supported for classic leagues right now.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
 
     if (generatedFixtures.isNotEmpty) {
-      await _localRepo.saveMatches(widget.leagueId, generatedFixtures);
+      // Replace existing fixtures with the new schedule
+      await _localRepo.replaceMatches(
+        widget.leagueId,
+        generatedFixtures,
+      );
     }
 
     if (mounted) {

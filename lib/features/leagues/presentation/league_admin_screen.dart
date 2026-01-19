@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/leagues_repository_local.dart';
+import '../data/league_announcements_local.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import '../models/league_announcement.dart';
 import 'league_participants_screen.dart';
 import 'add_teams_screen.dart';
 
@@ -29,15 +32,19 @@ class LeagueAdminScreen extends ConsumerStatefulWidget {
 
 class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   late LocalLeaguesRepository _localRepo;
+  late LeagueAnnouncementsLocal _annRepo;
   League? _league;
   bool _isLeagueLoading = true;
   bool _isSyncing = false;
+
+  final Uuid _uuid = const Uuid();
 
   @override
   void initState() {
     super.initState();
     final prefs = ref.read(prefsServiceProvider);
     _localRepo = LocalLeaguesRepository(prefs);
+    _annRepo = LeagueAnnouncementsLocal(prefs);
     _loadLeague();
   }
 
@@ -206,6 +213,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         ),
         _buildSettingsTile(
           context,
+          Icons.notifications_active,
+          'Send Announcement',
+          'Write a message for league participants',
+          onTap: _showSendAnnouncementSheet,
+        ),
+        _buildSettingsTile(
+          context,
           Icons.rule,
           'League Rules',
           'Format, round-robin and group/swiss options',
@@ -268,6 +282,154 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // -------------------
+  // Send announcement
+  // -------------------
+  void _showSendAnnouncementSheet() {
+    if (_league == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('League info not loaded yet.'),
+        ),
+      );
+      return;
+    }
+
+    final titleController = TextEditingController();
+    final messageController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding:
+                EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
+                    .add(const EdgeInsets.all(16)),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Send announcement',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'This message will appear in the league details screen for all participants on this device.',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: titleController,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(
+                            labelText: 'Title (optional)',
+                            labelStyle:
+                                TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: messageController,
+                          style: const TextStyle(color: Colors.white),
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'Message',
+                            labelStyle:
+                                TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextButton(
+                                onPressed: () =>
+                                    Navigator.of(ctx).pop(),
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () async {
+                                  final rawTitle =
+                                      titleController.text.trim();
+                                  final msg =
+                                      messageController.text.trim();
+                                  if (msg.isEmpty) return;
+
+                                  final title = rawTitle.isEmpty
+                                      ? 'Announcement'
+                                      : rawTitle;
+
+                                  final now = DateTime.now()
+                                      .millisecondsSinceEpoch;
+
+                                  final ann = LeagueAnnouncement(
+                                    id: _uuid.v4(),
+                                    leagueId: widget.leagueId,
+                                    title: title,
+                                    message: msg,
+                                    createdAtMs: now,
+                                  );
+
+                                  await _annRepo
+                                      .addAnnouncement(ann);
+
+                                  if (!mounted) return;
+                                  Navigator.of(ctx).pop();
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Announcement sent (local only).',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text('Send'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

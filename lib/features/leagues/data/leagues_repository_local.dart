@@ -96,7 +96,6 @@ class LocalLeaguesRepository {
     await _prefs.setString(_membershipsKey, membershipsEncoded);
 
     // 3) Clear league-specific data (teams, matches, knockouts)
-    // Using empty JSON arrays so existing decoding logic still works.
     await _prefs.setString('$_teamsKey$leagueId', '[]');
     await _prefs.setString('$_matchesKey$leagueId', '[]');
     await _prefs.setString('$_knockoutsKey$leagueId', '[]');
@@ -269,6 +268,7 @@ class LocalLeaguesRepository {
     }
   }
 
+  /// Merge new matches into existing matches (used in some flows).
   Future<void> saveMatches(String leagueId, List<FixtureMatch> matches) async {
     final List<FixtureMatch> existing = await getMatches(leagueId);
     final Map<String, FixtureMatch> matchMap = {
@@ -281,6 +281,14 @@ class LocalLeaguesRepository {
 
     final String encoded =
         jsonEncode(matchMap.values.map((m) => m.toJson()).toList());
+    await _prefs.setString('$_matchesKey$leagueId', encoded);
+  }
+
+  /// Replace all league-phase matches for [leagueId] with [matches].
+  /// Used when regenerating fixtures after teams are added.
+  Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
+    final String encoded =
+        jsonEncode(matches.map((m) => m.toJson()).toList());
     await _prefs.setString('$_matchesKey$leagueId', encoded);
   }
 
