@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../../core/services/notification_service.dart';
 import '../data/leagues_repository_local.dart';
 import '../data/league_announcements_local.dart';
 import '../models/league.dart';
@@ -404,6 +405,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                                   await _annRepo
                                       .addAnnouncement(ann);
+
+                                  // Local OS notification for the app creator on this device.
+                                  await NotificationService()
+                                      .showLeagueAnnouncementNotification(
+                                    leagueName: _league?.name ??
+                                        'League',
+                                    title: title,
+                                    message: msg,
+                                  );
 
                                   if (!mounted) return;
                                   Navigator.of(ctx).pop();

@@ -53,4 +53,36 @@ class NotificationService {
       details,
     );
   }
+
+  /// Notification for a league announcement (local to this device).
+  Future<void> showLeagueAnnouncementNotification({
+    required String leagueName,
+    required String title,
+    required String message,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      'league_announcements_channel',
+      'League Announcements',
+      channelDescription: 'Announcements from league admins',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+    );
+
+    final notifTitle = '$leagueName: $title';
+
+    await _plugin.show(
+      1, // arbitrary id for announcements
+      notifTitle,
+      message,
+      details,
+    );
+  }
 }

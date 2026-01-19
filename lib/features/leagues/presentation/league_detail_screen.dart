@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -43,6 +45,10 @@ class _LeagueDetailScreenState
   static String _lastRoundKey(String leagueId) =>
       'ui_last_round_$leagueId';
 
+  int _lastSeenAnnMs = 0;
+  static String _lastSeenAnnKey(String leagueId) =>
+      'ui_last_seen_ann_$leagueId';
+
   @override
   void initState() {
     super.initState();
@@ -50,9 +56,12 @@ class _LeagueDetailScreenState
     _repo = LocalLeaguesRepository(_prefs);
     _annRepo = LeagueAnnouncementsLocal(_prefs);
 
-    final raw =
+    final rawRound =
         _prefs.getString(_lastRoundKey(widget.leagueId));
-    _lastViewedRound = int.tryParse((raw ?? '').trim());
+    _lastViewedRound = int.tryParse((rawRound ?? '').trim());
+
+    _lastSeenAnnMs =
+        _prefs.getInt(_lastSeenAnnKey(widget.leagueId)) ?? 0;
   }
 
   Future<void> _persistRound(int round) async {
@@ -60,6 +69,11 @@ class _LeagueDetailScreenState
     if (mounted) setState(() {});
     await _prefs.setString(
         _lastRoundKey(widget.leagueId), '$round');
+  }
+
+  Future<void> _markAnnouncementsSeen(int ms) async {
+    _lastSeenAnnMs = ms;
+    await _prefs.setInt(_lastSeenAnnKey(widget.leagueId), ms);
   }
 
   Future<Map<String, dynamic>> _loadData() async {
@@ -264,6 +278,23 @@ class _LeagueDetailScreenState
                 limit: 8,
               );
 
+              int latestAnnMs = 0;
+              if (announcements.isNotEmpty) {
+                latestAnnMs = announcements
+                    .map((a) => a.createdAtMs)
+                    .reduce(max);
+              }
+              final hasUnreadAnnouncements =
+                  announcements.isNotEmpty &&
+                  latestAnnMs > _lastSeenAnnMs;
+
+              // Mark as seen once we know there are newer announcements.
+              if (hasUnreadAnnouncements) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _markAnnouncementsSeen(latestAnnMs);
+                });
+              }
+
               final isOwnerByLeague =
                   membership?.role ==
                       LeagueRole.organizer;
@@ -292,7 +323,11 @@ class _LeagueDetailScreenState
                     ),
                     if (announcements.isNotEmpty) ...[
                       const SizedBox(height: 16),
-                      _announcementsCard(context, announcements),
+                      _announcementsCard(
+                        context,
+                        announcements,
+                        hasUnreadAnnouncements,
+                      ),
                     ],
                     const SizedBox(height: 16),
                     _quickActions(
@@ -433,6 +468,7 @@ class _LeagueDetailScreenState
   Widget _announcementsCard(
     BuildContext context,
     List<LeagueAnnouncement> anns,
+    bool hasUnread,
   ) {
     final sorted = anns.toList()
       ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -444,13 +480,39 @@ class _LeagueDetailScreenState
         crossAxisAlignment:
             CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Announcements',
-            style: TextStyle(
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-              fontSize: 16,
-            ),
+          Row(
+            children: [
+              const Text(
+                'Announcements',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  fontSize: 16,
+                ),
+              ),
+              if (hasUnread) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withOpacity(0.8),
+                    borderRadius:
+                        BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    'NEW',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 8),
           SizedBox(
@@ -480,6 +542,8 @@ class _LeagueDetailScreenState
     );
   }
 
+  // ...rest of your original file ( _quickActions, _upcomingMatchesCard, _roundChip, _fixtureRow, _actionButton, _pill, _generateSwissKnockouts, _generateGroupKnockouts ) remains unchanged...
+  
   Widget _quickActions(
     BuildContext context,
     League league,
@@ -768,7 +832,7 @@ class _LeagueDetailScreenState
       ),
     );
   }
-
+  
   Widget _upcomingMatchesCard(
     BuildContext context, {
     required List<FixtureMatch> fixtures,
