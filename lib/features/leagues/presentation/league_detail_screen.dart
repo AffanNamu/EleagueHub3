@@ -288,7 +288,6 @@ class _LeagueDetailScreenState
                   announcements.isNotEmpty &&
                   latestAnnMs > _lastSeenAnnMs;
 
-              // Mark as seen once we know there are newer announcements.
               if (hasUnreadAnnouncements) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _markAnnouncementsSeen(latestAnnMs);
@@ -473,6 +472,7 @@ class _LeagueDetailScreenState
     final sorted = anns.toList()
       ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
     final formatter = DateFormat('MMM d • HH:mm');
+    final useMarquee = sorted.length > 1;
 
     return Glass(
       padding: const EdgeInsets.all(20),
@@ -533,6 +533,7 @@ class _LeagueDetailScreenState
                   title: a.title,
                   message: a.message,
                   time: timeStr,
+                  marquee: useMarquee,
                 );
               },
             ),
@@ -541,6 +542,8 @@ class _LeagueDetailScreenState
       ),
     );
   }
+
+  // ... rest of file (quickActions, upcoming card, etc.) unchanged ...
 
   // ...rest of your original file ( _quickActions, _upcomingMatchesCard, _roundChip, _fixtureRow, _actionButton, _pill, _generateSwissKnockouts, _generateGroupKnockouts ) remains unchanged...
   

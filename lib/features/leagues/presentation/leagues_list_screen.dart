@@ -105,6 +105,10 @@ class _LeaguesListScreenState
     final screenWidth = media.size.width;
     final isTablet = screenWidth >= 600;
 
+    // Push FAB up by the bottom nav height + system inset + small margin
+    final double fabBottomOffset =
+        kBottomNavigationBarHeight + media.padding.bottom + 16;
+
     return GlassScaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
@@ -119,9 +123,8 @@ class _LeaguesListScreenState
           ),
         ],
       ),
-      // Move FAB slightly up so it clears the bottom navigation glass
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 32.0),
+        padding: EdgeInsets.only(bottom: fabBottomOffset),
         child: FloatingActionButton(
           onPressed: () => _showOptions(context),
           backgroundColor: Colors.cyanAccent,

@@ -36,6 +36,9 @@ dependencies:
   # Local notifications (for app creator via SettingsScreen)
   flutter_local_notifications: ^17.2.3
 
+  # Marquee scrolling text (for announcements)
+  marquee: ^2.2.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

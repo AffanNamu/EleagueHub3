@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:marquee/marquee.dart';
 
 import '../../../../core/widgets/glass.dart';
 
@@ -7,11 +8,15 @@ class GlassAnnouncement extends StatelessWidget {
   final String message;
   final String time;
 
+  /// If true, the message will scroll like a marquee.
+  final bool marquee;
+
   const GlassAnnouncement({
     super.key,
     required this.title,
     required this.message,
     required this.time,
+    this.marquee = false,
   });
 
   @override
@@ -46,14 +51,33 @@ class GlassAnnouncement extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              message,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-              ),
+            // Marquee or static text for the message
+            SizedBox(
+              height: 32,
+              child: marquee
+                  ? Marquee(
+                      text: message,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                      blankSpace: 40,
+                      velocity: 25,
+                      pauseAfterRound: const Duration(seconds: 1),
+                      startPadding: 0,
+                    )
+                  : Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
             ),
             const Spacer(),
             Text(
