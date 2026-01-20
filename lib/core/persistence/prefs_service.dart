@@ -93,4 +93,19 @@ class PreferencesService {
       'matchReminders': matchReminders ?? true,
     };
   }
+
+  /// Live viewer preferences (global)
+  bool liveViewerChatEnabled() =>
+      _sp.getBool('live_viewer_chat_enabled') ?? true;
+  bool liveViewerVoiceEnabled() =>
+      _sp.getBool('live_viewer_voice_enabled') ?? true;
+  bool liveViewerReactionsEnabled() =>
+      _sp.getBool('live_viewer_reactions_enabled') ?? true;
+
+  Future<void> setLiveViewerChatEnabled(bool value) async =>
+      setBool('live_viewer_chat_enabled', value);
+  Future<void> setLiveViewerVoiceEnabled(bool value) async =>
+      setBool('live_viewer_voice_enabled', value);
+  Future<void> setLiveViewerReactionsEnabled(bool value) async =>
+      setBool('live_viewer_reactions_enabled', value);
 }

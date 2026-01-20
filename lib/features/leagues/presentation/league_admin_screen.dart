@@ -31,7 +31,8 @@ class LeagueAdminScreen extends ConsumerStatefulWidget {
       _LeagueAdminScreenState();
 }
 
-class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
+class _LeagueAdminScreenState
+    extends ConsumerState<LeagueAdminScreen> {
   late LocalLeaguesRepository _localRepo;
   late LeagueAnnouncementsLocal _annRepo;
   League? _league;
@@ -117,7 +118,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             const SizedBox(width: 20),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
                     widget.hasPendingChanges
@@ -140,36 +142,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 ],
               ),
             ),
-            if (widget.hasPendingChanges)
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.cyanAccent,
-                  foregroundColor: Colors.black,
-                ),
-                onPressed: _isSyncing ? null : _syncParticipants,
-                child: _isSyncing
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.black,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Text(
-                        'SYNC',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-              ),
           ],
         ),
       ),
     );
   }
 
-  /// Stubbed sync: no backend yet, so just fake a short "sync" and show a message.
+  /// Stubbed sync: no backend yet
   Future<void> _syncParticipants() async {
     setState(() => _isSyncing = true);
     await Future.delayed(const Duration(milliseconds: 700));
@@ -211,6 +190,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               ),
             );
           },
+        ),
+        _buildSettingsTile(
+          context,
+          Icons.mic,
+          'Live & Voice Settings',
+          'Viewer chat, voice and reactions',
+          onTap: _showLiveSettingsSheet,
         ),
         _buildSettingsTile(
           context,
@@ -259,7 +245,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             contentPadding: EdgeInsets.zero,
             leading: Icon(
               icon,
-              color: isDestructive ? Colors.redAccent : Colors.white,
+              color: isDestructive
+                  ? Colors.redAccent
+                  : Colors.white,
             ),
             title: Text(
               title,
@@ -283,6 +271,154 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // -------------------
+  // Live & Voice Settings (viewer controls)
+  // -------------------
+  void _showLiveSettingsSheet() {
+    final prefs = ref.read(prefsServiceProvider);
+
+    bool chatEnabled = prefs.liveViewerChatEnabled();
+    bool voiceEnabled = prefs.liveViewerVoiceEnabled();
+    bool reactionsEnabled = prefs.liveViewerReactionsEnabled();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Glass(
+                      borderRadius: 28,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 8,
+                          horizontal: 12,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                'Live & Voice Settings',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const Divider(color: Colors.white10),
+                            SwitchListTile.adaptive(
+                              value: chatEnabled,
+                              onChanged: (v) =>
+                                  setModalState(() => chatEnabled = v),
+                              activeColor: Colors.cyanAccent,
+                              title: const Text(
+                                'Viewer text chat',
+                                style:
+                                    TextStyle(color: Colors.white),
+                              ),
+                              subtitle: const Text(
+                                'Allow viewers to type messages',
+                                style: TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            SwitchListTile.adaptive(
+                              value: voiceEnabled,
+                              onChanged: (v) =>
+                                  setModalState(() => voiceEnabled = v),
+                              activeColor: Colors.cyanAccent,
+                              title: const Text(
+                                'Viewer audio',
+                                style:
+                                    TextStyle(color: Colors.white),
+                              ),
+                              subtitle: const Text(
+                                'Allow viewers to hear the stream',
+                                style: TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            SwitchListTile.adaptive(
+                              value: reactionsEnabled,
+                              onChanged: (v) =>
+                                  setModalState(() => reactionsEnabled = v),
+                              activeColor: Colors.cyanAccent,
+                              title: const Text(
+                                'Viewer reactions',
+                                style:
+                                    TextStyle(color: Colors.white),
+                              ),
+                              subtitle: const Text(
+                                'Allow quick reactions (GG, Wow, Clutch)',
+                                style: TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 8,
+                                  right: 4,
+                                  bottom: 8,
+                                ),
+                                child: FilledButton(
+                                  onPressed: () async {
+                                    await prefs
+                                        .setLiveViewerChatEnabled(
+                                            chatEnabled);
+                                    await prefs
+                                        .setLiveViewerVoiceEnabled(
+                                            voiceEnabled);
+                                    await prefs
+                                        .setLiveViewerReactionsEnabled(
+                                            reactionsEnabled);
+
+                                    if (!mounted) return;
+                                    Navigator.of(ctx).pop();
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Live viewer settings updated.',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text('Save'),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -345,22 +481,26 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: titleController,
-                          style: const TextStyle(color: Colors.white),
+                          style: const TextStyle(
+                              color: Colors.white),
                           decoration: const InputDecoration(
                             labelText: 'Title (optional)',
-                            labelStyle:
-                                TextStyle(color: Colors.white70),
+                            labelStyle: TextStyle(
+                              color: Colors.white70,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: messageController,
-                          style: const TextStyle(color: Colors.white),
+                          style: const TextStyle(
+                              color: Colors.white),
                           maxLines: 3,
                           decoration: const InputDecoration(
                             labelText: 'Message',
-                            labelStyle:
-                                TextStyle(color: Colors.white70),
+                            labelStyle: TextStyle(
+                              color: Colors.white70,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -406,7 +546,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   await _annRepo
                                       .addAnnouncement(ann);
 
-                                  // Local OS notification for the app creator on this device.
                                   await NotificationService()
                                       .showLeagueAnnouncementNotification(
                                     leagueName: _league?.name ??
@@ -456,7 +595,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             padding: const EdgeInsets.all(16),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 500),
+                constraints:
+                    const BoxConstraints(maxWidth: 500),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
@@ -468,7 +608,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
+                          padding:
+                              EdgeInsets.symmetric(vertical: 12),
                           child: Text(
                             'Manage Teams & Participants',
                             style: TextStyle(
@@ -481,14 +622,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const Divider(color: Colors.white10),
                         ListTile(
                           leading: const CircleAvatar(
-                            backgroundColor: Colors.cyanAccent,
-                            child: Icon(Icons.group, color: Colors.black),
+                            backgroundColor:
+                                Colors.cyanAccent,
+                            child: Icon(Icons.group,
+                                color: Colors.black),
                           ),
                           title: const Text(
                             'Teams (Add / Edit)',
                             style: TextStyle(
                               color: Colors.white,
-                              fontWeight: FontWeight.w600,
+                              fontWeight:
+                                  FontWeight.w600,
                             ),
                           ),
                           subtitle: const Text(
@@ -506,8 +650,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 8),
                         ListTile(
                           leading: CircleAvatar(
-                            backgroundColor:
-                                Colors.white.withOpacity(0.1),
+                            backgroundColor: Colors.white
+                                .withOpacity(0.1),
                             child: const Icon(
                               Icons.people,
                               color: Colors.white,
@@ -517,7 +661,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             'Joined Participants',
                             style: TextStyle(
                               color: Colors.white,
-                              fontWeight: FontWeight.w600,
+                              fontWeight:
+                                  FontWeight.w600,
                             ),
                           ),
                           subtitle: const Text(
@@ -532,8 +677,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => LeagueParticipantsScreen(
-                                  leagueId: widget.leagueId,
+                                builder: (_) =>
+                                    LeagueParticipantsScreen(
+                                  leagueId:
+                                      widget.leagueId,
                                 ),
                               ),
                             );
@@ -606,7 +753,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
+                    constraints:
+                        const BoxConstraints(maxWidth: 520),
                     child: Glass(
                       borderRadius: 28,
                       child: Padding(
@@ -618,7 +766,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Padding(
-                              padding: const EdgeInsets.symmetric(
+                              padding:
+                                  const EdgeInsets.symmetric(
                                 vertical: 12,
                               ),
                               child: Column(
@@ -628,7 +777,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 16,
-                                      fontWeight: FontWeight.bold,
+                                      fontWeight:
+                                          FontWeight.bold,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
@@ -651,7 +801,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               activeColor: Colors.cyanAccent,
                               title: const Text(
                                 'Double Round-Robin',
-                                style: TextStyle(color: Colors.white),
+                                style: TextStyle(
+                                    color: Colors.white),
                               ),
                               subtitle: const Text(
                                 'Each pairing plays home & away',
@@ -661,13 +812,16 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 ),
                               ),
                             ),
-                            if (format == LeagueFormat.uclGroup)
+                            if (format ==
+                                LeagueFormat.uclGroup)
                               ListTile(
-                                contentPadding: EdgeInsets.zero,
+                                contentPadding:
+                                    EdgeInsets.zero,
                                 title: const Text(
                                   'Teams per Group',
-                                  style:
-                                      TextStyle(color: Colors.white),
+                                  style: TextStyle(
+                                      color:
+                                          Colors.white),
                                 ),
                                 subtitle: const Text(
                                   'Recommended: 4 teams per group',
@@ -677,51 +831,67 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   ),
                                 ),
                                 trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisSize:
+                                      MainAxisSize.min,
                                   children: [
                                     IconButton(
                                       icon: const Icon(
                                         Icons.remove,
-                                        color: Colors.white70,
+                                        color: Colors
+                                            .white70,
                                         size: 18,
                                       ),
                                       onPressed: () {
                                         setModalState(() {
                                           groupSize =
-                                              (groupSize - 1).clamp(2, 8);
+                                              (groupSize -
+                                                      1)
+                                                  .clamp(
+                                                      2, 8);
                                         });
                                       },
                                     ),
                                     Text(
                                       '$groupSize',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
+                                      style:
+                                          const TextStyle(
+                                        color:
+                                            Colors.white,
+                                        fontWeight:
+                                            FontWeight
+                                                .bold,
                                       ),
                                     ),
                                     IconButton(
                                       icon: const Icon(
                                         Icons.add,
-                                        color: Colors.white70,
+                                        color: Colors
+                                            .white70,
                                         size: 18,
                                       ),
                                       onPressed: () {
                                         setModalState(() {
                                           groupSize =
-                                              (groupSize + 1).clamp(2, 8);
+                                              (groupSize +
+                                                      1)
+                                                  .clamp(
+                                                      2, 8);
                                         });
                                       },
                                     ),
                                   ],
                                 ),
                               ),
-                            if (format == LeagueFormat.uclSwiss)
+                            if (format ==
+                                LeagueFormat.uclSwiss)
                               ListTile(
-                                contentPadding: EdgeInsets.zero,
+                                contentPadding:
+                                    EdgeInsets.zero,
                                 title: const Text(
                                   'Swiss Rounds',
-                                  style:
-                                      TextStyle(color: Colors.white),
+                                  style: TextStyle(
+                                      color:
+                                          Colors.white),
                                 ),
                                 subtitle: const Text(
                                   'Number of Swiss rounds before knockouts',
@@ -731,40 +901,51 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   ),
                                 ),
                                 trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisSize:
+                                      MainAxisSize.min,
                                   children: [
                                     IconButton(
                                       icon: const Icon(
                                         Icons.remove,
-                                        color: Colors.white70,
+                                        color: Colors
+                                            .white70,
                                         size: 18,
                                       ),
                                       onPressed: () {
                                         setModalState(() {
                                           swissRounds =
-                                              (swissRounds - 1)
-                                                  .clamp(1, 20);
+                                              (swissRounds -
+                                                      1)
+                                                  .clamp(
+                                                      1, 20);
                                         });
                                       },
                                     ),
                                     Text(
                                       '$swissRounds',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
+                                      style:
+                                          const TextStyle(
+                                        color:
+                                            Colors.white,
+                                        fontWeight:
+                                            FontWeight
+                                                .bold,
                                       ),
                                     ),
                                     IconButton(
                                       icon: const Icon(
                                         Icons.add,
-                                        color: Colors.white70,
+                                        color: Colors
+                                            .white70,
                                         size: 18,
                                       ),
                                       onPressed: () {
                                         setModalState(() {
                                           swissRounds =
-                                              (swissRounds + 1)
-                                                  .clamp(1, 20);
+                                              (swissRounds +
+                                                      1)
+                                                  .clamp(
+                                                      1, 20);
                                         });
                                       },
                                     ),
@@ -772,9 +953,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 ),
                               ),
                             Align(
-                              alignment: Alignment.centerRight,
+                              alignment:
+                                  Alignment.centerRight,
                               child: Padding(
-                                padding: const EdgeInsets.only(
+                                padding:
+                                    const EdgeInsets.only(
                                   top: 8,
                                   right: 4,
                                   bottom: 8,
@@ -782,13 +965,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 child: FilledButton(
                                   onPressed: () async {
                                     final updatedSettings =
-                                        league.settings.copyWith(
-                                      doubleRoundRobin: doubleRR,
-                                      groupSize: groupSize,
-                                      swissRounds: swissRounds,
-                                      lastPulledAtMs:
-                                          league.settings
-                                              .lastPulledAtMs,
+                                        league
+                                            .settings
+                                            .copyWith(
+                                      doubleRoundRobin:
+                                          doubleRR,
+                                      groupSize:
+                                          groupSize,
+                                      swissRounds:
+                                          swissRounds,
+                                      lastPulledAtMs: league
+                                          .settings
+                                          .lastPulledAtMs,
                                     );
 
                                     final updatedLeague =
@@ -810,7 +998,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                           updatedLeague;
                                     });
 
-                                    Navigator.of(ctx).pop();
+                                    Navigator.of(ctx)
+                                        .pop();
                                     ScaffoldMessenger.of(
                                             context)
                                         .showSnackBar(
@@ -821,7 +1010,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                       ),
                                     );
                                   },
-                                  child: const Text('Save'),
+                                  child:
+                                      const Text('Save'),
                                 ),
                               ),
                             ),
@@ -864,27 +1054,32 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
+              onPressed: () =>
+                  Navigator.of(ctx).pop(),
               child: const Text(
                 'Cancel',
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(
+                    color: Colors.white70),
               ),
             ),
             FilledButton(
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.redAccent,
+                backgroundColor:
+                    Colors.redAccent,
               ),
               onPressed: () async {
                 await _localRepo
-                    .deleteLeagueCompletely(widget.leagueId);
+                    .deleteLeagueCompletely(
+                        widget.leagueId);
 
                 if (!mounted) return;
                 Navigator.of(ctx).pop(); // close dialog
 
-                // Navigate back to leagues list
-                GoRouter.of(context).go('/leagues');
+                GoRouter.of(context)
+                    .go('/leagues');
 
-                ScaffoldMessenger.of(context).showSnackBar(
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(
                   const SnackBar(
                     content: Text('League deleted.'),
                   ),

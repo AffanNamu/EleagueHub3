@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/local_discovery.dart';
@@ -14,7 +17,7 @@ import 'battery_optimization_guide.dart';
 
 enum _PrimarySide { home, away }
 
-class LiveViewScreen extends StatefulWidget {
+class LiveViewScreen extends ConsumerStatefulWidget {
   const LiveViewScreen({
     super.key,
     required this.matchId,
@@ -43,10 +46,15 @@ class LiveViewScreen extends StatefulWidget {
   final String? hostSide;
 
   @override
-  State<LiveViewScreen> createState() => _LiveViewScreenState();
+  ConsumerState<LiveViewScreen> createState() =>
+      _LiveViewScreenState();
 }
 
-class _LiveViewScreenState extends State<LiveViewScreen> {
+class _LiveViewScreenState
+    extends ConsumerState<LiveViewScreen> {
+  static const MethodChannel _liveChannel =
+      MethodChannel('local_live');
+
   final _chat = TextEditingController();
   final _messages = <String>['Welcome to the live match.'];
 
@@ -71,6 +79,11 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
   _PrimarySide _primary = _PrimarySide.home;
 
+  // Viewer permissions (admin/global controlled)
+  bool _viewerChatEnabled = true;
+  bool _viewerVoiceEnabled = true;
+  bool _viewerReactionsEnabled = true;
+
   // Viewer audio toggle (what viewer hears)
   bool _viewerAudioEnabled = true;
 
@@ -91,6 +104,16 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   @override
   void initState() {
     super.initState();
+
+    // Load viewer live settings from prefs
+    final prefs = ref.read(prefsServiceProvider);
+    _viewerChatEnabled =
+        prefs.liveViewerChatEnabled();
+    _viewerVoiceEnabled =
+        prefs.liveViewerVoiceEnabled();
+    _viewerReactionsEnabled =
+        prefs.liveViewerReactionsEnabled();
+    _viewerAudioEnabled = _viewerVoiceEnabled;
 
     if (!widget.isHost) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -115,6 +138,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     if (widget.isHost) {
       await LocalLiveService.instance
           .stopHostSession(liveMatchId: widget.matchId);
+      await _stopOverlayBubble();
       return;
     }
 
@@ -127,6 +151,32 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
     _homeViewer = null;
     _awayViewer = null;
+
+    await _stopOverlayBubble();
+  }
+
+  Future<void> _maybeStartOverlayBubble() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final bool granted =
+          await _liveChannel.invokeMethod<bool>(
+                  'isOverlayPermissionGranted') ??
+              false;
+      if (!granted) {
+        await _liveChannel
+            .invokeMethod('requestOverlayPermission');
+      }
+      await _liveChannel
+          .invokeMethod('startLiveOverlayBubble');
+    } catch (_) {}
+  }
+
+  Future<void> _stopOverlayBubble() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _liveChannel
+          .invokeMethod('stopLiveOverlayBubble');
+    } catch (_) {}
   }
 
   Future<void> _startHost() async {
@@ -148,6 +198,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       _hostEventsSub = s.events.listen(_appendEvent);
 
       setState(() => _hostSession = s);
+
+      await _maybeStartOverlayBubble();
     } catch (e) {
       setState(() => _errorText = e.toString());
     } finally {
@@ -186,15 +238,18 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
       if (slot == _PrimarySide.home) {
         _homeEventsSub?.cancel();
-        _homeEventsSub = v.events.listen(_appendEvent);
+        _homeEventsSub =
+            v.events.listen(_appendEvent);
         _homeViewer = v;
       } else {
         _awayEventsSub?.cancel();
-        _awayEventsSub = v.events.listen(_appendEvent);
+        _awayEventsSub =
+            v.events.listen(_appendEvent);
         _awayViewer = v;
       }
 
       if (mounted) setState(() {});
+      await _maybeStartOverlayBubble();
     } catch (e) {
       setState(() => _errorText = e.toString());
     } finally {
@@ -262,9 +317,11 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       );
       await v.connect();
       _homeEventsSub?.cancel();
-      _homeEventsSub = v.events.listen(_appendEvent);
+      _homeEventsSub =
+          v.events.listen(_appendEvent);
       if (!mounted) return;
       setState(() => _homeViewer = v);
+      await _maybeStartOverlayBubble();
     } catch (_) {}
   }
 
@@ -278,9 +335,11 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       );
       await v.connect();
       _awayEventsSub?.cancel();
-      _awayEventsSub = v.events.listen(_appendEvent);
+      _awayEventsSub =
+          v.events.listen(_appendEvent);
       if (!mounted) return;
       setState(() => _awayViewer = v);
+      await _maybeStartOverlayBubble();
     } catch (_) {}
   }
 
@@ -391,7 +450,10 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
             chatController: _chat,
             onSend: _send,
             onReaction: _react,
-            allowTextInput: !widget.isHost,
+            allowTextInput:
+                !widget.isHost && _viewerChatEnabled,
+            allowReactions:
+                widget.isHost || _viewerReactionsEnabled,
           ),
         ),
       ],
@@ -399,8 +461,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   }
 
   Widget _buildMobileLayout(BuildContext context) {
-    // Fix: keep controls tappable (chat no longer blocks buttons) + chat minimize
-    final inset = MediaQuery.of(context).viewInsets.bottom;
+    final inset =
+        MediaQuery.of(context).viewInsets.bottom;
 
     final chatHeight =
         _chatMinimized ? 64.0 : 220.0;
@@ -437,7 +499,10 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
             chatController: _chat,
             onSend: _send,
             onReaction: _react,
-            allowTextInput: !widget.isHost,
+            allowTextInput:
+                !widget.isHost && _viewerChatEnabled,
+            allowReactions:
+                widget.isHost || _viewerReactionsEnabled,
           ),
         ),
       ],
@@ -516,6 +581,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                                   () => _busy = false);
                               setState(() =>
                                   _hostSession = null);
+                              await _stopOverlayBubble();
                             }
                           },
                     icon: const Icon(Icons.stop),
@@ -525,7 +591,6 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               ],
             ),
             const SizedBox(height: 10),
-            // Host mic toggle + quick help
             Row(
               children: [
                 if (started)
@@ -596,17 +661,23 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       child: Row(
         children: [
           IconButton.filled(
-            onPressed: _toggleViewerAudio,
+            onPressed: _viewerVoiceEnabled
+                ? _toggleViewerAudio
+                : null,
             style: IconButton.styleFrom(
-              backgroundColor: iconColor.withOpacity(0.3),
+              backgroundColor: _viewerVoiceEnabled
+                  ? iconColor.withOpacity(0.3)
+                  : Colors.white12,
             ),
             icon: Icon(
               icon,
               color: Colors.white,
             ),
-            tooltip: _viewerAudioEnabled
-                ? 'Mute audio'
-                : 'Unmute audio',
+            tooltip: _viewerVoiceEnabled
+                ? (_viewerAudioEnabled
+                    ? 'Mute audio'
+                    : 'Unmute audio')
+                : 'Viewer audio disabled by admin',
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -983,6 +1054,7 @@ class _ChatOverlay extends StatelessWidget {
     required this.onSend,
     required this.onReaction,
     required this.allowTextInput,
+    required this.allowReactions,
   });
 
   final bool minimized;
@@ -993,8 +1065,11 @@ class _ChatOverlay extends StatelessWidget {
   final VoidCallback onSend;
   final void Function(String) onReaction;
 
-  /// If false: only show quick reactions, no text input (for host).
+  /// If false: only show quick reactions, no text input (for host or when admin disabled viewer chat).
   final bool allowTextInput;
+
+  /// If false: hide quick reactions row.
+  final bool allowReactions;
 
   @override
   Widget build(BuildContext context) {
@@ -1055,25 +1130,27 @@ class _ChatOverlay extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                ...[
-                  ('GG', Icons.emoji_events_outlined),
-                  ('Wow', Icons.flash_on_outlined),
-                  ('Clutch',
-                      Icons.local_fire_department_outlined),
-                ].map(
-                  (e) => Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: IconButton(
-                      onPressed: () => onReaction(e.$1),
-                      icon: Icon(e.$2, size: 20),
-                      color: Colors.cyanAccent,
+            if (allowReactions)
+              Row(
+                children: [
+                  ...[
+                    ('GG', Icons.emoji_events_outlined),
+                    ('Wow', Icons.flash_on_outlined),
+                    ('Clutch',
+                        Icons.local_fire_department_outlined),
+                  ].map(
+                    (e) => Padding(
+                      padding:
+                          const EdgeInsets.only(right: 8),
+                      child: IconButton(
+                        onPressed: () => onReaction(e.$1),
+                        icon: Icon(e.$2, size: 20),
+                        color: Colors.cyanAccent,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
             if (allowTextInput) ...[
               Row(
                 children: [
