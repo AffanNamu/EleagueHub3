@@ -38,14 +38,11 @@ class LiveViewScreen extends ConsumerStatefulWidget {
   final String? hostSide;
 
   @override
-  ConsumerState<LiveViewScreen> createState() =>
-      _LiveViewScreenState();
+  ConsumerState<LiveViewScreen> createState() => _LiveViewScreenState();
 }
 
-class _LiveViewScreenState
-    extends ConsumerState<LiveViewScreen> {
-  static const MethodChannel _liveChannel =
-      MethodChannel('local_live');
+class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
+  static const MethodChannel _liveChannel = MethodChannel('local_live');
 
   final _chat = TextEditingController();
   final _messages = <String>['Welcome to the live match.'];
@@ -75,19 +72,17 @@ class _LiveViewScreenState
   // Viewer audio toggle (what viewer hears)
   bool _viewerAudioEnabled = true;
 
+  // Viewer full-screen mode
+  bool _isFullscreen = false;
+
   int get _port => widget.port ?? 8765;
 
   String get _homeLabel =>
-      (widget.homeName?.trim().isNotEmpty == true)
-          ? widget.homeName!.trim()
-          : 'HOME';
+      (widget.homeName?.trim().isNotEmpty == true) ? widget.homeName!.trim() : 'HOME';
   String get _awayLabel =>
-      (widget.awayName?.trim().isNotEmpty == true)
-          ? widget.awayName!.trim()
-          : 'AWAY';
+      (widget.awayName?.trim().isNotEmpty == true) ? widget.awayName!.trim() : 'AWAY';
 
-  LiveHostSide get _mySide =>
-      parseLiveHostSide(widget.hostSide);
+  LiveHostSide get _mySide => parseLiveHostSide(widget.hostSide);
 
   @override
   void initState() {
@@ -96,8 +91,7 @@ class _LiveViewScreenState
     final prefs = ref.read(prefsServiceProvider);
     _viewerChatEnabled = prefs.liveViewerChatEnabled();
     _viewerVoiceEnabled = prefs.liveViewerVoiceEnabled();
-    _viewerReactionsEnabled =
-        prefs.liveViewerReactionsEnabled();
+    _viewerReactionsEnabled = prefs.liveViewerReactionsEnabled();
     _viewerAudioEnabled = _viewerVoiceEnabled;
 
     if (!widget.isHost) {
@@ -110,6 +104,12 @@ class _LiveViewScreenState
 
   @override
   void dispose() {
+    // Ensure system UI/orientation is reset if we leave while in full-screen
+    if (_isFullscreen) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    }
+
     _chat.dispose();
     _hostEventsSub?.cancel();
     _homeEventsSub?.cancel();
@@ -121,8 +121,7 @@ class _LiveViewScreenState
 
   Future<void> _stopAll() async {
     if (widget.isHost) {
-      await LocalLiveService.instance
-          .stopHostSession(liveMatchId: widget.matchId);
+      await LocalLiveService.instance.stopHostSession(liveMatchId: widget.matchId);
       await _stopOverlayBubble();
       return;
     }
@@ -147,23 +146,19 @@ class _LiveViewScreenState
 
     try {
       final bool granted =
-          await _liveChannel.invokeMethod<bool>(
-                  'isOverlayPermissionGranted') ??
+          await _liveChannel.invokeMethod<bool>('isOverlayPermissionGranted') ??
               false;
       if (!granted) {
-        await _liveChannel
-            .invokeMethod('requestOverlayPermission');
+        await _liveChannel.invokeMethod('requestOverlayPermission');
       }
-      await _liveChannel
-          .invokeMethod('startLiveOverlayBubble');
+      await _liveChannel.invokeMethod('startLiveOverlayBubble');
     } catch (_) {}
   }
 
   Future<void> _stopOverlayBubble() async {
     if (!Platform.isAndroid) return;
     try {
-      await _liveChannel
-          .invokeMethod('stopLiveOverlayBubble');
+      await _liveChannel.invokeMethod('stopLiveOverlayBubble');
     } catch (_) {}
   }
 
@@ -198,17 +193,17 @@ class _LiveViewScreenState
   Future<void> _startInitialViewer() async {
     final host = widget.hostAddress?.trim();
     if (host == null || host.isEmpty) {
-      setState(() => _errorText =
-          'Missing host IP. Go back and join from discovery/manual connect.');
+      setState(
+        () => _errorText =
+            'Missing host IP. Go back and join from discovery/manual connect.',
+      );
       return;
     }
 
     // If join screen passed side, use it; otherwise assume home as default.
     final initialSide = parseLiveHostSide(widget.hostSide);
     final slot =
-        (initialSide == LiveHostSide.away)
-            ? _PrimarySide.away
-            : _PrimarySide.home;
+        (initialSide == LiveHostSide.away) ? _PrimarySide.away : _PrimarySide.home;
 
     setState(() {
       _busy = true;
@@ -226,13 +221,11 @@ class _LiveViewScreenState
 
       if (slot == _PrimarySide.home) {
         _homeEventsSub?.cancel();
-        _homeEventsSub =
-            v.events.listen(_appendEvent);
+        _homeEventsSub = v.events.listen(_appendEvent);
         _homeViewer = v;
       } else {
         _awayEventsSub?.cancel();
-        _awayEventsSub =
-            v.events.listen(_appendEvent);
+        _awayEventsSub = v.events.listen(_appendEvent);
         _awayViewer = v;
       }
 
@@ -249,27 +242,21 @@ class _LiveViewScreenState
     await _discovery.start();
 
     _discoveryListener = () {
-      final list = _discovery.hosts.value
-          .where((h) => h.matchId == widget.matchId)
-          .toList();
+      final list =
+          _discovery.hosts.value.where((h) => h.matchId == widget.matchId).toList();
       if (list.isEmpty) return;
 
       for (final h in list) {
         final endpoint = '${h.hostIp}:${h.port}';
-        final homeEndpoint = _homeViewer == null
-            ? null
-            : '${_homeViewer!.host}:${_homeViewer!.port}';
-        final awayEndpoint = _awayViewer == null
-            ? null
-            : '${_awayViewer!.host}:${_awayViewer!.port}';
-        if (endpoint == homeEndpoint ||
-            endpoint == awayEndpoint) continue;
+        final homeEndpoint =
+            _homeViewer == null ? null : '${_homeViewer!.host}:${_homeViewer!.port}';
+        final awayEndpoint =
+            _awayViewer == null ? null : '${_awayViewer!.host}:${_awayViewer!.port}';
+        if (endpoint == homeEndpoint || endpoint == awayEndpoint) continue;
 
-        if (h.side == LiveHostSide.home &&
-            _homeViewer == null) {
+        if (h.side == LiveHostSide.home && _homeViewer == null) {
           _connectHome(h.hostIp, h.port);
-        } else if (h.side == LiveHostSide.away &&
-            _awayViewer == null) {
+        } else if (h.side == LiveHostSide.away && _awayViewer == null) {
           _connectAway(h.hostIp, h.port);
         } else if (h.side == LiveHostSide.unknown) {
           if (_homeViewer == null) {
@@ -302,8 +289,7 @@ class _LiveViewScreenState
       );
       await v.connect();
       _homeEventsSub?.cancel();
-      _homeEventsSub =
-          v.events.listen(_appendEvent);
+      _homeEventsSub = v.events.listen(_appendEvent);
       if (!mounted) return;
       setState(() => _homeViewer = v);
       await _maybeStartOverlayBubble();
@@ -320,8 +306,7 @@ class _LiveViewScreenState
       );
       await v.connect();
       _awayEventsSub?.cancel();
-      _awayEventsSub =
-          v.events.listen(_appendEvent);
+      _awayEventsSub = v.events.listen(_appendEvent);
       if (!mounted) return;
       setState(() => _awayViewer = v);
       await _maybeStartOverlayBubble();
@@ -338,13 +323,10 @@ class _LiveViewScreenState
       line = (from == null) ? txt : '$from: $txt';
     } else if (kind == 'reaction') {
       final r = evt['reaction']?.toString() ?? '';
-      line = (from == null)
-          ? 'Reaction: $r'
-          : '$from reacted: $r';
+      line = (from == null) ? 'Reaction: $r' : '$from reacted: $r';
     } else if (kind == 'mic') {
       final enabled = evt['enabled'] == true;
-      line =
-          'Host mic is now ${enabled ? 'ON' : 'OFF'}';
+      line = 'Host mic is now ${enabled ? 'ON' : 'OFF'}';
     } else {
       line = 'Event: $evt';
     }
@@ -361,17 +343,64 @@ class _LiveViewScreenState
     v?.setRemoteAudioEnabled(enabled);
   }
 
+  void _toggleFullscreen() async {
+    final goingFullscreen = !_isFullscreen;
+
+    if (goingFullscreen) {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _isFullscreen = goingFullscreen;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isWide =
-        MediaQuery.of(context).size.width > 700;
+    final isWide = MediaQuery.of(context).size.width > 700;
+
+    // Viewer full-screen mode: show only stream + an exit button.
+    if (!widget.isHost && _isFullscreen) {
+      return GlassScaffold(
+        appBar: null,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: _buildStreamArea(context),
+            ),
+            Positioned(
+              top: 16,
+              left: 16,
+              child: CircleAvatar(
+                backgroundColor: Colors.black54,
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.fullscreen_exit,
+                    color: Colors.white,
+                  ),
+                  onPressed: _toggleFullscreen,
+                  tooltip: 'Exit full screen',
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return GlassScaffold(
       appBar: AppBar(
         title: Text(
-          widget.isHost
-              ? 'Host Live • ${widget.matchId}'
-              : 'Live • $_homeLabel vs $_awayLabel',
+          widget.isHost ? 'Host Live • ${widget.matchId}' : 'Live • $_homeLabel vs $_awayLabel',
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -379,23 +408,16 @@ class _LiveViewScreenState
           if (widget.isHost)
             IconButton(
               tooltip: 'Copy host info',
-              onPressed:
-                  (_hostSession?.hostIp.value == null)
-                      ? null
-                      : () {
-                          final ip =
-                              _hostSession!.hostIp.value!;
-                          final txt =
-                              'Host: $ip:${_port}\nMatch: ${widget.matchId}';
-                          Clipboard.setData(
-                              ClipboardData(text: txt));
-                          ScaffoldMessenger.of(context)
-                              .showSnackBar(
-                            const SnackBar(
-                                content: Text(
-                                    'Copied host info')),
-                          );
-                        },
+              onPressed: (_hostSession?.hostIp.value == null)
+                  ? null
+                  : () {
+                      final ip = _hostSession!.hostIp.value!;
+                      final txt = 'Host: $ip:${_port}\nMatch: ${widget.matchId}';
+                      Clipboard.setData(ClipboardData(text: txt));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Copied host info')),
+                      );
+                    },
               icon: const Icon(Icons.copy),
             ),
         ],
@@ -420,10 +442,8 @@ class _LiveViewScreenState
   }
 
   Widget _buildWideLayout(BuildContext context) {
-    final allowTextInput =
-        !widget.isHost && _viewerChatEnabled;
-    final allowReactions =
-        widget.isHost || _viewerReactionsEnabled;
+    final allowTextInput = !widget.isHost && _viewerChatEnabled;
+    final allowReactions = widget.isHost || _viewerReactionsEnabled;
 
     return Row(
       children: [
@@ -457,20 +477,15 @@ class _LiveViewScreenState
 
   Widget _buildMobileLayout(BuildContext context) {
     final media = MediaQuery.of(context);
-    final allowTextInput =
-        !widget.isHost && _viewerChatEnabled;
-    final allowReactions =
-        widget.isHost || _viewerReactionsEnabled;
+    final allowTextInput = !widget.isHost && _viewerChatEnabled;
+    final allowReactions = widget.isHost || _viewerReactionsEnabled;
 
     // Chat height responsive to screen height
     final maxHeight = media.size.height;
-    final expandedChatHeight =
-        maxHeight * 0.28; // ~28% of screen
+    final expandedChatHeight = maxHeight * 0.28; // ~28% of screen
     final collapsedChatHeight = 56.0;
 
-    final chatHeight = _chatMinimized
-        ? collapsedChatHeight
-        : expandedChatHeight;
+    final chatHeight = _chatMinimized ? collapsedChatHeight : expandedChatHeight;
 
     return Column(
       children: [
@@ -483,8 +498,7 @@ class _LiveViewScreenState
         AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           height: chatHeight,
-          padding:
-              EdgeInsets.only(bottom: media.viewInsets.bottom),
+          padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
           child: _ChatOverlay(
             minimized: _chatMinimized,
             onToggleMinimize: () {
@@ -509,8 +523,7 @@ class _LiveViewScreenState
         padding: const EdgeInsets.all(12),
         child: Text(
           'Error: $_errorText',
-          style:
-              const TextStyle(color: Colors.redAccent),
+          style: const TextStyle(color: Colors.redAccent),
         ),
       );
     }
@@ -524,8 +537,7 @@ class _LiveViewScreenState
         borderRadius: 18,
         padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (started) ...[
               ValueListenableBuilder<String?>(
@@ -544,15 +556,12 @@ class _LiveViewScreenState
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed:
-                        _busy || started ? null : _startHost,
+                    onPressed: _busy || started ? null : _startHost,
                     icon: const Icon(Icons.cast),
                     label: Text(
                       _busy
                           ? 'Starting...'
-                          : (started
-                              ? 'Broadcasting'
-                              : 'Start Broadcast'),
+                          : (started ? 'Broadcasting' : 'Start Broadcast'),
                     ),
                   ),
                 ),
@@ -562,19 +571,13 @@ class _LiveViewScreenState
                     onPressed: _busy
                         ? null
                         : () async {
-                            setState(
-                                () => _busy = true);
-                            await LocalLiveService
-                                .instance
-                                .stopHostSession(
-                              liveMatchId:
-                                  widget.matchId,
+                            setState(() => _busy = true);
+                            await LocalLiveService.instance.stopHostSession(
+                              liveMatchId: widget.matchId,
                             );
                             if (mounted) {
-                              setState(
-                                  () => _busy = false);
-                              setState(() =>
-                                  _hostSession = null);
+                              setState(() => _busy = false);
+                              setState(() => _hostSession = null);
                               await _stopOverlayBubble();
                             }
                           },
@@ -589,48 +592,28 @@ class _LiveViewScreenState
               children: [
                 if (started)
                   ValueListenableBuilder<bool>(
-                    valueListenable:
-                        host.micEnabled,
-                    builder:
-                        (context, enabled, _) {
+                    valueListenable: host.micEnabled,
+                    builder: (context, enabled, _) {
                       return IconButton.filled(
-                        onPressed: () =>
-                            host.setMicEnabled(
-                                !enabled),
-                        style: IconButton
-                            .styleFrom(
-                          backgroundColor:
-                              enabled
-                                  ? Colors
-                                      .greenAccent
-                                      .withOpacity(
-                                          0.3)
-                                  : Colors
-                                      .redAccent
-                                      .withOpacity(
-                                          0.3),
+                        onPressed: () => host.setMicEnabled(!enabled),
+                        style: IconButton.styleFrom(
+                          backgroundColor: enabled
+                              ? Colors.greenAccent.withOpacity(0.3)
+                              : Colors.redAccent.withOpacity(0.3),
                         ),
                         icon: Icon(
-                          enabled
-                              ? Icons.mic
-                              : Icons.mic_off,
+                          enabled ? Icons.mic : Icons.mic_off,
                           color: Colors.white,
                         ),
                       );
                     },
                   ),
-                if (started)
-                  const SizedBox(width: 8),
+                if (started) const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () =>
-                        BatteryOptimizationGuide
-                            .show(context),
-                    icon: const Icon(
-                        Icons
-                            .battery_alert_outlined),
-                    label: const Text(
-                        'Battery / Background Help'),
+                    onPressed: () => BatteryOptimizationGuide.show(context),
+                    icon: const Icon(Icons.battery_alert_outlined),
+                    label: const Text('Battery / Background Help'),
                   ),
                 ),
               ],
@@ -641,13 +624,9 @@ class _LiveViewScreenState
     }
 
     // VIEWER controls
-    final icon = _viewerAudioEnabled
-        ? Icons.mic
-        : Icons.mic_off;
+    final icon = _viewerAudioEnabled ? Icons.volume_up : Icons.volume_off;
 
-    final iconColor = _viewerAudioEnabled
-        ? Colors.greenAccent
-        : Colors.redAccent;
+    final iconColor = _viewerAudioEnabled ? Colors.greenAccent : Colors.redAccent;
 
     return Glass(
       borderRadius: 18,
@@ -655,23 +634,30 @@ class _LiveViewScreenState
       child: Row(
         children: [
           IconButton.filled(
-            onPressed: _viewerVoiceEnabled
-                ? _toggleViewerAudio
-                : null,
+            onPressed: _viewerVoiceEnabled ? _toggleViewerAudio : null,
             style: IconButton.styleFrom(
-              backgroundColor: _viewerVoiceEnabled
-                  ? iconColor.withOpacity(0.3)
-                  : Colors.white12,
+              backgroundColor:
+                  _viewerVoiceEnabled ? iconColor.withOpacity(0.3) : Colors.white12,
             ),
             icon: Icon(
               icon,
               color: Colors.white,
             ),
             tooltip: _viewerVoiceEnabled
-                ? (_viewerAudioEnabled
-                    ? 'Mute audio'
-                    : 'Unmute audio')
+                ? (_viewerAudioEnabled ? 'Mute audio' : 'Unmute audio')
                 : 'Viewer audio disabled by admin',
+          ),
+          const SizedBox(width: 10),
+          IconButton.filled(
+            onPressed: _toggleFullscreen,
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white12,
+            ),
+            icon: Icon(
+              _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+              color: Colors.white,
+            ),
+            tooltip: _isFullscreen ? 'Exit full screen' : 'Full screen',
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -683,8 +669,7 @@ class _LiveViewScreenState
                       await _stopAll();
                       if (mounted) {
                         setState(() => _busy = false);
-                        Navigator.maybePop(
-                            context);
+                        Navigator.maybePop(context);
                       }
                     },
               icon: const Icon(Icons.logout),
@@ -702,14 +687,8 @@ class _LiveViewScreenState
       final host = _hostSession!;
       final mySide = _mySide;
 
-      final leftCam =
-          (mySide == LiveHostSide.away)
-              ? null
-              : host.cameraRenderer;
-      final rightCam =
-          (mySide == LiveHostSide.home)
-              ? null
-              : host.cameraRenderer;
+      final leftCam = (mySide == LiveHostSide.away) ? null : host.cameraRenderer;
+      final rightCam = (mySide == LiveHostSide.home) ? null : host.cameraRenderer;
 
       return _GamerStreamLayout(
         matchTitle: '$_homeLabel vs $_awayLabel',
@@ -718,27 +697,17 @@ class _LiveViewScreenState
         camRight: rightCam,
         leftLabel: _homeLabel,
         rightLabel: _awayLabel,
-        leftHint:
-            (mySide == LiveHostSide.away)
-                ? 'Waiting…'
-                : null,
-        rightHint:
-            (mySide == LiveHostSide.home)
-                ? 'Waiting…'
-                : null,
+        leftHint: (mySide == LiveHostSide.away) ? 'Waiting…' : null,
+        rightHint: (mySide == LiveHostSide.home) ? 'Waiting…' : null,
         primary: _primary,
-        onTapLeft: () => setState(
-            () => _primary = _PrimarySide.home),
-        onTapRight: () => setState(
-            () => _primary = _PrimarySide.away),
+        onTapLeft: () => setState(() => _primary = _PrimarySide.home),
+        onTapRight: () => setState(() => _primary = _PrimarySide.away),
       );
     }
 
     // VIEWER mode
     final primaryScreen =
-        (_primary == _PrimarySide.home)
-            ? _homeViewer?.screenRenderer
-            : _awayViewer?.screenRenderer;
+        (_primary == _PrimarySide.home) ? _homeViewer?.screenRenderer : _awayViewer?.screenRenderer;
 
     return _GamerStreamLayout(
       matchTitle: '$_homeLabel vs $_awayLabel',
@@ -747,15 +716,11 @@ class _LiveViewScreenState
       camRight: _awayViewer?.cameraRenderer,
       leftLabel: _homeLabel,
       rightLabel: _awayLabel,
-      leftHint:
-          (_homeViewer == null) ? 'Waiting…' : null,
-      rightHint:
-          (_awayViewer == null) ? 'Waiting…' : null,
+      leftHint: (_homeViewer == null) ? 'Waiting…' : null,
+      rightHint: (_awayViewer == null) ? 'Waiting…' : null,
       primary: _primary,
-      onTapLeft: () => setState(
-          () => _primary = _PrimarySide.home),
-      onTapRight: () => setState(
-          () => _primary = _PrimarySide.away),
+      onTapLeft: () => setState(() => _primary = _PrimarySide.home),
+      onTapRight: () => setState(() => _primary = _PrimarySide.away),
     );
   }
 
@@ -775,10 +740,8 @@ class _LiveViewScreenState
       'text': txt,
       'from': 'HOST',
     };
-    setState(() =>
-        _messages.add('HOST: $txt'));
-    LocalLiveService.instance
-        .broadcastHostEvent(
+    setState(() => _messages.add('HOST: $txt'));
+    LocalLiveService.instance.broadcastHostEvent(
       liveMatchId: widget.matchId,
       event: evt,
     );
@@ -796,10 +759,8 @@ class _LiveViewScreenState
       'reaction': reactionLabel,
       'from': 'HOST',
     };
-    setState(() => _messages
-        .add('HOST reacted: $reactionLabel'));
-    LocalLiveService.instance
-        .broadcastHostEvent(
+    setState(() => _messages.add('HOST reacted: $reactionLabel'));
+    LocalLiveService.instance.broadcastHostEvent(
       liveMatchId: widget.matchId,
       event: evt,
     );
@@ -838,9 +799,7 @@ class _GamerStreamLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasScreen =
-        screenRenderer != null &&
-            screenRenderer!.srcObject != null;
+    final hasScreen = screenRenderer != null && screenRenderer!.srcObject != null;
 
     return Glass(
       borderRadius: 24,
@@ -849,25 +808,19 @@ class _GamerStreamLayout extends StatelessWidget {
         children: [
           Positioned.fill(
             child: ClipRRect(
-              borderRadius:
-                  BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(18),
               child: Container(
-                color: Colors.black
-                    .withOpacity(0.35),
+                color: Colors.black.withOpacity(0.35),
                 child: hasScreen
                     ? RTCVideoView(
                         screenRenderer!,
                         objectFit:
-                            RTCVideoViewObjectFit
-                                .RTCVideoViewObjectFitContain,
+                            RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
                       )
                     : Center(
                         child: Text(
                           'Waiting for screen…',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
-                              ?.copyWith(
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                 color: Colors.white70,
                               ),
                         ),
@@ -883,21 +836,16 @@ class _GamerStreamLayout extends StatelessWidget {
               opacity: 0.9,
               child: Glass(
                 borderRadius: 999,
-                padding: const EdgeInsets
-                    .symmetric(
-                        horizontal: 10,
-                        vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 child: Text(
                   matchTitle,
                   textAlign: TextAlign.center,
                   maxLines: 1,
-                  overflow:
-                      TextOverflow.ellipsis,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 12,
-                    fontWeight:
-                        FontWeight.w700,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -910,8 +858,7 @@ class _GamerStreamLayout extends StatelessWidget {
               label: leftLabel,
               renderer: camLeft,
               hint: leftHint,
-              selected:
-                  primary == _PrimarySide.home,
+              selected: primary == _PrimarySide.home,
               onTap: onTapLeft,
             ),
           ),
@@ -922,8 +869,7 @@ class _GamerStreamLayout extends StatelessWidget {
               label: rightLabel,
               renderer: camRight,
               hint: rightHint,
-              selected:
-                  primary == _PrimarySide.away,
+              selected: primary == _PrimarySide.away,
               onTap: onTapRight,
             ),
           ),
@@ -950,9 +896,7 @@ class _CircularCam extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ready =
-        renderer != null &&
-            renderer!.srcObject != null;
+    final ready = renderer != null && renderer!.srcObject != null;
 
     return Opacity(
       opacity: 0.86,
@@ -968,27 +912,23 @@ class _CircularCam extends StatelessWidget {
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: selected
-                      ? Colors.cyanAccent
-                          .withOpacity(0.95)
+                      ? Colors.cyanAccent.withOpacity(0.95)
                       : Colors.white24,
                   width: 2,
                 ),
-                color: Colors.black
-                    .withOpacity(0.35),
+                color: Colors.black.withOpacity(0.35),
               ),
               child: ClipOval(
                 child: ready
                     ? RTCVideoView(
                         renderer!,
                         objectFit:
-                            RTCVideoViewObjectFit
-                                .RTCVideoViewObjectFitCover,
+                            RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                       )
                     : Center(
                         child: Text(
                           hint ?? '…',
-                          textAlign:
-                              TextAlign.center,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white54,
                             fontSize: 11,
@@ -999,16 +939,13 @@ class _CircularCam extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Container(
-              padding: const EdgeInsets
-                  .symmetric(
+              padding: const EdgeInsets.symmetric(
                 horizontal: 10,
                 vertical: 4,
               ),
               decoration: BoxDecoration(
-                color: Colors.black
-                    .withOpacity(0.30),
-                borderRadius:
-                    BorderRadius.circular(999),
+                color: Colors.black.withOpacity(0.30),
+                borderRadius: BorderRadius.circular(999),
                 border: Border.all(
                   color: Colors.white24,
                 ),
@@ -1016,13 +953,11 @@ class _CircularCam extends StatelessWidget {
               child: Text(
                 label,
                 maxLines: 1,
-                overflow:
-                    TextOverflow.ellipsis,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 10,
-                  fontWeight:
-                      FontWeight.w700,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -1080,14 +1015,10 @@ class _ChatOverlay extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: minimized
-                    ? 'Expand chat'
-                    : 'Minimize chat',
+                tooltip: minimized ? 'Expand chat' : 'Minimize chat',
                 onPressed: onToggleMinimize,
                 icon: Icon(
-                  minimized
-                      ? Icons.keyboard_arrow_up
-                      : Icons.keyboard_arrow_down,
+                  minimized ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
                   color: Colors.white70,
                 ),
               ),
@@ -1102,8 +1033,7 @@ class _ChatOverlay extends StatelessWidget {
                 itemBuilder: (context, i) {
                   final msg = messages[messages.length - 1 - i];
                   return Padding(
-                    padding:
-                        const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.only(bottom: 6),
                     child: Text(
                       msg,
                       style: const TextStyle(
@@ -1122,12 +1052,10 @@ class _ChatOverlay extends StatelessWidget {
                   ...[
                     ('GG', Icons.emoji_events_outlined),
                     ('Wow', Icons.flash_on_outlined),
-                    ('Clutch',
-                        Icons.local_fire_department_outlined),
+                    ('Clutch', Icons.local_fire_department_outlined),
                   ].map(
                     (e) => Padding(
-                      padding:
-                          const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.only(right: 8),
                       child: IconButton(
                         onPressed: () => onReaction(e.$1),
                         icon: Icon(e.$2, size: 20),
@@ -1143,8 +1071,7 @@ class _ChatOverlay extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: chatController,
-                      style: const TextStyle(
-                          color: Colors.white),
+                      style: const TextStyle(color: Colors.white),
                       decoration: const InputDecoration(
                         hintText: 'Type a message',
                       ),
