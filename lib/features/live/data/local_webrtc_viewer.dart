@@ -30,17 +30,23 @@ class LocalLiveViewerSession {
   final String viewerId;
 
   final ValueNotifier<LocalLiveViewerState> state =
-      ValueNotifier<LocalLiveViewerState>(LocalLiveViewerState.idle);
+      ValueNotifier<LocalLiveViewerState>(
+          LocalLiveViewerState.idle);
 
-  final ValueNotifier<String?> error = ValueNotifier<String?>(null);
+  final ValueNotifier<String?> error =
+      ValueNotifier<String?>(null);
 
   /// What the viewer sees
-  final RTCVideoRenderer screenRenderer = RTCVideoRenderer();
-  final RTCVideoRenderer cameraRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer screenRenderer =
+      RTCVideoRenderer();
+  final RTCVideoRenderer cameraRenderer =
+      RTCVideoRenderer();
 
   /// Events from host/viewers (chat, reactions, mic, etc.)
-  final _events = StreamController<Map<String, dynamic>>.broadcast();
-  Stream<Map<String, dynamic>> get events => _events.stream;
+  final _events =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get events =>
+      _events.stream;
 
   LocalSignalingClient? _client;
   StreamSubscription? _clientSub;
@@ -69,7 +75,9 @@ class LocalLiveViewerSession {
         viewerId: viewerId,
       );
       await _client!.connect();
-      _clientSub = _client!.messages.listen(_onHostSignal);
+      _clientSub = _client!.messages.listen(
+        _onHostSignal,
+      );
 
       _pc = await createPeerConnection({
         'sdpSemantics': 'unified-plan',
@@ -89,48 +97,65 @@ class LocalLiveViewerSession {
       };
 
       _pc!.onConnectionState = (s) {
-        if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        if (s ==
+            RTCPeerConnectionState
+                .RTCPeerConnectionStateConnected) {
           state.value = LocalLiveViewerState.connected;
         }
       };
 
       _pc!.onDataChannel = (ch) {
         _eventsChannel = ch;
-        _eventsChannel!.onMessage = (m) => _onDataChannelMessage(m.text);
+        _eventsChannel!.onMessage =
+            (m) => _onDataChannelMessage(m.text);
       };
 
-      // IMPORTANT: attach remote screen + camera correctly
+      // Attach remote streams: distinguish screen vs camera
       _pc!.onTrack = (event) async {
-        final track = event.track;
-        if (track.kind != 'video' && track.kind != 'audio') return;
         if (event.streams.isEmpty) return;
-
         final stream = event.streams.first;
 
         if (kDebugMode) {
-          // Helpful when debugging
           print(
-              '[Viewer] onTrack kind=${track.kind} id=${track.id} streamId=${stream.id}');
+              '[Viewer] onTrack kind=${event.track.kind} '
+              'streamId=${stream.id} '
+              'video=${stream.getVideoTracks().length} '
+              'audio=${stream.getAudioTracks().length}');
         }
 
-        // We only need to wire up the streams for rendering.
-        // Host adds screen video first, then camera video+audio.
-        if (track.kind == 'video') {
-          if (_remoteScreenStream == null) {
-            // First video stream = screen
+        // Ignore streams without video
+        if (stream.getVideoTracks().isEmpty) {
+          return;
+        }
+
+        final hasAudio =
+            stream.getAudioTracks().isNotEmpty;
+
+        if (!hasAudio) {
+          // This is the screen share: video-only
+          if (_remoteScreenStream == null ||
+              _remoteScreenStream!.id != stream.id) {
             _remoteScreenStream = stream;
-            screenRenderer.srcObject = _remoteScreenStream;
-          } else if (_remoteCameraStream == null &&
-              (_remoteScreenStream == null ||
-                  stream.id != _remoteScreenStream!.id)) {
-            // Second distinct video stream = camera (with audio)
+            screenRenderer.srcObject =
+                _remoteScreenStream;
+            if (kDebugMode) {
+              print(
+                  '[Viewer] Attached SCREEN stream ${stream.id}');
+            }
+          }
+        } else {
+          // This is the camera + mic stream
+          if (_remoteCameraStream == null ||
+              _remoteCameraStream!.id != stream.id) {
             _remoteCameraStream = stream;
-            cameraRenderer.srcObject = _remoteCameraStream;
+            cameraRenderer.srcObject =
+                _remoteCameraStream;
+            if (kDebugMode) {
+              print(
+                  '[Viewer] Attached CAMERA stream ${stream.id}');
+            }
           }
         }
-        // For audio, we don't need to do anything extra: it's already
-        // part of the camera stream; we just mute/unmute by toggling
-        // its audio tracks in setRemoteAudioEnabled().
       };
     } catch (e) {
       state.value = LocalLiveViewerState.error;
@@ -145,7 +170,9 @@ class LocalLiveViewerSession {
 
     if (type == 'error') {
       state.value = LocalLiveViewerState.error;
-      error.value = (msg['message'] ?? 'Unknown signaling error').toString();
+      error.value = (msg['message'] ??
+              'Unknown signaling error')
+          .toString();
       return;
     }
 
@@ -166,7 +193,8 @@ class LocalLiveViewerSession {
 
       await _pc!.setLocalDescription(answer);
 
-      _client?.send({'type': 'answer', 'sdp': answer.sdp});
+      _client?.send(
+          {'type': 'answer', 'sdp': answer.sdp});
       return;
     }
 
@@ -186,17 +214,18 @@ class LocalLiveViewerSession {
 
   void _onDataChannelMessage(String text) {
     try {
-      final msg = jsonDecode(text) as Map<String, dynamic>;
+      final msg =
+          jsonDecode(text) as Map<String, dynamic>;
 
       if (msg['type'] == 'tracks') {
-        // Old mapping-based logic is no longer needed.
-        // We now attach tracks by stream/order in onTrack.
+        // We no longer rely on track IDs; screen/camera
+        // are detected by stream audio in onTrack.
         return;
       }
 
       if (msg['type'] == 'event') {
-        final event =
-            (msg['event'] as Map?)?.cast<String, dynamic>();
+        final event = (msg['event'] as Map?)
+            ?.cast<String, dynamic>();
         if (event != null) _events.add(event);
         return;
       }
@@ -213,10 +242,13 @@ class LocalLiveViewerSession {
   void sendEvent(Map<String, dynamic> event) {
     final dc = _eventsChannel;
     if (dc == null) return;
-    if (dc.state != RTCDataChannelState.RTCDataChannelOpen) return;
+    if (dc.state !=
+        RTCDataChannelState.RTCDataChannelOpen) {
+      return;
+    }
 
-    final payload =
-        jsonEncode({'type': 'event', 'event': event});
+    final payload = jsonEncode(
+        {'type': 'event', 'event': event});
     try {
       dc.send(RTCDataChannelMessage(payload));
     } catch (_) {}

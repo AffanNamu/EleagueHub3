@@ -133,6 +133,25 @@ class LocalLiveHostSession {
         },
       });
 
+      // DEBUG: print track info
+      if (kDebugMode) {
+        final sv = _screenStream?.getVideoTracks().length ?? 0;
+        final sa = _screenStream?.getAudioTracks().length ?? 0;
+        final cv = _cameraStream?.getVideoTracks().length ?? 0;
+        final ca = _cameraStream?.getAudioTracks().length ?? 0;
+        print('[Host] Screen tracks: video=$sv audio=$sa');
+        print('[Host] Camera tracks: video=$cv audio=$ca');
+      }
+
+      // Ensure screen capture actually has a video track
+      final screenVideoTracks = _screenStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+      if (screenVideoTracks.isEmpty) {
+        throw Exception(
+          'Screen capture returned no video track. '
+          'Check screen recording permission or device support.',
+        );
+      }
+
       screenRenderer.srcObject = _screenStream;
       cameraRenderer.srcObject = _cameraStream;
 
@@ -141,6 +160,9 @@ class LocalLiveHostSession {
 
       state.value = LocalLiveHostState.waitingForViewers;
     } catch (e) {
+      if (kDebugMode) {
+        print('[Host] ERROR in start(): $e');
+      }
       state.value = LocalLiveHostState.error;
       error.value = e.toString();
       await stop();
@@ -251,6 +273,9 @@ class LocalLiveHostSession {
     peer.eventsChannel = dc;
 
     dc.onDataChannelState = (s) {
+      if (kDebugMode) {
+        print('[Host] DataChannel state for $viewerId: $s');
+      }
       if (s == RTCDataChannelState.RTCDataChannelOpen) {
         _sendTrackMappingToViewer(viewerId);
 
@@ -272,15 +297,24 @@ class LocalLiveHostSession {
 
     if (screenStream != null) {
       for (final t in screenStream.getVideoTracks()) {
+        if (kDebugMode) {
+          print('[Host] Adding SCREEN video track ${t.id} to viewer $viewerId');
+        }
         pc.addTrack(t, screenStream);
       }
     }
 
     if (cameraStream != null) {
       for (final t in cameraStream.getVideoTracks()) {
+        if (kDebugMode) {
+          print('[Host] Adding CAMERA video track ${t.id} to viewer $viewerId');
+        }
         pc.addTrack(t, cameraStream);
       }
       for (final t in cameraStream.getAudioTracks()) {
+        if (kDebugMode) {
+          print('[Host] Adding CAMERA audio track ${t.id} to viewer $viewerId');
+        }
         pc.addTrack(t, cameraStream);
       }
     }
@@ -327,6 +361,11 @@ class LocalLiveHostSession {
 
     final screenTrackId = screenTracks.isNotEmpty ? screenTracks.first.id : null;
     final cameraTrackId = cameraTracks.isNotEmpty ? cameraTracks.first.id : null;
+
+    if (kDebugMode) {
+      print('[Host] sendTrackMappingToViewer($viewerId) '
+          'screenTrackId=$screenTrackId cameraTrackId=$cameraTrackId');
+    }
 
     if (screenTrackId == null ||
         screenTrackId.isEmpty ||

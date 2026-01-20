@@ -31,7 +31,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const LoginScreen(),
     ),
 
-    // Global Settings route (to fix GoException: no routes for location: /settings)
+    // Global Settings route
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
@@ -61,21 +61,49 @@ final appRouter = GoRouter(
           path: 'live/view/:id',
           builder: (context, state) {
             final id = state.pathParameters['id']!;
+
             bool isHost = false;
+            String? hostAddress;
+            int? port;
+            String? homeName;
+            String? awayName;
+            String? hostSide;
 
             final extra = state.extra;
             if (extra is bool) {
+              // legacy: only "isHost" as bool
               isHost = extra;
             } else if (extra is Map) {
-              final map = extra;
+              final map = extra.cast<dynamic, dynamic>();
+
               if (map['isHost'] is bool) {
                 isHost = map['isHost'] as bool;
+              }
+              if (map['host'] is String) {
+                hostAddress = map['host'] as String;
+              }
+              if (map['port'] is int) {
+                port = map['port'] as int;
+              }
+              if (map['homeName'] is String) {
+                homeName = map['homeName'] as String;
+              }
+              if (map['awayName'] is String) {
+                awayName = map['awayName'] as String;
+              }
+              if (map['side'] is String) {
+                hostSide = map['side'] as String;
               }
             }
 
             return LiveViewScreen(
               matchId: id,
               isHost: isHost,
+              hostAddress: hostAddress,
+              port: port,
+              homeName: homeName,
+              awayName: awayName,
+              hostSide: hostSide,
             );
           },
         ),
