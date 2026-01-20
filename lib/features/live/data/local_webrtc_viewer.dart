@@ -105,8 +105,9 @@ class LocalLiveViewerSession {
         final track = event.track;
         if (track.kind != 'video') return;
 
-        final id = track.id;
-        if (id.isEmpty) return;
+        // flutter_webrtc may expose track.id as nullable
+        final String? id = track.id;
+        if (id == null || id.isEmpty) return;
 
         _pendingVideoTracks[id] = track;
         await _tryAttachTracks();
@@ -134,7 +135,9 @@ class LocalLiveViewerSession {
 
       state.value = LocalLiveViewerState.negotiating;
 
-      await _pc?.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
+      await _pc?.setRemoteDescription(
+        RTCSessionDescription(sdp, 'offer'),
+      );
 
       final answer = await _pc!.createAnswer({
         'offerToReceiveAudio': true,
@@ -166,8 +169,10 @@ class LocalLiveViewerSession {
       final msg = jsonDecode(text) as Map<String, dynamic>;
 
       if (msg['type'] == 'tracks') {
-        _screenTrackId = (msg['screenVideoTrackId'] as String?)?.trim();
-        _cameraTrackId = (msg['cameraVideoTrackId'] as String?)?.trim();
+        _screenTrackId =
+            (msg['screenVideoTrackId'] as String?)?.trim();
+        _cameraTrackId =
+            (msg['cameraVideoTrackId'] as String?)?.trim();
         _tryAttachTracks();
         return;
       }
@@ -205,7 +210,8 @@ class LocalLiveViewerSession {
     }
   }
 
-  void sendChat(String text) => sendEvent({'kind': 'chat', 'text': text});
+  void sendChat(String text) =>
+      sendEvent({'kind': 'chat', 'text': text});
   void sendReaction(String reaction) =>
       sendEvent({'kind': 'reaction', 'reaction': reaction});
 
@@ -214,7 +220,8 @@ class LocalLiveViewerSession {
     if (dc == null) return;
     if (dc.state != RTCDataChannelState.RTCDataChannelOpen) return;
 
-    final payload = jsonEncode({'type': 'event', 'event': event});
+    final payload =
+        jsonEncode({'type': 'event', 'event': event});
     try {
       dc.send(RTCDataChannelMessage(payload));
     } catch (_) {}
@@ -224,7 +231,8 @@ class LocalLiveViewerSession {
   void setRemoteAudioEnabled(bool enabled) {
     try {
       final tracks =
-          _remoteCameraStream?.getAudioTracks() ?? const <MediaStreamTrack>[];
+          _remoteCameraStream?.getAudioTracks() ??
+              const <MediaStreamTrack>[];
       for (final t in tracks) {
         t.enabled = enabled;
       }
