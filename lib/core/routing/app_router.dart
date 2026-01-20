@@ -30,6 +30,13 @@ final appRouter = GoRouter(
       path: '/login',
       builder: (context, state) => const LoginScreen(),
     ),
+
+    // Global Settings route (to fix GoException: no routes for location: /settings)
+    GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsScreen(),
+    ),
+
     GoRoute(
       path: '/',
       builder: (context, state) => const HomeShell(),
