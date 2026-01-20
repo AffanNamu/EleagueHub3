@@ -34,9 +34,11 @@ class LocalLiveViewerSession {
 
   final ValueNotifier<String?> error = ValueNotifier<String?>(null);
 
+  /// What the viewer sees
   final RTCVideoRenderer screenRenderer = RTCVideoRenderer();
   final RTCVideoRenderer cameraRenderer = RTCVideoRenderer();
 
+  /// Events from host/viewers (chat, reactions, mic, etc.)
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get events => _events.stream;
 
@@ -46,13 +48,9 @@ class LocalLiveViewerSession {
   RTCPeerConnection? _pc;
   RTCDataChannel? _eventsChannel;
 
-  String? _screenTrackId;
-  String? _cameraTrackId;
-
+  /// Remote media streams (assigned from onTrack)
   MediaStream? _remoteScreenStream;
   MediaStream? _remoteCameraStream;
-
-  final Map<String, MediaStreamTrack> _pendingVideoTracks = {};
 
   Future<void> connect() async {
     if (_client != null) return;
@@ -101,16 +99,38 @@ class LocalLiveViewerSession {
         _eventsChannel!.onMessage = (m) => _onDataChannelMessage(m.text);
       };
 
+      // IMPORTANT: attach remote screen + camera correctly
       _pc!.onTrack = (event) async {
         final track = event.track;
-        if (track.kind != 'video') return;
+        if (track.kind != 'video' && track.kind != 'audio') return;
+        if (event.streams.isEmpty) return;
 
-        // flutter_webrtc may expose track.id as nullable
-        final String? id = track.id;
-        if (id == null || id.isEmpty) return;
+        final stream = event.streams.first;
 
-        _pendingVideoTracks[id] = track;
-        await _tryAttachTracks();
+        if (kDebugMode) {
+          // Helpful when debugging
+          print(
+              '[Viewer] onTrack kind=${track.kind} id=${track.id} streamId=${stream.id}');
+        }
+
+        // We only need to wire up the streams for rendering.
+        // Host adds screen video first, then camera video+audio.
+        if (track.kind == 'video') {
+          if (_remoteScreenStream == null) {
+            // First video stream = screen
+            _remoteScreenStream = stream;
+            screenRenderer.srcObject = _remoteScreenStream;
+          } else if (_remoteCameraStream == null &&
+              (_remoteScreenStream == null ||
+                  stream.id != _remoteScreenStream!.id)) {
+            // Second distinct video stream = camera (with audio)
+            _remoteCameraStream = stream;
+            cameraRenderer.srcObject = _remoteCameraStream;
+          }
+        }
+        // For audio, we don't need to do anything extra: it's already
+        // part of the camera stream; we just mute/unmute by toggling
+        // its audio tracks in setRemoteAudioEnabled().
       };
     } catch (e) {
       state.value = LocalLiveViewerState.error;
@@ -169,11 +189,8 @@ class LocalLiveViewerSession {
       final msg = jsonDecode(text) as Map<String, dynamic>;
 
       if (msg['type'] == 'tracks') {
-        _screenTrackId =
-            (msg['screenVideoTrackId'] as String?)?.trim();
-        _cameraTrackId =
-            (msg['cameraVideoTrackId'] as String?)?.trim();
-        _tryAttachTracks();
+        // Old mapping-based logic is no longer needed.
+        // We now attach tracks by stream/order in onTrack.
         return;
       }
 
@@ -184,29 +201,7 @@ class LocalLiveViewerSession {
         return;
       }
     } catch (_) {
-      // ignore
-    }
-  }
-
-  Future<void> _tryAttachTracks() async {
-    if (_screenTrackId != null && _screenTrackId!.isNotEmpty) {
-      final t = _pendingVideoTracks[_screenTrackId!];
-      if (t != null) {
-        _remoteScreenStream ??=
-            await createLocalMediaStream('remote-screen');
-        _remoteScreenStream!.addTrack(t);
-        screenRenderer.srcObject = _remoteScreenStream;
-      }
-    }
-
-    if (_cameraTrackId != null && _cameraTrackId!.isNotEmpty) {
-      final t = _pendingVideoTracks[_cameraTrackId!];
-      if (t != null) {
-        _remoteCameraStream ??=
-            await createLocalMediaStream('remote-camera');
-        _remoteCameraStream!.addTrack(t);
-        cameraRenderer.srcObject = _remoteCameraStream;
-      }
+      // ignore malformed messages
     }
   }
 
@@ -227,7 +222,7 @@ class LocalLiveViewerSession {
     } catch (_) {}
   }
 
-  /// Toggle remote audio (what viewer hears)
+  /// Toggle remote audio (what viewer hears) – camera/mic audio.
   void setRemoteAudioEnabled(bool enabled) {
     try {
       final tracks =
