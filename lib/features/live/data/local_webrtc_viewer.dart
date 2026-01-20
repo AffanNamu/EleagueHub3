@@ -105,9 +105,8 @@ class LocalLiveViewerSession {
         final track = event.track;
         if (track.kind != 'video') return;
 
-        // flutter_webrtc may expose track.id as String?
         final id = track.id;
-        if (id == null || id.isEmpty) return;
+        if (id.isEmpty) return;
 
         _pendingVideoTracks[id] = track;
         await _tryAttachTracks();
@@ -174,7 +173,8 @@ class LocalLiveViewerSession {
       }
 
       if (msg['type'] == 'event') {
-        final event = (msg['event'] as Map?)?.cast<String, dynamic>();
+        final event =
+            (msg['event'] as Map?)?.cast<String, dynamic>();
         if (event != null) _events.add(event);
         return;
       }
@@ -187,7 +187,8 @@ class LocalLiveViewerSession {
     if (_screenTrackId != null && _screenTrackId!.isNotEmpty) {
       final t = _pendingVideoTracks[_screenTrackId!];
       if (t != null) {
-        _remoteScreenStream ??= await createLocalMediaStream('remote-screen');
+        _remoteScreenStream ??=
+            await createLocalMediaStream('remote-screen');
         _remoteScreenStream!.addTrack(t);
         screenRenderer.srcObject = _remoteScreenStream;
       }
@@ -196,7 +197,8 @@ class LocalLiveViewerSession {
     if (_cameraTrackId != null && _cameraTrackId!.isNotEmpty) {
       final t = _pendingVideoTracks[_cameraTrackId!];
       if (t != null) {
-        _remoteCameraStream ??= await createLocalMediaStream('remote-camera');
+        _remoteCameraStream ??=
+            await createLocalMediaStream('remote-camera');
         _remoteCameraStream!.addTrack(t);
         cameraRenderer.srcObject = _remoteCameraStream;
       }
@@ -215,6 +217,17 @@ class LocalLiveViewerSession {
     final payload = jsonEncode({'type': 'event', 'event': event});
     try {
       dc.send(RTCDataChannelMessage(payload));
+    } catch (_) {}
+  }
+
+  /// Toggle remote audio (what viewer hears)
+  void setRemoteAudioEnabled(bool enabled) {
+    try {
+      final tracks =
+          _remoteCameraStream?.getAudioTracks() ?? const <MediaStreamTrack>[];
+      for (final t in tracks) {
+        t.enabled = enabled;
+      }
     } catch (_) {}
   }
 

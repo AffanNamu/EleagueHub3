@@ -71,14 +71,22 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
   _PrimarySide _primary = _PrimarySide.home;
 
+  // Viewer audio toggle (what viewer hears)
+  bool _viewerAudioEnabled = true;
+
   int get _port => widget.port ?? 8765;
 
   String get _homeLabel =>
-      (widget.homeName?.trim().isNotEmpty == true) ? widget.homeName!.trim() : 'HOME';
+      (widget.homeName?.trim().isNotEmpty == true)
+          ? widget.homeName!.trim()
+          : 'HOME';
   String get _awayLabel =>
-      (widget.awayName?.trim().isNotEmpty == true) ? widget.awayName!.trim() : 'AWAY';
+      (widget.awayName?.trim().isNotEmpty == true)
+          ? widget.awayName!.trim()
+          : 'AWAY';
 
-  LiveHostSide get _mySide => parseLiveHostSide(widget.hostSide);
+  LiveHostSide get _mySide =>
+      parseLiveHostSide(widget.hostSide);
 
   @override
   void initState() {
@@ -105,7 +113,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
   Future<void> _stopAll() async {
     if (widget.isHost) {
-      await LocalLiveService.instance.stopHostSession(liveMatchId: widget.matchId);
+      await LocalLiveService.instance
+          .stopHostSession(liveMatchId: widget.matchId);
       return;
     }
 
@@ -149,13 +158,17 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   Future<void> _startInitialViewer() async {
     final host = widget.hostAddress?.trim();
     if (host == null || host.isEmpty) {
-      setState(() => _errorText = 'Missing host IP. Go back and join from discovery/manual connect.');
+      setState(() => _errorText =
+          'Missing host IP. Go back and join from discovery/manual connect.');
       return;
     }
 
     // If join screen passed side, use it; otherwise assume home as default.
     final initialSide = parseLiveHostSide(widget.hostSide);
-    final slot = (initialSide == LiveHostSide.away) ? _PrimarySide.away : _PrimarySide.home;
+    final slot =
+        (initialSide == LiveHostSide.away)
+            ? _PrimarySide.away
+            : _PrimarySide.home;
 
     setState(() {
       _busy = true;
@@ -193,20 +206,29 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     await _discovery.start();
 
     _discoveryListener = () {
-      final list = _discovery.hosts.value.where((h) => h.matchId == widget.matchId).toList();
+      final list = _discovery.hosts.value
+          .where((h) => h.matchId == widget.matchId)
+          .toList();
       if (list.isEmpty) return;
 
       // Connect missing side(s)
       for (final h in list) {
         // Avoid reconnecting to same endpoint
         final endpoint = '${h.hostIp}:${h.port}';
-        final homeEndpoint = _homeViewer == null ? null : '${_homeViewer!.host}:${_homeViewer!.port}';
-        final awayEndpoint = _awayViewer == null ? null : '${_awayViewer!.host}:${_awayViewer!.port}';
-        if (endpoint == homeEndpoint || endpoint == awayEndpoint) continue;
+        final homeEndpoint = _homeViewer == null
+            ? null
+            : '${_homeViewer!.host}:${_homeViewer!.port}';
+        final awayEndpoint = _awayViewer == null
+            ? null
+            : '${_awayViewer!.host}:${_awayViewer!.port}';
+        if (endpoint == homeEndpoint ||
+            endpoint == awayEndpoint) continue;
 
-        if (h.side == LiveHostSide.home && _homeViewer == null) {
+        if (h.side == LiveHostSide.home &&
+            _homeViewer == null) {
           _connectHome(h.hostIp, h.port);
-        } else if (h.side == LiveHostSide.away && _awayViewer == null) {
+        } else if (h.side == LiveHostSide.away &&
+            _awayViewer == null) {
           _connectAway(h.hostIp, h.port);
         } else if (h.side == LiveHostSide.unknown) {
           // best-effort fill
@@ -233,7 +255,11 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   Future<void> _connectHome(String hostIp, int port) async {
     if (_homeViewer != null) return;
     try {
-      final v = LocalLiveViewerSession(liveMatchId: widget.matchId, host: hostIp, port: port);
+      final v = LocalLiveViewerSession(
+        liveMatchId: widget.matchId,
+        host: hostIp,
+        port: port,
+      );
       await v.connect();
       _homeEventsSub?.cancel();
       _homeEventsSub = v.events.listen(_appendEvent);
@@ -245,7 +271,11 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   Future<void> _connectAway(String hostIp, int port) async {
     if (_awayViewer != null) return;
     try {
-      final v = LocalLiveViewerSession(liveMatchId: widget.matchId, host: hostIp, port: port);
+      final v = LocalLiveViewerSession(
+        liveMatchId: widget.matchId,
+        host: hostIp,
+        port: port,
+      );
       await v.connect();
       _awayEventsSub?.cancel();
       _awayEventsSub = v.events.listen(_appendEvent);
@@ -264,7 +294,13 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       line = (from == null) ? txt : '$from: $txt';
     } else if (kind == 'reaction') {
       final r = evt['reaction']?.toString() ?? '';
-      line = (from == null) ? 'Reaction: $r' : '$from reacted: $r';
+      line = (from == null)
+          ? 'Reaction: $r'
+          : '$from reacted: $r';
+    } else if (kind == 'mic') {
+      final enabled = evt['enabled'] == true;
+      line =
+          'Host mic is now ${enabled ? 'ON' : 'OFF'}';
     } else {
       line = 'Event: $evt';
     }
@@ -273,14 +309,26 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     setState(() => _messages.add(line));
   }
 
+  // Viewer audio toggle
+  void _toggleViewerAudio() {
+    final enabled = !_viewerAudioEnabled;
+    setState(() => _viewerAudioEnabled = enabled);
+
+    final v = _homeViewer ?? _awayViewer;
+    v?.setRemoteAudioEnabled(enabled);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width > 700;
+    final isWide =
+        MediaQuery.of(context).size.width > 700;
 
     return GlassScaffold(
       appBar: AppBar(
         title: Text(
-          widget.isHost ? 'Host Live • ${widget.matchId}' : 'Live • $_homeLabel vs $_awayLabel',
+          widget.isHost
+              ? 'Host Live • ${widget.matchId}'
+              : 'Live • $_homeLabel vs $_awayLabel',
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -288,16 +336,23 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
           if (widget.isHost)
             IconButton(
               tooltip: 'Copy host info',
-              onPressed: (_hostSession?.hostIp.value == null)
-                  ? null
-                  : () {
-                      final ip = _hostSession!.hostIp.value!;
-                      final txt = 'Host: $ip:${_port}\nMatch: ${widget.matchId}';
-                      Clipboard.setData(ClipboardData(text: txt));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Copied host info')),
-                      );
-                    },
+              onPressed:
+                  (_hostSession?.hostIp.value == null)
+                      ? null
+                      : () {
+                          final ip =
+                              _hostSession!.hostIp.value!;
+                          final txt =
+                              'Host: $ip:${_port}\nMatch: ${widget.matchId}';
+                          Clipboard.setData(
+                              ClipboardData(text: txt));
+                          ScaffoldMessenger.of(context)
+                              .showSnackBar(
+                            const SnackBar(
+                                content: Text(
+                                    'Copied host info')),
+                          );
+                        },
               icon: const Icon(Icons.copy),
             ),
         ],
@@ -305,7 +360,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: isWide ? _buildWideLayout(context) : _buildMobileLayout(context),
+          child: isWide
+              ? _buildWideLayout(context)
+              : _buildMobileLayout(context),
         ),
       ),
     );
@@ -334,6 +391,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
             chatController: _chat,
             onSend: _send,
             onReaction: _react,
+            allowTextInput: !widget.isHost,
           ),
         ),
       ],
@@ -344,7 +402,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     // Fix: keep controls tappable (chat no longer blocks buttons) + chat minimize
     final inset = MediaQuery.of(context).viewInsets.bottom;
 
-    final chatHeight = _chatMinimized ? 64.0 : 220.0;
+    final chatHeight =
+        _chatMinimized ? 64.0 : 220.0;
     const controlsReserved = 170.0;
     const gap = 12.0;
 
@@ -353,7 +412,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
         Positioned.fill(
           child: Padding(
             padding: const EdgeInsets.all(0).copyWith(
-              bottom: chatHeight + controlsReserved + (gap * 2) + inset,
+              bottom:
+                  chatHeight + controlsReserved + (gap * 2) + inset,
             ),
             child: _buildStreamArea(context),
           ),
@@ -371,11 +431,13 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
           height: chatHeight,
           child: _ChatOverlay(
             minimized: _chatMinimized,
-            onToggleMinimize: () => setState(() => _chatMinimized = !_chatMinimized),
+            onToggleMinimize: () => setState(
+                () => _chatMinimized = !_chatMinimized),
             messages: _messages,
             chatController: _chat,
             onSend: _send,
             onReaction: _react,
+            allowTextInput: !widget.isHost,
           ),
         ),
       ],
@@ -387,7 +449,10 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       return Glass(
         borderRadius: 18,
         padding: const EdgeInsets.all(12),
-        child: Text('Error: $_errorText', style: const TextStyle(color: Colors.redAccent)),
+        child: Text(
+          'Error: $_errorText',
+          style: const TextStyle(color: Colors.redAccent),
+        ),
       );
     }
 
@@ -400,14 +465,18 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
         borderRadius: 18,
         padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment:
+              CrossAxisAlignment.stretch,
           children: [
             if (started) ...[
               ValueListenableBuilder<String?>(
                 valueListenable: host.hostIp,
                 builder: (_, ip, __) => Text(
                   'Host: ${(ip ?? '...')}:${_port} • side: ${liveHostSideToWire(_mySide)}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -416,9 +485,16 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _busy ? null : (started ? null : _startHost),
+                    onPressed:
+                        _busy || started ? null : _startHost,
                     icon: const Icon(Icons.cast),
-                    label: Text(_busy ? 'Starting...' : (started ? 'Broadcasting' : 'Start Broadcast')),
+                    label: Text(
+                      _busy
+                          ? 'Starting...'
+                          : (started
+                              ? 'Broadcasting'
+                              : 'Start Broadcast'),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -427,10 +503,20 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                     onPressed: _busy
                         ? null
                         : () async {
-                            setState(() => _busy = true);
-                            await LocalLiveService.instance.stopHostSession(liveMatchId: widget.matchId);
-                            if (mounted) setState(() => _busy = false);
-                            setState(() => _hostSession = null);
+                            setState(
+                                () => _busy = true);
+                            await LocalLiveService
+                                .instance
+                                .stopHostSession(
+                              liveMatchId:
+                                  widget.matchId,
+                            );
+                            if (mounted) {
+                              setState(
+                                  () => _busy = false);
+                              setState(() =>
+                                  _hostSession = null);
+                            }
                           },
                     icon: const Icon(Icons.stop),
                     label: const Text('Stop'),
@@ -439,10 +525,56 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               ],
             ),
             const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => BatteryOptimizationGuide.show(context),
-              icon: const Icon(Icons.battery_alert_outlined),
-              label: const Text('Battery / Background Help'),
+            // Host mic toggle + quick help
+            Row(
+              children: [
+                if (started)
+                  ValueListenableBuilder<bool>(
+                    valueListenable:
+                        host.micEnabled,
+                    builder:
+                        (context, enabled, _) {
+                      return IconButton.filled(
+                        onPressed: () =>
+                            host.setMicEnabled(
+                                !enabled),
+                        style: IconButton
+                            .styleFrom(
+                          backgroundColor:
+                              enabled
+                                  ? Colors
+                                      .greenAccent
+                                      .withOpacity(
+                                          0.3)
+                                  : Colors
+                                      .redAccent
+                                      .withOpacity(
+                                          0.3),
+                        ),
+                        icon: Icon(
+                          enabled
+                              ? Icons.mic
+                              : Icons.mic_off,
+                          color: Colors.white,
+                        ),
+                      );
+                    },
+                  ),
+                if (started)
+                  const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        BatteryOptimizationGuide
+                            .show(context),
+                    icon: const Icon(
+                        Icons
+                            .battery_alert_outlined),
+                    label: const Text(
+                        'Battery / Background Help'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -450,11 +582,33 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     }
 
     // VIEWER controls
+    final icon = _viewerAudioEnabled
+        ? Icons.mic
+        : Icons.mic_off;
+
+    final iconColor = _viewerAudioEnabled
+        ? Colors.greenAccent
+        : Colors.redAccent;
+
     return Glass(
       borderRadius: 18,
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [
+          IconButton.filled(
+            onPressed: _toggleViewerAudio,
+            style: IconButton.styleFrom(
+              backgroundColor: iconColor.withOpacity(0.3),
+            ),
+            icon: Icon(
+              icon,
+              color: Colors.white,
+            ),
+            tooltip: _viewerAudioEnabled
+                ? 'Mute audio'
+                : 'Unmute audio',
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: OutlinedButton.icon(
               onPressed: _busy
@@ -462,8 +616,11 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                   : () async {
                       setState(() => _busy = true);
                       await _stopAll();
-                      if (mounted) setState(() => _busy = false);
-                      if (mounted) Navigator.maybePop(context);
+                      if (mounted) {
+                        setState(() => _busy = false);
+                        Navigator.maybePop(
+                            context);
+                      }
                     },
               icon: const Icon(Icons.logout),
               label: const Text('Leave'),
@@ -480,8 +637,14 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       final host = _hostSession!;
       final mySide = _mySide;
 
-      final leftCam = (mySide == LiveHostSide.away) ? null : host.cameraRenderer;
-      final rightCam = (mySide == LiveHostSide.home) ? null : host.cameraRenderer;
+      final leftCam =
+          (mySide == LiveHostSide.away)
+              ? null
+              : host.cameraRenderer;
+      final rightCam =
+          (mySide == LiveHostSide.home)
+              ? null
+              : host.cameraRenderer;
 
       return _GamerStreamLayout(
         matchTitle: '$_homeLabel vs $_awayLabel',
@@ -490,18 +653,27 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
         camRight: rightCam,
         leftLabel: _homeLabel,
         rightLabel: _awayLabel,
-        leftHint: (mySide == LiveHostSide.away) ? 'Waiting…' : null,
-        rightHint: (mySide == LiveHostSide.home) ? 'Waiting…' : null,
+        leftHint:
+            (mySide == LiveHostSide.away)
+                ? 'Waiting…'
+                : null,
+        rightHint:
+            (mySide == LiveHostSide.home)
+                ? 'Waiting…'
+                : null,
         primary: _primary,
-        onTapLeft: () => setState(() => _primary = _PrimarySide.home),
-        onTapRight: () => setState(() => _primary = _PrimarySide.away),
+        onTapLeft: () => setState(
+            () => _primary = _PrimarySide.home),
+        onTapRight: () => setState(
+            () => _primary = _PrimarySide.away),
       );
     }
 
     // VIEWER mode
-    final primaryScreen = (_primary == _PrimarySide.home)
-        ? _homeViewer?.screenRenderer
-        : _awayViewer?.screenRenderer;
+    final primaryScreen =
+        (_primary == _PrimarySide.home)
+            ? _homeViewer?.screenRenderer
+            : _awayViewer?.screenRenderer;
 
     return _GamerStreamLayout(
       matchTitle: '$_homeLabel vs $_awayLabel',
@@ -510,11 +682,15 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       camRight: _awayViewer?.cameraRenderer,
       leftLabel: _homeLabel,
       rightLabel: _awayLabel,
-      leftHint: (_homeViewer == null) ? 'Waiting…' : null,
-      rightHint: (_awayViewer == null) ? 'Waiting…' : null,
+      leftHint:
+          (_homeViewer == null) ? 'Waiting…' : null,
+      rightHint:
+          (_awayViewer == null) ? 'Waiting…' : null,
       primary: _primary,
-      onTapLeft: () => setState(() => _primary = _PrimarySide.home),
-      onTapRight: () => setState(() => _primary = _PrimarySide.away),
+      onTapLeft: () => setState(
+          () => _primary = _PrimarySide.home),
+      onTapRight: () => setState(
+          () => _primary = _PrimarySide.away),
     );
   }
 
@@ -531,9 +707,18 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     }
 
     // Host: broadcast to viewers
-    final evt = {'kind': 'chat', 'text': txt, 'from': 'HOST'};
-    setState(() => _messages.add('HOST: $txt'));
-    LocalLiveService.instance.broadcastHostEvent(liveMatchId: widget.matchId, event: evt);
+    final evt = {
+      'kind': 'chat',
+      'text': txt,
+      'from': 'HOST',
+    };
+    setState(() =>
+        _messages.add('HOST: $txt'));
+    LocalLiveService.instance
+        .broadcastHostEvent(
+      liveMatchId: widget.matchId,
+      event: evt,
+    );
   }
 
   void _react(String reactionLabel) {
@@ -543,9 +728,18 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       return;
     }
 
-    final evt = {'kind': 'reaction', 'reaction': reactionLabel, 'from': 'HOST'};
-    setState(() => _messages.add('HOST reacted: $reactionLabel'));
-    LocalLiveService.instance.broadcastHostEvent(liveMatchId: widget.matchId, event: evt);
+    final evt = {
+      'kind': 'reaction',
+      'reaction': reactionLabel,
+      'from': 'HOST',
+    };
+    setState(() => _messages
+        .add('HOST reacted: $reactionLabel'));
+    LocalLiveService.instance
+        .broadcastHostEvent(
+      liveMatchId: widget.matchId,
+      event: evt,
+    );
   }
 }
 
@@ -581,7 +775,9 @@ class _GamerStreamLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasScreen = screenRenderer != null && screenRenderer!.srcObject != null;
+    final hasScreen =
+        screenRenderer != null &&
+            screenRenderer!.srcObject != null;
 
     return Glass(
       borderRadius: 24,
@@ -590,18 +786,27 @@ class _GamerStreamLayout extends StatelessWidget {
         children: [
           Positioned.fill(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius:
+                  BorderRadius.circular(18),
               child: Container(
-                color: Colors.black.withOpacity(0.35),
+                color: Colors.black
+                    .withOpacity(0.35),
                 child: hasScreen
                     ? RTCVideoView(
                         screenRenderer!,
-                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                        objectFit:
+                            RTCVideoViewObjectFit
+                                .RTCVideoViewObjectFitContain,
                       )
                     : Center(
                         child: Text(
                           'Waiting for screen…',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white70),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(
+                                color: Colors.white70,
+                              ),
                         ),
                       ),
               ),
@@ -617,16 +822,21 @@ class _GamerStreamLayout extends StatelessWidget {
               opacity: 0.9,
               child: Glass(
                 borderRadius: 999,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets
+                    .symmetric(
+                        horizontal: 10,
+                        vertical: 6),
                 child: Text(
                   matchTitle,
                   textAlign: TextAlign.center,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  overflow:
+                      TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontWeight:
+                        FontWeight.w700,
                   ),
                 ),
               ),
@@ -641,7 +851,8 @@ class _GamerStreamLayout extends StatelessWidget {
               label: leftLabel,
               renderer: camLeft,
               hint: leftHint,
-              selected: primary == _PrimarySide.home,
+              selected:
+                  primary == _PrimarySide.home,
               onTap: onTapLeft,
             ),
           ),
@@ -652,7 +863,8 @@ class _GamerStreamLayout extends StatelessWidget {
               label: rightLabel,
               renderer: camRight,
               hint: rightHint,
-              selected: primary == _PrimarySide.away,
+              selected:
+                  primary == _PrimarySide.away,
               onTap: onTapRight,
             ),
           ),
@@ -679,7 +891,9 @@ class _CircularCam extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ready = renderer != null && renderer!.srcObject != null;
+    final ready =
+        renderer != null &&
+            renderer!.srcObject != null;
 
     return Opacity(
       opacity: 0.86,
@@ -694,42 +908,62 @@ class _CircularCam extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: selected ? Colors.cyanAccent.withOpacity(0.95) : Colors.white24,
+                  color: selected
+                      ? Colors.cyanAccent
+                          .withOpacity(0.95)
+                      : Colors.white24,
                   width: 2,
                 ),
-                color: Colors.black.withOpacity(0.35),
+                color: Colors.black
+                    .withOpacity(0.35),
               ),
               child: ClipOval(
                 child: ready
                     ? RTCVideoView(
                         renderer!,
-                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        objectFit:
+                            RTCVideoViewObjectFit
+                                .RTCVideoViewObjectFitCover,
                       )
                     : Center(
                         child: Text(
                           hint ?? '…',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white54, fontSize: 11),
+                          textAlign:
+                              TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11,
+                          ),
                         ),
                       ),
               ),
             ),
             const SizedBox(height: 6),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets
+                  .symmetric(
+                horizontal: 10,
+                vertical: 4,
+              ),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.30),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white24),
+                color: Colors.black
+                    .withOpacity(0.30),
+                borderRadius:
+                    BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white24,
+                ),
               ),
               child: Text(
                 label,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                overflow:
+                    TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 10,
-                  fontWeight: FontWeight.w700,
+                  fontWeight:
+                      FontWeight.w700,
                 ),
               ),
             ),
@@ -748,6 +982,7 @@ class _ChatOverlay extends StatelessWidget {
     required this.chatController,
     required this.onSend,
     required this.onReaction,
+    required this.allowTextInput,
   });
 
   final bool minimized;
@@ -757,6 +992,9 @@ class _ChatOverlay extends StatelessWidget {
   final TextEditingController chatController;
   final VoidCallback onSend;
   final void Function(String) onReaction;
+
+  /// If false: only show quick reactions, no text input (for host).
+  final bool allowTextInput;
 
   @override
   Widget build(BuildContext context) {
@@ -780,10 +1018,14 @@ class _ChatOverlay extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: minimized ? 'Expand chat' : 'Minimize chat',
+                tooltip: minimized
+                    ? 'Expand chat'
+                    : 'Minimize chat',
                 onPressed: onToggleMinimize,
                 icon: Icon(
-                  minimized ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                  minimized
+                      ? Icons.keyboard_arrow_up
+                      : Icons.keyboard_arrow_down,
                   color: Colors.white70,
                 ),
               ),
@@ -799,10 +1041,14 @@ class _ChatOverlay extends StatelessWidget {
                 itemBuilder: (context, i) {
                   final msg = messages[messages.length - 1 - i];
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
+                    padding:
+                        const EdgeInsets.only(bottom: 6),
                     child: Text(
                       msg,
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                      ),
                     ),
                   );
                 },
@@ -814,7 +1060,8 @@ class _ChatOverlay extends StatelessWidget {
                 ...[
                   ('GG', Icons.emoji_events_outlined),
                   ('Wow', Icons.flash_on_outlined),
-                  ('Clutch', Icons.local_fire_department_outlined),
+                  ('Clutch',
+                      Icons.local_fire_department_outlined),
                 ].map(
                   (e) => Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -827,20 +1074,28 @@ class _ChatOverlay extends StatelessWidget {
                 ),
               ],
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: chatController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(hintText: 'Type a message'),
-                    onSubmitted: (_) => onSend(),
+            if (allowTextInput) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: chatController,
+                      style: const TextStyle(
+                          color: Colors.white),
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message',
+                      ),
+                      onSubmitted: (_) => onSend(),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(onPressed: onSend, child: const Text('Send')),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: onSend,
+                    child: const Text('Send'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ],
       ),

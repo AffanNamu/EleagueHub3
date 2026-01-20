@@ -10,6 +10,7 @@ class PreferencesService {
   final SharedPreferences _sp;
 
   static const _kThemeMode = 'theme_mode';
+  static const _kLocaleCode = 'locale_code';
 
   /// Logged in user id key (for now).
   /// Later your auth_provider should set this after login.
@@ -44,7 +45,8 @@ class PreferencesService {
   }
 
   /// Generic List helpers used by repositories
-  List<String> getStringList(String key) => _sp.getStringList(key) ?? [];
+  List<String> getStringList(String key) =>
+      _sp.getStringList(key) ?? [];
 
   Future<void> setStringList(String key, List<String> value) async {
     await _sp.setStringList(key, value);
@@ -54,6 +56,12 @@ class PreferencesService {
   String? getThemeMode() => _sp.getString(_kThemeMode);
   Future<void> setThemeMode(String mode) async {
     await _sp.setString(_kThemeMode, mode);
+  }
+
+  /// Locale persistence
+  String? getLocaleCode() => _sp.getString(_kLocaleCode);
+  Future<void> setLocaleCode(String code) async {
+    await _sp.setString(_kLocaleCode, code);
   }
 
   /// Notification persistence (global app-level)

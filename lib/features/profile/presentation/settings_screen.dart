@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/theme/theme_controller.dart';
+import '../../../core/locale/locale_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/services/notification_service.dart';
@@ -52,7 +53,11 @@ class _SettingsScreenState
   @override
   Widget build(BuildContext context) {
     final themeState = ref.watch(themeControllerProvider);
+    final localeState = ref.watch(localeControllerProvider);
     final textTheme = Theme.of(context).textTheme;
+
+    final currentLangCode = localeState.locale.languageCode;
+    final langNames = LocaleController.languageNames;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -125,6 +130,83 @@ class _SettingsScreenState
                           style: textTheme.bodySmall
                               ?.copyWith(
                             color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // LANGUAGE CARD
+                Glass(
+                  borderRadius: 24,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Language',
+                          style: textTheme.titleMedium
+                              ?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Auto-detected from your device on first launch. You can change it manually here.',
+                          style: textTheme.bodySmall
+                              ?.copyWith(
+                            color: Colors.white70,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonHideUnderline(
+                          child: Container(
+                            padding:
+                                const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white
+                                  .withOpacity(0.06),
+                              borderRadius:
+                                  BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Colors.white24,
+                              ),
+                            ),
+                            child: DropdownButton<String>(
+                              value: currentLangCode,
+                              dropdownColor:
+                                  const Color(0xFF000428),
+                              style: const TextStyle(
+                                color: Colors.cyanAccent,
+                              ),
+                              isExpanded: true,
+                              items: langNames.entries
+                                  .map(
+                                    (e) =>
+                                        DropdownMenuItem<String>(
+                                      value: e.key,
+                                      child: Text(e.value),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (code) async {
+                                if (code == null) return;
+                                await ref
+                                    .read(
+                                      localeControllerProvider
+                                          .notifier,
+                                    )
+                                    .setLocale(code);
+                              },
+                            ),
                           ),
                         ),
                       ],

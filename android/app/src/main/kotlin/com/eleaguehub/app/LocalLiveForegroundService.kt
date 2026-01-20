@@ -64,7 +64,8 @@ class LocalLiveForegroundService : Service() {
         builder
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.presence_video_online)
+            // Smaller mic-style icon instead of large video presence icon
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
 
