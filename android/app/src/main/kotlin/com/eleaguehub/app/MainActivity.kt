@@ -23,7 +23,7 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
 
-                // Foreground service controls
+                // Foreground streaming service controls
                 "startForegroundStreamingService" -> {
                     val title = call.argument<String>("title") ?: "Live streaming"
                     val text = call.argument<String>("text") ?: "Broadcasting is running"
@@ -104,6 +104,56 @@ class MainActivity : FlutterActivity() {
                         "sdkInt" to Build.VERSION.SDK_INT
                     )
                     result.success(map)
+                }
+
+                // Overlay permission + bubble
+                "isOverlayPermissionGranted" -> {
+                    val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        Settings.canDrawOverlays(this)
+                    } else {
+                        true
+                    }
+                    result.success(granted)
+                }
+
+                "requestOverlayPermission" -> {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:$packageName")
+                            )
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(intent)
+                        }
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("OVERLAY_REQUEST_FAILED", e.toString(), null)
+                    }
+                }
+
+                "startLiveOverlayBubble" -> {
+                    try {
+                        val intent = Intent(this, LiveOverlayBubbleService::class.java).apply {
+                            action = LiveOverlayBubbleService.ACTION_SHOW
+                        }
+                        startService(intent)
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("OVERLAY_START_FAILED", e.toString(), null)
+                    }
+                }
+
+                "stopLiveOverlayBubble" -> {
+                    try {
+                        val intent = Intent(this, LiveOverlayBubbleService::class.java).apply {
+                            action = LiveOverlayBubbleService.ACTION_HIDE
+                        }
+                        startService(intent)
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("OVERLAY_STOP_FAILED", e.toString(), null)
+                    }
                 }
 
                 // Old placeholders (not used now; handled in Dart/WebRTC)

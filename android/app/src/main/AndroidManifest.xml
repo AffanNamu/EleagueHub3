@@ -25,6 +25,9 @@
     <!-- Lets us show the system prompt to ignore battery optimizations for this app -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Overlay permission for floating chat-head bubble -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:label="eSportlyic"
         android:icon="@mipmap/ic_launcher"
@@ -53,6 +56,11 @@
             android:name=".LocalLiveForegroundService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|camera|microphone" />
+
+        <!-- Overlay bubble service (small mic icon over other apps) -->
+        <service
+            android:name=".LiveOverlayBubbleService"
+            android:exported="false" />
 
         <meta-data
             android:name="flutterEmbedding"
