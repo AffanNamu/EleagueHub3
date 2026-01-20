@@ -49,7 +49,9 @@ class _LiveViewScreenState
       MethodChannel('local_live');
 
   final _chat = TextEditingController();
-  final _messages = <String>['Welcome to the live match.'];
+  final _messages = <String>[
+    'Welcome to the live match.',
+  ];
 
   LocalLiveHostSession? _hostSession;
   StreamSubscription? _hostEventsSub;
@@ -81,6 +83,11 @@ class _LiveViewScreenState
       _ViewerLayoutMode.single;
   bool _isFullscreen = false;
 
+  // Quick message overlay
+  Timer? _quickTimer;
+  String? _quickText;
+  String? _quickFrom;
+
   int get _port => widget.port ?? 8765;
 
   String get _homeLabel =>
@@ -101,16 +108,19 @@ class _LiveViewScreenState
 
     final prefs = ref.read(prefsServiceProvider);
     _viewerChatEnabled = prefs.liveViewerChatEnabled();
-    _viewerVoiceEnabled = prefs.liveViewerVoiceEnabled();
+    _viewerVoiceEnabled =
+        prefs.liveViewerVoiceEnabled();
     _viewerReactionsEnabled =
         prefs.liveViewerReactionsEnabled();
     _viewerAudioEnabled = _viewerVoiceEnabled;
 
     if (!widget.isHost) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await _startInitialViewer();
-        await _startDiscoveryForOtherSide();
-      });
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) async {
+          await _startInitialViewer();
+          await _startDiscoveryForOtherSide();
+        },
+      );
     }
   }
 
@@ -124,6 +134,7 @@ class _LiveViewScreenState
           .setPreferredOrientations(DeviceOrientation.values);
     }
 
+    _quickTimer?.cancel();
     _chat.dispose();
     _hostEventsSub?.cancel();
     _homeEventsSub?.cancel();
@@ -198,7 +209,8 @@ class _LiveViewScreenState
       );
 
       _hostEventsSub?.cancel();
-      _hostEventsSub = s.events.listen(_appendEvent);
+      _hostEventsSub =
+          s.events.listen(_appendEvent);
 
       setState(() => _hostSession = s);
 
@@ -206,7 +218,9 @@ class _LiveViewScreenState
     } catch (e) {
       setState(() => _errorText = e.toString());
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -219,7 +233,8 @@ class _LiveViewScreenState
     }
 
     // If join screen passed side, use it; otherwise assume home as default.
-    final initialSide = parseLiveHostSide(widget.hostSide);
+    final initialSide =
+        parseLiveHostSide(widget.hostSide);
     final slot =
         (initialSide == LiveHostSide.away)
             ? _PrimarySide.away
@@ -256,7 +271,9 @@ class _LiveViewScreenState
     } catch (e) {
       setState(() => _errorText = e.toString());
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -265,7 +282,8 @@ class _LiveViewScreenState
 
     _discoveryListener = () {
       final list = _discovery.hosts.value
-          .where((h) => h.matchId == widget.matchId)
+          .where(
+              (h) => h.matchId == widget.matchId)
           .toList();
       if (list.isEmpty) return;
 
@@ -286,7 +304,8 @@ class _LiveViewScreenState
         } else if (h.side == LiveHostSide.away &&
             _awayViewer == null) {
           _connectAway(h.hostIp, h.port);
-        } else if (h.side == LiveHostSide.unknown) {
+        } else if (h.side ==
+            LiveHostSide.unknown) {
           if (_homeViewer == null) {
             _connectHome(h.hostIp, h.port);
           } else if (_awayViewer == null) {
@@ -296,7 +315,8 @@ class _LiveViewScreenState
       }
     };
 
-    _discovery.hosts.addListener(_discoveryListener!);
+    _discovery.hosts
+        .addListener(_discoveryListener!);
   }
 
   void _stopDiscovery() {
@@ -350,17 +370,44 @@ class _LiveViewScreenState
     final kind = evt['kind']?.toString();
     final from = evt['from']?.toString();
 
+    // Quick message event: show overlay, don't log
+    if (kind == 'quick') {
+      final label =
+          evt['label']?.toString() ?? '';
+      if (label.isEmpty) return;
+      if (!mounted) return;
+      _quickTimer?.cancel();
+      setState(() {
+        _quickText = label;
+        _quickFrom = from;
+      });
+      _quickTimer =
+          Timer(const Duration(seconds: 3), () {
+        if (!mounted) return;
+        setState(() {
+          _quickText = null;
+          _quickFrom = null;
+        });
+      });
+      return;
+    }
+
     String line;
     if (kind == 'chat') {
-      final txt = evt['text']?.toString() ?? '';
-      line = (from == null) ? txt : '$from: $txt';
+      final txt =
+          evt['text']?.toString() ?? '';
+      line = (from == null)
+          ? txt
+          : '$from: $txt';
     } else if (kind == 'reaction') {
-      final r = evt['reaction']?.toString() ?? '';
+      final r =
+          evt['reaction']?.toString() ?? '';
       line = (from == null)
           ? 'Reaction: $r'
           : '$from reacted: $r';
     } else if (kind == 'mic') {
-      final enabled = evt['enabled'] == true;
+      final enabled =
+          evt['enabled'] == true;
       line =
           'Host mic is now ${enabled ? 'ON' : 'OFF'}';
     } else {
@@ -373,7 +420,8 @@ class _LiveViewScreenState
 
   void _toggleViewerAudio() {
     final enabled = !_viewerAudioEnabled;
-    setState(() => _viewerAudioEnabled = enabled);
+    setState(
+        () => _viewerAudioEnabled = enabled);
 
     final v = _homeViewer ?? _awayViewer;
     v?.setRemoteAudioEnabled(enabled);
@@ -383,36 +431,159 @@ class _LiveViewScreenState
     final goingFullscreen = !_isFullscreen;
 
     if (goingFullscreen) {
-      await SystemChrome.setEnabledSystemUIMode(
-          SystemUiMode.immersiveSticky);
-      await SystemChrome.setPreferredOrientations([
+      await SystemChrome
+          .setEnabledSystemUIMode(
+              SystemUiMode.immersiveSticky);
+      await SystemChrome
+          .setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
     } else {
-      await SystemChrome.setEnabledSystemUIMode(
-          SystemUiMode.edgeToEdge);
       await SystemChrome
-          .setPreferredOrientations(DeviceOrientation.values);
+          .setEnabledSystemUIMode(
+              SystemUiMode.edgeToEdge);
+      await SystemChrome
+          .setPreferredOrientations(
+              DeviceOrientation.values);
     }
 
     if (!mounted) return;
-    setState(() => _isFullscreen = goingFullscreen);
+    setState(
+        () => _isFullscreen = goingFullscreen);
   }
 
   void _toggleViewerLayoutMode() {
     setState(() {
       _viewerLayoutMode =
-          _viewerLayoutMode == _ViewerLayoutMode.single
+          _viewerLayoutMode ==
+                  _ViewerLayoutMode.single
               ? _ViewerLayoutMode.dual
               : _ViewerLayoutMode.single;
     });
   }
 
+  // Send quick message event (host or viewer)
+  void _sendQuick(String label) {
+    final trimmed = label.trim();
+    if (trimmed.isEmpty) return;
+
+    // For now, quick messages are mainly for hosts.
+    if (widget.isHost) {
+      final evt = {
+        'kind': 'quick',
+        'label': trimmed,
+        'from': liveHostSideToWire(_mySide),
+      };
+      LocalLiveService.instance
+          .broadcastHostEvent(
+        liveMatchId: widget.matchId,
+        event: evt,
+      );
+    } else {
+      // Optional: viewers can also send quick messages
+      final v = _homeViewer ?? _awayViewer;
+      v?.sendEvent({
+        'kind': 'quick',
+        'label': trimmed,
+      });
+    }
+  }
+
+  void _showQuickMessageSheet() {
+    const msgs = [
+      'Focus!',
+      'Calm down',
+      'We got this',
+      'One more goal!',
+      'Don\u2019t give up',
+      'Sorry',
+      'Unlucky',
+      'Too easy 😎',
+      'What a goal!',
+      'Ref?? 😡',
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Center(
+              child: ConstrainedBox(
+                constraints:
+                    const BoxConstraints(
+                        maxWidth: 520),
+                child: Glass(
+                  borderRadius: 24,
+                  padding:
+                      const EdgeInsets.all(
+                          16),
+                  child: Column(
+                    mainAxisSize:
+                        MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Quick Messages',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight:
+                              FontWeight
+                                  .w800,
+                        ),
+                      ),
+                      const SizedBox(
+                          height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: msgs
+                            .map(
+                              (m) =>
+                                  ActionChip(
+                                label:
+                                    Text(
+                                  m,
+                                  style:
+                                      const TextStyle(
+                                    color:
+                                        Colors.white,
+                                    fontSize:
+                                        12,
+                                  ),
+                                ),
+                                backgroundColor:
+                                    Colors
+                                        .white10,
+                                onPressed:
+                                    () {
+                                  Navigator.of(ctx)
+                                      .pop();
+                                  _sendQuick(
+                                      m);
+                                },
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isWide =
-        MediaQuery.of(context).size.width > 700;
+        MediaQuery.of(context).size.width >
+            700;
 
     // Viewer full-screen mode: only video + exit button
     if (!widget.isHost && _isFullscreen) {
@@ -421,19 +592,22 @@ class _LiveViewScreenState
         body: Stack(
           children: [
             Positioned.fill(
-              child: _buildStreamArea(context),
+              child: _buildStreamArea(
+                  context),
             ),
             Positioned(
               top: 16,
               left: 16,
               child: CircleAvatar(
-                backgroundColor: Colors.black54,
+                backgroundColor:
+                    Colors.black54,
                 child: IconButton(
                   icon: const Icon(
                     Icons.fullscreen_exit,
                     color: Colors.white,
                   ),
-                  onPressed: _toggleFullscreen,
+                  onPressed:
+                      _toggleFullscreen,
                   tooltip: 'Exit full screen',
                 ),
               ),
@@ -457,7 +631,9 @@ class _LiveViewScreenState
             IconButton(
               tooltip: 'Copy host info',
               onPressed:
-                  (_hostSession?.hostIp.value == null)
+                  (_hostSession?.hostIp
+                              .value ==
+                          null)
                       ? null
                       : () {
                           final ip =
@@ -467,12 +643,14 @@ class _LiveViewScreenState
                           final txt =
                               'Host: $ip:${_port}\nMatch: ${widget.matchId}';
                           Clipboard.setData(
-                              ClipboardData(text: txt));
-                          ScaffoldMessenger.of(context)
+                              ClipboardData(
+                                  text: txt));
+                          ScaffoldMessenger.of(
+                                  context)
                               .showSnackBar(
                             const SnackBar(
-                              content:
-                                  Text('Copied host info'),
+                              content: Text(
+                                  'Copied host info'),
                             ),
                           );
                         },
@@ -482,16 +660,26 @@ class _LiveViewScreenState
       ),
       body: SafeArea(
         child: LayoutBuilder(
-          builder: (context, constraints) {
-            if (constraints.maxWidth > 700) {
+          builder:
+              (context, constraints) {
+            if (constraints.maxWidth >
+                700) {
               return Padding(
-                padding: const EdgeInsets.all(16),
-                child: _buildWideLayout(context),
+                padding:
+                    const EdgeInsets.all(
+                        16),
+                child:
+                    _buildWideLayout(
+                        context),
               );
             }
             return Padding(
-              padding: const EdgeInsets.all(16),
-              child: _buildMobileLayout(context),
+              padding:
+                  const EdgeInsets.all(
+                      16),
+              child:
+                  _buildMobileLayout(
+                      context),
             );
           },
         ),
@@ -499,11 +687,14 @@ class _LiveViewScreenState
     );
   }
 
-  Widget _buildWideLayout(BuildContext context) {
+  Widget _buildWideLayout(
+      BuildContext context) {
     final allowTextInput =
-        !widget.isHost && _viewerChatEnabled;
+        !widget.isHost &&
+            _viewerChatEnabled;
     final allowReactions =
-        widget.isHost || _viewerReactionsEnabled;
+        widget.isHost ||
+            _viewerReactionsEnabled;
 
     return Row(
       children: [
@@ -512,8 +703,11 @@ class _LiveViewScreenState
           child: Column(
             children: [
               Expanded(
-                  child: _buildStreamArea(context)),
-              const SizedBox(height: 12),
+                child: _buildStreamArea(
+                    context),
+              ),
+              const SizedBox(
+                  height: 12),
               _buildControls(context),
             ],
           ),
@@ -528,20 +722,25 @@ class _LiveViewScreenState
             chatController: _chat,
             onSend: _send,
             onReaction: _react,
-            allowTextInput: allowTextInput,
-            allowReactions: allowReactions,
+            allowTextInput:
+                allowTextInput,
+            allowReactions:
+                allowReactions,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildMobileLayout(BuildContext context) {
+  Widget _buildMobileLayout(
+      BuildContext context) {
     final media = MediaQuery.of(context);
     final allowTextInput =
-        !widget.isHost && _viewerChatEnabled;
+        !widget.isHost &&
+            _viewerChatEnabled;
     final allowReactions =
-        widget.isHost || _viewerReactionsEnabled;
+        widget.isHost ||
+            _viewerReactionsEnabled;
 
     // Chat height responsive to screen height
     final maxHeight = media.size.height;
@@ -556,40 +755,48 @@ class _LiveViewScreenState
     return Column(
       children: [
         Expanded(
-          child: _buildStreamArea(context),
+          child: _buildStreamArea(
+              context),
         ),
         const SizedBox(height: 8),
         _buildControls(context),
         const SizedBox(height: 8),
         AnimatedContainer(
           duration:
-              const Duration(milliseconds: 200),
+              const Duration(
+                  milliseconds: 200),
           height: chatHeight,
           padding: EdgeInsets.only(
-              bottom: media.viewInsets.bottom),
+              bottom:
+                  media.viewInsets.bottom),
           child: _ChatOverlay(
             minimized: _chatMinimized,
             onToggleMinimize: () {
               setState(() =>
-                  _chatMinimized = !_chatMinimized);
+                  _chatMinimized =
+                      !_chatMinimized);
             },
             messages: _messages,
             chatController: _chat,
             onSend: _send,
             onReaction: _react,
-            allowTextInput: allowTextInput,
-            allowReactions: allowReactions,
+            allowTextInput:
+                allowTextInput,
+            allowReactions:
+                allowReactions,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildControls(BuildContext context) {
+  Widget _buildControls(
+      BuildContext context) {
     if (_errorText != null) {
       return Glass(
         borderRadius: 18,
-        padding: const EdgeInsets.all(12),
+        padding:
+            const EdgeInsets.all(12),
         child: Text(
           'Error: $_errorText',
           style: const TextStyle(
@@ -606,31 +813,44 @@ class _LiveViewScreenState
 
       return Glass(
         borderRadius: 18,
-        padding: const EdgeInsets.all(12),
+        padding:
+            const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment:
-              CrossAxisAlignment.stretch,
+              CrossAxisAlignment
+                  .stretch,
           children: [
             if (started) ...[
-              ValueListenableBuilder<String?>(
-                valueListenable: host.hostIp,
-                builder: (_, ip, __) => Text(
+              ValueListenableBuilder<
+                  String?>(
+                valueListenable:
+                    host.hostIp,
+                builder:
+                    (_, ip, __) =>
+                        Text(
                   'Host: ${(ip ?? '...')}:${_port} • side: ${liveHostSideToWire(_mySide)}',
-                  style: const TextStyle(
-                    color: Colors.white70,
+                  style:
+                      const TextStyle(
+                    color:
+                        Colors.white70,
                     fontSize: 12,
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(
+                  height: 8),
             ],
             Row(
               children: [
                 Expanded(
-                  child: FilledButton.icon(
-                    onPressed:
-                        _busy || started ? null : _startHost,
-                    icon: const Icon(Icons.cast),
+                  child:
+                      FilledButton.icon(
+                    onPressed: _busy ||
+                            started
+                        ? null
+                        : _startHost,
+                    icon: const Icon(
+                        Icons.cast),
                     label: Text(
                       _busy
                           ? 'Starting...'
@@ -640,44 +860,56 @@ class _LiveViewScreenState
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(
+                    width: 10),
                 Expanded(
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton
+                      .icon(
                     onPressed: _busy
                         ? null
                         : () async {
                             setState(() =>
-                                _busy = true);
+                                _busy =
+                                    true);
                             await LocalLiveService
                                 .instance
                                 .stopHostSession(
                               liveMatchId:
-                                  widget.matchId,
+                                  widget
+                                      .matchId,
                             );
                             if (mounted) {
                               setState(() =>
-                                  _busy = false);
+                                  _busy =
+                                      false);
                               setState(() =>
-                                  _hostSession = null);
+                                  _hostSession =
+                                      null);
                               await _stopOverlayBubble();
                             }
                           },
-                    icon: const Icon(Icons.stop),
-                    label: const Text('Stop'),
+                    icon: const Icon(
+                        Icons.stop),
+                    label:
+                        const Text(
+                            'Stop'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(
+                height: 10),
             Row(
               children: [
                 if (started)
-                  ValueListenableBuilder<bool>(
+                  ValueListenableBuilder<
+                      bool>(
                     valueListenable:
                         host.micEnabled,
-                    builder:
-                        (context, enabled, _) {
-                      return IconButton.filled(
+                    builder: (context,
+                        enabled, _) {
+                      return IconButton
+                          .filled(
                         onPressed: () =>
                             host.setMicEnabled(
                                 !enabled),
@@ -696,20 +928,26 @@ class _LiveViewScreenState
                         ),
                         icon: Icon(
                           enabled
-                              ? Icons.mic
-                              : Icons.mic_off,
-                          color: Colors.white,
+                              ? Icons
+                                  .mic
+                              : Icons
+                                  .mic_off,
+                          color:
+                              Colors.white,
                         ),
                       );
                     },
                   ),
                 if (started)
-                  const SizedBox(width: 8),
+                  const SizedBox(
+                      width: 8),
                 Expanded(
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton
+                      .icon(
                     onPressed: () =>
                         BatteryOptimizationGuide
-                            .show(context),
+                            .show(
+                                context),
                     icon: const Icon(Icons
                         .battery_alert_outlined),
                     label: const Text(
@@ -718,6 +956,29 @@ class _LiveViewScreenState
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment:
+                  Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed:
+                    _showQuickMessageSheet,
+                icon: const Icon(
+                  Icons
+                      .chat_bubble_outline,
+                  color:
+                      Colors.cyanAccent,
+                  size: 18,
+                ),
+                label: const Text(
+                  'Quick message',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -734,7 +995,8 @@ class _LiveViewScreenState
         : Colors.redAccent;
 
     final isDual =
-        _viewerLayoutMode == _ViewerLayoutMode.dual;
+        _viewerLayoutMode ==
+            _ViewerLayoutMode.dual;
 
     return Glass(
       borderRadius: 18,
@@ -746,10 +1008,13 @@ class _LiveViewScreenState
             onPressed: _viewerVoiceEnabled
                 ? _toggleViewerAudio
                 : null,
-            style: IconButton.styleFrom(
-              backgroundColor: _viewerVoiceEnabled
-                  ? iconColor.withOpacity(0.3)
-                  : Colors.white12,
+            style: IconButton
+                .styleFrom(
+              backgroundColor:
+                  _viewerVoiceEnabled
+                      ? iconColor
+                          .withOpacity(0.3)
+                      : Colors.white12,
             ),
             icon: Icon(
               icon,
@@ -764,9 +1029,12 @@ class _LiveViewScreenState
           const SizedBox(width: 10),
           // Layout: single vs dual
           IconButton.filled(
-            onPressed: _toggleViewerLayoutMode,
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white12,
+            onPressed:
+                _toggleViewerLayoutMode,
+            style: IconButton
+                .styleFrom(
+              backgroundColor:
+                  Colors.white12,
             ),
             icon: Icon(
               isDual
@@ -774,19 +1042,24 @@ class _LiveViewScreenState
                   : Icons.view_week,
               color: Colors.white,
             ),
-            tooltip:
-                isDual ? 'Focus one screen' : 'Show both screens',
+            tooltip: isDual
+                ? 'Focus one screen'
+                : 'Show both screens',
           ),
           const SizedBox(width: 10),
           // Full-screen toggle
           IconButton.filled(
-            onPressed: _toggleFullscreen,
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white12,
+            onPressed:
+                _toggleFullscreen,
+            style: IconButton
+                .styleFrom(
+              backgroundColor:
+                  Colors.white12,
             ),
             icon: Icon(
               _isFullscreen
-                  ? Icons.fullscreen_exit
+                  ? Icons
+                      .fullscreen_exit
                   : Icons.fullscreen,
               color: Colors.white,
             ),
@@ -805,13 +1078,17 @@ class _LiveViewScreenState
                       await _stopAll();
                       if (mounted) {
                         setState(() =>
-                            _busy = false);
-                        Navigator.maybePop(
-                            context);
+                            _busy =
+                                false);
+                        Navigator
+                            .maybePop(
+                                context);
                       }
                     },
-              icon: const Icon(Icons.logout),
-              label: const Text('Leave'),
+              icon: const Icon(
+                  Icons.logout),
+              label: const Text(
+                  'Leave'),
             ),
           ),
         ],
@@ -819,9 +1096,13 @@ class _LiveViewScreenState
     );
   }
 
-  Widget _buildStreamArea(BuildContext context) {
+  Widget _buildStreamArea(
+      BuildContext context) {
+    Widget base;
+
     // HOST preview (unchanged layout)
-    if (widget.isHost && _hostSession != null) {
+    if (widget.isHost &&
+        _hostSession != null) {
       final host = _hostSession!;
       final mySide = _mySide;
 
@@ -834,9 +1115,11 @@ class _LiveViewScreenState
               ? null
               : host.cameraRenderer;
 
-      return _GamerStreamLayout(
-        matchTitle: '$_homeLabel vs $_awayLabel',
-        screenRenderer: host.screenRenderer,
+      base = _GamerStreamLayout(
+        matchTitle:
+            '$_homeLabel vs $_awayLabel',
+        screenRenderer:
+            host.screenRenderer,
         camLeft: leftCam,
         camRight: rightCam,
         leftLabel: _homeLabel,
@@ -850,50 +1133,114 @@ class _LiveViewScreenState
                 ? 'Waiting…'
                 : null,
         primary: _primary,
-        onTapLeft: () => setState(
-            () => _primary = _PrimarySide.home),
-        onTapRight: () => setState(
-            () => _primary = _PrimarySide.away),
+        onTapLeft: () =>
+            setState(() =>
+                _primary =
+                    _PrimarySide.home),
+        onTapRight: () =>
+            setState(() =>
+                _primary =
+                    _PrimarySide.away),
+      );
+    } else {
+      // VIEWER mode
+      final primaryScreen =
+          (_primary == _PrimarySide.home)
+              ? _homeViewer
+                  ?.screenRenderer
+              : _awayViewer
+                  ?.screenRenderer;
+
+      if (_viewerLayoutMode ==
+          _ViewerLayoutMode.single) {
+        // Old gamer layout: one main screen + 2 cams
+        base = _GamerStreamLayout(
+          matchTitle:
+              '$_homeLabel vs $_awayLabel',
+          screenRenderer:
+              primaryScreen,
+          camLeft: _homeViewer
+              ?.cameraRenderer,
+          camRight: _awayViewer
+              ?.cameraRenderer,
+          leftLabel: _homeLabel,
+          rightLabel: _awayLabel,
+          leftHint: (_homeViewer ==
+                  null)
+              ? 'Waiting…'
+              : null,
+          rightHint: (_awayViewer ==
+                  null)
+              ? 'Waiting…'
+              : null,
+          primary: _primary,
+          onTapLeft: () =>
+              setState(() {
+            _primary =
+                _PrimarySide.home;
+          }),
+          onTapRight: () =>
+              setState(() {
+            _primary =
+                _PrimarySide.away;
+          }),
+        );
+      } else {
+        // Dual layout: both screens + both cams
+        base = _DualViewerStreamLayout(
+          matchTitle:
+              '$_homeLabel vs $_awayLabel',
+          homeScreen:
+              _homeViewer
+                  ?.screenRenderer,
+          awayScreen:
+              _awayViewer
+                  ?.screenRenderer,
+          homeCam:
+              _homeViewer
+                  ?.cameraRenderer,
+          awayCam:
+              _awayViewer
+                  ?.cameraRenderer,
+          homeLabel: _homeLabel,
+          awayLabel: _awayLabel,
+          onTapHomeScreen: () {
+            // tap HOME in dual -> switch to single HOME + auto full-screen
+            setState(() {
+              _primary =
+                  _PrimarySide.home;
+              _viewerLayoutMode =
+                  _ViewerLayoutMode.single;
+            });
+            _toggleFullscreen();
+          },
+          onTapAwayScreen: () {
+            // tap AWAY in dual -> switch to single AWAY + auto full-screen
+            setState(() {
+              _primary =
+                  _PrimarySide.away;
+              _viewerLayoutMode =
+                  _ViewerLayoutMode.single;
+            });
+            _toggleFullscreen();
+          },
+        );
+      }
+    }
+
+    if (_quickText != null) {
+      return Stack(
+        children: [
+          base,
+          _QuickMessageOverlay(
+            text: _quickText!,
+            from: _quickFrom,
+          ),
+        ],
       );
     }
 
-    // VIEWER mode
-    final primaryScreen =
-        (_primary == _PrimarySide.home)
-            ? _homeViewer?.screenRenderer
-            : _awayViewer?.screenRenderer;
-
-    if (_viewerLayoutMode == _ViewerLayoutMode.single) {
-      // Old gamer layout: one main screen + 2 cams
-      return _GamerStreamLayout(
-        matchTitle: '$_homeLabel vs $_awayLabel',
-        screenRenderer: primaryScreen,
-        camLeft: _homeViewer?.cameraRenderer,
-        camRight: _awayViewer?.cameraRenderer,
-        leftLabel: _homeLabel,
-        rightLabel: _awayLabel,
-        leftHint:
-            (_homeViewer == null) ? 'Waiting…' : null,
-        rightHint:
-            (_awayViewer == null) ? 'Waiting…' : null,
-        primary: _primary,
-        onTapLeft: () => setState(
-            () => _primary = _PrimarySide.home),
-        onTapRight: () => setState(
-            () => _primary = _PrimarySide.away),
-      );
-    }
-
-    // Dual layout: both screens + both cams
-    return _DualViewerStreamLayout(
-      matchTitle: '$_homeLabel vs $_awayLabel',
-      homeScreen: _homeViewer?.screenRenderer,
-      awayScreen: _awayViewer?.screenRenderer,
-      homeCam: _homeViewer?.cameraRenderer,
-      awayCam: _awayViewer?.cameraRenderer,
-      homeLabel: _homeLabel,
-      awayLabel: _awayLabel,
-    );
+    return base;
   }
 
   void _send() {
@@ -943,7 +1290,90 @@ class _LiveViewScreenState
   }
 }
 
-class _DualViewerStreamLayout extends StatelessWidget {
+class _QuickMessageOverlay
+    extends StatelessWidget {
+  const _QuickMessageOverlay({
+    required this.text,
+    this.from,
+  });
+
+  final String text;
+  final String? from;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: true,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Padding(
+          padding:
+              const EdgeInsets.only(
+                  top: 24),
+          child: Glass(
+            borderRadius: 24,
+            padding:
+                const EdgeInsets
+                    .symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
+            child: Row(
+              mainAxisSize:
+                  MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.chat_bubble,
+                  color: Colors
+                      .cyanAccent,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  mainAxisSize:
+                      MainAxisSize.min,
+                  crossAxisAlignment:
+                      CrossAxisAlignment
+                          .start,
+                  children: [
+                    if (from != null)
+                      Text(
+                        from!,
+                        style:
+                            const TextStyle(
+                          color:
+                              Colors.white70,
+                          fontSize: 10,
+                          fontWeight:
+                              FontWeight
+                                  .bold,
+                        ),
+                      ),
+                    Text(
+                      text,
+                      style:
+                          const TextStyle(
+                        color:
+                            Colors.white,
+                        fontSize: 13,
+                        fontWeight:
+                            FontWeight
+                                .w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DualViewerStreamLayout
+    extends StatelessWidget {
   const _DualViewerStreamLayout({
     required this.matchTitle,
     required this.homeScreen,
@@ -952,6 +1382,8 @@ class _DualViewerStreamLayout extends StatelessWidget {
     required this.awayCam,
     required this.homeLabel,
     required this.awayLabel,
+    required this.onTapHomeScreen,
+    required this.onTapAwayScreen,
   });
 
   final String matchTitle;
@@ -961,6 +1393,9 @@ class _DualViewerStreamLayout extends StatelessWidget {
   final RTCVideoRenderer? awayCam;
   final String homeLabel;
   final String awayLabel;
+
+  final VoidCallback onTapHomeScreen;
+  final VoidCallback onTapAwayScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -981,21 +1416,26 @@ class _DualViewerStreamLayout extends StatelessWidget {
             child: Glass(
               borderRadius: 999,
               padding:
-                  const EdgeInsets.symmetric(
+                  const EdgeInsets
+                      .symmetric(
                 horizontal: 10,
                 vertical: 6,
               ),
               child: Text(
                 matchTitle,
-                textAlign: TextAlign.center,
+                textAlign:
+                    TextAlign.center,
                 maxLines: 1,
                 overflow:
-                    TextOverflow.ellipsis,
+                    TextOverflow
+                        .ellipsis,
                 style: const TextStyle(
-                  color: Colors.white70,
+                  color:
+                      Colors.white70,
                   fontSize: 12,
                   fontWeight:
-                      FontWeight.w700,
+                      FontWeight
+                          .w700,
                 ),
               ),
             ),
@@ -1005,63 +1445,84 @@ class _DualViewerStreamLayout extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius:
-                        BorderRadius.circular(
-                            16),
-                    child: Container(
-                      color: Colors.black
-                          .withOpacity(0.35),
-                      child: hasHomeScreen
-                          ? RTCVideoView(
-                              homeScreen!,
-                              objectFit: RTCVideoViewObjectFit
-                                  .RTCVideoViewObjectFitContain,
-                            )
-                          : Center(
-                              child: Text(
-                                'Waiting for $homeLabel screen…',
-                                style: Theme.of(
-                                        context)
-                                    .textTheme
-                                    .titleSmall
-                                    ?.copyWith(
-                                      color: Colors
-                                          .white70,
+                  child:
+                      GestureDetector(
+                    onTap:
+                        onTapHomeScreen,
+                    child: ClipRRect(
+                      borderRadius:
+                          BorderRadius
+                              .circular(
+                                  16),
+                      child:
+                          Container(
+                        color: Colors
+                            .black
+                            .withOpacity(
+                                0.35),
+                        child:
+                            hasHomeScreen
+                                ? RTCVideoView(
+                                    homeScreen!,
+                                    objectFit: RTCVideoViewObjectFit
+                                        .RTCVideoViewObjectFitContain,
+                                  )
+                                : Center(
+                                    child:
+                                        Text(
+                                      'Waiting for $homeLabel screen…',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            color:
+                                                Colors.white70,
+                                          ),
                                     ),
-                              ),
-                            ),
+                                  ),
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(
+                    width: 8),
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius:
-                        BorderRadius.circular(
-                            16),
-                    child: Container(
-                      color: Colors.black
-                          .withOpacity(0.35),
-                      child: hasAwayScreen
-                          ? RTCVideoView(
-                              awayScreen!,
-                              objectFit: RTCVideoViewObjectFit
-                                  .RTCVideoViewObjectFitContain,
-                            )
-                          : Center(
-                              child: Text(
-                                'Waiting for $awayLabel screen…',
-                                style: Theme.of(
-                                        context)
-                                    .textTheme
-                                    .titleSmall
-                                    ?.copyWith(
-                                      color: Colors
-                                          .white70,
+                  child:
+                      GestureDetector(
+                    onTap:
+                        onTapAwayScreen,
+                    child: ClipRRect(
+                      borderRadius:
+                          BorderRadius
+                              .circular(
+                                  16),
+                      child:
+                          Container(
+                        color: Colors
+                            .black
+                            .withOpacity(
+                                0.35),
+                        child:
+                            hasAwayScreen
+                                ? RTCVideoView(
+                                    awayScreen!,
+                                    objectFit: RTCVideoViewObjectFit
+                                        .RTCVideoViewObjectFitContain,
+                                  )
+                                : Center(
+                                    child:
+                                        Text(
+                                      'Waiting for $awayLabel screen…',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            color:
+                                                Colors.white70,
+                                          ),
                                     ),
-                              ),
-                            ),
+                                  ),
+                      ),
                     ),
                   ),
                 ),
@@ -1071,13 +1532,16 @@ class _DualViewerStreamLayout extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment:
-                MainAxisAlignment.spaceBetween,
+                MainAxisAlignment
+                    .spaceBetween,
             children: [
               _CircularCam(
                 label: homeLabel,
                 renderer: homeCam,
-                hint: (homeCam == null ||
-                        homeCam!.srcObject ==
+                hint: (homeCam ==
+                            null ||
+                        homeCam!
+                                .srcObject ==
                             null)
                     ? 'Cam…'
                     : null,
@@ -1087,8 +1551,10 @@ class _DualViewerStreamLayout extends StatelessWidget {
               _CircularCam(
                 label: awayLabel,
                 renderer: awayCam,
-                hint: (awayCam == null ||
-                        awayCam!.srcObject ==
+                hint: (awayCam ==
+                            null ||
+                        awayCam!
+                                .srcObject ==
                             null)
                     ? 'Cam…'
                     : null,
@@ -1137,7 +1603,8 @@ class _GamerStreamLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasScreen =
         screenRenderer != null &&
-            screenRenderer!.srcObject != null;
+            screenRenderer!.srcObject !=
+                null;
 
     return Glass(
       borderRadius: 24,
@@ -1147,7 +1614,8 @@ class _GamerStreamLayout extends StatelessWidget {
           Positioned.fill(
             child: ClipRRect(
               borderRadius:
-                  BorderRadius.circular(18),
+                  BorderRadius.circular(
+                      18),
               child: Container(
                 color: Colors.black
                     .withOpacity(0.35),
@@ -1160,7 +1628,8 @@ class _GamerStreamLayout extends StatelessWidget {
                     : Center(
                         child: Text(
                           'Waiting for screen…',
-                          style: Theme.of(context)
+                          style: Theme.of(
+                                  context)
                               .textTheme
                               .titleSmall
                               ?.copyWith(
@@ -1181,20 +1650,27 @@ class _GamerStreamLayout extends StatelessWidget {
               child: Glass(
                 borderRadius: 999,
                 padding:
-                    const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6),
+                    const EdgeInsets
+                        .symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 child: Text(
                   matchTitle,
-                  textAlign: TextAlign.center,
+                  textAlign:
+                      TextAlign.center,
                   maxLines: 1,
                   overflow:
-                      TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white70,
+                      TextOverflow
+                          .ellipsis,
+                  style:
+                      const TextStyle(
+                    color:
+                        Colors.white70,
                     fontSize: 12,
                     fontWeight:
-                        FontWeight.w700,
+                        FontWeight
+                            .w700,
                   ),
                 ),
               ),
@@ -1208,7 +1684,8 @@ class _GamerStreamLayout extends StatelessWidget {
               renderer: camLeft,
               hint: leftHint,
               selected:
-                  primary == _PrimarySide.home,
+                  primary ==
+                      _PrimarySide.home,
               onTap: onTapLeft,
             ),
           ),
@@ -1220,7 +1697,8 @@ class _GamerStreamLayout extends StatelessWidget {
               renderer: camRight,
               hint: rightHint,
               selected:
-                  primary == _PrimarySide.away,
+                  primary ==
+                      _PrimarySide.away,
               onTap: onTapRight,
             ),
           ),
@@ -1249,24 +1727,30 @@ class _CircularCam extends StatelessWidget {
   Widget build(BuildContext context) {
     final ready =
         renderer != null &&
-            renderer!.srcObject != null;
+            renderer!.srcObject !=
+                null;
 
     return Opacity(
       opacity: 0.86,
       child: InkWell(
         onTap: onTap,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize:
+              MainAxisSize.min,
           children: [
             Container(
               width: 64,
               height: 64,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
+              decoration:
+                  BoxDecoration(
+                shape:
+                    BoxShape.circle,
                 border: Border.all(
                   color: selected
-                      ? Colors.cyanAccent
-                          .withOpacity(0.95)
+                      ? Colors
+                          .cyanAccent
+                          .withOpacity(
+                              0.95)
                       : Colors.white24,
                   width: 2,
                 ),
@@ -1282,43 +1766,59 @@ class _CircularCam extends StatelessWidget {
                       )
                     : Center(
                         child: Text(
-                          hint ?? '…',
+                          hint ??
+                              '…',
                           textAlign:
-                              TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white54,
+                              TextAlign
+                                  .center,
+                          style:
+                              const TextStyle(
+                            color: Colors
+                                .white54,
                             fontSize: 11,
                           ),
                         ),
                       ),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(
+                height: 6),
             Container(
               padding:
-                  const EdgeInsets.symmetric(
+                  const EdgeInsets
+                      .symmetric(
                 horizontal: 10,
                 vertical: 4,
               ),
-              decoration: BoxDecoration(
+              decoration:
+                  BoxDecoration(
                 color: Colors.black
-                    .withOpacity(0.30),
+                    .withOpacity(
+                        0.30),
                 borderRadius:
-                    BorderRadius.circular(999),
-                border: Border.all(
-                  color: Colors.white24,
+                    BorderRadius
+                        .circular(
+                            999),
+                border:
+                    Border.all(
+                  color:
+                      Colors.white24,
                 ),
               ),
               child: Text(
                 label,
                 maxLines: 1,
                 overflow:
-                    TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white70,
+                    TextOverflow
+                        .ellipsis,
+                style:
+                    const TextStyle(
+                  color: Colors
+                      .white70,
                   fontSize: 10,
                   fontWeight:
-                      FontWeight.w700,
+                      FontWeight
+                          .w700,
                 ),
               ),
             ),
@@ -1358,10 +1858,12 @@ class _ChatOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Glass(
-      padding: const EdgeInsets.all(12),
+      padding:
+          const EdgeInsets.all(12),
       borderRadius: 22,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize:
+            MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -1369,8 +1871,11 @@ class _ChatOverlay extends StatelessWidget {
                 child: Text(
                   'Chat',
                   style: TextStyle(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w900,
+                    color:
+                        Colors.white70,
+                    fontWeight:
+                        FontWeight
+                            .w900,
                     fontSize: 12,
                   ),
                 ),
@@ -1379,12 +1884,16 @@ class _ChatOverlay extends StatelessWidget {
                 tooltip: minimized
                     ? 'Expand chat'
                     : 'Minimize chat',
-                onPressed: onToggleMinimize,
+                onPressed:
+                    onToggleMinimize,
                 icon: Icon(
                   minimized
-                      ? Icons.keyboard_arrow_up
-                      : Icons.keyboard_arrow_down,
-                  color: Colors.white70,
+                      ? Icons
+                          .keyboard_arrow_up
+                      : Icons
+                          .keyboard_arrow_down,
+                  color:
+                      Colors.white70,
                 ),
               ),
             ],
@@ -1392,20 +1901,30 @@ class _ChatOverlay extends StatelessWidget {
           if (!minimized) ...[
             SizedBox(
               height: 120,
-              child: ListView.builder(
+              child:
+                  ListView.builder(
                 reverse: true,
-                itemCount: messages.length,
-                itemBuilder: (context, i) {
-                  final msg = messages[
-                      messages.length - 1 - i];
+                itemCount:
+                    messages.length,
+                itemBuilder:
+                    (context, i) {
+                  final msg =
+                      messages[
+                          messages.length -
+                              1 -
+                              i];
                   return Padding(
                     padding:
-                        const EdgeInsets.only(
-                            bottom: 6),
+                        const EdgeInsets
+                            .only(
+                                bottom:
+                                    6),
                     child: Text(
                       msg,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style:
+                          const TextStyle(
+                        color:
+                            Colors.white,
                         fontSize: 12,
                       ),
                     ),
@@ -1413,7 +1932,8 @@ class _ChatOverlay extends StatelessWidget {
                 },
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(
+                height: 8),
             if (allowReactions)
               Row(
                 children: [
@@ -1427,13 +1947,20 @@ class _ChatOverlay extends StatelessWidget {
                   ].map(
                     (e) => Padding(
                       padding:
-                          const EdgeInsets.only(
-                              right: 8),
-                      child: IconButton(
+                          const EdgeInsets
+                              .only(
+                                  right:
+                                      8),
+                      child:
+                          IconButton(
                         onPressed: () =>
-                            onReaction(e.$1),
-                        icon: Icon(e.$2, size: 20),
-                        color: Colors.cyanAccent,
+                            onReaction(
+                                e.$1),
+                        icon: Icon(e.$2,
+                            size:
+                                20),
+                        color: Colors
+                            .cyanAccent,
                       ),
                     ),
                   ),
@@ -1443,7 +1970,8 @@ class _ChatOverlay extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                    child: TextField(
+                    child:
+                        TextField(
                       controller:
                           chatController,
                       style:
@@ -1455,15 +1983,19 @@ class _ChatOverlay extends StatelessWidget {
                         hintText:
                             'Type a message',
                       ),
-                      onSubmitted: (_) =>
-                          onSend(),
+                      onSubmitted:
+                          (_) =>
+                              onSend(),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(
+                      width: 8),
                   FilledButton(
-                    onPressed: onSend,
+                    onPressed:
+                        onSend,
                     child:
-                        const Text('Send'),
+                        const Text(
+                            'Send'),
                   ),
                 ],
               ),
