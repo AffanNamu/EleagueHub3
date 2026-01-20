@@ -31,18 +31,10 @@ class LiveViewScreen extends ConsumerStatefulWidget {
 
   final String matchId;
   final bool isHost;
-
-  /// Viewer only: initial host IP
   final String? hostAddress;
-
   final int? port;
-
-  /// Optional match labels
   final String? homeName;
   final String? awayName;
-
-  /// For host: 'home'|'away'|'unknown'
-  /// For viewer: initial host side hint (if joining from discovery)
   final String? hostSide;
 
   @override
@@ -58,11 +50,9 @@ class _LiveViewScreenState
   final _chat = TextEditingController();
   final _messages = <String>['Welcome to the live match.'];
 
-  // Host session (when this device is hosting)
   LocalLiveHostSession? _hostSession;
   StreamSubscription? _hostEventsSub;
 
-  // Viewer sessions (when this device is watching) — can connect to BOTH players
   LocalLiveViewerSession? _homeViewer;
   LocalLiveViewerSession? _awayViewer;
   StreamSubscription? _homeEventsSub;
@@ -74,9 +64,7 @@ class _LiveViewScreenState
   bool _busy = false;
   String? _errorText;
 
-  // Chat collapse (mobile)
   bool _chatMinimized = false;
-
   _PrimarySide _primary = _PrimarySide.home;
 
   // Viewer permissions (admin/global controlled)
@@ -105,12 +93,9 @@ class _LiveViewScreenState
   void initState() {
     super.initState();
 
-    // Load viewer live settings from prefs
     final prefs = ref.read(prefsServiceProvider);
-    _viewerChatEnabled =
-        prefs.liveViewerChatEnabled();
-    _viewerVoiceEnabled =
-        prefs.liveViewerVoiceEnabled();
+    _viewerChatEnabled = prefs.liveViewerChatEnabled();
+    _viewerVoiceEnabled = prefs.liveViewerVoiceEnabled();
     _viewerReactionsEnabled =
         prefs.liveViewerReactionsEnabled();
     _viewerAudioEnabled = _viewerVoiceEnabled;
@@ -157,6 +142,9 @@ class _LiveViewScreenState
 
   Future<void> _maybeStartOverlayBubble() async {
     if (!Platform.isAndroid) return;
+    final prefs = ref.read(prefsServiceProvider);
+    if (!prefs.liveOverlayEnabled()) return;
+
     try {
       final bool granted =
           await _liveChannel.invokeMethod<bool>(
@@ -266,9 +254,7 @@ class _LiveViewScreenState
           .toList();
       if (list.isEmpty) return;
 
-      // Connect missing side(s)
       for (final h in list) {
-        // Avoid reconnecting to same endpoint
         final endpoint = '${h.hostIp}:${h.port}';
         final homeEndpoint = _homeViewer == null
             ? null
@@ -286,7 +272,6 @@ class _LiveViewScreenState
             _awayViewer == null) {
           _connectAway(h.hostIp, h.port);
         } else if (h.side == LiveHostSide.unknown) {
-          // best-effort fill
           if (_homeViewer == null) {
             _connectHome(h.hostIp, h.port);
           } else if (_awayViewer == null) {
@@ -368,7 +353,6 @@ class _LiveViewScreenState
     setState(() => _messages.add(line));
   }
 
-  // Viewer audio toggle
   void _toggleViewerAudio() {
     final enabled = !_viewerAudioEnabled;
     setState(() => _viewerAudioEnabled = enabled);
@@ -417,17 +401,30 @@ class _LiveViewScreenState
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: isWide
-              ? _buildWideLayout(context)
-              : _buildMobileLayout(context),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth > 700) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: _buildWideLayout(context),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: _buildMobileLayout(context),
+            );
+          },
         ),
       ),
     );
   }
 
   Widget _buildWideLayout(BuildContext context) {
+    final allowTextInput =
+        !widget.isHost && _viewerChatEnabled;
+    final allowReactions =
+        widget.isHost || _viewerReactionsEnabled;
+
     return Row(
       children: [
         Expanded(
@@ -450,10 +447,8 @@ class _LiveViewScreenState
             chatController: _chat,
             onSend: _send,
             onReaction: _react,
-            allowTextInput:
-                !widget.isHost && _viewerChatEnabled,
-            allowReactions:
-                widget.isHost || _viewerReactionsEnabled,
+            allowTextInput: allowTextInput,
+            allowReactions: allowReactions,
           ),
         ),
       ],
@@ -461,48 +456,46 @@ class _LiveViewScreenState
   }
 
   Widget _buildMobileLayout(BuildContext context) {
-    final inset =
-        MediaQuery.of(context).viewInsets.bottom;
+    final media = MediaQuery.of(context);
+    final allowTextInput =
+        !widget.isHost && _viewerChatEnabled;
+    final allowReactions =
+        widget.isHost || _viewerReactionsEnabled;
 
-    final chatHeight =
-        _chatMinimized ? 64.0 : 220.0;
-    const controlsReserved = 170.0;
-    const gap = 12.0;
+    // Chat height responsive to screen height
+    final maxHeight = media.size.height;
+    final expandedChatHeight =
+        maxHeight * 0.28; // ~28% of screen
+    final collapsedChatHeight = 56.0;
 
-    return Stack(
+    final chatHeight = _chatMinimized
+        ? collapsedChatHeight
+        : expandedChatHeight;
+
+    return Column(
       children: [
-        Positioned.fill(
-          child: Padding(
-            padding: const EdgeInsets.all(0).copyWith(
-              bottom:
-                  chatHeight + controlsReserved + (gap * 2) + inset,
-            ),
-            child: _buildStreamArea(context),
-          ),
+        Expanded(
+          child: _buildStreamArea(context),
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: chatHeight + gap + inset,
-          child: _buildControls(context),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: inset,
+        const SizedBox(height: 8),
+        _buildControls(context),
+        const SizedBox(height: 8),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           height: chatHeight,
+          padding:
+              EdgeInsets.only(bottom: media.viewInsets.bottom),
           child: _ChatOverlay(
             minimized: _chatMinimized,
-            onToggleMinimize: () => setState(
-                () => _chatMinimized = !_chatMinimized),
+            onToggleMinimize: () {
+              setState(() => _chatMinimized = !_chatMinimized);
+            },
             messages: _messages,
             chatController: _chat,
             onSend: _send,
             onReaction: _react,
-            allowTextInput:
-                !widget.isHost && _viewerChatEnabled,
-            allowReactions:
-                widget.isHost || _viewerReactionsEnabled,
+            allowTextInput: allowTextInput,
+            allowReactions: allowReactions,
           ),
         ),
       ],
@@ -516,7 +509,8 @@ class _LiveViewScreenState
         padding: const EdgeInsets.all(12),
         child: Text(
           'Error: $_errorText',
-          style: const TextStyle(color: Colors.redAccent),
+          style:
+              const TextStyle(color: Colors.redAccent),
         ),
       );
     }
@@ -771,13 +765,11 @@ class _LiveViewScreenState
     _chat.clear();
 
     if (!widget.isHost) {
-      // Viewer: send to any connected host (prefer home)
       final v = _homeViewer ?? _awayViewer;
       v?.sendChat(txt);
       return;
     }
 
-    // Host: broadcast to viewers
     final evt = {
       'kind': 'chat',
       'text': txt,
@@ -883,8 +875,6 @@ class _GamerStreamLayout extends StatelessWidget {
               ),
             ),
           ),
-
-          // Top center match title
           Positioned(
             top: 10,
             left: 92,
@@ -913,8 +903,6 @@ class _GamerStreamLayout extends StatelessWidget {
               ),
             ),
           ),
-
-          // Circular cams
           Positioned(
             top: 10,
             left: 10,
@@ -1065,7 +1053,7 @@ class _ChatOverlay extends StatelessWidget {
   final VoidCallback onSend;
   final void Function(String) onReaction;
 
-  /// If false: only show quick reactions, no text input (for host or when admin disabled viewer chat).
+  /// If false: only show quick reactions, no text input.
   final bool allowTextInput;
 
   /// If false: hide quick reactions row.
@@ -1079,7 +1067,6 @@ class _ChatOverlay extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Header row (always visible)
           Row(
             children: [
               const Expanded(
@@ -1106,7 +1093,6 @@ class _ChatOverlay extends StatelessWidget {
               ),
             ],
           ),
-
           if (!minimized) ...[
             SizedBox(
               height: 120,

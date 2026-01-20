@@ -23,6 +23,8 @@ class _SettingsScreenState
   bool _marketing = false;
   bool _matchReminders = true;
 
+  bool _overlayEnabled = true;
+
   @override
   void initState() {
     super.initState();
@@ -32,16 +34,18 @@ class _SettingsScreenState
   Future<void> _load() async {
     final prefs = ref.read(prefsServiceProvider);
     final map = await prefs.loadNotificationPrefs();
+    final overlay = prefs.liveOverlayEnabled();
     if (!mounted) return;
     setState(() {
       _enabled = map['enabled'] ?? true;
       _marketing = map['marketing'] ?? false;
       _matchReminders = map['matchReminders'] ?? true;
+      _overlayEnabled = overlay;
       _loading = false;
     });
   }
 
-  Future<void> _save() async {
+  Future<void> _saveNotifications() async {
     final prefs = ref.read(prefsServiceProvider);
     await prefs.saveNotificationPrefs(
       enabled: _enabled,
@@ -261,9 +265,8 @@ class _SettingsScreenState
                             onChanged: (v) async {
                               setState(
                                   () => _enabled = v);
-                              await _save();
+                              await _saveNotifications();
 
-                              // When enabling, show a test notification
                               if (v) {
                                 await NotificationService()
                                     .showTestNotification();
@@ -298,7 +301,7 @@ class _SettingsScreenState
                                     setState(() =>
                                         _matchReminders =
                                             v);
-                                    await _save();
+                                    await _saveNotifications();
                                   },
                           ),
                           SwitchListTile.adaptive(
@@ -326,10 +329,69 @@ class _SettingsScreenState
                                     setState(() =>
                                         _marketing =
                                             v);
-                                    await _save();
+                                    await _saveNotifications();
                                   },
                           ),
                         ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // LIVE OVERLAY BUBBLE CARD
+                Glass(
+                  borderRadius: 24,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Live overlay bubble',
+                          style: textTheme.titleMedium
+                              ?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Show a floating live audio icon on top of other apps (Android only).',
+                          style: textTheme.bodySmall
+                              ?.copyWith(
+                            color: Colors.white70,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile.adaptive(
+                          contentPadding:
+                              EdgeInsets.zero,
+                          activeColor: Colors.cyanAccent,
+                          title: const Text(
+                            'Floating audio icon',
+                            style: TextStyle(
+                              color: Colors.white,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Turn off if you don’t want the icon while gaming or watching.',
+                            style: TextStyle(
+                              color: Colors.white60,
+                              fontSize: 12,
+                            ),
+                          ),
+                          value: _overlayEnabled,
+                          onChanged: (v) async {
+                            setState(
+                                () => _overlayEnabled = v);
+                            final prefs =
+                                ref.read(prefsServiceProvider);
+                            await prefs
+                                .setLiveOverlayEnabled(v);
+                          },
+                        ),
                       ],
                     ),
                   ),

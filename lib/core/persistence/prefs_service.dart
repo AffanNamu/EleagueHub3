@@ -108,4 +108,11 @@ class PreferencesService {
       setBool('live_viewer_voice_enabled', value);
   Future<void> setLiveViewerReactionsEnabled(bool value) async =>
       setBool('live_viewer_reactions_enabled', value);
+
+  /// Live overlay bubble (floating icon) global flag
+  bool liveOverlayEnabled() =>
+      _sp.getBool('live_overlay_enabled') ?? true;
+
+  Future<void> setLiveOverlayEnabled(bool value) async =>
+      setBool('live_overlay_enabled', value);
 }
