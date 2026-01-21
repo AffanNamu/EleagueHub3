@@ -57,6 +57,9 @@ class _AddTeamsScreenState
     'Group H',
   ];
 
+  /// Inline error under bulk text field (e.g. max-team message)
+  String? _bulkError;
+
   /// Max teams allowed in this Add Teams session, based on league format.
   int get _maxTeamsForFormat {
     switch (widget.format) {
@@ -111,21 +114,15 @@ class _AddTeamsScreenState
 
     // Enforce max teams per format across saved + new
     if (totalCurrent >= _maxTeamsForFormat) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Maximum $_maxTeamsForFormat teams allowed for this format.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      setState(() {
+        _bulkError =
+            'Maximum $_maxTeamsForFormat teams allowed for this format.';
+      });
       return;
     }
 
     // Avoid duplicates in this session
-    if (_tempTeams.any((t) => t['name'] == trimmed)) {
-      return;
-    }
+    if (_tempTeams.any((t) => t['name'] == trimmed)) return;
 
     // Avoid duplicates vs existing saved teams (by name)
     if (_existingTeams.any(
@@ -144,6 +141,7 @@ class _AddTeamsScreenState
     }
 
     setState(() {
+      _bulkError = null; // clear previous inline error on success
       _tempTeams.add({
         'name': trimmed,
         'group': widget.format ==
@@ -742,6 +740,9 @@ class _AddTeamsScreenState
   }
 
   Widget _buildBulkEntry() {
+    final isShort =
+        MediaQuery.of(context).size.height < 700;
+
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(12),
@@ -860,13 +861,41 @@ class _AddTeamsScreenState
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          if (_bulkError != null) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment:
+                  Alignment.centerLeft,
+              child: Padding(
+                padding:
+                    const EdgeInsets.only(
+                  left: 4,
+                  right: 4,
+                  bottom: 2,
+                ),
+                child: Text(
+                  _bulkError!,
+                  style: const TextStyle(
+                    color: Colors.redAccent,
+                    fontSize: 11,
+                    fontWeight:
+                        FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 6),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () {
-                    _bulkController.clear();
+                    setState(() {
+                      _bulkController
+                          .clear();
+                      _bulkError = null;
+                    });
                   },
                   icon: const Icon(
                     Icons.clear_all,
@@ -884,6 +913,24 @@ class _AddTeamsScreenState
                       color:
                           Colors.white24,
                     ),
+                    padding:
+                        EdgeInsets
+                            .symmetric(
+                      horizontal: 8,
+                      vertical: isShort
+                          ? 4
+                          : 8,
+                    ),
+                    minimumSize:
+                        Size(0, isShort
+                            ? 34
+                            : 44),
+                    visualDensity:
+                        isShort
+                            ? VisualDensity
+                                .compact
+                            : VisualDensity
+                                .standard,
                   ),
                 ),
               ),
@@ -894,12 +941,27 @@ class _AddTeamsScreenState
                   style:
                       FilledButton.styleFrom(
                     minimumSize:
-                        const Size
-                            .fromHeight(44),
+                        Size(0, isShort
+                            ? 34
+                            : 44),
+                    padding:
+                        EdgeInsets
+                            .symmetric(
+                      horizontal: 8,
+                      vertical: isShort
+                          ? 4
+                          : 8,
+                    ),
                     backgroundColor:
                         Colors.white
                             .withOpacity(
                                 0.15),
+                    visualDensity:
+                        isShort
+                            ? VisualDensity
+                                .compact
+                            : VisualDensity
+                                .standard,
                   ),
                   icon: const Icon(
                     Icons
@@ -934,15 +996,15 @@ class _AddTeamsScreenState
                 const EdgeInsets.fromLTRB(
                     12, 4, 12, 0),
             child: Row(
-              children: [
-                const Icon(
+              children: const [
+                Icon(
                   Icons.groups,
                   size: 18,
                   color: Colors
                       .cyanAccent,
                 ),
-                const SizedBox(width: 8),
-                const Text(
+                SizedBox(width: 8),
+                Text(
                   'Step 2 · Review teams',
                   style: TextStyle(
                     color: Colors.white,
