@@ -39,14 +39,11 @@ class LiveViewScreen extends ConsumerStatefulWidget {
   final String? hostSide;
 
   @override
-  ConsumerState<LiveViewScreen> createState() =>
-      _LiveViewScreenState();
+  ConsumerState<LiveViewScreen> createState() => _LiveViewScreenState();
 }
 
-class _LiveViewScreenState
-    extends ConsumerState<LiveViewScreen> {
-  static const MethodChannel _liveChannel =
-      MethodChannel('local_live');
+class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
+  static const MethodChannel _liveChannel = MethodChannel('local_live');
 
   final _chat = TextEditingController();
   final _messages = <String>[
@@ -79,9 +76,11 @@ class _LiveViewScreenState
   bool _viewerAudioEnabled = true;
 
   // Viewer layout + full-screen
-  _ViewerLayoutMode _viewerLayoutMode =
-      _ViewerLayoutMode.single;
+  _ViewerLayoutMode _viewerLayoutMode = _ViewerLayoutMode.single;
   bool _isFullscreen = false;
+
+  // Host floating chat bubble state
+  bool _hostChatExpanded = false;
 
   // Quick message overlay
   Timer? _quickTimer;
@@ -91,16 +90,11 @@ class _LiveViewScreenState
   int get _port => widget.port ?? 8765;
 
   String get _homeLabel =>
-      (widget.homeName?.trim().isNotEmpty == true)
-          ? widget.homeName!.trim()
-          : 'HOME';
+      (widget.homeName?.trim().isNotEmpty == true) ? widget.homeName!.trim() : 'HOME';
   String get _awayLabel =>
-      (widget.awayName?.trim().isNotEmpty == true)
-          ? widget.awayName!.trim()
-          : 'AWAY';
+      (widget.awayName?.trim().isNotEmpty == true) ? widget.awayName!.trim() : 'AWAY';
 
-  LiveHostSide get _mySide =>
-      parseLiveHostSide(widget.hostSide);
+  LiveHostSide get _mySide => parseLiveHostSide(widget.hostSide);
 
   @override
   void initState() {
@@ -108,10 +102,8 @@ class _LiveViewScreenState
 
     final prefs = ref.read(prefsServiceProvider);
     _viewerChatEnabled = prefs.liveViewerChatEnabled();
-    _viewerVoiceEnabled =
-        prefs.liveViewerVoiceEnabled();
-    _viewerReactionsEnabled =
-        prefs.liveViewerReactionsEnabled();
+    _viewerVoiceEnabled = prefs.liveViewerVoiceEnabled();
+    _viewerReactionsEnabled = prefs.liveViewerReactionsEnabled();
     _viewerAudioEnabled = _viewerVoiceEnabled;
 
     if (!widget.isHost) {
@@ -128,10 +120,8 @@ class _LiveViewScreenState
   void dispose() {
     // reset system UI/orientation if we leave while full-screen
     if (_isFullscreen) {
-      SystemChrome.setEnabledSystemUIMode(
-          SystemUiMode.edgeToEdge);
-      SystemChrome
-          .setPreferredOrientations(DeviceOrientation.values);
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     }
 
     _quickTimer?.cancel();
@@ -146,8 +136,7 @@ class _LiveViewScreenState
 
   Future<void> _stopAll() async {
     if (widget.isHost) {
-      await LocalLiveService.instance
-          .stopHostSession(liveMatchId: widget.matchId);
+      await LocalLiveService.instance.stopHostSession(liveMatchId: widget.matchId);
       await _stopOverlayBubble();
       return;
     }
@@ -172,23 +161,18 @@ class _LiveViewScreenState
 
     try {
       final bool granted =
-          await _liveChannel.invokeMethod<bool>(
-                  'isOverlayPermissionGranted') ??
-              false;
+          await _liveChannel.invokeMethod<bool>('isOverlayPermissionGranted') ?? false;
       if (!granted) {
-        await _liveChannel
-            .invokeMethod('requestOverlayPermission');
+        await _liveChannel.invokeMethod('requestOverlayPermission');
       }
-      await _liveChannel
-          .invokeMethod('startLiveOverlayBubble');
+      await _liveChannel.invokeMethod('startLiveOverlayBubble');
     } catch (_) {}
   }
 
   Future<void> _stopOverlayBubble() async {
     if (!Platform.isAndroid) return;
     try {
-      await _liveChannel
-          .invokeMethod('stopLiveOverlayBubble');
+      await _liveChannel.invokeMethod('stopLiveOverlayBubble');
     } catch (_) {}
   }
 
@@ -199,8 +183,7 @@ class _LiveViewScreenState
     });
 
     try {
-      final s = await LocalLiveService.instance
-          .startHostSession(
+      final s = await LocalLiveService.instance.startHostSession(
         liveMatchId: widget.matchId,
         port: _port,
         homeName: widget.homeName,
@@ -209,8 +192,7 @@ class _LiveViewScreenState
       );
 
       _hostEventsSub?.cancel();
-      _hostEventsSub =
-          s.events.listen(_appendEvent);
+      _hostEventsSub = s.events.listen(_appendEvent);
 
       setState(() => _hostSession = s);
 
@@ -227,18 +209,14 @@ class _LiveViewScreenState
   Future<void> _startInitialViewer() async {
     final host = widget.hostAddress?.trim();
     if (host == null || host.isEmpty) {
-      setState(() => _errorText =
-          'Missing host IP. Go back and join from discovery/manual connect.');
+      setState(() =>
+          _errorText = 'Missing host IP. Go back and join from discovery/manual connect.');
       return;
     }
 
     // If join screen passed side, use it; otherwise assume home as default.
-    final initialSide =
-        parseLiveHostSide(widget.hostSide);
-    final slot =
-        (initialSide == LiveHostSide.away)
-            ? _PrimarySide.away
-            : _PrimarySide.home;
+    final initialSide = parseLiveHostSide(widget.hostSide);
+    final slot = (initialSide == LiveHostSide.away) ? _PrimarySide.away : _PrimarySide.home;
 
     setState(() {
       _busy = true;
@@ -256,13 +234,11 @@ class _LiveViewScreenState
 
       if (slot == _PrimarySide.home) {
         _homeEventsSub?.cancel();
-        _homeEventsSub =
-            v.events.listen(_appendEvent);
+        _homeEventsSub = v.events.listen(_appendEvent);
         _homeViewer = v;
       } else {
         _awayEventsSub?.cancel();
-        _awayEventsSub =
-            v.events.listen(_appendEvent);
+        _awayEventsSub = v.events.listen(_appendEvent);
         _awayViewer = v;
       }
 
@@ -281,31 +257,23 @@ class _LiveViewScreenState
     await _discovery.start();
 
     _discoveryListener = () {
-      final list = _discovery.hosts.value
-          .where(
-              (h) => h.matchId == widget.matchId)
-          .toList();
+      final list =
+          _discovery.hosts.value.where((h) => h.matchId == widget.matchId).toList();
       if (list.isEmpty) return;
 
       for (final h in list) {
         final endpoint = '${h.hostIp}:${h.port}';
-        final homeEndpoint = _homeViewer == null
-            ? null
-            : '${_homeViewer!.host}:${_homeViewer!.port}';
-        final awayEndpoint = _awayViewer == null
-            ? null
-            : '${_awayViewer!.host}:${_awayViewer!.port}';
-        if (endpoint == homeEndpoint ||
-            endpoint == awayEndpoint) continue;
+        final homeEndpoint =
+            _homeViewer == null ? null : '${_homeViewer!.host}:${_homeViewer!.port}';
+        final awayEndpoint =
+            _awayViewer == null ? null : '${_awayViewer!.host}:${_awayViewer!.port}';
+        if (endpoint == homeEndpoint || endpoint == awayEndpoint) continue;
 
-        if (h.side == LiveHostSide.home &&
-            _homeViewer == null) {
+        if (h.side == LiveHostSide.home && _homeViewer == null) {
           _connectHome(h.hostIp, h.port);
-        } else if (h.side == LiveHostSide.away &&
-            _awayViewer == null) {
+        } else if (h.side == LiveHostSide.away && _awayViewer == null) {
           _connectAway(h.hostIp, h.port);
-        } else if (h.side ==
-            LiveHostSide.unknown) {
+        } else if (h.side == LiveHostSide.unknown) {
           if (_homeViewer == null) {
             _connectHome(h.hostIp, h.port);
           } else if (_awayViewer == null) {
@@ -315,21 +283,18 @@ class _LiveViewScreenState
       }
     };
 
-    _discovery.hosts
-        .addListener(_discoveryListener!);
+    _discovery.hosts.addListener(_discoveryListener!);
   }
 
   void _stopDiscovery() {
     if (_discoveryListener != null) {
-      _discovery.hosts
-          .removeListener(_discoveryListener!);
+      _discovery.hosts.removeListener(_discoveryListener!);
       _discoveryListener = null;
     }
     _discovery.stop();
   }
 
-  Future<void> _connectHome(
-      String hostIp, int port) async {
+  Future<void> _connectHome(String hostIp, int port) async {
     if (_homeViewer != null) return;
     try {
       final v = LocalLiveViewerSession(
@@ -339,16 +304,14 @@ class _LiveViewScreenState
       );
       await v.connect();
       _homeEventsSub?.cancel();
-      _homeEventsSub =
-          v.events.listen(_appendEvent);
+      _homeEventsSub = v.events.listen(_appendEvent);
       if (!mounted) return;
       setState(() => _homeViewer = v);
       await _maybeStartOverlayBubble();
     } catch (_) {}
   }
 
-  Future<void> _connectAway(
-      String hostIp, int port) async {
+  Future<void> _connectAway(String hostIp, int port) async {
     if (_awayViewer != null) return;
     try {
       final v = LocalLiveViewerSession(
@@ -358,8 +321,7 @@ class _LiveViewScreenState
       );
       await v.connect();
       _awayEventsSub?.cancel();
-      _awayEventsSub =
-          v.events.listen(_appendEvent);
+      _awayEventsSub = v.events.listen(_appendEvent);
       if (!mounted) return;
       setState(() => _awayViewer = v);
       await _maybeStartOverlayBubble();
@@ -372,8 +334,7 @@ class _LiveViewScreenState
 
     // Quick message event: show overlay, don't log
     if (kind == 'quick') {
-      final label =
-          evt['label']?.toString() ?? '';
+      final label = evt['label']?.toString() ?? '';
       if (label.isEmpty) return;
       if (!mounted) return;
       _quickTimer?.cancel();
@@ -381,8 +342,7 @@ class _LiveViewScreenState
         _quickText = label;
         _quickFrom = from;
       });
-      _quickTimer =
-          Timer(const Duration(seconds: 3), () {
+      _quickTimer = Timer(const Duration(seconds: 3), () {
         if (!mounted) return;
         setState(() {
           _quickText = null;
@@ -394,22 +354,14 @@ class _LiveViewScreenState
 
     String line;
     if (kind == 'chat') {
-      final txt =
-          evt['text']?.toString() ?? '';
-      line = (from == null)
-          ? txt
-          : '$from: $txt';
+      final txt = evt['text']?.toString() ?? '';
+      line = (from == null) ? txt : '$from: $txt';
     } else if (kind == 'reaction') {
-      final r =
-          evt['reaction']?.toString() ?? '';
-      line = (from == null)
-          ? 'Reaction: $r'
-          : '$from reacted: $r';
+      final r = evt['reaction']?.toString() ?? '';
+      line = (from == null) ? 'Reaction: $r' : '$from reacted: $r';
     } else if (kind == 'mic') {
-      final enabled =
-          evt['enabled'] == true;
-      line =
-          'Host mic is now ${enabled ? 'ON' : 'OFF'}';
+      final enabled = evt['enabled'] == true;
+      line = 'Host mic is now ${enabled ? 'ON' : 'OFF'}';
     } else {
       line = 'Event: $evt';
     }
@@ -420,8 +372,7 @@ class _LiveViewScreenState
 
   void _toggleViewerAudio() {
     final enabled = !_viewerAudioEnabled;
-    setState(
-        () => _viewerAudioEnabled = enabled);
+    setState(() => _viewerAudioEnabled = enabled);
 
     final v = _homeViewer ?? _awayViewer;
     v?.setRemoteAudioEnabled(enabled);
@@ -431,35 +382,25 @@ class _LiveViewScreenState
     final goingFullscreen = !_isFullscreen;
 
     if (goingFullscreen) {
-      await SystemChrome
-          .setEnabledSystemUIMode(
-              SystemUiMode.immersiveSticky);
-      await SystemChrome
-          .setPreferredOrientations([
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      await SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
     } else {
-      await SystemChrome
-          .setEnabledSystemUIMode(
-              SystemUiMode.edgeToEdge);
-      await SystemChrome
-          .setPreferredOrientations(
-              DeviceOrientation.values);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     }
 
     if (!mounted) return;
-    setState(
-        () => _isFullscreen = goingFullscreen);
+    setState(() => _isFullscreen = goingFullscreen);
   }
 
   void _toggleViewerLayoutMode() {
     setState(() {
-      _viewerLayoutMode =
-          _viewerLayoutMode ==
-                  _ViewerLayoutMode.single
-              ? _ViewerLayoutMode.dual
-              : _ViewerLayoutMode.single;
+      _viewerLayoutMode = _viewerLayoutMode == _ViewerLayoutMode.single
+          ? _ViewerLayoutMode.dual
+          : _ViewerLayoutMode.single;
     });
   }
 
@@ -475,8 +416,7 @@ class _LiveViewScreenState
         'label': trimmed,
         'from': liveHostSideToWire(_mySide),
       };
-      LocalLiveService.instance
-          .broadcastHostEvent(
+      LocalLiveService.instance.broadcastHostEvent(
         liveMatchId: widget.matchId,
         event: evt,
       );
@@ -496,7 +436,7 @@ class _LiveViewScreenState
       'Calm down',
       'We got this',
       'One more goal!',
-      'Don\u2019t give up',
+      'Don’t give up',
       'Sorry',
       'Unlucky',
       'Too easy 😎',
@@ -513,56 +453,38 @@ class _LiveViewScreenState
             padding: const EdgeInsets.all(12),
             child: Center(
               child: ConstrainedBox(
-                constraints:
-                    const BoxConstraints(
-                        maxWidth: 520),
+                constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   borderRadius: 24,
-                  padding:
-                      const EdgeInsets.all(
-                          16),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
-                    mainAxisSize:
-                        MainAxisSize.min,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       const Text(
                         'Quick Messages',
                         style: TextStyle(
                           color: Colors.white,
-                          fontWeight:
-                              FontWeight
-                                  .w800,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(
-                          height: 12),
+                      const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: msgs
                             .map(
-                              (m) =>
-                                  ActionChip(
-                                label:
-                                    Text(
+                              (m) => ActionChip(
+                                label: Text(
                                   m,
-                                  style:
-                                      const TextStyle(
-                                    color:
-                                        Colors.white,
-                                    fontSize:
-                                        12,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
                                   ),
                                 ),
-                                backgroundColor:
-                                    Colors
-                                        .white10,
-                                onPressed:
-                                    () {
-                                  Navigator.of(ctx)
-                                      .pop();
-                                  _sendQuick(
-                                      m);
+                                backgroundColor: Colors.white10,
+                                onPressed: () {
+                                  Navigator.of(ctx).pop();
+                                  _sendQuick(m);
                                 },
                               ),
                             )
@@ -581,10 +503,6 @@ class _LiveViewScreenState
 
   @override
   Widget build(BuildContext context) {
-    final isWide =
-        MediaQuery.of(context).size.width >
-            700;
-
     // Viewer full-screen mode: only video + exit button
     if (!widget.isHost && _isFullscreen) {
       return GlassScaffold(
@@ -592,22 +510,19 @@ class _LiveViewScreenState
         body: Stack(
           children: [
             Positioned.fill(
-              child: _buildStreamArea(
-                  context),
+              child: _buildStreamArea(context),
             ),
             Positioned(
               top: 16,
               left: 16,
               child: CircleAvatar(
-                backgroundColor:
-                    Colors.black54,
+                backgroundColor: Colors.black54,
                 child: IconButton(
                   icon: const Icon(
                     Icons.fullscreen_exit,
                     color: Colors.white,
                   ),
-                  onPressed:
-                      _toggleFullscreen,
+                  onPressed: _toggleFullscreen,
                   tooltip: 'Exit full screen',
                 ),
               ),
@@ -630,71 +545,208 @@ class _LiveViewScreenState
           if (widget.isHost)
             IconButton(
               tooltip: 'Copy host info',
-              onPressed:
-                  (_hostSession?.hostIp
-                              .value ==
-                          null)
-                      ? null
-                      : () {
-                          final ip =
-                              _hostSession!
-                                  .hostIp
-                                  .value!;
-                          final txt =
-                              'Host: $ip:${_port}\nMatch: ${widget.matchId}';
-                          Clipboard.setData(
-                              ClipboardData(
-                                  text: txt));
-                          ScaffoldMessenger.of(
-                                  context)
-                              .showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                  'Copied host info'),
-                            ),
-                          );
-                        },
+              onPressed: (_hostSession?.hostIp.value == null)
+                  ? null
+                  : () {
+                      final ip = _hostSession!.hostIp.value!;
+                      final txt = 'Host: $ip:${_port}\nMatch: ${widget.matchId}';
+                      Clipboard.setData(ClipboardData(text: txt));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Copied host info'),
+                        ),
+                      );
+                    },
               icon: const Icon(Icons.copy),
             ),
         ],
       ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder:
-              (context, constraints) {
-            if (constraints.maxWidth >
-                700) {
-              return Padding(
-                padding:
-                    const EdgeInsets.all(
-                        16),
-                child:
-                    _buildWideLayout(
-                        context),
-              );
-            }
-            return Padding(
-              padding:
-                  const EdgeInsets.all(
-                      16),
-              child:
-                  _buildMobileLayout(
-                      context),
-            );
-          },
-        ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: _buildMainBody(context),
+          ),
+          if (widget.isHost) _buildHostFloatingChatOverlay(context),
+        ],
       ),
     );
   }
 
-  Widget _buildWideLayout(
-      BuildContext context) {
-    final allowTextInput =
-        !widget.isHost &&
-            _viewerChatEnabled;
-    final allowReactions =
-        widget.isHost ||
-            _viewerReactionsEnabled;
+  Widget _buildMainBody(BuildContext context) {
+    return SafeArea(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth > 700) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: _buildWideLayout(context),
+            );
+          }
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: _buildMobileLayout(context),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildHostFloatingChatOverlay(BuildContext context) {
+    if (!widget.isHost) {
+      return const SizedBox.shrink();
+    }
+
+    final allowReactions = widget.isHost || _viewerReactionsEnabled;
+
+    return Positioned(
+      right: 16,
+      bottom: 110,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (_hostChatExpanded)
+            Opacity(
+              opacity: 0.65,
+              child: Glass(
+                borderRadius: 18,
+                padding: const EdgeInsets.all(8),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 260,
+                    maxHeight: 220,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Chat',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            icon: const Icon(
+                              Icons.close,
+                              size: 18,
+                              color: Colors.white70,
+                            ),
+                            onPressed: () {
+                              setState(() => _hostChatExpanded = false);
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        height: 110,
+                        child: ListView.builder(
+                          reverse: true,
+                          itemCount: _messages.length,
+                          itemBuilder: (context, i) {
+                            final msg = _messages[_messages.length - 1 - i];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                msg,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      if (allowReactions)
+                        Row(
+                          children: [
+                            ...[
+                              ('GG', Icons.emoji_events_outlined),
+                              ('Wow', Icons.flash_on_outlined),
+                              ('Clutch', Icons.local_fire_department_outlined),
+                            ].map(
+                              (e) => Padding(
+                                padding: const EdgeInsets.only(right: 4),
+                                child: IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  iconSize: 18,
+                                  onPressed: () => _react(e.$1),
+                                  icon: Icon(e.$2),
+                                  color: Colors.cyanAccent,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _chat,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                hintText: 'Type a message',
+                              ),
+                              onSubmitted: (_) => _send(),
+                            ),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            iconSize: 18,
+                            onPressed: _send,
+                            icon: const Icon(Icons.send),
+                            color: Colors.cyanAccent,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Opacity(
+            opacity: 0.85,
+            child: Glass(
+              borderRadius: 999,
+              padding: const EdgeInsets.all(4),
+              child: IconButton(
+                tooltip: 'Chat',
+                icon: const Icon(
+                  Icons.chat_bubble_outline,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _hostChatExpanded = !_hostChatExpanded;
+                  });
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWideLayout(BuildContext context) {
+    final allowTextInput = !widget.isHost && _viewerChatEnabled;
+    final allowReactions = widget.isHost || _viewerReactionsEnabled;
 
     return Row(
       children: [
@@ -703,100 +755,84 @@ class _LiveViewScreenState
           child: Column(
             children: [
               Expanded(
-                child: _buildStreamArea(
-                    context),
+                child: _buildStreamArea(context),
               ),
-              const SizedBox(
-                  height: 12),
+              const SizedBox(height: 12),
               _buildControls(context),
             ],
           ),
         ),
-        const SizedBox(width: 16),
-        Expanded(
-          flex: 2,
-          child: _ChatOverlay(
-            minimized: false,
-            onToggleMinimize: () {},
-            messages: _messages,
-            chatController: _chat,
-            onSend: _send,
-            onReaction: _react,
-            allowTextInput:
-                allowTextInput,
-            allowReactions:
-                allowReactions,
+        if (!widget.isHost) ...[
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 2,
+            child: _ChatOverlay(
+              minimized: false,
+              onToggleMinimize: () {},
+              messages: _messages,
+              chatController: _chat,
+              onSend: _send,
+              onReaction: _react,
+              allowTextInput: allowTextInput,
+              allowReactions: allowReactions,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
 
-  Widget _buildMobileLayout(
-      BuildContext context) {
+  Widget _buildMobileLayout(BuildContext context) {
     final media = MediaQuery.of(context);
-    final allowTextInput =
-        !widget.isHost &&
-            _viewerChatEnabled;
-    final allowReactions =
-        widget.isHost ||
-            _viewerReactionsEnabled;
+    final allowTextInput = !widget.isHost && _viewerChatEnabled;
+    final allowReactions = widget.isHost || _viewerReactionsEnabled;
 
     // Chat height responsive to screen height
     final maxHeight = media.size.height;
-    final expandedChatHeight =
-        maxHeight * 0.28; // ~28% of screen
+    final expandedChatHeight = maxHeight * 0.28; // ~28% of screen
     final collapsedChatHeight = 56.0;
 
-    final chatHeight = _chatMinimized
-        ? collapsedChatHeight
-        : expandedChatHeight;
+    final chatHeight =
+        _chatMinimized ? collapsedChatHeight : expandedChatHeight;
 
     return Column(
       children: [
         Expanded(
-          child: _buildStreamArea(
-              context),
+          child: _buildStreamArea(context),
         ),
         const SizedBox(height: 8),
         _buildControls(context),
-        const SizedBox(height: 8),
-        AnimatedContainer(
-          duration:
-              const Duration(
-                  milliseconds: 200),
-          height: chatHeight,
-          padding: EdgeInsets.only(
-              bottom:
-                  media.viewInsets.bottom),
-          child: _ChatOverlay(
-            minimized: _chatMinimized,
-            onToggleMinimize: () {
-              setState(() =>
-                  _chatMinimized =
-                      !_chatMinimized);
-            },
-            messages: _messages,
-            chatController: _chat,
-            onSend: _send,
-            onReaction: _react,
-            allowTextInput:
-                allowTextInput,
-            allowReactions:
-                allowReactions,
+        if (!widget.isHost) ...[
+          const SizedBox(height: 8),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            height: chatHeight,
+            padding: EdgeInsets.only(
+              bottom: media.viewInsets.bottom,
+            ),
+            child: _ChatOverlay(
+              minimized: _chatMinimized,
+              onToggleMinimize: () {
+                setState(() => _chatMinimized = !_chatMinimized);
+              },
+              messages: _messages,
+              chatController: _chat,
+              onSend: _send,
+              onReaction: _react,
+              allowTextInput: allowTextInput,
+              allowReactions: allowReactions,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
 
-  Widget _buildControls(
-      BuildContext context) {
+  Widget _buildControls(BuildContext context) {
     if (_errorText != null) {
       return Glass(
         borderRadius: 18,
-        padding:
-            const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(12),
         child: Text(
           'Error: $_errorText',
           style: const TextStyle(
@@ -813,143 +849,84 @@ class _LiveViewScreenState
 
       return Glass(
         borderRadius: 18,
-        padding:
-            const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment
-                  .stretch,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (started) ...[
-              ValueListenableBuilder<
-                  String?>(
-                valueListenable:
-                    host.hostIp,
-                builder:
-                    (_, ip, __) =>
-                        Text(
+              ValueListenableBuilder<String?>(
+                valueListenable: host.hostIp,
+                builder: (_, ip, __) => Text(
                   'Host: ${(ip ?? '...')}:${_port} • side: ${liveHostSideToWire(_mySide)}',
-                  style:
-                      const TextStyle(
-                    color:
-                        Colors.white70,
+                  style: const TextStyle(
+                    color: Colors.white70,
                     fontSize: 12,
                   ),
                 ),
               ),
-              const SizedBox(
-                  height: 8),
+              const SizedBox(height: 8),
             ],
             Row(
               children: [
                 Expanded(
-                  child:
-                      FilledButton.icon(
-                    onPressed: _busy ||
-                            started
-                        ? null
-                        : _startHost,
-                    icon: const Icon(
-                        Icons.cast),
+                  child: FilledButton.icon(
+                    onPressed: _busy || started ? null : _startHost,
+                    icon: const Icon(Icons.cast),
                     label: Text(
                       _busy
                           ? 'Starting...'
-                          : (started
-                              ? 'Broadcasting'
-                              : 'Start Broadcast'),
+                          : (started ? 'Broadcasting' : 'Start Broadcast'),
                     ),
                   ),
                 ),
-                const SizedBox(
-                    width: 10),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: OutlinedButton
-                      .icon(
+                  child: OutlinedButton.icon(
                     onPressed: _busy
                         ? null
                         : () async {
-                            setState(() =>
-                                _busy =
-                                    true);
-                            await LocalLiveService
-                                .instance
-                                .stopHostSession(
-                              liveMatchId:
-                                  widget
-                                      .matchId,
+                            setState(() => _busy = true);
+                            await LocalLiveService.instance.stopHostSession(
+                              liveMatchId: widget.matchId,
                             );
                             if (mounted) {
-                              setState(() =>
-                                  _busy =
-                                      false);
-                              setState(() =>
-                                  _hostSession =
-                                      null);
+                              setState(() => _busy = false);
+                              setState(() => _hostSession = null);
                               await _stopOverlayBubble();
                             }
                           },
-                    icon: const Icon(
-                        Icons.stop),
-                    label:
-                        const Text(
-                            'Stop'),
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(
-                height: 10),
+            const SizedBox(height: 10),
             Row(
               children: [
                 if (started)
-                  ValueListenableBuilder<
-                      bool>(
-                    valueListenable:
-                        host.micEnabled,
-                    builder: (context,
-                        enabled, _) {
-                      return IconButton
-                          .filled(
-                        onPressed: () =>
-                            host.setMicEnabled(
-                                !enabled),
-                        style: IconButton
-                            .styleFrom(
-                          backgroundColor:
-                              enabled
-                                  ? Colors
-                                      .greenAccent
-                                      .withOpacity(
-                                          0.3)
-                                  : Colors
-                                      .redAccent
-                                      .withOpacity(
-                                          0.3),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: host.micEnabled,
+                    builder: (context, enabled, _) {
+                      return IconButton.filled(
+                        onPressed: () => host.setMicEnabled(!enabled),
+                        style: IconButton.styleFrom(
+                          backgroundColor: enabled
+                              ? Colors.greenAccent.withOpacity(0.3)
+                              : Colors.redAccent.withOpacity(0.3),
                         ),
                         icon: Icon(
-                          enabled
-                              ? Icons
-                                  .mic
-                              : Icons
-                                  .mic_off,
-                          color:
-                              Colors.white,
+                          enabled ? Icons.mic : Icons.mic_off,
+                          color: Colors.white,
                         ),
                       );
                     },
                   ),
-                if (started)
-                  const SizedBox(
-                      width: 8),
+                if (started) const SizedBox(width: 8),
                 Expanded(
-                  child: OutlinedButton
-                      .icon(
-                    onPressed: () =>
-                        BatteryOptimizationGuide
-                            .show(
-                                context),
-                    icon: const Icon(Icons
-                        .battery_alert_outlined),
+                  child: OutlinedButton.icon(
+                    onPressed: () => BatteryOptimizationGuide.show(context),
+                    icon: const Icon(Icons.battery_alert_outlined),
                     label: const Text(
                       'Battery / Background Help',
                     ),
@@ -959,16 +936,12 @@ class _LiveViewScreenState
             ),
             const SizedBox(height: 8),
             Align(
-              alignment:
-                  Alignment.centerRight,
+              alignment: Alignment.centerRight,
               child: TextButton.icon(
-                onPressed:
-                    _showQuickMessageSheet,
+                onPressed: _showQuickMessageSheet,
                 icon: const Icon(
-                  Icons
-                      .chat_bubble_outline,
-                  color:
-                      Colors.cyanAccent,
+                  Icons.chat_bubble_outline,
+                  color: Colors.cyanAccent,
                   size: 18,
                 ),
                 label: const Text(
@@ -986,17 +959,11 @@ class _LiveViewScreenState
     }
 
     // VIEWER controls
-    final icon = _viewerAudioEnabled
-        ? Icons.volume_up
-        : Icons.volume_off;
+    final icon = _viewerAudioEnabled ? Icons.volume_up : Icons.volume_off;
 
-    final iconColor = _viewerAudioEnabled
-        ? Colors.greenAccent
-        : Colors.redAccent;
+    final iconColor = _viewerAudioEnabled ? Colors.greenAccent : Colors.redAccent;
 
-    final isDual =
-        _viewerLayoutMode ==
-            _ViewerLayoutMode.dual;
+    final isDual = _viewerLayoutMode == _ViewerLayoutMode.dual;
 
     return Glass(
       borderRadius: 18,
@@ -1005,67 +972,44 @@ class _LiveViewScreenState
         children: [
           // Viewer audio (app-only)
           IconButton.filled(
-            onPressed: _viewerVoiceEnabled
-                ? _toggleViewerAudio
-                : null,
-            style: IconButton
-                .styleFrom(
+            onPressed: _viewerVoiceEnabled ? _toggleViewerAudio : null,
+            style: IconButton.styleFrom(
               backgroundColor:
-                  _viewerVoiceEnabled
-                      ? iconColor
-                          .withOpacity(0.3)
-                      : Colors.white12,
+                  _viewerVoiceEnabled ? iconColor.withOpacity(0.3) : Colors.white12,
             ),
             icon: Icon(
               icon,
               color: Colors.white,
             ),
             tooltip: _viewerVoiceEnabled
-                ? (_viewerAudioEnabled
-                    ? 'Mute audio'
-                    : 'Unmute audio')
+                ? (_viewerAudioEnabled ? 'Mute audio' : 'Unmute audio')
                 : 'Viewer audio disabled by admin',
           ),
           const SizedBox(width: 10),
           // Layout: single vs dual
           IconButton.filled(
-            onPressed:
-                _toggleViewerLayoutMode,
-            style: IconButton
-                .styleFrom(
-              backgroundColor:
-                  Colors.white12,
+            onPressed: _toggleViewerLayoutMode,
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white12,
             ),
             icon: Icon(
-              isDual
-                  ? Icons.view_agenda
-                  : Icons.view_week,
+              isDual ? Icons.view_agenda : Icons.view_week,
               color: Colors.white,
             ),
-            tooltip: isDual
-                ? 'Focus one screen'
-                : 'Show both screens',
+            tooltip: isDual ? 'Focus one screen' : 'Show both screens',
           ),
           const SizedBox(width: 10),
           // Full-screen toggle
           IconButton.filled(
-            onPressed:
-                _toggleFullscreen,
-            style: IconButton
-                .styleFrom(
-              backgroundColor:
-                  Colors.white12,
+            onPressed: _toggleFullscreen,
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white12,
             ),
             icon: Icon(
-              _isFullscreen
-                  ? Icons
-                      .fullscreen_exit
-                  : Icons.fullscreen,
+              _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
               color: Colors.white,
             ),
-            tooltip: _isFullscreen
-                ? 'Exit full screen'
-                : 'Full screen',
+            tooltip: _isFullscreen ? 'Exit full screen' : 'Full screen',
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1073,22 +1017,15 @@ class _LiveViewScreenState
               onPressed: _busy
                   ? null
                   : () async {
-                      setState(() =>
-                          _busy = true);
+                      setState(() => _busy = true);
                       await _stopAll();
                       if (mounted) {
-                        setState(() =>
-                            _busy =
-                                false);
-                        Navigator
-                            .maybePop(
-                                context);
+                        setState(() => _busy = false);
+                        Navigator.maybePop(context);
                       }
                     },
-              icon: const Icon(
-                  Icons.logout),
-              label: const Text(
-                  'Leave'),
+              icon: const Icon(Icons.logout),
+              label: const Text('Leave'),
             ),
           ),
         ],
@@ -1096,131 +1033,78 @@ class _LiveViewScreenState
     );
   }
 
-  Widget _buildStreamArea(
-      BuildContext context) {
+  Widget _buildStreamArea(BuildContext context) {
     Widget base;
 
     // HOST preview (unchanged layout)
-    if (widget.isHost &&
-        _hostSession != null) {
+    if (widget.isHost && _hostSession != null) {
       final host = _hostSession!;
       final mySide = _mySide;
 
-      final leftCam =
-          (mySide == LiveHostSide.away)
-              ? null
-              : host.cameraRenderer;
-      final rightCam =
-          (mySide == LiveHostSide.home)
-              ? null
-              : host.cameraRenderer;
+      final leftCam = (mySide == LiveHostSide.away) ? null : host.cameraRenderer;
+      final rightCam = (mySide == LiveHostSide.home) ? null : host.cameraRenderer;
 
       base = _GamerStreamLayout(
-        matchTitle:
-            '$_homeLabel vs $_awayLabel',
-        screenRenderer:
-            host.screenRenderer,
+        matchTitle: '$_homeLabel vs $_awayLabel',
+        screenRenderer: host.screenRenderer,
         camLeft: leftCam,
         camRight: rightCam,
         leftLabel: _homeLabel,
         rightLabel: _awayLabel,
-        leftHint:
-            (mySide == LiveHostSide.away)
-                ? 'Waiting…'
-                : null,
-        rightHint:
-            (mySide == LiveHostSide.home)
-                ? 'Waiting…'
-                : null,
+        leftHint: (mySide == LiveHostSide.away) ? 'Waiting…' : null,
+        rightHint: (mySide == LiveHostSide.home) ? 'Waiting…' : null,
         primary: _primary,
-        onTapLeft: () =>
-            setState(() =>
-                _primary =
-                    _PrimarySide.home),
-        onTapRight: () =>
-            setState(() =>
-                _primary =
-                    _PrimarySide.away),
+        onTapLeft: () => setState(() => _primary = _PrimarySide.home),
+        onTapRight: () => setState(() => _primary = _PrimarySide.away),
       );
     } else {
       // VIEWER mode
-      final primaryScreen =
-          (_primary == _PrimarySide.home)
-              ? _homeViewer
-                  ?.screenRenderer
-              : _awayViewer
-                  ?.screenRenderer;
+      final primaryScreen = (_primary == _PrimarySide.home)
+          ? _homeViewer?.screenRenderer
+          : _awayViewer?.screenRenderer;
 
-      if (_viewerLayoutMode ==
-          _ViewerLayoutMode.single) {
+      if (_viewerLayoutMode == _ViewerLayoutMode.single) {
         // Old gamer layout: one main screen + 2 cams
         base = _GamerStreamLayout(
-          matchTitle:
-              '$_homeLabel vs $_awayLabel',
-          screenRenderer:
-              primaryScreen,
-          camLeft: _homeViewer
-              ?.cameraRenderer,
-          camRight: _awayViewer
-              ?.cameraRenderer,
+          matchTitle: '$_homeLabel vs $_awayLabel',
+          screenRenderer: primaryScreen,
+          camLeft: _homeViewer?.cameraRenderer,
+          camRight: _awayViewer?.cameraRenderer,
           leftLabel: _homeLabel,
           rightLabel: _awayLabel,
-          leftHint: (_homeViewer ==
-                  null)
-              ? 'Waiting…'
-              : null,
-          rightHint: (_awayViewer ==
-                  null)
-              ? 'Waiting…'
-              : null,
+          leftHint: (_homeViewer == null) ? 'Waiting…' : null,
+          rightHint: (_awayViewer == null) ? 'Waiting…' : null,
           primary: _primary,
-          onTapLeft: () =>
-              setState(() {
-            _primary =
-                _PrimarySide.home;
+          onTapLeft: () => setState(() {
+            _primary = _PrimarySide.home;
           }),
-          onTapRight: () =>
-              setState(() {
-            _primary =
-                _PrimarySide.away;
+          onTapRight: () => setState(() {
+            _primary = _PrimarySide.away;
           }),
         );
       } else {
         // Dual layout: both screens + both cams
         base = _DualViewerStreamLayout(
-          matchTitle:
-              '$_homeLabel vs $_awayLabel',
-          homeScreen:
-              _homeViewer
-                  ?.screenRenderer,
-          awayScreen:
-              _awayViewer
-                  ?.screenRenderer,
-          homeCam:
-              _homeViewer
-                  ?.cameraRenderer,
-          awayCam:
-              _awayViewer
-                  ?.cameraRenderer,
+          matchTitle: '$_homeLabel vs $_awayLabel',
+          homeScreen: _homeViewer?.screenRenderer,
+          awayScreen: _awayViewer?.screenRenderer,
+          homeCam: _homeViewer?.cameraRenderer,
+          awayCam: _awayViewer?.cameraRenderer,
           homeLabel: _homeLabel,
           awayLabel: _awayLabel,
           onTapHomeScreen: () {
             // tap HOME in dual -> switch to single HOME + auto full-screen
             setState(() {
-              _primary =
-                  _PrimarySide.home;
-              _viewerLayoutMode =
-                  _ViewerLayoutMode.single;
+              _primary = _PrimarySide.home;
+              _viewerLayoutMode = _ViewerLayoutMode.single;
             });
             _toggleFullscreen();
           },
           onTapAwayScreen: () {
             // tap AWAY in dual -> switch to single AWAY + auto full-screen
             setState(() {
-              _primary =
-                  _PrimarySide.away;
-              _viewerLayoutMode =
-                  _ViewerLayoutMode.single;
+              _primary = _PrimarySide.away;
+              _viewerLayoutMode = _ViewerLayoutMode.single;
             });
             _toggleFullscreen();
           },
@@ -1259,10 +1143,8 @@ class _LiveViewScreenState
       'text': txt,
       'from': 'HOST',
     };
-    setState(() =>
-        _messages.add('HOST: $txt'));
-    LocalLiveService.instance
-        .broadcastHostEvent(
+    setState(() => _messages.add('HOST: $txt'));
+    LocalLiveService.instance.broadcastHostEvent(
       liveMatchId: widget.matchId,
       event: evt,
     );
@@ -1280,18 +1162,15 @@ class _LiveViewScreenState
       'reaction': reactionLabel,
       'from': 'HOST',
     };
-    setState(() => _messages.add(
-        'HOST reacted: $reactionLabel'));
-    LocalLiveService.instance
-        .broadcastHostEvent(
+    setState(() => _messages.add('HOST reacted: $reactionLabel'));
+    LocalLiveService.instance.broadcastHostEvent(
       liveMatchId: widget.matchId,
       event: evt,
     );
   }
 }
 
-class _QuickMessageOverlay
-    extends StatelessWidget {
+class _QuickMessageOverlay extends StatelessWidget {
   const _QuickMessageOverlay({
     required this.text,
     this.from,
@@ -1307,58 +1186,41 @@ class _QuickMessageOverlay
       child: Align(
         alignment: Alignment.topCenter,
         child: Padding(
-          padding:
-              const EdgeInsets.only(
-                  top: 24),
+          padding: const EdgeInsets.only(top: 24),
           child: Glass(
             borderRadius: 24,
-            padding:
-                const EdgeInsets
-                    .symmetric(
+            padding: const EdgeInsets.symmetric(
               horizontal: 16,
               vertical: 8,
             ),
             child: Row(
-              mainAxisSize:
-                  MainAxisSize.min,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(
                   Icons.chat_bubble,
-                  color: Colors
-                      .cyanAccent,
+                  color: Colors.cyanAccent,
                   size: 18,
                 ),
                 const SizedBox(width: 8),
                 Column(
-                  mainAxisSize:
-                      MainAxisSize.min,
-                  crossAxisAlignment:
-                      CrossAxisAlignment
-                          .start,
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (from != null)
                       Text(
                         from!,
-                        style:
-                            const TextStyle(
-                          color:
-                              Colors.white70,
+                        style: const TextStyle(
+                          color: Colors.white70,
                           fontSize: 10,
-                          fontWeight:
-                              FontWeight
-                                  .bold,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     Text(
                       text,
-                      style:
-                          const TextStyle(
-                        color:
-                            Colors.white,
+                      style: const TextStyle(
+                        color: Colors.white,
                         fontSize: 13,
-                        fontWeight:
-                            FontWeight
-                                .w600,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -1372,8 +1234,7 @@ class _QuickMessageOverlay
   }
 }
 
-class _DualViewerStreamLayout
-    extends StatelessWidget {
+class _DualViewerStreamLayout extends StatelessWidget {
   const _DualViewerStreamLayout({
     required this.matchTitle,
     required this.homeScreen,
@@ -1399,12 +1260,8 @@ class _DualViewerStreamLayout
 
   @override
   Widget build(BuildContext context) {
-    final hasHomeScreen =
-        homeScreen != null &&
-            homeScreen!.srcObject != null;
-    final hasAwayScreen =
-        awayScreen != null &&
-            awayScreen!.srcObject != null;
+    final hasHomeScreen = homeScreen != null && homeScreen!.srcObject != null;
+    final hasAwayScreen = awayScreen != null && awayScreen!.srcObject != null;
 
     return Glass(
       borderRadius: 24,
@@ -1415,27 +1272,19 @@ class _DualViewerStreamLayout
             opacity: 0.9,
             child: Glass(
               borderRadius: 999,
-              padding:
-                  const EdgeInsets
-                      .symmetric(
+              padding: const EdgeInsets.symmetric(
                 horizontal: 10,
                 vertical: 6,
               ),
               child: Text(
                 matchTitle,
-                textAlign:
-                    TextAlign.center,
+                textAlign: TextAlign.center,
                 maxLines: 1,
-                overflow:
-                    TextOverflow
-                        .ellipsis,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color:
-                      Colors.white70,
+                  color: Colors.white70,
                   fontSize: 12,
-                  fontWeight:
-                      FontWeight
-                          .w700,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -1445,83 +1294,58 @@ class _DualViewerStreamLayout
             child: Row(
               children: [
                 Expanded(
-                  child:
-                      GestureDetector(
-                    onTap:
-                        onTapHomeScreen,
+                  child: GestureDetector(
+                    onTap: onTapHomeScreen,
                     child: ClipRRect(
-                      borderRadius:
-                          BorderRadius
-                              .circular(
-                                  16),
-                      child:
-                          Container(
-                        color: Colors
-                            .black
-                            .withOpacity(
-                                0.35),
-                        child:
-                            hasHomeScreen
-                                ? RTCVideoView(
-                                    homeScreen!,
-                                    objectFit: RTCVideoViewObjectFit
-                                        .RTCVideoViewObjectFitContain,
-                                  )
-                                : Center(
-                                    child:
-                                        Text(
-                                      'Waiting for $homeLabel screen…',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleSmall
-                                          ?.copyWith(
-                                            color:
-                                                Colors.white70,
-                                          ),
-                                    ),
-                                  ),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        color: Colors.black.withOpacity(0.35),
+                        child: hasHomeScreen
+                            ? RTCVideoView(
+                                homeScreen!,
+                                objectFit: RTCVideoViewObjectFit
+                                    .RTCVideoViewObjectFitContain,
+                              )
+                            : Center(
+                                child: Text(
+                                  'Waiting for $homeLabel screen…',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(
+                                        color: Colors.white70,
+                                      ),
+                                ),
+                              ),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(
-                    width: 8),
+                const SizedBox(width: 8),
                 Expanded(
-                  child:
-                      GestureDetector(
-                    onTap:
-                        onTapAwayScreen,
+                  child: GestureDetector(
+                    onTap: onTapAwayScreen,
                     child: ClipRRect(
-                      borderRadius:
-                          BorderRadius
-                              .circular(
-                                  16),
-                      child:
-                          Container(
-                        color: Colors
-                            .black
-                            .withOpacity(
-                                0.35),
-                        child:
-                            hasAwayScreen
-                                ? RTCVideoView(
-                                    awayScreen!,
-                                    objectFit: RTCVideoViewObjectFit
-                                        .RTCVideoViewObjectFitContain,
-                                  )
-                                : Center(
-                                    child:
-                                        Text(
-                                      'Waiting for $awayLabel screen…',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleSmall
-                                          ?.copyWith(
-                                            color:
-                                                Colors.white70,
-                                          ),
-                                    ),
-                                  ),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        color: Colors.black.withOpacity(0.35),
+                        child: hasAwayScreen
+                            ? RTCVideoView(
+                                awayScreen!,
+                                objectFit: RTCVideoViewObjectFit
+                                    .RTCVideoViewObjectFitContain,
+                              )
+                            : Center(
+                                child: Text(
+                                  'Waiting for $awayLabel screen…',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(
+                                        color: Colors.white70,
+                                      ),
+                                ),
+                              ),
                       ),
                     ),
                   ),
@@ -1531,33 +1355,19 @@ class _DualViewerStreamLayout
           ),
           const SizedBox(height: 8),
           Row(
-            mainAxisAlignment:
-                MainAxisAlignment
-                    .spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _CircularCam(
                 label: homeLabel,
                 renderer: homeCam,
-                hint: (homeCam ==
-                            null ||
-                        homeCam!
-                                .srcObject ==
-                            null)
-                    ? 'Cam…'
-                    : null,
+                hint: (homeCam == null || homeCam!.srcObject == null) ? 'Cam…' : null,
                 selected: false,
                 onTap: () {},
               ),
               _CircularCam(
                 label: awayLabel,
                 renderer: awayCam,
-                hint: (awayCam ==
-                            null ||
-                        awayCam!
-                                .srcObject ==
-                            null)
-                    ? 'Cam…'
-                    : null,
+                hint: (awayCam == null || awayCam!.srcObject == null) ? 'Cam…' : null,
                 selected: false,
                 onTap: () {},
               ),
@@ -1601,10 +1411,7 @@ class _GamerStreamLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasScreen =
-        screenRenderer != null &&
-            screenRenderer!.srcObject !=
-                null;
+    final hasScreen = screenRenderer != null && screenRenderer!.srcObject != null;
 
     return Glass(
       borderRadius: 24,
@@ -1613,12 +1420,9 @@ class _GamerStreamLayout extends StatelessWidget {
         children: [
           Positioned.fill(
             child: ClipRRect(
-              borderRadius:
-                  BorderRadius.circular(
-                      18),
+              borderRadius: BorderRadius.circular(18),
               child: Container(
-                color: Colors.black
-                    .withOpacity(0.35),
+                color: Colors.black.withOpacity(0.35),
                 child: hasScreen
                     ? RTCVideoView(
                         screenRenderer!,
@@ -1628,13 +1432,11 @@ class _GamerStreamLayout extends StatelessWidget {
                     : Center(
                         child: Text(
                           'Waiting for screen…',
-                          style: Theme.of(
-                                  context)
+                          style: Theme.of(context)
                               .textTheme
                               .titleSmall
                               ?.copyWith(
-                                color: Colors
-                                    .white70,
+                                color: Colors.white70,
                               ),
                         ),
                       ),
@@ -1649,28 +1451,19 @@ class _GamerStreamLayout extends StatelessWidget {
               opacity: 0.9,
               child: Glass(
                 borderRadius: 999,
-                padding:
-                    const EdgeInsets
-                        .symmetric(
+                padding: const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 6,
                 ),
                 child: Text(
                   matchTitle,
-                  textAlign:
-                      TextAlign.center,
+                  textAlign: TextAlign.center,
                   maxLines: 1,
-                  overflow:
-                      TextOverflow
-                          .ellipsis,
-                  style:
-                      const TextStyle(
-                    color:
-                        Colors.white70,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
                     fontSize: 12,
-                    fontWeight:
-                        FontWeight
-                            .w700,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -1683,9 +1476,7 @@ class _GamerStreamLayout extends StatelessWidget {
               label: leftLabel,
               renderer: camLeft,
               hint: leftHint,
-              selected:
-                  primary ==
-                      _PrimarySide.home,
+              selected: primary == _PrimarySide.home,
               onTap: onTapLeft,
             ),
           ),
@@ -1696,9 +1487,7 @@ class _GamerStreamLayout extends StatelessWidget {
               label: rightLabel,
               renderer: camRight,
               hint: rightHint,
-              selected:
-                  primary ==
-                      _PrimarySide.away,
+              selected: primary == _PrimarySide.away,
               onTap: onTapRight,
             ),
           ),
@@ -1725,37 +1514,27 @@ class _CircularCam extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ready =
-        renderer != null &&
-            renderer!.srcObject !=
-                null;
+    final ready = renderer != null && renderer!.srcObject != null;
 
     return Opacity(
       opacity: 0.86,
       child: InkWell(
         onTap: onTap,
         child: Column(
-          mainAxisSize:
-              MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               width: 64,
               height: 64,
-              decoration:
-                  BoxDecoration(
-                shape:
-                    BoxShape.circle,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
                 border: Border.all(
                   color: selected
-                      ? Colors
-                          .cyanAccent
-                          .withOpacity(
-                              0.95)
+                      ? Colors.cyanAccent.withOpacity(0.95)
                       : Colors.white24,
                   width: 2,
                 ),
-                color: Colors.black
-                    .withOpacity(0.35),
+                color: Colors.black.withOpacity(0.35),
               ),
               child: ClipOval(
                 child: ready
@@ -1766,59 +1545,37 @@ class _CircularCam extends StatelessWidget {
                       )
                     : Center(
                         child: Text(
-                          hint ??
-                              '…',
-                          textAlign:
-                              TextAlign
-                                  .center,
-                          style:
-                              const TextStyle(
-                            color: Colors
-                                .white54,
+                          hint ?? '…',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white54,
                             fontSize: 11,
                           ),
                         ),
                       ),
               ),
             ),
-            const SizedBox(
-                height: 6),
+            const SizedBox(height: 6),
             Container(
-              padding:
-                  const EdgeInsets
-                      .symmetric(
+              padding: const EdgeInsets.symmetric(
                 horizontal: 10,
                 vertical: 4,
               ),
-              decoration:
-                  BoxDecoration(
-                color: Colors.black
-                    .withOpacity(
-                        0.30),
-                borderRadius:
-                    BorderRadius
-                        .circular(
-                            999),
-                border:
-                    Border.all(
-                  color:
-                      Colors.white24,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.30),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white24,
                 ),
               ),
               child: Text(
                 label,
                 maxLines: 1,
-                overflow:
-                    TextOverflow
-                        .ellipsis,
-                style:
-                    const TextStyle(
-                  color: Colors
-                      .white70,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white70,
                   fontSize: 10,
-                  fontWeight:
-                      FontWeight
-                          .w700,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -1858,12 +1615,10 @@ class _ChatOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Glass(
-      padding:
-          const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(12),
       borderRadius: 22,
       child: Column(
-        mainAxisSize:
-            MainAxisSize.min,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -1871,29 +1626,18 @@ class _ChatOverlay extends StatelessWidget {
                 child: Text(
                   'Chat',
                   style: TextStyle(
-                    color:
-                        Colors.white70,
-                    fontWeight:
-                        FontWeight
-                            .w900,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w900,
                     fontSize: 12,
                   ),
                 ),
               ),
               IconButton(
-                tooltip: minimized
-                    ? 'Expand chat'
-                    : 'Minimize chat',
-                onPressed:
-                    onToggleMinimize,
+                tooltip: minimized ? 'Expand chat' : 'Minimize chat',
+                onPressed: onToggleMinimize,
                 icon: Icon(
-                  minimized
-                      ? Icons
-                          .keyboard_arrow_up
-                      : Icons
-                          .keyboard_arrow_down,
-                  color:
-                      Colors.white70,
+                  minimized ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                  color: Colors.white70,
                 ),
               ),
             ],
@@ -1901,30 +1645,17 @@ class _ChatOverlay extends StatelessWidget {
           if (!minimized) ...[
             SizedBox(
               height: 120,
-              child:
-                  ListView.builder(
+              child: ListView.builder(
                 reverse: true,
-                itemCount:
-                    messages.length,
-                itemBuilder:
-                    (context, i) {
-                  final msg =
-                      messages[
-                          messages.length -
-                              1 -
-                              i];
+                itemCount: messages.length,
+                itemBuilder: (context, i) {
+                  final msg = messages[messages.length - 1 - i];
                   return Padding(
-                    padding:
-                        const EdgeInsets
-                            .only(
-                                bottom:
-                                    6),
+                    padding: const EdgeInsets.only(bottom: 6),
                     child: Text(
                       msg,
-                      style:
-                          const TextStyle(
-                        color:
-                            Colors.white,
+                      style: const TextStyle(
+                        color: Colors.white,
                         fontSize: 12,
                       ),
                     ),
@@ -1932,35 +1663,21 @@ class _ChatOverlay extends StatelessWidget {
                 },
               ),
             ),
-            const SizedBox(
-                height: 8),
+            const SizedBox(height: 8),
             if (allowReactions)
               Row(
                 children: [
                   ...[
-                    ('GG',
-                        Icons.emoji_events_outlined),
-                    ('Wow',
-                        Icons.flash_on_outlined),
-                    ('Clutch',
-                        Icons.local_fire_department_outlined),
+                    ('GG', Icons.emoji_events_outlined),
+                    ('Wow', Icons.flash_on_outlined),
+                    ('Clutch', Icons.local_fire_department_outlined),
                   ].map(
                     (e) => Padding(
-                      padding:
-                          const EdgeInsets
-                              .only(
-                                  right:
-                                      8),
-                      child:
-                          IconButton(
-                        onPressed: () =>
-                            onReaction(
-                                e.$1),
-                        icon: Icon(e.$2,
-                            size:
-                                20),
-                        color: Colors
-                            .cyanAccent,
+                      padding: const EdgeInsets.only(right: 8),
+                      child: IconButton(
+                        onPressed: () => onReaction(e.$1),
+                        icon: Icon(e.$2, size: 20),
+                        color: Colors.cyanAccent,
                       ),
                     ),
                   ),
@@ -1970,32 +1687,19 @@ class _ChatOverlay extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                    child:
-                        TextField(
-                      controller:
-                          chatController,
-                      style:
-                          const TextStyle(
-                              color:
-                                  Colors.white),
-                      decoration:
-                          const InputDecoration(
-                        hintText:
-                            'Type a message',
+                    child: TextField(
+                      controller: chatController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message',
                       ),
-                      onSubmitted:
-                          (_) =>
-                              onSend(),
+                      onSubmitted: (_) => onSend(),
                     ),
                   ),
-                  const SizedBox(
-                      width: 8),
+                  const SizedBox(width: 8),
                   FilledButton(
-                    onPressed:
-                        onSend,
-                    child:
-                        const Text(
-                            'Send'),
+                    onPressed: onSend,
+                    child: const Text('Send'),
                   ),
                 ],
               ),
