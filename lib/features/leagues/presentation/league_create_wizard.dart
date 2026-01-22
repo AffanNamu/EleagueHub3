@@ -1,3 +1,4 @@
+import '../utils/current_user.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -321,7 +322,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
 
-    final organizerUserId = prefs.getCurrentUserId() ?? 'admin_user';
+    final organizerUserId = await CurrentUser.getOrCreateUserId();
 
     final leagueId = _uuid.v4();
     final now = DateTime.now().millisecondsSinceEpoch;

@@ -1,3 +1,4 @@
+import '../utils/current_user.dart';
 import "package:eleaguehub3/core/app/sync_debug_screen.dart";
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
 import 'package:eleaguehub3/features/leagues/models/league.dart';
@@ -467,7 +468,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     final controller = TextEditingController();
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
-    final userId = prefs.getCurrentUserId() ?? 'admin_user';
+    final userId = await CurrentUser.getOrCreateUserId();
 
     try {
       await showDialog(

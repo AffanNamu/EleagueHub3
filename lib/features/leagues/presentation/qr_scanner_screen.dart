@@ -15,6 +15,7 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import '../utils/current_user.dart';
 
 class QRScannerScreen extends ConsumerStatefulWidget {
   const QRScannerScreen({super.key});
@@ -39,7 +40,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> {
 
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
-    final currentUserId = prefs.getCurrentUserId() ?? 'admin_user';
+
+    // IMPORTANT: use FirebaseAuth uid (via CurrentUser), not 'admin_user'
+    final currentUserId = await CurrentUser.getOrCreateUserId();
 
     final parsed = _parseJoinPayload(payload);
     if (parsed == null) {
@@ -70,7 +73,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> {
             organizerUserId: '',
             code: joinCode,
             qrPayloadOverride: '',
-            settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
+            settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(
+              lastPulledAtMs: now,
+            ),
             updatedAtMs: now,
             version: 1,
           );
@@ -156,7 +161,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> {
                           Text(
                             'You joined this league successfully.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white.withOpacity(0.75), height: 1.4),
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.75),
+                              height: 1.4,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -249,7 +257,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> {
                   ? const SizedBox(
                       width: 26,
                       height: 26,
-                      child: CircularProgressIndicator(color: Colors.cyanAccent, strokeWidth: 3),
+                      child: CircularProgressIndicator(
+                        color: Colors.cyanAccent,
+                        strokeWidth: 3,
+                      ),
                     )
                   : const Text(
                       'Center the QR code within the frame',
@@ -268,7 +279,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> {
                   child: Text(
                     _error!,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
