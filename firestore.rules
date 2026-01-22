@@ -2,29 +2,54 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() {
-      return request.auth != null;
-    }
+    function signedIn() { return request.auth != null; }
 
     match /leagues/{leagueId} {
-      // READ
-      allow get, list: if !resource.data.isPrivate
-        || (signedIn() && request.auth.uid in resource.data.memberIds)
-        || (signedIn() && resource.data.organizerUserId == request.auth.uid);
+      function isOwner() {
+        return signedIn() && resource.data.organizerUserId == request.auth.uid;
+      }
+      function isMember() {
+        return signedIn()
+          && (resource.data.memberIds is list)
+          && (request.auth.uid in resource.data.memberIds);
+      }
 
-      // CREATE (owner must be current user and memberIds must include owner)
+      // League doc
+      allow get: if (!resource.data.isPrivate) || isOwner() || isMember();
       allow create: if signedIn()
         && request.resource.data.organizerUserId == request.auth.uid
         && (request.resource.data.memberIds is list)
         && (request.auth.uid in request.resource.data.memberIds);
 
-      // UPDATE/DELETE owner only
-      allow update, delete: if signedIn() && resource.data.organizerUserId == request.auth.uid;
+      // Owner edits + join-self
+      allow update: if isOwner()
+        || (signedIn()
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
+          && request.auth.uid in request.resource.data.memberIds);
 
-      // JOIN: allow user to add themselves to memberIds only
-      allow update: if signedIn()
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
-        && request.auth.uid in request.resource.data.memberIds;
+      allow delete: if isOwner();
+
+      // Subcollections: teams/matches/knockout/memberships
+      match /teams/{teamId} {
+        allow read: if isOwner() || isMember();
+        allow write: if isOwner();
+      }
+
+      match /matches/{matchId} {
+        allow read: if isOwner() || isMember();
+        allow write: if isOwner();
+      }
+
+      match /knockout/{matchId} {
+        allow read: if isOwner() || isMember();
+        allow write: if isOwner();
+      }
+
+      match /memberships/{membershipId} {
+        allow read: if isOwner() || isMember();
+        allow write: if isOwner()
+          || (signedIn() && request.resource.data.userId == request.auth.uid);
+      }
     }
   }
 }

@@ -78,9 +78,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     }
     try {
       final prefs = ref.read(prefsServiceProvider);
-      final currentUserId = prefs.getCurrentUserId() ??
-          prefs.getString(PreferencesService.kCurrentUserIdKey) ??
-          'admin_user';
+      final currentUserId = prefs.getCurrentUserId();
+      if (currentUserId == null || currentUserId.isEmpty) {
+        throw StateError("No signed-in user id (FirebaseAuth). Please restart app.");
+      }
 
       final space = await _spaceRepo.startSpace(
         leagueId: _league!.id,

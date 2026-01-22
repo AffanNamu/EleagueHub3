@@ -181,7 +181,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     bool isTablet,
   ) {
     final prefs = ref.read(prefsServiceProvider);
-    final String currentUserId = prefs.getCurrentUserId() ?? 'admin_user';
+    final String currentUserId = prefs.getCurrentUserId() ?? '';
 
     final media = MediaQuery.of(context);
     final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;

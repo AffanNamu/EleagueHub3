@@ -146,7 +146,7 @@ class _LeagueDetailScreenState
     final currentUserId = _prefs.getCurrentUserId() ??
         _prefs.getString(
                 PreferencesService.kCurrentUserIdKey) ??
-        'admin_user';
+        '';
 
     final membership = await _repo.getMembership(
       leagueId: widget.leagueId,
