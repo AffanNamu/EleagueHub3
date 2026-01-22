@@ -4,19 +4,19 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../../../core/services/notification_service.dart';
-import '../data/leagues_repository_local.dart';
 import '../data/league_announcements_local.dart';
 import '../data/league_spaces_local.dart';
+import '../data/leagues_repository_local.dart';
 import '../models/league.dart';
+import '../models/league_announcement.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
-import '../models/league_announcement.dart';
 import '../models/league_space.dart';
-import 'league_participants_screen.dart';
 import 'add_teams_screen.dart';
+import 'league_participants_screen.dart';
 
 class LeagueAdminScreen extends ConsumerStatefulWidget {
   final bool hasPendingChanges;
@@ -29,12 +29,10 @@ class LeagueAdminScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<LeagueAdminScreen> createState() =>
-      _LeagueAdminScreenState();
+  ConsumerState<LeagueAdminScreen> createState() => _LeagueAdminScreenState();
 }
 
-class _LeagueAdminScreenState
-    extends ConsumerState<LeagueAdminScreen> {
+class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   late LocalLeaguesRepository _localRepo;
   late LeagueAnnouncementsFirebase _annRepo;
   late LeagueSpacesFirebase _spaceRepo;
@@ -69,7 +67,7 @@ class _LeagueAdminScreenState
   }
 
   // League Space controls using shared local repo
-  Future<void> _spaceRepo.startSpace(widget.leagueId) async {
+  Future<void> _startSpace() async {
     if (_league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -93,9 +91,7 @@ class _LeagueAdminScreenState
       setState(() => _space = space);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'League Space started (local only).',
-          ),
+          content: Text('League Space started (local only).'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -110,7 +106,7 @@ class _LeagueAdminScreenState
     }
   }
 
-  Future<void> _spaceRepo.endSpace(widget.leagueId) async {
+  Future<void> _endSpace() async {
     if (_league == null) return;
     try {
       final updated = await _spaceRepo.endSpace(_league!.id);
@@ -137,9 +133,7 @@ class _LeagueAdminScreenState
     // TODO: navigate to real League Space screen (audio room)
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text(
-          'Opening League Space (audio room not implemented yet).',
-        ),
+        content: Text('Opening League Space (audio room not implemented yet).'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -193,24 +187,17 @@ class _LeagueAdminScreenState
         child: Row(
           children: [
             Icon(
-              widget.hasPendingChanges
-                  ? Icons.cloud_off
-                  : Icons.cloud_done,
-              color: widget.hasPendingChanges
-                  ? Colors.orangeAccent
-                  : Colors.greenAccent,
+              widget.hasPendingChanges ? Icons.cloud_off : Icons.cloud_done,
+              color: widget.hasPendingChanges ? Colors.orangeAccent : Colors.greenAccent,
               size: 40,
             ),
             const SizedBox(width: 20),
             Expanded(
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.hasPendingChanges
-                        ? 'Offline Changes'
-                        : 'Fully Synced',
+                    widget.hasPendingChanges ? 'Offline Changes' : 'Fully Synced',
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -242,9 +229,7 @@ class _LeagueAdminScreenState
     setState(() => _isSyncing = false);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text(
-          'Offline mode: remote sync is not configured yet.',
-        ),
+        content: Text('Offline mode: remote sync is not configured yet.'),
       ),
     );
   }
@@ -273,8 +258,7 @@ class _LeagueAdminScreenState
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) =>
-                    LeagueParticipantsScreen(leagueId: widget.leagueId),
+                builder: (_) => LeagueParticipantsScreen(leagueId: widget.leagueId),
               ),
             );
           },
@@ -342,9 +326,7 @@ class _LeagueAdminScreenState
             contentPadding: EdgeInsets.zero,
             leading: Icon(
               icon,
-              color: isDestructive
-                  ? Colors.redAccent
-                  : Colors.white,
+              color: isDestructive ? Colors.redAccent : Colors.white,
             ),
             title: Text(
               title,
@@ -418,13 +400,11 @@ class _LeagueAdminScreenState
                             const Divider(color: Colors.white10),
                             SwitchListTile.adaptive(
                               value: chatEnabled,
-                              onChanged: (v) =>
-                                  setModalState(() => chatEnabled = v),
+                              onChanged: (v) => setModalState(() => chatEnabled = v),
                               activeColor: Colors.cyanAccent,
                               title: const Text(
                                 'Viewer text chat',
-                                style:
-                                    TextStyle(color: Colors.white),
+                                style: TextStyle(color: Colors.white),
                               ),
                               subtitle: const Text(
                                 'Allow viewers to type messages',
@@ -436,13 +416,11 @@ class _LeagueAdminScreenState
                             ),
                             SwitchListTile.adaptive(
                               value: voiceEnabled,
-                              onChanged: (v) =>
-                                  setModalState(() => voiceEnabled = v),
+                              onChanged: (v) => setModalState(() => voiceEnabled = v),
                               activeColor: Colors.cyanAccent,
                               title: const Text(
                                 'Viewer audio',
-                                style:
-                                    TextStyle(color: Colors.white),
+                                style: TextStyle(color: Colors.white),
                               ),
                               subtitle: const Text(
                                 'Allow viewers to hear the stream',
@@ -454,13 +432,11 @@ class _LeagueAdminScreenState
                             ),
                             SwitchListTile.adaptive(
                               value: reactionsEnabled,
-                              onChanged: (v) =>
-                                  setModalState(() => reactionsEnabled = v),
+                              onChanged: (v) => setModalState(() => reactionsEnabled = v),
                               activeColor: Colors.cyanAccent,
                               title: const Text(
                                 'Viewer reactions',
-                                style:
-                                    TextStyle(color: Colors.white),
+                                style: TextStyle(color: Colors.white),
                               ),
                               subtitle: const Text(
                                 'Allow quick reactions (GG, Wow, Clutch)',
@@ -480,24 +456,15 @@ class _LeagueAdminScreenState
                                 ),
                                 child: FilledButton(
                                   onPressed: () async {
-                                    await prefs
-                                        .setLiveViewerChatEnabled(
-                                            chatEnabled);
-                                    await prefs
-                                        .setLiveViewerVoiceEnabled(
-                                            voiceEnabled);
-                                    await prefs
-                                        .setLiveViewerReactionsEnabled(
-                                            reactionsEnabled);
+                                    await prefs.setLiveViewerChatEnabled(chatEnabled);
+                                    await prefs.setLiveViewerVoiceEnabled(voiceEnabled);
+                                    await prefs.setLiveViewerReactionsEnabled(reactionsEnabled);
 
                                     if (!mounted) return;
                                     Navigator.of(ctx).pop();
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(
+                                    ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                        content: Text(
-                                          'Live viewer settings updated.',
-                                        ),
+                                        content: Text('Live viewer settings updated.'),
                                       ),
                                     );
                                   },
@@ -559,7 +526,7 @@ class _LeagueAdminScreenState
                           spaceLive
                               ? 'A live audio space is currently running for $leagueName.'
                               : 'Start a live audio room where you can talk with players from $leagueName. '
-                                'Only admins can host. Listeners join from the league details screen.',
+                                  'Only admins can host. Listeners join from the league details screen.',
                           style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
@@ -575,9 +542,7 @@ class _LeagueAdminScreenState
                                   onPressed: () => Navigator.of(ctx).pop(),
                                   child: const Text(
                                     'Close',
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                    ),
+                                    style: TextStyle(color: Colors.white70),
                                   ),
                                 ),
                               ),
@@ -586,7 +551,7 @@ class _LeagueAdminScreenState
                                 child: FilledButton.icon(
                                   onPressed: () {
                                     Navigator.of(ctx).pop();
-                                    _spaceRepo.startSpace(widget.leagueId);
+                                    _startSpace();
                                   },
                                   icon: const Icon(Icons.mic),
                                   label: const Text('Start Space'),
@@ -615,7 +580,7 @@ class _LeagueAdminScreenState
                                   ),
                                   onPressed: () {
                                     Navigator.of(ctx).pop();
-                                    _spaceRepo.endSpace(widget.leagueId);
+                                    _endSpace();
                                   },
                                   icon: const Icon(Icons.stop_circle_outlined),
                                   label: const Text('End Space'),
@@ -659,9 +624,8 @@ class _LeagueAdminScreenState
       builder: (ctx) {
         return SafeArea(
           child: Padding(
-            padding:
-                EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
-                    .add(const EdgeInsets.all(16)),
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
+                .add(const EdgeInsets.all(16)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
@@ -695,26 +659,20 @@ class _LeagueAdminScreenState
                         const SizedBox(height: 12),
                         TextField(
                           controller: titleController,
-                          style: const TextStyle(
-                              color: Colors.white),
+                          style: const TextStyle(color: Colors.white),
                           decoration: const InputDecoration(
                             labelText: 'Title (optional)',
-                            labelStyle: TextStyle(
-                              color: Colors.white70,
-                            ),
+                            labelStyle: TextStyle(color: Colors.white70),
                           ),
                         ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: messageController,
-                          style: const TextStyle(
-                              color: Colors.white),
+                          style: const TextStyle(color: Colors.white),
                           maxLines: 3,
                           decoration: const InputDecoration(
                             labelText: 'Message',
-                            labelStyle: TextStyle(
-                              color: Colors.white70,
-                            ),
+                            labelStyle: TextStyle(color: Colors.white70),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -722,13 +680,10 @@ class _LeagueAdminScreenState
                           children: [
                             Expanded(
                               child: TextButton(
-                                onPressed: () =>
-                                    Navigator.of(ctx).pop(),
+                                onPressed: () => Navigator.of(ctx).pop(),
                                 child: const Text(
                                   'Cancel',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                  ),
+                                  style: TextStyle(color: Colors.white70),
                                 ),
                               ),
                             ),
@@ -736,18 +691,13 @@ class _LeagueAdminScreenState
                             Expanded(
                               child: FilledButton(
                                 onPressed: () async {
-                                  final rawTitle =
-                                      titleController.text.trim();
-                                  final msg =
-                                      messageController.text.trim();
+                                  final rawTitle = titleController.text.trim();
+                                  final msg = messageController.text.trim();
                                   if (msg.isEmpty) return;
 
-                                  final title = rawTitle.isEmpty
-                                      ? 'Announcement'
-                                      : rawTitle;
+                                  final title = rawTitle.isEmpty ? 'Announcement' : rawTitle;
 
-                                  final now = DateTime.now()
-                                      .millisecondsSinceEpoch;
+                                  final now = DateTime.now().millisecondsSinceEpoch;
 
                                   final ann = LeagueAnnouncement(
                                     id: _uuid.v4(),
@@ -757,25 +707,19 @@ class _LeagueAdminScreenState
                                     createdAtMs: now,
                                   );
 
-                                  await _annRepo
-                                      .addAnnouncement(ann);
+                                  await _annRepo.addAnnouncement(ann);
 
-                                  await NotificationService()
-                                      .showLeagueAnnouncementNotification(
-                                    leagueName: _league?.name ??
-                                        'League',
+                                  await NotificationService().showLeagueAnnouncementNotification(
+                                    leagueName: _league?.name ?? 'League',
                                     title: title,
                                     message: msg,
                                   );
 
                                   if (!mounted) return;
                                   Navigator.of(ctx).pop();
-                                  ScaffoldMessenger.of(context)
-                                      .showSnackBar(
+                                  ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                      content: Text(
-                                        'Announcement sent (local only).',
-                                      ),
+                                      content: Text('Announcement sent (local only).'),
                                     ),
                                   );
                                 },
@@ -809,8 +753,7 @@ class _LeagueAdminScreenState
             padding: const EdgeInsets.all(16),
             child: Center(
               child: ConstrainedBox(
-                constraints:
-                    const BoxConstraints(maxWidth: 500),
+                constraints: const BoxConstraints(maxWidth: 500),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
@@ -822,8 +765,7 @@ class _LeagueAdminScreenState
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Padding(
-                          padding:
-                              EdgeInsets.symmetric(vertical: 12),
+                          padding: EdgeInsets.symmetric(vertical: 12),
                           child: Text(
                             'Manage Teams & Participants',
                             style: TextStyle(
@@ -836,17 +778,14 @@ class _LeagueAdminScreenState
                         const Divider(color: Colors.white10),
                         ListTile(
                           leading: const CircleAvatar(
-                            backgroundColor:
-                                Colors.cyanAccent,
-                            child: Icon(Icons.group,
-                                color: Colors.black),
+                            backgroundColor: Colors.cyanAccent,
+                            child: Icon(Icons.group, color: Colors.black),
                           ),
                           title: const Text(
                             'Teams (Add / Edit)',
                             style: TextStyle(
                               color: Colors.white,
-                              fontWeight:
-                                  FontWeight.w600,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           subtitle: const Text(
@@ -864,19 +803,14 @@ class _LeagueAdminScreenState
                         const SizedBox(height: 8),
                         ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: Colors.white
-                                .withOpacity(0.1),
-                            child: const Icon(
-                              Icons.people,
-                              color: Colors.white,
-                            ),
+                            backgroundColor: Colors.white.withOpacity(0.1),
+                            child: const Icon(Icons.people, color: Colors.white),
                           ),
                           title: const Text(
                             'Joined Participants',
                             style: TextStyle(
                               color: Colors.white,
-                              fontWeight:
-                                  FontWeight.w600,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           subtitle: const Text(
@@ -891,10 +825,8 @@ class _LeagueAdminScreenState
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    LeagueParticipantsScreen(
-                                  leagueId:
-                                      widget.leagueId,
+                                builder: (_) => LeagueParticipantsScreen(
+                                  leagueId: widget.leagueId,
                                 ),
                               ),
                             );
@@ -917,9 +849,7 @@ class _LeagueAdminScreenState
     if (_league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'League info not loaded yet. Please try again.',
-          ),
+          content: Text('League info not loaded yet. Please try again.'),
         ),
       );
       return;
@@ -967,8 +897,7 @@ class _LeagueAdminScreenState
                 padding: const EdgeInsets.all(16),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 520),
+                    constraints: const BoxConstraints(maxWidth: 520),
                     child: Glass(
                       borderRadius: 28,
                       child: Padding(
@@ -980,10 +909,7 @@ class _LeagueAdminScreenState
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(
-                                vertical: 12,
-                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               child: Column(
                                 children: [
                                   const Text(
@@ -991,8 +917,7 @@ class _LeagueAdminScreenState
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 16,
-                                      fontWeight:
-                                          FontWeight.bold,
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
@@ -1009,14 +934,11 @@ class _LeagueAdminScreenState
                             const Divider(color: Colors.white10),
                             SwitchListTile.adaptive(
                               value: doubleRR,
-                              onChanged: (v) => setModalState(
-                                () => doubleRR = v,
-                              ),
+                              onChanged: (v) => setModalState(() => doubleRR = v),
                               activeColor: Colors.cyanAccent,
                               title: const Text(
                                 'Double Round-Robin',
-                                style: TextStyle(
-                                    color: Colors.white),
+                                style: TextStyle(color: Colors.white),
                               ),
                               subtitle: const Text(
                                 'Each pairing plays home & away',
@@ -1026,16 +948,12 @@ class _LeagueAdminScreenState
                                 ),
                               ),
                             ),
-                            if (format ==
-                                LeagueFormat.uclGroup)
+                            if (format == LeagueFormat.uclGroup)
                               ListTile(
-                                contentPadding:
-                                    EdgeInsets.zero,
+                                contentPadding: EdgeInsets.zero,
                                 title: const Text(
                                   'Teams per Group',
-                                  style: TextStyle(
-                                      color:
-                                          Colors.white),
+                                  style: TextStyle(color: Colors.white),
                                 ),
                                 subtitle: const Text(
                                   'Recommended: 4 teams per group',
@@ -1045,67 +963,48 @@ class _LeagueAdminScreenState
                                   ),
                                 ),
                                 trailing: Row(
-                                  mainAxisSize:
-                                      MainAxisSize.min,
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     IconButton(
                                       icon: const Icon(
                                         Icons.remove,
-                                        color: Colors
-                                            .white70,
+                                        color: Colors.white70,
                                         size: 18,
                                       ),
                                       onPressed: () {
                                         setModalState(() {
-                                          groupSize =
-                                              (groupSize -
-                                                      1)
-                                                  .clamp(
-                                                      2, 8);
+                                          groupSize = (groupSize - 1).clamp(2, 8);
                                         });
                                       },
                                     ),
                                     Text(
                                       '$groupSize',
-                                      style:
-                                          const TextStyle(
-                                        color:
-                                            Colors.white,
-                                        fontWeight:
-                                            FontWeight
-                                                .bold,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     IconButton(
                                       icon: const Icon(
                                         Icons.add,
-                                        color: Colors
-                                            .white70,
+                                        color: Colors.white70,
                                         size: 18,
                                       ),
                                       onPressed: () {
                                         setModalState(() {
-                                          groupSize =
-                                              (groupSize +
-                                                      1)
-                                                  .clamp(
-                                                      2, 8);
+                                          groupSize = (groupSize + 1).clamp(2, 8);
                                         });
                                       },
                                     ),
                                   ],
                                 ),
                               ),
-                            if (format ==
-                                LeagueFormat.uclSwiss)
+                            if (format == LeagueFormat.uclSwiss)
                               ListTile(
-                                contentPadding:
-                                    EdgeInsets.zero,
+                                contentPadding: EdgeInsets.zero,
                                 title: const Text(
                                   'Swiss Rounds',
-                                  style: TextStyle(
-                                      color:
-                                          Colors.white),
+                                  style: TextStyle(color: Colors.white),
                                 ),
                                 subtitle: const Text(
                                   'Number of Swiss rounds before knockouts',
@@ -1115,51 +1014,36 @@ class _LeagueAdminScreenState
                                   ),
                                 ),
                                 trailing: Row(
-                                  mainAxisSize:
-                                      MainAxisSize.min,
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     IconButton(
                                       icon: const Icon(
                                         Icons.remove,
-                                        color: Colors
-                                            .white70,
+                                        color: Colors.white70,
                                         size: 18,
                                       ),
                                       onPressed: () {
                                         setModalState(() {
-                                          swissRounds =
-                                              (swissRounds -
-                                                      1)
-                                                  .clamp(
-                                                      1, 20);
+                                          swissRounds = (swissRounds - 1).clamp(1, 20);
                                         });
                                       },
                                     ),
                                     Text(
                                       '$swissRounds',
-                                      style:
-                                          const TextStyle(
-                                        color:
-                                            Colors.white,
-                                        fontWeight:
-                                            FontWeight
-                                                .bold,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     IconButton(
                                       icon: const Icon(
                                         Icons.add,
-                                        color: Colors
-                                            .white70,
+                                        color: Colors.white70,
                                         size: 18,
                                       ),
                                       onPressed: () {
                                         setModalState(() {
-                                          swissRounds =
-                                              (swissRounds +
-                                                      1)
-                                                  .clamp(
-                                                      1, 20);
+                                          swissRounds = (swissRounds + 1).clamp(1, 20);
                                         });
                                       },
                                     ),
@@ -1167,65 +1051,42 @@ class _LeagueAdminScreenState
                                 ),
                               ),
                             Align(
-                              alignment:
-                                  Alignment.centerRight,
+                              alignment: Alignment.centerRight,
                               child: Padding(
-                                padding:
-                                    const EdgeInsets.only(
+                                padding: const EdgeInsets.only(
                                   top: 8,
                                   right: 4,
                                   bottom: 8,
                                 ),
                                 child: FilledButton(
                                   onPressed: () async {
-                                    final updatedSettings =
-                                        league
-                                            .settings
-                                            .copyWith(
-                                      doubleRoundRobin:
-                                          doubleRR,
-                                      groupSize:
-                                          groupSize,
-                                      swissRounds:
-                                          swissRounds,
-                                      lastPulledAtMs: league
-                                          .settings
-                                          .lastPulledAtMs,
+                                    final updatedSettings = league.settings.copyWith(
+                                      doubleRoundRobin: doubleRR,
+                                      groupSize: groupSize,
+                                      swissRounds: swissRounds,
+                                      lastPulledAtMs: league.settings.lastPulledAtMs,
                                     );
 
-                                    final updatedLeague =
-                                        league.copyWith(
-                                      settings:
-                                          updatedSettings,
-                                      updatedAtMs: DateTime
-                                              .now()
-                                          .millisecondsSinceEpoch,
+                                    final updatedLeague = league.copyWith(
+                                      settings: updatedSettings,
+                                      updatedAtMs: DateTime.now().millisecondsSinceEpoch,
                                     );
 
-                                    await _localRepo
-                                        .saveLeague(
-                                            updatedLeague);
+                                    await _localRepo.saveLeague(updatedLeague);
 
                                     if (!mounted) return;
                                     setState(() {
-                                      _league =
-                                          updatedLeague;
+                                      _league = updatedLeague;
                                     });
 
-                                    Navigator.of(ctx)
-                                        .pop();
-                                    ScaffoldMessenger.of(
-                                            context)
-                                        .showSnackBar(
+                                    Navigator.of(ctx).pop();
+                                    ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                        content: Text(
-                                          'League rules updated.',
-                                        ),
+                                        content: Text('League rules updated.'),
                                       ),
                                     );
                                   },
-                                  child:
-                                      const Text('Save'),
+                                  child: const Text('Save'),
                                 ),
                               ),
                             ),
@@ -1268,32 +1129,25 @@ class _LeagueAdminScreenState
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.of(ctx).pop(),
+              onPressed: () => Navigator.of(ctx).pop(),
               child: const Text(
                 'Cancel',
-                style: TextStyle(
-                    color: Colors.white70),
+                style: TextStyle(color: Colors.white70),
               ),
             ),
             FilledButton(
               style: FilledButton.styleFrom(
-                backgroundColor:
-                    Colors.redAccent,
+                backgroundColor: Colors.redAccent,
               ),
               onPressed: () async {
-                await _localRepo
-                    .deleteLeagueCompletely(
-                        widget.leagueId);
+                await _localRepo.deleteLeagueCompletely(widget.leagueId);
 
                 if (!mounted) return;
-                Navigator.of(ctx).pop(); // close dialog
+                Navigator.of(ctx).pop();
 
-                GoRouter.of(context)
-                    .go('/leagues');
+                GoRouter.of(context).go('/leagues');
 
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(
+                ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('League deleted.'),
                   ),

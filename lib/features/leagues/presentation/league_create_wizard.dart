@@ -28,15 +28,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   final _name = TextEditingController();
   LeagueFormat _format = LeagueFormat.classic;
 
+  LeaguePrivacy _privacy = LeaguePrivacy.private;
+
   bool _doubleRoundRobin = true;
   bool _submitting = false;
 
   League? _createdLeague;
 
-  /// Max teams depends on the selected format:
-  /// - Classic: 20
-  /// - UCL Group: 32
-  /// - UCL Swiss: 32
   int get _maxTeams {
     switch (_format) {
       case LeagueFormat.classic:
@@ -255,6 +253,18 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           ],
           onChanged: (v) => setState(() => _format = v!),
         ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<LeaguePrivacy>(
+          value: _privacy,
+          dropdownColor: const Color(0xFF0A1D37),
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(labelText: 'Privacy'),
+          items: const [
+            DropdownMenuItem(value: LeaguePrivacy.private, child: Text('Private (members only)')),
+            DropdownMenuItem(value: LeaguePrivacy.public, child: Text('Public (visible to everyone)')),
+          ],
+          onChanged: (v) => setState(() => _privacy = v ?? LeaguePrivacy.private),
+        ),
       ],
     );
   }
@@ -282,6 +292,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       children: [
         _infoRow(Icons.label, 'Name', _name.text),
         _infoRow(Icons.format_list_bulleted, 'Format', _format.displayName),
+        _infoRow(Icons.lock, 'Privacy', _privacy == LeaguePrivacy.private ? 'Private' : 'Public'),
         _infoRow(Icons.groups, 'Max Teams', '$_maxTeams'),
         _infoRow(Icons.repeat, 'Double Round Robin', _doubleRoundRobin ? 'Yes' : 'No'),
       ],
@@ -324,7 +335,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       id: leagueId,
       name: _name.text.trim(),
       format: _format,
-      privacy: LeaguePrivacy.private,
+      privacy: _privacy,
       region: 'Global',
       maxTeams: _maxTeams,
       season: '2026',

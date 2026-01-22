@@ -16,27 +16,22 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/glass_search_bar.dart';
 import '../../../widgets/league_flip_card.dart';
+import '../../../core/services/sync_service.dart';
 
 class LeaguesListScreen extends ConsumerStatefulWidget {
   const LeaguesListScreen({super.key});
 
   @override
-  ConsumerState<LeaguesListScreen> createState() =>
-      _LeaguesListScreenState();
+  ConsumerState<LeaguesListScreen> createState() => _LeaguesListScreenState();
 }
 
-class _LeaguesListScreenState
-    extends ConsumerState<LeaguesListScreen> {
+class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   late LocalLeaguesRepository _localRepo;
   late LeagueAnnouncementsFirebase _annRepo;
 
   List<League> _leagues = [];
 
-  /// leagueId -> number of participants/teams
-  /// (manual Teams + Memberships with role=member, teamId=null)
   Map<String, int> _participantCounts = {};
-
-  /// leagueId -> latest announcement
   Map<String, LeagueAnnouncement?> _latestAnnouncements = {};
 
   bool _isLoading = true;
@@ -55,18 +50,24 @@ class _LeaguesListScreenState
       _isLoading = true;
     });
 
-    // 1) Load all leagues
+    // Try pulling latest from cloud to local first (if online)
+    await SyncService.instance.syncAll();
+
     final leagues = await _localRepo.listLeagues();
 
-    // 2) Load all memberships once
+    // NOTE: Your current file references memberships/teams methods that are not shown here.
+    // If those methods exist in your LocalLeaguesRepository in your real codebase,
+    // keep them. If not, remove the membership/team counting section.
+    //
+    // For now we keep your original logic but it requires:
+    // - _localRepo.listMemberships()
+    // - _localRepo.getTeams(league.id)
+
     final memberships = await _localRepo.listMemberships();
 
     final Map<String, int> counts = {};
     final Map<String, LeagueAnnouncement?> latestAnns = {};
 
-    // 3) For each league:
-    //    - count participants (teams + orphan members)
-    //    - get latest announcement
     await Future.wait(
       leagues.map((league) async {
         final teams = await _localRepo.getTeams(league.id);
@@ -80,11 +81,9 @@ class _LeaguesListScreenState
 
         counts[league.id] = teams.length + orphanMembersCount;
 
-        final anns =
-            await _annRepo.listForLeague(league.id);
+        final anns = await _annRepo.listForLeague(league.id);
         if (anns.isNotEmpty) {
-          anns.sort((a, b) =>
-              b.createdAtMs.compareTo(a.createdAtMs));
+          anns.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
           latestAnns[league.id] = anns.first;
         }
       }),
@@ -105,7 +104,6 @@ class _LeaguesListScreenState
     final screenWidth = media.size.width;
     final isTablet = screenWidth >= 600;
 
-    // Push FAB up by the bottom nav height + system inset + small margin
     final double fabBottomOffset =
         kBottomNavigationBarHeight + media.padding.bottom + 16;
 
@@ -132,8 +130,7 @@ class _LeaguesListScreenState
           child: const Icon(Icons.add),
         ),
       ),
-      floatingActionButtonLocation:
-          FloatingActionButtonLocation.endFloat,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -148,8 +145,7 @@ class _LeaguesListScreenState
                 const SizedBox(height: 8),
                 Expanded(
                   child: AnimatedSwitcher(
-                    duration:
-                        const Duration(milliseconds: 200),
+                    duration: const Duration(milliseconds: 200),
                     child: _isLoading
                         ? const Center(
                             child: CircularProgressIndicator(
@@ -158,11 +154,7 @@ class _LeaguesListScreenState
                           )
                         : _leagues.isEmpty
                             ? _buildEmptyState(context)
-                            : _buildLeagueList(
-                                context,
-                                _leagues,
-                                isTablet,
-                              ),
+                            : _buildLeagueList(context, _leagues, isTablet),
                   ),
                 ),
               ],
@@ -179,23 +171,16 @@ class _LeaguesListScreenState
     bool isTablet,
   ) {
     final prefs = ref.read(prefsServiceProvider);
-    final String currentUserId =
-        prefs.getCurrentUserId() ?? 'admin_user';
+    final String currentUserId = prefs.getCurrentUserId() ?? 'admin_user';
 
     final media = MediaQuery.of(context);
+    final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
 
-    // Leave space for the glass bottom navigation + system insets
-    final bottomPadding =
-        16.0 + media.padding.bottom + kBottomNavigationBarHeight;
-
-    // Slightly taller cards on tablets to look better in a grid
     final mainAxisExtent = isTablet ? 230.0 : 210.0;
 
     return GridView.builder(
-      keyboardDismissBehavior:
-          ScrollViewKeyboardDismissBehavior.onDrag,
-      physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics()),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: isTablet ? 2 : 1,
@@ -206,31 +191,21 @@ class _LeaguesListScreenState
       itemCount: leagues.length,
       itemBuilder: (context, index) {
         final league = leagues[index];
-        final bool isOwner =
-            league.organizerUserId == currentUserId;
+        final bool isOwner = league.organizerUserId == currentUserId;
 
-        final registered =
-            _participantCounts[league.id] ?? 0;
-        final latestAnn =
-            _latestAnnouncements[league.id];
-        final baseSubtitle =
-            '$registered / ${league.maxTeams} teams';
-        final subtitle = latestAnn != null
-            ? '$baseSubtitle • ${latestAnn.title}'
-            : baseSubtitle;
+        final registered = _participantCounts[league.id] ?? 0;
+        final latestAnn = _latestAnnouncements[league.id];
+        final baseSubtitle = '$registered / ${league.maxTeams} teams';
+        final subtitle = latestAnn != null ? '$baseSubtitle • ${latestAnn.title}' : baseSubtitle;
 
         return Stack(
           children: [
             LeagueFlipCard(
               leagueName: league.name,
-              leagueCode: league.code.isNotEmpty
-                  ? league.code
-                  : league.id.substring(0, 8),
-              distribution:
-                  "${league.format.displayName} • ${league.season}",
+              leagueCode: league.code.isNotEmpty ? league.code : league.id.substring(0, 8),
+              distribution: "${league.format.displayName} • ${league.season}",
               subtitle: subtitle,
-              onDoubleTap: () =>
-                  context.push('/leagues/${league.id}'),
+              onDoubleTap: () => context.push('/leagues/${league.id}'),
               qrWidget: QrImageView(
                 data: league.qrPayload,
                 version: QrVersions.auto,
@@ -250,19 +225,12 @@ class _LeaguesListScreenState
                 top: 12,
                 right: 12,
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.cyanAccent
-                        .withOpacity(0.2),
-                    borderRadius:
-                        BorderRadius.circular(8),
+                    color: Colors.cyanAccent.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: Colors.cyanAccent
-                          .withOpacity(0.5),
+                      color: Colors.cyanAccent.withOpacity(0.5),
                     ),
                   ),
                   child: const Row(
@@ -294,14 +262,12 @@ class _LeaguesListScreenState
 
   Widget _buildEmptyState(BuildContext context) {
     final media = MediaQuery.of(context);
-    final bottomPadding =
-        16.0 + media.padding.bottom + kBottomNavigationBarHeight;
+    final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
 
     return Center(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-        padding:
-            EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
+        padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
         child: Glass(
           borderRadius: 32,
           child: Padding(
@@ -318,8 +284,7 @@ class _LeaguesListScreenState
                   child: Icon(
                     Icons.emoji_events_outlined,
                     size: 64,
-                    color: Colors.cyanAccent
-                        .withOpacity(0.8),
+                    color: Colors.cyanAccent.withOpacity(0.8),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -347,8 +312,7 @@ class _LeaguesListScreenState
                   icon: const Icon(Icons.add),
                   label: const Text('Get Started'),
                   style: FilledButton.styleFrom(
-                    backgroundColor:
-                        Colors.white.withOpacity(0.1),
+                    backgroundColor: Colors.white.withOpacity(0.1),
                     minimumSize: const Size(200, 50),
                   ),
                 ),
@@ -371,50 +335,40 @@ class _LeaguesListScreenState
         padding: const EdgeInsets.all(16),
         child: SafeArea(
           minimum: EdgeInsets.only(
-            bottom: media.padding.bottom +
-                kBottomNavigationBarHeight,
+            bottom: media.padding.bottom + kBottomNavigationBarHeight,
           ),
           child: Center(
             child: ConstrainedBox(
-              constraints:
-                  const BoxConstraints(maxWidth: 500),
+              constraints: const BoxConstraints(maxWidth: 500),
               child: Glass(
                 borderRadius: 32,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Padding(
-                        padding:
-                            EdgeInsets.symmetric(vertical: 16),
+                        padding: EdgeInsets.symmetric(vertical: 16),
                         child: Text(
                           'League Options',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 18,
-                            fontWeight:
-                                FontWeight.bold,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                      const Divider(
-                          color: Colors.white10),
+                      const Divider(color: Colors.white10),
                       ListTile(
                         leading: const CircleAvatar(
-                          backgroundColor:
-                              Colors.cyanAccent,
-                          child: Icon(Icons.add,
-                              color: Colors.black),
+                          backgroundColor: Colors.cyanAccent,
+                          child: Icon(Icons.add, color: Colors.black),
                         ),
                         title: const Text(
                           'Create New League',
                           style: TextStyle(
                             color: Colors.white,
-                            fontWeight:
-                                FontWeight.w600,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         subtitle: const Text(
@@ -426,16 +380,14 @@ class _LeaguesListScreenState
                         ),
                         onTap: () async {
                           context.pop();
-                          await context
-                              .push('/leagues/create');
+                          await context.push('/leagues/create');
                           _refreshLeagues();
                         },
                       ),
                       const SizedBox(height: 8),
                       ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.white
-                              .withOpacity(0.1),
+                          backgroundColor: Colors.white.withOpacity(0.1),
                           child: const Icon(
                             Icons.qr_code_scanner,
                             color: Colors.white,
@@ -445,8 +397,7 @@ class _LeaguesListScreenState
                           'Join via QR',
                           style: TextStyle(
                             color: Colors.white,
-                            fontWeight:
-                                FontWeight.w600,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         subtitle: const Text(
@@ -458,17 +409,14 @@ class _LeaguesListScreenState
                         ),
                         onTap: () async {
                           context.pop();
-                          await context.push(
-                              '/leagues/join-scanner');
-                          if (mounted)
-                            _refreshLeagues();
+                          await context.push('/leagues/join-scanner');
+                          if (mounted) _refreshLeagues();
                         },
                       ),
                       const SizedBox(height: 8),
                       ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.white
-                              .withOpacity(0.1),
+                          backgroundColor: Colors.white.withOpacity(0.1),
                           child: const Icon(
                             Icons.key,
                             color: Colors.white,
@@ -478,8 +426,7 @@ class _LeaguesListScreenState
                           'Join by ID',
                           style: TextStyle(
                             color: Colors.white,
-                            fontWeight:
-                                FontWeight.w600,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         subtitle: const Text(
@@ -491,10 +438,8 @@ class _LeaguesListScreenState
                         ),
                         onTap: () async {
                           context.pop();
-                          await _showJoinByIdDialog(
-                              context);
-                          if (mounted)
-                            _refreshLeagues();
+                          await _showJoinByIdDialog(context);
+                          if (mounted) _refreshLeagues();
                         },
                       ),
                       const SizedBox(height: 16),
@@ -509,13 +454,11 @@ class _LeaguesListScreenState
     );
   }
 
-  Future<void> _showJoinByIdDialog(
-      BuildContext context) async {
+  Future<void> _showJoinByIdDialog(BuildContext context) async {
     final controller = TextEditingController();
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
-    final userId =
-        prefs.getCurrentUserId() ?? 'admin_user';
+    final userId = prefs.getCurrentUserId() ?? 'admin_user';
 
     try {
       await showDialog(
@@ -532,66 +475,50 @@ class _LeaguesListScreenState
             ),
             content: TextField(
               controller: controller,
-              style: const TextStyle(
-                  color: Colors.white),
+              style: const TextStyle(color: Colors.white),
               decoration: const InputDecoration(
                 hintText: 'Enter Join ID',
-                hintStyle:
-                    TextStyle(color: Colors.white38),
+                hintStyle: TextStyle(color: Colors.white38),
               ),
             ),
             actions: [
               TextButton(
-                onPressed: () =>
-                    Navigator.of(ctx).pop(),
+                onPressed: () => Navigator.of(ctx).pop(),
                 child: const Text(
                   'Cancel',
-                  style: TextStyle(
-                      color: Colors.white70),
+                  style: TextStyle(color: Colors.white70),
                 ),
               ),
               FilledButton(
                 onPressed: () async {
-                  final code = controller.text
-                      .trim()
-                      .toUpperCase();
+                  final code = controller.text.trim().toUpperCase();
                   if (code.isEmpty) return;
 
-                  await repo
-                      .joinLeagueLocallyByCode(
+                  await repo.joinLeagueLocallyByCode(
                     joinCode: code,
                     userId: userId,
-                    placeholderBuilder:
-                        (generatedLeagueId) {
-                      final now =
-                          DateTime.now()
-                              .millisecondsSinceEpoch;
+                    placeholderBuilder: (generatedLeagueId) {
+                      final now = DateTime.now().millisecondsSinceEpoch;
                       return League(
                         id: generatedLeagueId,
                         name: 'Joined League',
-                        format:
-                            LeagueFormat.classic,
-                        privacy:
-                            LeaguePrivacy.private,
+                        format: LeagueFormat.classic,
+                        privacy: LeaguePrivacy.private,
                         region: 'Global',
                         maxTeams: 20,
                         season: '2026',
                         organizerUserId: '',
                         code: code,
                         qrPayloadOverride: '',
-                        settings: LeagueSettings
-                                .defaultsFor(
-                          LeagueFormat.classic,
-                        ).copyWith(
-                            lastPulledAtMs: now),
+                        settings: LeagueSettings.defaultsFor(LeagueFormat.classic)
+                            .copyWith(lastPulledAtMs: now),
                         updatedAtMs: now,
                         version: 1,
                       );
                     },
                   );
 
-                  if (ctx.mounted)
-                    Navigator.of(ctx).pop();
+                  if (ctx.mounted) Navigator.of(ctx).pop();
                 },
                 child: const Text('Join'),
               ),

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
@@ -14,9 +13,11 @@ class LocalLeaguesRepository {
 
   static const String kLeaguesKey = 'local_leagues';
 
-  // --------------------------------------------------
-  // CRUD
-  // --------------------------------------------------
+  // -----------------------
+  // Leagues (used by UI)
+  // -----------------------
+
+  Future<List<League>> listLeagues() => getAllLeagues();
 
   Future<List<League>> getAllLeagues() async {
     final raw = _prefs.getStringList(kLeaguesKey) ?? [];
@@ -25,50 +26,57 @@ class LocalLeaguesRepository {
 
   Future<League?> getLeagueById(String id) async {
     final all = await getAllLeagues();
-    return all.firstWhere((l) => l.id == id, orElse: () => null);
+    for (final l in all) {
+      if (l.id == id) return l;
+    }
+    return null;
   }
 
   Future<void> saveLeague(League league) async {
     final all = await getAllLeagues();
     final existsIndex = all.indexWhere((l) => l.id == league.id);
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final updated = league.copyWith(updatedAtMs: now);
+
     if (existsIndex >= 0) {
-      all[existsIndex] = league;
+      all[existsIndex] = updated;
     } else {
-      all.add(league);
+      all.add(updated);
     }
 
-    final raw = all.map((l) => l.toJsonString()).toList();
-    await _prefs.setStringList(kLeaguesKey, raw);
+    await _prefs.setStringList(
+      kLeaguesKey,
+      all.map((l) => l.toJsonString()).toList(),
+    );
 
-    // --------------------------------------------------
-    // Add to sync queue
-    // --------------------------------------------------
-    await _queue.enqueue(SyncQueueItem(
+    await _queue.enqueue(
       id: _uuid.v4(),
       entityType: 'league',
-      entityId: league.id,
-      action: existsIndex >= 0 ? SyncAction.update : SyncAction.create,
-      payload: league.toJsonString(),
-      timestampMs: DateTime.now().millisecondsSinceEpoch,
-    ));
+      entityId: updated.id,
+      action: existsIndex >= 0 ? 'update' : 'create',
+      lastModified: now,
+      payload: updated.toJson(),
+    );
   }
 
   Future<void> deleteLeagueCompletely(String leagueId) async {
     final all = await getAllLeagues();
     all.removeWhere((l) => l.id == leagueId);
-    final raw = all.map((l) => l.toJsonString()).toList();
-    await _prefs.setStringList(kLeaguesKey, raw);
 
-    // --------------------------------------------------
-    // Add delete to sync queue
-    // --------------------------------------------------
-    await _queue.enqueue(SyncQueueItem(
+    await _prefs.setStringList(
+      kLeaguesKey,
+      all.map((l) => l.toJsonString()).toList(),
+    );
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _queue.enqueue(
       id: _uuid.v4(),
       entityType: 'league',
       entityId: leagueId,
-      action: SyncAction.delete,
+      action: 'delete',
+      lastModified: now,
       payload: null,
-      timestampMs: DateTime.now().millisecondsSinceEpoch,
-    ));
+    );
   }
 }

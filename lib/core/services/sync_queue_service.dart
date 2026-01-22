@@ -1,15 +1,19 @@
 import 'dart:convert';
-import 'package:uuid/uuid.dart';
 
 import '../persistence/prefs_service.dart';
 
-/// Represents a single pending sync action
+/// One queued local change to be synced to cloud later.
+///
+/// payload:
+/// - for create/update: JSON map of the entity (Firestore-ready)
+/// - for delete: null
 class SyncQueueItem {
   final String id;
-  final String entityType; // league, announcement, space
+  final String entityType; // 'league', 'announcement', 'space', ...
   final String entityId;
-  final String action; // create | update | delete
-  final int lastModified;
+  final String action; // 'create' | 'update' | 'delete'
+  final int lastModified; // ms since epoch
+  final Map<String, dynamic>? payload;
 
   SyncQueueItem({
     required this.id,
@@ -17,6 +21,7 @@ class SyncQueueItem {
     required this.entityId,
     required this.action,
     required this.lastModified,
+    required this.payload,
   });
 
   Map<String, dynamic> toMap() => {
@@ -25,21 +30,23 @@ class SyncQueueItem {
         'entityId': entityId,
         'action': action,
         'lastModified': lastModified,
+        'payload': payload,
       };
 
   factory SyncQueueItem.fromMap(Map<String, dynamic> map) {
     return SyncQueueItem(
-      id: map['id'],
-      entityType: map['entityType'],
-      entityId: map['entityId'],
-      action: map['action'],
-      lastModified: map['lastModified'],
+      id: map['id'] as String,
+      entityType: map['entityType'] as String,
+      entityId: map['entityId'] as String,
+      action: map['action'] as String,
+      lastModified: map['lastModified'] as int,
+      payload: (map['payload'] as Map?)?.cast<String, dynamic>(),
     );
   }
 }
 
-/// Local-only sync queue using SharedPreferences
-/// Safe, simple, backend-agnostic
+/// Local-only sync queue using SharedPreferences.
+/// Safe, simple, backend-agnostic.
 class SyncQueueService {
   SyncQueueService._internal(this._prefs);
 
@@ -51,39 +58,46 @@ class SyncQueueService {
   }
 
   static SyncQueueService get instance {
-    if (_instance == null) {
-      throw StateError(
-        'SyncQueueService not initialized. Call init() first.',
-      );
+    final inst = _instance;
+    if (inst == null) {
+      throw StateError('SyncQueueService not initialized. Call init() first.');
     }
-    return _instance!;
+    return inst;
   }
 
   static const _storageKey = 'sync_queue_items';
 
   final PreferencesService _prefs;
-  final Uuid _uuid = const Uuid();
 
-  /// Add a new pending sync action
+  /// Add a new pending sync action.
+  ///
+  /// You generate the queue item id outside OR just pass something stable.
+  /// (We keep your "id" field in the queue item so markDone works.)
+  Future<void> enqueueItem(SyncQueueItem item) async {
+    final items = await _loadAll();
+    items.add(item);
+    await _saveAll(items);
+  }
+
+  /// Convenience API (if you don't want to build SyncQueueItem manually)
   Future<void> enqueue({
+    required String id,
     required String entityType,
     required String entityId,
     required String action,
     required int lastModified,
+    required Map<String, dynamic>? payload,
   }) async {
-    final items = await _loadAll();
-
-    items.add(
+    await enqueueItem(
       SyncQueueItem(
-        id: _uuid.v4(),
+        id: id,
         entityType: entityType,
         entityId: entityId,
         action: action,
         lastModified: lastModified,
+        payload: payload,
       ),
     );
-
-    await _saveAll(items);
   }
 
   /// Get all pending items (ordered oldest → newest)
@@ -101,14 +115,9 @@ class SyncQueueService {
   }
 
   /// Check if a specific entity has pending changes
-  Future<bool> hasPendingForEntity(
-    String entityType,
-    String entityId,
-  ) async {
+  Future<bool> hasPendingForEntity(String entityType, String entityId) async {
     final items = await _loadAll();
-    return items.any(
-      (e) => e.entityType == entityType && e.entityId == entityId,
-    );
+    return items.any((e) => e.entityType == entityType && e.entityId == entityId);
   }
 
   /// Clear everything (debug / logout / full reset)
@@ -126,13 +135,12 @@ class SyncQueueService {
 
     final decoded = jsonDecode(raw) as List<dynamic>;
     return decoded
-        .map((e) => SyncQueueItem.fromMap(e))
+        .map((e) => SyncQueueItem.fromMap((e as Map).cast<String, dynamic>()))
         .toList();
   }
 
   Future<void> _saveAll(List<SyncQueueItem> items) async {
-    final encoded =
-        jsonEncode(items.map((e) => e.toMap()).toList());
+    final encoded = jsonEncode(items.map((e) => e.toMap()).toList());
     await _prefs.setString(_storageKey, encoded);
   }
 }

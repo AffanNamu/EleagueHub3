@@ -12,8 +12,7 @@ import 'package:flutter/foundation.dart';
 class ConnectivityService {
   ConnectivityService._internal();
 
-  static final ConnectivityService instance =
-      ConnectivityService._internal();
+  static final ConnectivityService instance = ConnectivityService._internal();
 
   final Connectivity _connectivity = Connectivity();
 
@@ -33,8 +32,7 @@ class ConnectivityService {
     final results = await _connectivity.checkConnectivity();
     await _updateStatus(results);
 
-    _subscription =
-        _connectivity.onConnectivityChanged.listen(_updateStatus);
+    _subscription = _connectivity.onConnectivityChanged.listen(_updateStatus);
   }
 
   /// Forces a manual recheck (used by sync engine)
@@ -49,7 +47,6 @@ class ConnectivityService {
         results.isNotEmpty && !results.contains(ConnectivityResult.none);
 
     bool hasInternet = false;
-
     if (hasNetwork) {
       hasInternet = await _hasRealInternetAccess();
     }
@@ -71,7 +68,6 @@ class ConnectivityService {
     }
   }
 
-  /// Call only on app shutdown (usually not needed)
   void dispose() {
     _subscription?.cancel();
     _subscription = null;
