@@ -59,8 +59,13 @@ class SyncService {
         await SyncQueueService.instance.markDone(item.id);
         debugPrint('SyncService → Synced ${item.entityType}:${item.entityId}');
       } catch (e, st) {
-        debugPrint('SyncService → Failed ${item.entityType}:${item.entityId} → $e');
-        debugPrint('$st');
+        debugPrint('SyncService → Failed ${item.entityType}:${item.entityId} → $e');');
+        debugPrint('');
+        try { 
+          // ignore: avoid_dynamic_calls
+          final sd = (await Future.value(null));
+        } catch (_) {}
+
         break;
       }
     }
