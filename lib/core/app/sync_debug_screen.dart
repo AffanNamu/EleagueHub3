@@ -15,6 +15,7 @@ class _SyncDebugScreenState extends State<SyncDebugScreen> {
   bool _syncing = false;
   int _queueCount = 0;
   String _log = 'Ready';
+  List<String> _queuePreview = const [];
 
   @override
   void initState() {
@@ -27,6 +28,10 @@ class _SyncDebugScreenState extends State<SyncDebugScreen> {
     if (!mounted) return;
     setState(() {
       _queueCount = pending.length;
+      _queuePreview = pending
+          .take(12)
+          .map((q) => 'type=${q.entityType} action=${q.action} id=${q.entityId}')
+          .toList();
     });
   }
 
@@ -38,10 +43,9 @@ class _SyncDebugScreenState extends State<SyncDebugScreen> {
 
     try {
       await SyncService.instance.syncAll();
-      final pending = await SyncQueueService.instance.getPending();
+      await _refresh();
       if (!mounted) return;
       setState(() {
-        _queueCount = pending.length;
         _log = 'Sync finished. Pending queue: $_queueCount';
       });
     } catch (e) {
@@ -50,9 +54,7 @@ class _SyncDebugScreenState extends State<SyncDebugScreen> {
         _log = 'Sync ERROR: $e';
       });
     } finally {
-      if (mounted) {
-        setState(() => _syncing = false);
-      }
+      if (mounted) setState(() => _syncing = false);
     }
   }
 
@@ -63,6 +65,12 @@ class _SyncDebugScreenState extends State<SyncDebugScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sync Debug'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _refresh,
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -75,12 +83,7 @@ class _SyncDebugScreenState extends State<SyncDebugScreen> {
             ListTile(
               title: const Text('Queue items'),
               subtitle: Text('$_queueCount'),
-              trailing: IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _refresh,
-              ),
             ),
-            const SizedBox(height: 12),
             ElevatedButton.icon(
               onPressed: _syncing ? null : _runSync,
               icon: _syncing
@@ -92,12 +95,16 @@ class _SyncDebugScreenState extends State<SyncDebugScreen> {
                   : const Icon(Icons.cloud_upload),
               label: Text(_syncing ? 'Syncing...' : 'Run Sync Now'),
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'Log',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+            const SizedBox(height: 16),
+            const Text('Queue preview (first 12):', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
+            ..._queuePreview.map(
+              (line) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(line),
+              ),
+            ),
+            const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -105,11 +112,6 @@ class _SyncDebugScreenState extends State<SyncDebugScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(_log),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Tip: Create a league offline/online then press "Run Sync Now". '
-              'If queue goes to 0 and no error, upload worked.',
             ),
           ],
         ),
