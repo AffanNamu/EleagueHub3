@@ -102,7 +102,9 @@ class _KnockoutBracketScreenState
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.cyanAccent),
+            )
           : Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _matches.isEmpty
@@ -113,12 +115,19 @@ class _KnockoutBracketScreenState
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.emoji_events_outlined, size: 48, color: Colors.white24),
+                            Icon(
+                              Icons.emoji_events_outlined,
+                              size: 48,
+                              color: Colors.white24,
+                            ),
                             const SizedBox(height: 16),
                             const Text(
                               'Brackets not generated yet.\nGenerate via Admin panel.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.white70, fontSize: 14),
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
                             ),
                           ],
                         ),
@@ -136,11 +145,14 @@ class _KnockoutBracketScreenState
                             minScale: 0.2,
                             maxScale: 2.0,
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 20),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  for (var i = 0; i < roundNames.length; i++) ...[
+                                  for (var i = 0;
+                                      i < roundNames.length;
+                                      i++) ...[
                                     _buildRoundColumn(
                                       roundNames[i],
                                       rounds[roundNames[i]]!,
@@ -163,7 +175,8 @@ class _KnockoutBracketScreenState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border(left: BorderSide(color: Colors.cyanAccent, width: 3)),
+        border:
+            const Border(left: BorderSide(color: Colors.cyanAccent, width: 3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -192,7 +205,8 @@ class _KnockoutBracketScreenState
         Container(
           width: 240,
           margin: const EdgeInsets.only(bottom: 24),
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          padding:
+              const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(30),
@@ -215,8 +229,10 @@ class _KnockoutBracketScreenState
   }
 
   Widget _buildMatchCard(KnockoutMatch match) {
-    final homeTeam = match.homeTeamId != null ? _teamsById[match.homeTeamId] : null;
-    final awayTeam = match.awayTeamId != null ? _teamsById[match.awayTeamId] : null;
+    final homeTeam =
+        match.homeTeamId != null ? _teamsById[match.homeTeamId] : null;
+    final awayTeam =
+        match.awayTeamId != null ? _teamsById[match.awayTeamId] : null;
 
     final homeName = homeTeam?.name ?? (match.homeTeamId ?? 'TBD');
     final awayName = awayTeam?.name ?? (match.awayTeamId ?? 'TBD');
@@ -243,7 +259,9 @@ class _KnockoutBracketScreenState
                 borderRadius: BorderRadius.circular(11),
                 gradient: LinearGradient(
                   colors: [
-                    isTBD ? Colors.white10 : Colors.cyanAccent.withOpacity(0.1),
+                    isTBD
+                        ? Colors.white10
+                        : Colors.cyanAccent.withOpacity(0.1),
                     Colors.transparent,
                   ],
                   begin: Alignment.topLeft,
@@ -254,18 +272,31 @@ class _KnockoutBracketScreenState
                 padding: const EdgeInsets.all(12),
                 child: Column(
                   children: [
-                    _buildTeamRow(homeName, match.homeScore?.toString() ?? "-", isHomeWinner),
+                    _buildTeamRow(
+                      homeName,
+                      match.homeScore?.toString() ?? "-",
+                      isHomeWinner,
+                    ),
                     const SizedBox(height: 8),
-                    Divider(color: Colors.white.withOpacity(0.05), height: 1),
+                    Divider(
+                      color: Colors.white.withOpacity(0.05),
+                      height: 1,
+                    ),
                     const SizedBox(height: 8),
-                    _buildTeamRow(awayName, match.awayScore?.toString() ?? "-", isAwayWinner),
+                    _buildTeamRow(
+                      awayName,
+                      match.awayScore?.toString() ?? "-",
+                      isAwayWinner,
+                    ),
                   ],
                 ),
               ),
             ),
           ),
-          Position Richardson(
-            top: 0, bottom: 0, left: 0,
+          Positioned(
+            top: 0,
+            bottom: 0,
+            left: 0,
             child: Container(
               width: 3,
               decoration: BoxDecoration(
@@ -288,19 +319,23 @@ class _KnockoutBracketScreenState
         Expanded(
           child: Text(
             name.toUpperCase(),
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: isWinner ? Colors.cyanAccent : (score == "-" ? Colors.white38 : Colors.white),
+              color: isWinner
+                  ? Colors.cyanAccent
+                  : (score == "-" ? Colors.white38 : Colors.white),
               fontSize: 13,
               fontWeight: isWinner ? FontWeight.w900 : FontWeight.w500,
               letterSpacing: 0.5,
-              overflow: TextOverflow.ellipsis,
             ),
           ),
         ),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: isWinner ? Colors.cyanAccent.withOpacity(0.1) : Colors.transparent,
+            color:
+                isWinner ? Colors.cyanAccent.withOpacity(0.1) : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
           ),
           child: Text(
@@ -326,7 +361,10 @@ class _KnockoutBracketScreenState
           width: 40,
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Colors.cyanAccent.withOpacity(0.5), Colors.transparent],
+              colors: [
+                Colors.cyanAccent.withOpacity(0.5),
+                Colors.transparent,
+              ],
             ),
           ),
         ),
