@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'enums.dart';
 import 'league_format.dart';
 import 'league_settings.dart';
@@ -68,13 +70,22 @@ class League {
         'version': version,
       };
 
+  /// Stored locally as a JSON string in SharedPreferences
+  String toJsonString() => jsonEncode(toJson());
+
+  /// Parse local stored JSON string
+  static League fromJsonString(String raw) {
+    final map = (jsonDecode(raw) as Map).cast<String, dynamic>();
+    return fromRemoteMap(map);
+  }
+
   factory League.fromJson(Map<String, dynamic> json) => fromRemoteMap(json);
 
   static League fromRemoteMap(Map<String, dynamic> map) {
     return League(
-      id: map['id'] as String,
-      name: map['name'] as String,
-      format: LeagueFormatX.fromInt((map['format'] as num).toInt()),
+      id: (map['id'] as String?) ?? '',
+      name: (map['name'] as String?) ?? '',
+      format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
       privacy: (map['isPrivate'] == 1 || map['isPrivate'] == true)
           ? LeaguePrivacy.private
           : LeaguePrivacy.public,
@@ -84,7 +95,7 @@ class League {
       organizerUserId: map['organizerUserId'] as String? ?? '',
       code: map['code'] as String? ?? '',
       qrPayloadOverride: map['qrPayload'] as String? ?? '',
-      settings: LeagueSettings.fromMap((map['settings'] as Map).cast<String, dynamic>()),
+      settings: LeagueSettings.fromMap((map['settings'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{}),
       updatedAtMs: (map['updatedAtMs'] as num?)?.toInt() ?? 0,
       version: (map['version'] as num?)?.toInt() ?? 1,
     );
