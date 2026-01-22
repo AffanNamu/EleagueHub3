@@ -60,20 +60,16 @@ class _KnockoutBracketScreenState
 
   @override
   Widget build(BuildContext context) {
-    // Group matches by roundName
     final rounds = <String, List<KnockoutMatch>>{};
     for (var m in _matches) {
       rounds.putIfAbsent(m.roundName, () => []).add(m);
     }
 
-    // Sort rounds in logical order
     final roundNames = rounds.keys.toList()
       ..sort((a, b) {
         final ai = _roundOrder.indexOf(a);
         final bi = _roundOrder.indexOf(b);
-        if (ai == -1 && bi == -1) {
-          return a.compareTo(b);
-        }
+        if (ai == -1 && bi == -1) return a.compareTo(b);
         if (ai == -1) return 1;
         if (bi == -1) return -1;
         return ai.compareTo(bi);
@@ -81,153 +77,149 @@ class _KnockoutBracketScreenState
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('UCL Knockout Stage'),
+        title: Text(
+          'CHAMPIONS BRACKET',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.2,
+            color: Colors.white.withOpacity(0.9),
+          ),
+        ),
+        centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
         actions: [
           IconButton(
             onPressed: _loadData,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.sync_rounded, color: Colors.cyanAccent),
             tooltip: 'Reload bracket',
           ),
         ],
       ),
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(
-                  color: Colors.cyanAccent,
-                ),
-              )
-            : Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1100),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: _matches.isEmpty
-                        ? Glass(
-                            padding: const EdgeInsets.all(24),
-                            borderRadius: 20,
-                            child: const Center(
-                              child: Text(
-                                'No knockout bracket generated yet.\n'
-                                'Generate it from the league details screen.',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 13,
-                                ),
-                                textAlign: TextAlign.center,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _matches.isEmpty
+                  ? Center(
+                      child: Glass(
+                        padding: const EdgeInsets.all(32),
+                        borderRadius: 24,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.emoji_events_outlined, size: 48, color: Colors.white24),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Brackets not generated yet.\nGenerate via Admin panel.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.white70, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : Column(
+                      children: [
+                        const SizedBox(height: 10),
+                        _buildHeaderInfo(),
+                        const SizedBox(height: 16),
+                        Expanded(
+                          child: InteractiveViewer(
+                            constrained: false,
+                            boundaryMargin: const EdgeInsets.all(150),
+                            minScale: 0.2,
+                            maxScale: 2.0,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  for (var i = 0; i < roundNames.length; i++) ...[
+                                    _buildRoundColumn(
+                                      roundNames[i],
+                                      rounds[roundNames[i]]!,
+                                    ),
+                                    if (i < roundNames.length - 1)
+                                      _buildBracketConnector(),
+                                  ],
+                                ],
                               ),
                             ),
-                          )
-                        : Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.stretch,
-                            children: [
-                              const Text(
-                                'UCL Knockout Stage',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 20,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Matches loaded: ${_matches.length}',
-                                style: const TextStyle(
-                                  color: Colors.white54,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Play-off, Round of 16, Quarter-finals, Semi-finals and Final\n'
-                                'Pinch & drag to explore the full bracket.',
-                                style: TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Expanded(
-                                child: Glass(
-                                  borderRadius: 20,
-                                  padding: const EdgeInsets.all(12),
-                                  child: InteractiveViewer(
-                                    constrained: false,
-                                    boundaryMargin:
-                                        const EdgeInsets.all(100),
-                                    minScale: 0.3,
-                                    maxScale: 2.0,
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        for (var i = 0;
-                                            i < roundNames.length;
-                                            i++) ...[
-                                          _buildRoundColumn(
-                                            roundNames[i],
-                                            rounds[roundNames[i]]!,
-                                          ),
-                                          if (i <
-                                              roundNames.length - 1)
-                                            _buildBracketConnector(),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
                           ),
-                  ),
-                ),
-              ),
+                        ),
+                      ],
+                    ),
+            ),
+    );
+  }
+
+  Widget _buildHeaderInfo() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: Colors.cyanAccent, width: 3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'UCL TOURNAMENT PHASE',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+              letterSpacing: 0.5,
+            ),
+          ),
+          Text(
+            '${_matches.length} matches scheduled • Pinch to explore',
+            style: const TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildRoundColumn(
-    String title,
-    List<KnockoutMatch> roundMatches,
-  ) {
-    // Keep matches stable
-    final matches = [...roundMatches];
-
+  Widget _buildRoundColumn(String title, List<KnockoutMatch> roundMatches) {
     return Column(
       children: [
-        Padding(
-          padding:
-              const EdgeInsets.symmetric(vertical: 20),
+        Container(
+          width: 240,
+          margin: const EdgeInsets.only(bottom: 24),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: Colors.white10),
+          ),
           child: Text(
-            title,
+            title.toUpperCase(),
+            textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+              color: Colors.cyanAccent,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 2,
             ),
           ),
         ),
-        for (final m in matches) _buildMatchCard(m),
+        ...roundMatches.map((m) => _buildMatchCard(m)).toList(),
       ],
     );
   }
 
   Widget _buildMatchCard(KnockoutMatch match) {
-    final homeTeam = match.homeTeamId != null
-        ? _teamsById[match.homeTeamId]
-        : null;
-    final awayTeam = match.awayTeamId != null
-        ? _teamsById[match.awayTeamId]
-        : null;
+    final homeTeam = match.homeTeamId != null ? _teamsById[match.homeTeamId] : null;
+    final awayTeam = match.awayTeamId != null ? _teamsById[match.awayTeamId] : null;
 
     final homeName = homeTeam?.name ?? (match.homeTeamId ?? 'TBD');
     final awayName = awayTeam?.name ?? (match.awayTeamId ?? 'TBD');
-
-    final homeScore = match.homeScore?.toString() ?? "-";
-    final awayScore = match.awayScore?.toString() ?? "-";
 
     final isHomeWinner = match.homeScore != null &&
         match.awayScore != null &&
@@ -236,76 +228,88 @@ class _KnockoutBracketScreenState
         match.awayScore != null &&
         match.awayScore! > match.homeScore!;
 
+    final isTBD = match.homeTeamId == null || match.awayTeamId == null;
+
     return Container(
-      width: 220,
-      margin: const EdgeInsets.all(10),
-      child: Glass(
-        borderRadius: 15,
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.stretch,
-          children: [
-            _buildTeamRow(
-              homeName,
-              homeScore,
-              isHomeWinner,
-            ),
-            const Divider(
-              color: Colors.white24,
-            ),
-            _buildTeamRow(
-              awayName,
-              awayScore,
-              isAwayWinner,
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                match.status == MatchStatus.completed
-                    ? "Completed"
-                    : "Scheduled",
-                style: const TextStyle(
-                  color: Colors.grey,
-                  fontSize: 10,
+      width: 240,
+      margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+      child: Stack(
+        children: [
+          Glass(
+            borderRadius: 12,
+            padding: const EdgeInsets.all(1), // Border width
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(11),
+                gradient: LinearGradient(
+                  colors: [
+                    isTBD ? Colors.white10 : Colors.cyanAccent.withOpacity(0.1),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    _buildTeamRow(homeName, match.homeScore?.toString() ?? "-", isHomeWinner),
+                    const SizedBox(height: 8),
+                    Divider(color: Colors.white.withOpacity(0.05), height: 1),
+                    const SizedBox(height: 8),
+                    _buildTeamRow(awayName, match.awayScore?.toString() ?? "-", isAwayWinner),
+                  ],
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+          Position Richardson(
+            top: 0, bottom: 0, left: 0,
+            child: Container(
+              width: 3,
+              decoration: BoxDecoration(
+                color: isTBD ? Colors.white24 : Colors.cyanAccent,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  bottomLeft: Radius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildTeamRow(
-    String name,
-    String score,
-    bool isWinner,
-  ) {
+  Widget _buildTeamRow(String name, String score, bool isWinner) {
     return Row(
-      mainAxisAlignment:
-          MainAxisAlignment.spaceBetween,
       children: [
         Expanded(
           child: Text(
-            name,
+            name.toUpperCase(),
             style: TextStyle(
-              color: isWinner
-                  ? Colors.cyanAccent
-                  : Colors.white,
-              fontWeight:
-                  isWinner ? FontWeight.bold : FontWeight.normal,
+              color: isWinner ? Colors.cyanAccent : (score == "-" ? Colors.white38 : Colors.white),
+              fontSize: 13,
+              fontWeight: isWinner ? FontWeight.w900 : FontWeight.w500,
+              letterSpacing: 0.5,
               overflow: TextOverflow.ellipsis,
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        Text(
-          score,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: isWinner ? Colors.cyanAccent.withOpacity(0.1) : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            score,
+            style: TextStyle(
+              color: isWinner ? Colors.cyanAccent : Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
           ),
         ),
       ],
@@ -315,8 +319,18 @@ class _KnockoutBracketScreenState
   Widget _buildBracketConnector() {
     return Container(
       width: 40,
-      height: 2,
-      color: Colors.white24,
+      margin: const EdgeInsets.only(top: 100),
+      child: Center(
+        child: Container(
+          height: 1,
+          width: 40,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.cyanAccent.withOpacity(0.5), Colors.transparent],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

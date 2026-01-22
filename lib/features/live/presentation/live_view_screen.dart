@@ -79,10 +79,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   _ViewerLayoutMode _viewerLayoutMode = _ViewerLayoutMode.single;
   bool _isFullscreen = false;
 
-  // Host floating chat bubble state
-  bool _hostChatExpanded = false;
-
-  // Quick message overlay
+  // Quick message overlay (what viewers see on top of video)
   Timer? _quickTimer;
   String? _quickText;
   String? _quickFrom;
@@ -416,10 +413,23 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         'label': trimmed,
         'from': liveHostSideToWire(_mySide),
       };
+
+      // Send to connected viewers
       LocalLiveService.instance.broadcastHostEvent(
         liveMatchId: widget.matchId,
         event: evt,
       );
+
+      // Also forward to Android overlay bubble so it can show over other apps.
+      if (Platform.isAndroid) {
+        try {
+          _liveChannel.invokeMethod('sendQuickMessage', {
+            'label': trimmed,
+            'from': liveHostSideToWire(_mySide),
+            'matchId': widget.matchId,
+          });
+        } catch (_) {}
+      }
     } else {
       // Optional: viewers can also send quick messages
       final v = _homeViewer ?? _awayViewer;
@@ -431,21 +441,22 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   }
 
   void _showQuickMessageSheet() {
+    // Host quick messages: short, gamer-style, no typing required.
     const msgs = [
-      'Focus!',
-      'Calm down',
-      'We got this',
-      'One more goal!',
-      'Don’t give up',
       'Sorry',
       'Unlucky',
       'Too easy 😎',
       'What a goal!',
       'Ref?? 😡',
+      'GG',
+      'Rematch?',
+      'Good game bro',
+      'Respect 🤝',
     ];
 
     showModalBottomSheet(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.1),
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return SafeArea(
@@ -454,43 +465,47 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: Glass(
-                  borderRadius: 24,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Quick Messages',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
+                child: Opacity(
+                  opacity: 0.8, // very transparent glass panel
+                  child: Glass(
+                    borderRadius: 24,
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Quick Messages',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: msgs
-                            .map(
-                              (m) => ActionChip(
-                                label: Text(
-                                  m,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: msgs
+                              .map(
+                                (m) => ActionChip(
+                                  label: Text(
+                                    m,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                    ),
                                   ),
+                                  backgroundColor:
+                                      Colors.white.withOpacity(0.06), // extra transparent
+                                  onPressed: () {
+                                    Navigator.of(ctx).pop();
+                                    _sendQuick(m);
+                                  },
                                 ),
-                                backgroundColor: Colors.white10,
-                                onPressed: () {
-                                  Navigator.of(ctx).pop();
-                                  _sendQuick(m);
-                                },
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ],
+                              )
+                              .toList(),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -503,6 +518,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width > 700;
+
     // Viewer full-screen mode: only video + exit button
     if (!widget.isHost && _isFullscreen) {
       return GlassScaffold(
@@ -561,185 +578,21 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
             ),
         ],
       ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: _buildMainBody(context),
-          ),
-          if (widget.isHost) _buildHostFloatingChatOverlay(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMainBody(BuildContext context) {
-    return SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth > 700) {
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (isWide || constraints.maxWidth > 700) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: _buildWideLayout(context),
+              );
+            }
             return Padding(
               padding: const EdgeInsets.all(16),
-              child: _buildWideLayout(context),
+              child: _buildMobileLayout(context),
             );
-          }
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: _buildMobileLayout(context),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildHostFloatingChatOverlay(BuildContext context) {
-    if (!widget.isHost) {
-      return const SizedBox.shrink();
-    }
-
-    final allowReactions = widget.isHost || _viewerReactionsEnabled;
-
-    return Positioned(
-      right: 16,
-      bottom: 110,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (_hostChatExpanded)
-            Opacity(
-              opacity: 0.65,
-              child: Glass(
-                borderRadius: 18,
-                padding: const EdgeInsets.all(8),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: 260,
-                    maxHeight: 220,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Chat',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            icon: const Icon(
-                              Icons.close,
-                              size: 18,
-                              color: Colors.white70,
-                            ),
-                            onPressed: () {
-                              setState(() => _hostChatExpanded = false);
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      SizedBox(
-                        height: 110,
-                        child: ListView.builder(
-                          reverse: true,
-                          itemCount: _messages.length,
-                          itemBuilder: (context, i) {
-                            final msg = _messages[_messages.length - 1 - i];
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Text(
-                                msg,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      if (allowReactions)
-                        Row(
-                          children: [
-                            ...[
-                              ('GG', Icons.emoji_events_outlined),
-                              ('Wow', Icons.flash_on_outlined),
-                              ('Clutch', Icons.local_fire_department_outlined),
-                            ].map(
-                              (e) => Padding(
-                                padding: const EdgeInsets.only(right: 4),
-                                child: IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  iconSize: 18,
-                                  onPressed: () => _react(e.$1),
-                                  icon: Icon(e.$2),
-                                  color: Colors.cyanAccent,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _chat,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                              ),
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                hintText: 'Type a message',
-                              ),
-                              onSubmitted: (_) => _send(),
-                            ),
-                          ),
-                          IconButton(
-                            visualDensity: VisualDensity.compact,
-                            iconSize: 18,
-                            onPressed: _send,
-                            icon: const Icon(Icons.send),
-                            color: Colors.cyanAccent,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          const SizedBox(height: 8),
-          Opacity(
-            opacity: 0.85,
-            child: Glass(
-              borderRadius: 999,
-              padding: const EdgeInsets.all(4),
-              child: IconButton(
-                tooltip: 'Chat',
-                icon: const Icon(
-                  Icons.chat_bubble_outline,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                onPressed: () {
-                  setState(() {
-                    _hostChatExpanded = !_hostChatExpanded;
-                  });
-                },
-              ),
-            ),
-          ),
-        ],
+          },
+        ),
       ),
     );
   }
@@ -762,22 +615,20 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
             ],
           ),
         ),
-        if (!widget.isHost) ...[
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 2,
-            child: _ChatOverlay(
-              minimized: false,
-              onToggleMinimize: () {},
-              messages: _messages,
-              chatController: _chat,
-              onSend: _send,
-              onReaction: _react,
-              allowTextInput: allowTextInput,
-              allowReactions: allowReactions,
-            ),
+        const SizedBox(width: 16),
+        Expanded(
+          flex: 2,
+          child: _ChatOverlay(
+            minimized: false,
+            onToggleMinimize: () {},
+            messages: _messages,
+            chatController: _chat,
+            onSend: _send,
+            onReaction: _react,
+            allowTextInput: allowTextInput,
+            allowReactions: allowReactions,
           ),
-        ],
+        ),
       ],
     );
   }
@@ -792,8 +643,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     final expandedChatHeight = maxHeight * 0.28; // ~28% of screen
     final collapsedChatHeight = 56.0;
 
-    final chatHeight =
-        _chatMinimized ? collapsedChatHeight : expandedChatHeight;
+    final chatHeight = _chatMinimized ? collapsedChatHeight : expandedChatHeight;
 
     return Column(
       children: [
@@ -802,28 +652,24 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         ),
         const SizedBox(height: 8),
         _buildControls(context),
-        if (!widget.isHost) ...[
-          const SizedBox(height: 8),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            height: chatHeight,
-            padding: EdgeInsets.only(
-              bottom: media.viewInsets.bottom,
-            ),
-            child: _ChatOverlay(
-              minimized: _chatMinimized,
-              onToggleMinimize: () {
-                setState(() => _chatMinimized = !_chatMinimized);
-              },
-              messages: _messages,
-              chatController: _chat,
-              onSend: _send,
-              onReaction: _react,
-              allowTextInput: allowTextInput,
-              allowReactions: allowReactions,
-            ),
+        const SizedBox(height: 8),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          height: chatHeight,
+          padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+          child: _ChatOverlay(
+            minimized: _chatMinimized,
+            onToggleMinimize: () {
+              setState(() => _chatMinimized = !_chatMinimized);
+            },
+            messages: _messages,
+            chatController: _chat,
+            onSend: _send,
+            onReaction: _react,
+            allowTextInput: allowTextInput,
+            allowReactions: allowReactions,
           ),
-        ],
+        ),
       ],
     );
   }
@@ -1036,7 +882,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   Widget _buildStreamArea(BuildContext context) {
     Widget base;
 
-    // HOST preview (unchanged layout)
+    // HOST preview
     if (widget.isHost && _hostSession != null) {
       final host = _hostSession!;
       final mySide = _mySide;
@@ -1059,12 +905,11 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       );
     } else {
       // VIEWER mode
-      final primaryScreen = (_primary == _PrimarySide.home)
-          ? _homeViewer?.screenRenderer
-          : _awayViewer?.screenRenderer;
+      final primaryScreen =
+          (_primary == _PrimarySide.home) ? _homeViewer?.screenRenderer : _awayViewer?.screenRenderer;
 
       if (_viewerLayoutMode == _ViewerLayoutMode.single) {
-        // Old gamer layout: one main screen + 2 cams
+        // One main screen + 2 cams
         base = _GamerStreamLayout(
           matchTitle: '$_homeLabel vs $_awayLabel',
           screenRenderer: primaryScreen,
@@ -1529,9 +1374,8 @@ class _CircularCam extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: selected
-                      ? Colors.cyanAccent.withOpacity(0.95)
-                      : Colors.white24,
+                  color:
+                      selected ? Colors.cyanAccent.withOpacity(0.95) : Colors.white24,
                   width: 2,
                 ),
                 color: Colors.black.withOpacity(0.35),
