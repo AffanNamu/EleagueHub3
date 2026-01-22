@@ -28,8 +28,6 @@ class SyncService {
     _isSyncing = true;
     try {
       await _syncLocalQueueToCloud();
-
-      // Keep disabled until you finalize list rules/indexes
       debugPrint('SyncService → Cloud pull skipped (temporary)');
     } finally {
       _isSyncing = false;
@@ -49,17 +47,17 @@ class SyncService {
       return;
     }
 
-    debugPrint('SyncService → Syncing ${queue.length} queued changes');
-
     for (final item in queue) {
       try {
         await _uploadItem(item);
         await SyncQueueService.instance.markDone(item.id);
         debugPrint('SyncService → Synced ${item.entityType}:${item.entityId}');
       } catch (e, st) {
-        debugPrint('SyncService → Failed ${item.entityType}:${item.entityId} → $e');
+        debugPrint('SyncService → FAILED item ${item.entityType}:${item.entityId} → $e');
         debugPrint('$st');
-        break;
+
+        // IMPORTANT: rethrow so Sync Debug shows the actual error
+        rethrow;
       }
     }
   }
@@ -71,12 +69,11 @@ class SyncService {
       case 'league':
         await _uploadLeague(item);
         return;
-
       case 'league_join':
         await _uploadLeagueJoin(item);
         return;
-
       default:
+        // leave these queued for now (we'll implement later)
         debugPrint('SyncService → Skipping unsupported entityType=${item.entityType}');
         return;
     }
@@ -97,7 +94,7 @@ class SyncService {
 
     final data = Map<String, dynamic>.from(payload);
 
-    // Ensure Firestore doc has id field (your fromRemoteMap expects it)
+    // Ensure Firestore doc has id field
     data['id'] = item.entityId;
 
     // Ensure memberIds exists (owner is always a member)
