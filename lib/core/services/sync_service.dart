@@ -21,7 +21,13 @@ class SyncService {
 
   Future<void> syncAll() async {
     if (_isSyncing) return;
-    if (!_connectivity.isConnected.value) return;
+
+    // Recheck helps on some devices where connectivity notifier lags
+    await _connectivity.recheckConnection();
+    if (!_connectivity.isConnected.value) {
+      debugPrint('SyncService → Not syncing (offline)');
+      return;
+    }
 
     _isSyncing = true;
     try {
@@ -39,6 +45,11 @@ class SyncService {
   Future<void> _syncLocalQueueToCloud() async {
     final queue = await SyncQueueService.instance.getPending();
 
+    debugPrint('SyncService → Pending queue items: ${queue.length}');
+    for (final q in queue) {
+      debugPrint('QueueItem → type=${q.entityType} action=${q.action} entityId=${q.entityId}');
+    }
+
     if (queue.isEmpty) {
       debugPrint('SyncService → No pending local changes');
       return;
@@ -54,7 +65,7 @@ class SyncService {
       } catch (e, st) {
         debugPrint('SyncService → Failed ${item.entityType}:${item.entityId} → $e');
         debugPrint('$st');
-        break; // preserve order
+        break;
       }
     }
   }
@@ -70,7 +81,9 @@ class SyncService {
         await _uploadLeagueJoin(item);
         return;
       default:
-        throw UnsupportedError('No uploader for entityType=${item.entityType}');
+        // Ignore unknown types for now (teams/matches etc) so leagues still sync
+        debugPrint('SyncService → Skipping unsupported entityType=${item.entityType}');
+        return;
     }
   }
 
@@ -92,15 +105,13 @@ class SyncService {
     // Ensure Firestore doc has id field (your fromRemoteMap expects it)
     data['id'] = item.entityId;
 
-    // Normalize organizer fields
+    // Ensure memberIds exists (owner is always a member)
     final ownerId = (data['organizerUserId'] as String?) ?? '';
     data['ownerId'] = ownerId;
 
-    // Privacy helper: Firestore uses isPrivate for now
     final isPrivate = data['isPrivate'] == 1 || data['isPrivate'] == true;
     data['isPrivate'] = isPrivate;
 
-    // Ensure memberIds exists (owner is always a member)
     final existing = (data['memberIds'] as List?)?.cast<dynamic>() ?? const [];
     final memberIds = <String>{
       ...existing.map((e) => e.toString()),
@@ -108,14 +119,10 @@ class SyncService {
     }.toList();
     data['memberIds'] = memberIds;
 
+    debugPrint('SyncService → Writing league to Firestore doc=${item.entityId}');
     await ref.set(data, SetOptions(merge: true));
   }
 
-  /// Process queued offline "join by code".
-  ///
-  /// payload must contain:
-  /// - code: String
-  /// - userId: String
   Future<void> _uploadLeagueJoin(SyncQueueItem item) async {
     final payload = item.payload;
     if (payload == null) {
@@ -129,7 +136,6 @@ class SyncService {
       throw StateError('Invalid payload for league_join: $payload');
     }
 
-    // Find league by code then add userId to memberIds.
     final snap = await _firestore.collection('leagues').where('code', isEqualTo: code).limit(1).get();
     if (snap.docs.isEmpty) {
       throw StateError('League not found for Join ID: $code');
@@ -143,9 +149,6 @@ class SyncService {
       },
       SetOptions(merge: true),
     );
-
-    // Optional improvement (not required): you could also fetch the league doc
-    // and overwrite the local placeholder here. We can add that next.
   }
 
   // --------------------------------------------------
@@ -163,9 +166,6 @@ class SyncService {
 
     debugPrint('SyncService → Pulling leagues updated after $lastPulledAtMs for user=$currentUserId');
 
-    // Two queries:
-    // 1) Public leagues
-    // 2) Leagues where I'm a member
     final qPublic = _firestore
         .collection('leagues')
         .where('isPrivate', isEqualTo: false)
@@ -201,15 +201,12 @@ class SyncService {
       data['id'] = doc.id;
 
       final league = League.fromRemoteMap(data);
-
       await _upsertLeagueLocallyWithoutQueue(prefs, league);
 
       if (league.updatedAtMs > newest) newest = league.updatedAtMs;
     }
 
     await prefs.setInt('leagues_last_pulled_at_ms', newest);
-
-    // keep analyzer happy (and ensures local repo is referenced)
     await localLeagues.getAllLeagues();
 
     debugPrint('SyncService → Pulled ${allDocs.length} leagues. New lastPulled=$newest');
@@ -221,7 +218,7 @@ class SyncService {
   ) async {
     const key = LocalLeaguesRepository.kLeaguesKey;
 
-    final raw = prefs.getStringList(key) ?? [];
+    final raw = prefs.getStringList(key) ?? <String>[];
     final leagues = raw.map((e) => League.fromJsonString(e)).toList();
 
     final idx = leagues.indexWhere((l) => l.id == league.id);
