@@ -122,7 +122,8 @@ class SyncQueueService {
 
   /// Clear everything (debug / logout / full reset)
   Future<void> clearAll() async {
-    await _prefs.remove(_storageKey);
+    // PreferencesService does not expose remove(); store empty value instead.
+    await _prefs.setString(_storageKey, '');
   }
 
   // -----------------

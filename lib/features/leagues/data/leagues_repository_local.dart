@@ -8,6 +8,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/sync_queue_service.dart';
 import '../models/fixture_match.dart';
+import '../models/knockout_match.dart';
 import '../models/league.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
@@ -22,9 +23,8 @@ class LocalLeaguesRepository {
   static const String kLeaguesKey = 'local_leagues';
   static const String kMembershipsKey = 'local_memberships';
   static const String kTeamsKey = 'local_teams';
-
-  /// All matches for all leagues (simple, ok for now)
   static const String kMatchesKey = 'local_matches';
+  static const String kKnockoutMatchesKey = 'local_knockout_matches';
 
   // -----------------------
   // Leagues
@@ -74,7 +74,6 @@ class LocalLeaguesRepository {
   }
 
   Future<void> deleteLeagueCompletely(String leagueId) async {
-    // remove league
     final leagues = await getAllLeagues();
     leagues.removeWhere((l) => l.id == leagueId);
     await _prefs.setStringList(
@@ -82,7 +81,6 @@ class LocalLeaguesRepository {
       leagues.map((l) => l.toJsonString()).toList(),
     );
 
-    // remove teams for league
     final teams = await _getAllTeams();
     teams.removeWhere((t) => t.leagueId == leagueId);
     await _prefs.setStringList(
@@ -90,7 +88,6 @@ class LocalLeaguesRepository {
       teams.map((t) => jsonEncode(t.toRemoteMap())).toList(),
     );
 
-    // remove memberships for league
     final memberships = await _getAllMemberships();
     memberships.removeWhere((m) => m.leagueId == leagueId);
     await _prefs.setStringList(
@@ -98,7 +95,6 @@ class LocalLeaguesRepository {
       memberships.map((m) => jsonEncode(m.toRemoteMap())).toList(),
     );
 
-    // remove matches for league
     final matches = await _getAllMatches();
     matches.removeWhere((m) => m.leagueId == leagueId);
     await _prefs.setStringList(
@@ -106,7 +102,13 @@ class LocalLeaguesRepository {
       matches.map((m) => jsonEncode(m.toJson())).toList(),
     );
 
-    // queue delete to cloud
+    final ko = await _getAllKnockoutMatches();
+    ko.removeWhere((m) => m.leagueId == leagueId);
+    await _prefs.setStringList(
+      kKnockoutMatchesKey,
+      ko.map((m) => jsonEncode(m.toJson())).toList(),
+    );
+
     final now = DateTime.now().millisecondsSinceEpoch;
     await _queue.enqueue(
       id: _uuid.v4(),
@@ -140,7 +142,7 @@ class LocalLeaguesRepository {
 
     await _upsertLeagueLocalNoQueue(stored);
 
-    // organizer membership
+    // organizer membership (local)
     final membership = Membership(
       id: _uuid.v4(),
       leagueId: stored.id,
@@ -162,7 +164,7 @@ class LocalLeaguesRepository {
       payload: stored.toJson(),
     );
 
-    // optional: membership queue
+    // (optional) queue membership create for future cloud sync
     await _queue.enqueue(
       id: _uuid.v4(),
       entityType: 'membership',
@@ -219,7 +221,6 @@ class LocalLeaguesRepository {
       final league = League.fromRemoteMap(data);
       await _upsertLeagueLocalNoQueue(league);
 
-      // local membership
       final membership = Membership(
         id: _uuid.v4(),
         leagueId: leagueId,
@@ -231,7 +232,6 @@ class LocalLeaguesRepository {
       );
       await _upsertMembershipLocalNoQueue(membership);
 
-      // optional membership queue
       await _queue.enqueue(
         id: _uuid.v4(),
         entityType: 'membership',
@@ -244,7 +244,7 @@ class LocalLeaguesRepository {
       return league;
     }
 
-    // Offline fallback
+    // offline placeholder
     final generatedLeagueId = _uuid.v4();
     final placeholder = placeholderBuilder(generatedLeagueId).copyWith(
       code: code,
@@ -253,7 +253,6 @@ class LocalLeaguesRepository {
 
     await _upsertLeagueLocalNoQueue(placeholder);
 
-    // local membership
     final membership = Membership(
       id: _uuid.v4(),
       leagueId: generatedLeagueId,
@@ -265,7 +264,6 @@ class LocalLeaguesRepository {
     );
     await _upsertMembershipLocalNoQueue(membership);
 
-    // queue join for later
     await _queue.enqueue(
       id: _uuid.v4(),
       entityType: 'league_join',
@@ -278,7 +276,6 @@ class LocalLeaguesRepository {
       },
     );
 
-    // optional membership queue
     await _queue.enqueue(
       id: _uuid.v4(),
       entityType: 'membership',
@@ -292,18 +289,24 @@ class LocalLeaguesRepository {
   }
 
   // ------------------------------------------------------
-  // MEMBERSHIPS
+  // Memberships
   // ------------------------------------------------------
 
   Future<List<Membership>> listMemberships() async => _getAllMemberships();
 
-  Future<List<Membership>> listMembershipsForLeague(String leagueId) async {
+  Future<Membership?> getMembership({
+    required String leagueId,
+    required String userId,
+  }) async {
     final all = await _getAllMemberships();
-    return all.where((m) => m.leagueId == leagueId).toList();
+    for (final m in all) {
+      if (m.leagueId == leagueId && m.userId == userId) return m;
+    }
+    return null;
   }
 
   // ------------------------------------------------------
-  // TEAMS
+  // Teams
   // ------------------------------------------------------
 
   Future<List<Team>> getTeams(String leagueId) async {
@@ -311,9 +314,7 @@ class LocalLeaguesRepository {
     return all.where((t) => t.leagueId == leagueId).toList();
   }
 
-  /// AddTeamsScreen calls this to overwrite all teams of a league at once.
   Future<void> saveTeams(String leagueId, List<Team> allTeams) async {
-    // Remove old teams for league, then add provided
     final teams = await _getAllTeams();
     teams.removeWhere((t) => t.leagueId == leagueId);
     teams.addAll(allTeams);
@@ -323,8 +324,6 @@ class LocalLeaguesRepository {
       teams.map((t) => jsonEncode(t.toRemoteMap())).toList(),
     );
 
-    // Queue a simple "teams_replace" action (optional).
-    // If you don't want to sync teams yet, you can remove this.
     final now = DateTime.now().millisecondsSinceEpoch;
     await _queue.enqueue(
       id: _uuid.v4(),
@@ -340,7 +339,7 @@ class LocalLeaguesRepository {
   }
 
   // ------------------------------------------------------
-  // MATCHES / FIXTURES
+  // Matches / Fixtures
   // ------------------------------------------------------
 
   Future<List<FixtureMatch>> getMatches(String leagueId) async {
@@ -348,6 +347,39 @@ class LocalLeaguesRepository {
     return all.where((m) => m.leagueId == leagueId).toList();
   }
 
+  /// Save specific matches (upsert). Used by admin score mgmt and fixtures edits.
+  Future<void> saveMatches(String leagueId, List<FixtureMatch> matches) async {
+    final all = await _getAllMatches();
+
+    for (final m in matches) {
+      final idx = all.indexWhere((x) => x.id == m.id);
+      if (idx >= 0) {
+        all[idx] = m;
+      } else {
+        all.add(m);
+      }
+    }
+
+    await _prefs.setStringList(
+      kMatchesKey,
+      all.map((m) => jsonEncode(m.toJson())).toList(),
+    );
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _queue.enqueue(
+      id: _uuid.v4(),
+      entityType: 'matches_upsert',
+      entityId: leagueId,
+      action: 'upsert',
+      lastModified: now,
+      payload: {
+        'leagueId': leagueId,
+        'matches': matches.map((m) => m.toJson()).toList(),
+      },
+    );
+  }
+
+  /// Replace all matches of a league (used by AddTeamsScreen generation).
   Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
     final all = await _getAllMatches();
     all.removeWhere((m) => m.leagueId == leagueId);
@@ -358,11 +390,43 @@ class LocalLeaguesRepository {
       all.map((m) => jsonEncode(m.toJson())).toList(),
     );
 
-    // Queue a simple "matches_replace" action (optional).
     final now = DateTime.now().millisecondsSinceEpoch;
     await _queue.enqueue(
       id: _uuid.v4(),
       entityType: 'matches_replace',
+      entityId: leagueId,
+      action: 'replace',
+      lastModified: now,
+      payload: {
+        'leagueId': leagueId,
+        'matches': matches.map((m) => m.toJson()).toList(),
+      },
+    );
+  }
+
+  // ------------------------------------------------------
+  // Knockout matches
+  // ------------------------------------------------------
+
+  Future<List<KnockoutMatch>> getKnockoutMatches(String leagueId) async {
+    final all = await _getAllKnockoutMatches();
+    return all.where((m) => m.leagueId == leagueId).toList();
+  }
+
+  Future<void> saveKnockoutMatches(String leagueId, List<KnockoutMatch> matches) async {
+    final all = await _getAllKnockoutMatches();
+    all.removeWhere((m) => m.leagueId == leagueId);
+    all.addAll(matches);
+
+    await _prefs.setStringList(
+      kKnockoutMatchesKey,
+      all.map((m) => jsonEncode(m.toJson())).toList(),
+    );
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _queue.enqueue(
+      id: _uuid.v4(),
+      entityType: 'knockout_replace',
       entityId: leagueId,
       action: 'replace',
       lastModified: now,
@@ -428,6 +492,14 @@ class LocalLeaguesRepository {
     return raw.map((e) {
       final map = (jsonDecode(e) as Map).cast<String, dynamic>();
       return FixtureMatch.fromJson(map);
+    }).toList();
+  }
+
+  Future<List<KnockoutMatch>> _getAllKnockoutMatches() async {
+    final raw = _prefs.getStringList(kKnockoutMatchesKey) ?? <String>[];
+    return raw.map((e) {
+      final map = (jsonDecode(e) as Map).cast<String, dynamic>();
+      return KnockoutMatch.fromJson(map);
     }).toList();
   }
 
