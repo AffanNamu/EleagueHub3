@@ -2,7 +2,6 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
-    // Apply the Google services Gradle plugin
     id "com.google.gms.google-services"
 }
 
@@ -21,7 +20,7 @@ android {
 
     defaultConfig {
         applicationId "com.eleaguehub.app"
-        minSdkVersion 21
+        minSdkVersion 23
         targetSdkVersion 34
         versionCode 7
         versionName "1.0.6"
@@ -43,11 +42,9 @@ android {
 
 dependencies {
     implementation "androidx.multidex:multidex:2.0.1"
-    
-    // Import the Firebase BoM for unified versioning
+    // NOTE: With FlutterFire you usually do NOT need to add firebase-* here.
+    // Keeping these is optional; if you see conflicts, remove them.
     implementation platform('com.google.firebase:firebase-bom:33.1.2')
-    
-    // Core Firebase libraries (mapped to BoM)
     implementation 'com.google.firebase:firebase-analytics'
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
