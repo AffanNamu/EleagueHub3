@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-import '../persistence/prefs_service.dart';
 import 'connectivity_service.dart';
 import 'sync_queue_service.dart';
 
@@ -30,9 +29,8 @@ class SyncService {
     try {
       await _syncLocalQueueToCloud();
 
-      // TEMP: disable cloud pull until rules/auth are finalized
+      // Keep disabled until you finalize list rules/indexes
       debugPrint('SyncService → Cloud pull skipped (temporary)');
-      // await _syncCloudToLocal();
     } finally {
       _isSyncing = false;
     }
@@ -59,13 +57,8 @@ class SyncService {
         await SyncQueueService.instance.markDone(item.id);
         debugPrint('SyncService → Synced ${item.entityType}:${item.entityId}');
       } catch (e, st) {
-        debugPrint('SyncService → Failed ${item.entityType}:${item.entityId} → $e');');
-        debugPrint('');
-        try { 
-          // ignore: avoid_dynamic_calls
-          final sd = (await Future.value(null));
-        } catch (_) {}
-
+        debugPrint('SyncService → Failed ${item.entityType}:${item.entityId} → $e');
+        debugPrint('$st');
         break;
       }
     }
@@ -78,9 +71,11 @@ class SyncService {
       case 'league':
         await _uploadLeague(item);
         return;
+
       case 'league_join':
         await _uploadLeagueJoin(item);
         return;
+
       default:
         debugPrint('SyncService → Skipping unsupported entityType=${item.entityType}');
         return;
@@ -102,8 +97,10 @@ class SyncService {
 
     final data = Map<String, dynamic>.from(payload);
 
+    // Ensure Firestore doc has id field (your fromRemoteMap expects it)
     data['id'] = item.entityId;
 
+    // Ensure memberIds exists (owner is always a member)
     final ownerId = (data['organizerUserId'] as String?) ?? '';
     data['ownerId'] = ownerId;
 
@@ -123,16 +120,21 @@ class SyncService {
 
   Future<void> _uploadLeagueJoin(SyncQueueItem item) async {
     final payload = item.payload;
-    if (payload == null) throw StateError('Missing payload for league_join');
+    if (payload == null) {
+      throw StateError('Missing payload for league_join');
+    }
 
     final code = (payload['code'] as String?)?.trim().toUpperCase();
     final userId = (payload['userId'] as String?)?.trim();
+
     if (code == null || code.isEmpty || userId == null || userId.isEmpty) {
       throw StateError('Invalid payload for league_join: $payload');
     }
 
     final snap = await _firestore.collection('leagues').where('code', isEqualTo: code).limit(1).get();
-    if (snap.docs.isEmpty) throw StateError('League not found for Join ID: $code');
+    if (snap.docs.isEmpty) {
+      throw StateError('League not found for Join ID: $code');
+    }
 
     final doc = snap.docs.first;
     await _firestore.collection('leagues').doc(doc.id).set(
