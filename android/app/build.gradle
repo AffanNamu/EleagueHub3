@@ -42,12 +42,6 @@ android {
 
 dependencies {
     implementation "androidx.multidex:multidex:2.0.1"
-    // NOTE: With FlutterFire you usually do NOT need to add firebase-* here.
-    // Keeping these is optional; if you see conflicts, remove them.
-    implementation platform('com.google.firebase:firebase-bom:33.1.2')
-    implementation 'com.google.firebase:firebase-analytics'
-    implementation 'com.google.firebase:firebase-auth'
-    implementation 'com.google.firebase:firebase-firestore'
 }
 
 flutter {
