@@ -9,10 +9,12 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/services/notification_service.dart';
 import '../data/leagues_repository_local.dart';
 import '../data/league_announcements_local.dart';
+import '../data/league_spaces_local.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
 import '../models/league_announcement.dart';
+import '../models/league_space.dart';
 import 'league_participants_screen.dart';
 import 'add_teams_screen.dart';
 
@@ -35,7 +37,11 @@ class _LeagueAdminScreenState
     extends ConsumerState<LeagueAdminScreen> {
   late LocalLeaguesRepository _localRepo;
   late LeagueAnnouncementsLocal _annRepo;
+  late LeagueSpacesLocal _spaceRepo;
+
   League? _league;
+  LeagueSpace? _space;
+
   bool _isLeagueLoading = true;
   bool _isSyncing = false;
 
@@ -47,16 +53,96 @@ class _LeagueAdminScreenState
     final prefs = ref.read(prefsServiceProvider);
     _localRepo = LocalLeaguesRepository(prefs);
     _annRepo = LeagueAnnouncementsLocal(prefs);
+    _spaceRepo = LeagueSpacesLocal(prefs);
     _loadLeague();
   }
 
   Future<void> _loadLeague() async {
     final league = await _localRepo.getLeagueById(widget.leagueId);
+    final space = await _spaceRepo.getSpace(widget.leagueId);
     if (!mounted) return;
     setState(() {
       _league = league;
+      _space = space;
       _isLeagueLoading = false;
     });
+  }
+
+  // League Space controls using shared local repo
+  Future<void> _onStartSpace() async {
+    if (_league == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('League info not loaded yet.'),
+        ),
+      );
+      return;
+    }
+    try {
+      final prefs = ref.read(prefsServiceProvider);
+      final currentUserId = prefs.getCurrentUserId() ??
+          prefs.getString(PreferencesService.kCurrentUserIdKey) ??
+          'admin_user';
+
+      final space = await _spaceRepo.startSpace(
+        leagueId: _league!.id,
+        hostUserId: currentUserId,
+        title: '${_league!.name} Space',
+      );
+      if (!mounted) return;
+      setState(() => _space = space);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'League Space started (local only).',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to start space: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onEndSpace() async {
+    if (_league == null) return;
+    try {
+      final updated = await _spaceRepo.endSpace(_league!.id);
+      if (!mounted) return;
+      setState(() => _space = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('League Space ended.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to end space: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _onOpenSpace() {
+    // TODO: navigate to real League Space screen (audio room)
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Opening League Space (audio room not implemented yet).',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -167,6 +253,8 @@ class _LeagueAdminScreenState
   // Settings list
   // -------------------
   Widget _buildSettingsList(BuildContext context) {
+    final spaceLive = _space?.isLive == true;
+
     return ListView(
       children: [
         _buildSettingsTile(
@@ -197,6 +285,15 @@ class _LeagueAdminScreenState
           'Live & Voice Settings',
           'Viewer chat, voice and reactions',
           onTap: _showLiveSettingsSheet,
+        ),
+        _buildSettingsTile(
+          context,
+          Icons.spatial_audio_off,
+          spaceLive ? 'League Space • LIVE' : 'League Space (Voice Room)',
+          spaceLive
+              ? 'Tap to open or end this live audio room'
+              : 'Start a live voice room for this league',
+          onTap: _showLeagueSpaceAdminSheet,
         ),
         _buildSettingsTile(
           context,
@@ -417,6 +514,123 @@ class _LeagueAdminScreenState
               ),
             );
           },
+        );
+      },
+    );
+  }
+
+  // -------------------
+  // League Space admin sheet
+  // -------------------
+  void _showLeagueSpaceAdminSheet() {
+    final leagueName = _league?.name ?? 'this league';
+    final spaceLive = _space?.isLive == true;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'League Space (Voice Room)',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          spaceLive
+                              ? 'A live audio space is currently running for $leagueName.'
+                              : 'Start a live audio room where you can talk with players from $leagueName. '
+                                'Only admins can host. Listeners join from the league details screen.',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        if (!spaceLive) ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(),
+                                  child: const Text(
+                                    'Close',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: () {
+                                    Navigator.of(ctx).pop();
+                                    _onStartSpace();
+                                  },
+                                  icon: const Icon(Icons.mic),
+                                  label: const Text('Start Space'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    Navigator.of(ctx).pop();
+                                    _onOpenSpace();
+                                  },
+                                  icon: const Icon(Icons.headset),
+                                  label: const Text('Open Space'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.redAccent,
+                                  ),
+                                  onPressed: () {
+                                    Navigator.of(ctx).pop();
+                                    _onEndSpace();
+                                  },
+                                  icon: const Icon(Icons.stop_circle_outlined),
+                                  label: const Text('End Space'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         );
       },
     );

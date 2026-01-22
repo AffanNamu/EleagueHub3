@@ -8,14 +8,10 @@ import '../models/league.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 import '../models/knockout_match.dart';
+import '../models/league_sync_model.dart';
 
 /// Repository responsible for local persistence of League + Membership + Team + Matches data.
-/// Uses SharedPreferences via the PreferencesService.
-///
-/// Added:
-/// - Offline-safe Join ID (invite code) generation
-/// - Offline-safe QR payload generation
-/// - Local membership persistence (organizer/member) so participant cannot edit
+/// Offline-first, sync-aware.
 class LocalLeaguesRepository {
   final PreferencesService _prefs;
 
@@ -58,11 +54,22 @@ class LocalLeaguesRepository {
     }
   }
 
-  Future<void> saveLeague(League league) async {
+  Future<void> saveLeague(
+    League league, {
+    SyncSource source = SyncSource.local,
+  }) async {
     final List<League> current = await listLeagues();
     final index = current.indexWhere((l) => l.id == league.id);
 
-    league = _normalizeLeagueJoinArtifacts(league);
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    league = _normalizeLeagueJoinArtifacts(
+      league.copyWith(
+        lastModified: now,
+        syncStatus: SyncStatus.pending,
+        syncSource: source,
+      ),
+    );
 
     if (index != -1) {
       current[index] = league;
@@ -70,49 +77,51 @@ class LocalLeaguesRepository {
       current.add(league);
     }
 
-    final String encoded = jsonEncode(current.map((l) => l.toJson()).toList());
+    final String encoded =
+        jsonEncode(current.map((l) => l.toJson()).toList());
     await _prefs.setString(_leaguesKey, encoded);
   }
 
-  /// Completely delete a league and all of its local data:
-  /// - League entry
-  /// - Memberships for that league
-  /// - Teams, league matches, knockout matches
+  /// Completely delete a league and all of its local data
   Future<void> deleteLeagueCompletely(String leagueId) async {
-    // 1) Remove league from list
     final leagues = await listLeagues();
     leagues.removeWhere((l) => l.id == leagueId);
-    final leaguesEncoded =
-        jsonEncode(leagues.map((l) => l.toJson()).toList());
-    await _prefs.setString(_leaguesKey, leaguesEncoded);
+    await _prefs.setString(
+      _leaguesKey,
+      jsonEncode(leagues.map((l) => l.toJson()).toList()),
+    );
 
-    // 2) Remove memberships for this league
     final memberships = await listMemberships();
     final filteredMemberships =
         memberships.where((m) => m.leagueId != leagueId).toList();
-    final membershipsEncoded = jsonEncode(
-      filteredMemberships.map((m) => m.toRemoteMap()).toList(),
+    await _prefs.setString(
+      _membershipsKey,
+      jsonEncode(filteredMemberships.map((m) => m.toRemoteMap()).toList()),
     );
-    await _prefs.setString(_membershipsKey, membershipsEncoded);
 
-    // 3) Clear league-specific data (teams, matches, knockouts)
     await _prefs.setString('$_teamsKey$leagueId', '[]');
     await _prefs.setString('$_matchesKey$leagueId', '[]');
     await _prefs.setString('$_knockoutsKey$leagueId', '[]');
   }
 
-  /// Creates a new league locally and also creates organizer membership for [organizerUserId].
+  /// Creates a new league locally
   Future<League> createLeagueLocally({
     required League league,
     required String organizerUserId,
   }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+
     final normalized = _normalizeLeagueJoinArtifacts(
-      league.copyWith(organizerUserId: organizerUserId),
+      league.copyWith(
+        organizerUserId: organizerUserId,
+        lastModified: now,
+        syncStatus: SyncStatus.pending,
+        syncSource: SyncSource.local,
+      ),
     );
 
     await saveLeague(normalized);
 
-    final now = DateTime.now().millisecondsSinceEpoch;
     await saveMembership(
       Membership(
         id: _randomId(),
@@ -128,18 +137,17 @@ class LocalLeaguesRepository {
     return normalized;
   }
 
-  /// Join a league locally (offline-first).
-  ///
-  /// If the league doesn't exist locally, we create a placeholder league record.
-  /// We also create a MEMBER membership for [userId].
+  /// Join a league locally (offline-first)
   Future<League> joinLeagueLocallyByCode({
     required String joinCode,
     required String userId,
     required League Function(String generatedLeagueId) placeholderBuilder,
   }) async {
     final leagues = await listLeagues();
-    final existing =
-        leagues.where((l) => l.code.toUpperCase() == joinCode.toUpperCase()).toList();
+    final existing = leagues.where(
+      (l) => l.code.toUpperCase() == joinCode.toUpperCase(),
+    );
+
     final League league;
 
     if (existing.isNotEmpty) {
@@ -147,19 +155,23 @@ class LocalLeaguesRepository {
     } else {
       final generatedLeagueId = _randomId();
       final placeholder = placeholderBuilder(generatedLeagueId);
+
       league = _normalizeLeagueJoinArtifacts(
         placeholder.copyWith(
           code: joinCode.toUpperCase(),
+          lastModified: DateTime.now().millisecondsSinceEpoch,
+          syncStatus: SyncStatus.pending,
+          syncSource: SyncSource.local,
           qrPayloadOverride:
               'eleaguehub://join?code=${joinCode.toUpperCase()}&id=$generatedLeagueId',
         ),
       );
+
       await saveLeague(league);
     }
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Ensure membership exists
     final already =
         await getMembership(leagueId: league.id, userId: userId);
     if (already == null) {
@@ -180,7 +192,7 @@ class LocalLeaguesRepository {
   }
 
   // -----------------------
-  // Memberships (roles)
+  // Memberships
   // -----------------------
 
   Future<List<Membership>> listMemberships() async {
@@ -204,7 +216,8 @@ class LocalLeaguesRepository {
     final all = await listMemberships();
     try {
       return all.firstWhere(
-          (m) => m.leagueId == leagueId && m.userId == userId);
+        (m) => m.leagueId == leagueId && m.userId == userId,
+      );
     } catch (_) {
       return null;
     }
@@ -220,116 +233,14 @@ class LocalLeaguesRepository {
       current.add(membership);
     }
 
-    final encoded =
-        jsonEncode(current.map((m) => m.toRemoteMap()).toList());
-    await _prefs.setString(_membershipsKey, encoded);
+    await _prefs.setString(
+      _membershipsKey,
+      jsonEncode(current.map((m) => m.toRemoteMap()).toList()),
+    );
   }
 
   // -----------------------
-  // Teams
-  // -----------------------
-
-  Future<void> saveTeams(String leagueId, List<Team> teams) async {
-    final String encoded =
-        jsonEncode(teams.map((t) => t.toRemoteMap()).toList());
-    await _prefs.setString('$_teamsKey$leagueId', encoded);
-  }
-
-  Future<List<Team>> getTeams(String leagueId) async {
-    final String? data = _prefs.getString('$_teamsKey$leagueId');
-    if (data == null) return [];
-    try {
-      final List decoded = jsonDecode(data);
-      return decoded
-          .map((t) => Team.fromRemoteMap(t as Map<String, dynamic>))
-          .toList();
-    } catch (e) {
-      debugPrint('Error decoding teams for $leagueId: $e');
-      return [];
-    }
-  }
-
-  // -----------------------
-  // Matches (League Phase)
-  // -----------------------
-
-  Future<List<FixtureMatch>> getMatches(String leagueId) async {
-    final String? data = _prefs.getString('$_matchesKey$leagueId');
-    if (data == null) return [];
-    try {
-      final List decoded = jsonDecode(data);
-      return decoded
-          .map((m) => FixtureMatch.fromJson(m as Map<String, dynamic>))
-          .toList()
-          .cast<FixtureMatch>();
-    } catch (e) {
-      debugPrint('Error decoding matches for $leagueId: $e');
-      return [];
-    }
-  }
-
-  /// Merge new matches into existing matches (used in some flows).
-  Future<void> saveMatches(String leagueId, List<FixtureMatch> matches) async {
-    final List<FixtureMatch> existing = await getMatches(leagueId);
-    final Map<String, FixtureMatch> matchMap = {
-      for (var m in existing) m.id: m
-    };
-
-    for (var m in matches) {
-      matchMap[m.id] = m;
-    }
-
-    final String encoded =
-        jsonEncode(matchMap.values.map((m) => m.toJson()).toList());
-    await _prefs.setString('$_matchesKey$leagueId', encoded);
-  }
-
-  /// Replace all league-phase matches for [leagueId] with [matches].
-  /// Used when regenerating fixtures after teams are added.
-  Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
-    final String encoded =
-        jsonEncode(matches.map((m) => m.toJson()).toList());
-    await _prefs.setString('$_matchesKey$leagueId', encoded);
-  }
-
-  // -----------------------
-  // Knockout Matches (Bracket)
-  // -----------------------
-
-  Future<List<KnockoutMatch>> getKnockoutMatches(String leagueId) async {
-    final String? data = _prefs.getString('$_knockoutsKey$leagueId');
-    if (data == null) return [];
-    try {
-      final List decoded = jsonDecode(data);
-      return decoded
-          .map((m) => KnockoutMatch.fromJson(m as Map<String, dynamic>))
-          .toList();
-    } catch (e) {
-      debugPrint('Error decoding knockouts for $leagueId: $e');
-      return [];
-    }
-  }
-
-  Future<void> saveKnockoutMatches(
-    String leagueId,
-    List<KnockoutMatch> matches,
-  ) async {
-    final existing = await getKnockoutMatches(leagueId);
-    final map = <String, KnockoutMatch>{
-      for (final m in existing) m.id: m,
-    };
-
-    for (final m in matches) {
-      map[m.id] = m;
-    }
-
-    final encoded =
-        jsonEncode(map.values.map((m) => m.toJson()).toList());
-    await _prefs.setString('$_knockoutsKey$leagueId', encoded);
-  }
-
-  // -----------------------
-  // Join artifacts helpers
+  // Helpers
   // -----------------------
 
   League _normalizeLeagueJoinArtifacts(League league) {
@@ -354,7 +265,7 @@ class LocalLeaguesRepository {
   }
 
   String _generateJoinCode({required String seed, int length = 8}) {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no O/0 I/1
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final seedHash = seed.hashCode.abs();
     final rng =
         Random(seedHash ^ DateTime.now().millisecondsSinceEpoch);

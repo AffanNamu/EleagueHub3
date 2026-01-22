@@ -12,6 +12,7 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
 import '../data/leagues_repository_local.dart';
 import '../data/league_announcements_local.dart';
+import '../data/league_spaces_local.dart';
 import '../domain/logic/tournament_controller.dart';
 import '../domain/standings/standings.dart';
 import '../domain/standings/standings_calculator.dart';
@@ -22,6 +23,7 @@ import '../models/membership.dart';
 import '../models/team.dart';
 import '../models/knockout_match.dart';
 import '../models/league_announcement.dart';
+import '../models/league_space.dart';
 
 class LeagueDetailScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -41,6 +43,7 @@ class _LeagueDetailScreenState
   late final LocalLeaguesRepository _repo;
   late final PreferencesService _prefs;
   late final LeagueAnnouncementsLocal _annRepo;
+  late final LeagueSpacesLocal _spaceRepo;
 
   int? _lastViewedRound;
   static String _lastRoundKey(String leagueId) =>
@@ -62,6 +65,7 @@ class _LeagueDetailScreenState
     _prefs = ref.read(prefsServiceProvider);
     _repo = LocalLeaguesRepository(_prefs);
     _annRepo = LeagueAnnouncementsLocal(_prefs);
+    _spaceRepo = LeagueSpacesLocal(_prefs);
 
     final rawRound =
         _prefs.getString(_lastRoundKey(widget.leagueId));
@@ -153,6 +157,9 @@ class _LeagueDetailScreenState
       for (final t in teams) t.id: t.name
     };
 
+    final space =
+        await _spaceRepo.getActiveSpace(widget.leagueId);
+
     return {
       'league': league,
       'fixtures': fixtures,
@@ -162,6 +169,7 @@ class _LeagueDetailScreenState
       'membership': membership,
       'knockouts': knockouts,
       'announcements': announcements,
+      'space': space,
     };
   }
 
@@ -224,6 +232,72 @@ class _LeagueDetailScreenState
         .toList();
     if (filtered.length <= limit) return filtered;
     return filtered.take(limit).toList();
+  }
+
+  // League Space handlers (using real local repo)
+  Future<void> _onStartSpace(
+    League league,
+    String currentUserId,
+  ) async {
+    try {
+      await _spaceRepo.startSpace(
+        leagueId: league.id,
+        hostUserId: currentUserId,
+        title: '${league.name} Space',
+      );
+      if (!mounted) return;
+      setState(() {}); // triggers FutureBuilder to reload
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'League Space started (local only).',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to start space: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onEndSpace(League league) async {
+    try {
+      await _spaceRepo.endSpace(league.id);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('League Space ended.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to end space: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _onOpenSpace(League league) {
+    // TODO: navigate to real League Space screen (audio room)
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Opening League Space (audio room not implemented yet).',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -303,6 +377,8 @@ class _LeagueDetailScreenState
               final teamNames =
                   snapshot.data!['teamNames']
                       as Map<String, String>;
+              final currentUserId =
+                  snapshot.data!['currentUserId'] as String;
               final membership =
                   snapshot.data!['membership']
                       as Membership?;
@@ -312,6 +388,8 @@ class _LeagueDetailScreenState
               final announcements =
                   snapshot.data!['announcements']
                       as List<LeagueAnnouncement>;
+              final space =
+                  snapshot.data!['space'] as LeagueSpace?;
 
               final sorted = _sortedSchedule(fixtures);
               final rounds = _allRounds(sorted);
@@ -351,8 +429,7 @@ class _LeagueDetailScreenState
                       LeagueRole.organizer;
               final isOwnerFallback =
                   league.organizerUserId ==
-                      (snapshot.data!['currentUserId']
-                          as String);
+                      currentUserId;
               final isOwner =
                   isOwnerByLeague || isOwnerFallback;
 
@@ -388,6 +465,8 @@ class _LeagueDetailScreenState
                       fixtures,
                       teams,
                       knockouts,
+                      space,
+                      currentUserId,
                     ),
                     const SizedBox(height: 16),
                     _upcomingMatchesCard(
@@ -601,12 +680,15 @@ class _LeagueDetailScreenState
     List<FixtureMatch> fixtures,
     List<Team> teams,
     List<KnockoutMatch> knockouts,
+    LeagueSpace? space,
+    String currentUserId,
   ) {
     final isSwiss =
         league.format == LeagueFormat.uclSwiss;
     final isGroup =
         league.format == LeagueFormat.uclGroup;
     final hasKnockouts = knockouts.isNotEmpty;
+    final spaceLive = space?.isLive == true;
 
     void showNeedKnockoutsSnack() {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -632,6 +714,14 @@ class _LeagueDetailScreenState
               color: Colors.white,
               fontSize: 16,
             ),
+          ),
+          const SizedBox(height: 8),
+          _buildLeagueSpaceRow(
+            context,
+            league,
+            isOwner,
+            spaceLive,
+            currentUserId,
           ),
           const SizedBox(height: 16),
           Row(
@@ -879,6 +969,98 @@ class _LeagueDetailScreenState
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildLeagueSpaceRow(
+    BuildContext context,
+    League league,
+    bool isOwner,
+    bool isLive,
+    String currentUserId,
+  ) {
+    // If there is no live space and user is not admin, hide the row
+    if (!isLive && !isOwner) {
+      return const SizedBox.shrink();
+    }
+
+    // Admin, no live space -> show "Start League Space"
+    if (!isLive && isOwner) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.cyanAccent,
+          ),
+          onPressed: () => _onStartSpace(league, currentUserId),
+          icon: const Icon(Icons.mic, size: 18),
+          label: const Text(
+            'Start League Space',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Space is live -> everyone sees a pill, admin can also end it
+    return InkWell(
+      onTap: () => _onOpenSpace(league),
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 6,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(999),
+          border:
+              Border.all(color: Colors.cyanAccent.withOpacity(0.6)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.graphic_eq,
+              color: Colors.cyanAccent,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'League Space • LIVE',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+            if (isOwner) ...[
+              const SizedBox(width: 10),
+              Container(
+                width: 1,
+                height: 16,
+                color: Colors.white24,
+              ),
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => _onEndSpace(league),
+                borderRadius: BorderRadius.circular(999),
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.stop_circle_outlined,
+                    size: 18,
+                    color: Colors.redAccent,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
