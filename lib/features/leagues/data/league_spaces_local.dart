@@ -7,8 +7,8 @@ import '../models/league_space.dart';
 
 /// Local-only storage of LeagueSpace per league.
 /// Later you can add a remote implementation and swap it in.
-class LeagueSpacesLocal {
-  LeagueSpacesLocal(this._prefs);
+class LeagueSpacesFirebase {
+  LeagueSpacesFirebase(this._prefs);
 
   final PreferencesService _prefs;
   static const _prefix = 'league_space_';

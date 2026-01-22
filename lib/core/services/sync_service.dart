@@ -1,122 +1,106 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
-import '../database/db_helper.dart';
 import 'connectivity_service.dart';
+import 'sync_queue_service.dart';
 
-/// Handles bidirectional sync between local DB and cloud
-/// Offline-first, safe, and auto-syncs on reconnection
+/// Handles bidirectional sync between local data and cloud
+/// Offline-first, queue-based, backend-agnostic
 class SyncService {
   SyncService._internal();
 
   static final SyncService instance = SyncService._internal();
 
-  final DbHelper _dbHelper = DbHelper.instance;
   final ConnectivityService _connectivity =
       ConnectivityService.instance;
 
   bool _isSyncing = false;
-  StreamSubscription<bool>? _connectionSub;
 
-  /// Must be called once (e.g. in main.dart)
-  void initialize() {
-    // Auto-sync when internet becomes available
-    _connectionSub =
-        _connectivity.connectionStream.listen((isOnline) {
-      if (isOnline) {
-        syncAll();
-      }
-    });
-  }
-
-  /// Push local unsynced changes to the cloud
-  Future<void> syncLocalToCloud() async {
+  /// Main entry point (safe to call repeatedly)
+  Future<void> syncAll() async {
     if (_isSyncing) return;
-
-    final online = await _connectivity.recheckConnection();
-    if (!online) return;
+    if (!_connectivity.isConnected.value) return;
 
     _isSyncing = true;
 
     try {
-      final db = await _dbHelper.database;
-
-      final unsyncedMatches = await db.query(
-        'matches',
-        where: 'isSynced = ?',
-        whereArgs: [0],
-      );
-
-      if (unsyncedMatches.isEmpty) return;
-
-      debugPrint(
-        'SyncService → ${unsyncedMatches.length} local changes to upload',
-      );
-
-      for (final match in unsyncedMatches) {
-        try {
-          // TODO: Replace with real cloud upload
-          // await cloudClient.upsertMatch(match);
-
-          debugPrint(
-            'SyncService → Uploading match ${match['id']}',
-          );
-
-          await db.update(
-            'matches',
-            {
-              'isSynced': 1,
-              'lastSyncedAt':
-                  DateTime.now().millisecondsSinceEpoch,
-            },
-            where: 'id = ?',
-            whereArgs: [match['id']],
-          );
-        } catch (e) {
-          debugPrint(
-            'SyncService → Failed to sync match ${match['id']}: $e',
-          );
-        }
-      }
+      await _syncLocalQueueToCloud();
+      await _syncCloudToLocal();
     } finally {
       _isSyncing = false;
     }
   }
 
-  /// Pull new cloud data into local database
-  Future<void> syncCloudToLocal() async {
-    final online = await _connectivity.recheckConnection();
-    if (!online) return;
+  // --------------------------------------------------
+  // LOCAL → CLOUD
+  // --------------------------------------------------
 
-    try {
-      debugPrint(
-        'SyncService → Pulling latest data from cloud',
-      );
+  Future<void> _syncLocalQueueToCloud() async {
+    final queue = await SyncQueueService.instance.getPending();
 
-      // TODO:
-      // 1. Fetch updated records since lastSync
-      // 2. Resolve conflicts (admin wins)
-      // 3. Upsert into local DB
+    if (queue.isEmpty) {
+      debugPrint('SyncService → No pending local changes');
+      return;
+    }
 
-    } catch (e) {
-      debugPrint(
-        'SyncService → Cloud pull failed: $e',
-      );
+    debugPrint(
+      'SyncService → Syncing ${queue.length} queued changes',
+    );
+
+    for (final item in queue) {
+      try {
+        await _uploadItem(item);
+
+        // Mark as done ONLY after success
+        await SyncQueueService.instance.markDone(item.id);
+
+        debugPrint(
+          'SyncService → Synced ${item.entityType}:${item.entityId}',
+        );
+      } catch (e) {
+        debugPrint(
+          'SyncService → Failed ${item.entityType}:${item.entityId} → $e',
+        );
+
+        // Stop on failure to preserve order & consistency
+        break;
+      }
     }
   }
 
-  /// Safe full sync (can be called many times)
-  Future<void> syncAll() async {
-    if (_isSyncing) return;
+  /// Upload a single queued item to the backend
+  /// Replace body when backend is ready
+  Future<void> _uploadItem(SyncQueueItem item) async {
+    // TODO: Replace with real backend logic
+    // Examples:
+    // - Supabase upsert
+    // - Firebase set/update/delete
+    // - REST POST/PUT/DELETE
 
-    debugPrint('SyncService → Starting full sync');
+    debugPrint(
+      'Uploading → '
+      '${item.entityType} | '
+      '${item.action} | '
+      'id=${item.entityId}',
+    );
 
-    await syncLocalToCloud();
-    await syncCloudToLocal();
+    // Simulated latency
+    await Future.delayed(const Duration(milliseconds: 300));
   }
 
-  void dispose() {
-    _connectionSub?.cancel();
-    _connectionSub = null;
+  // --------------------------------------------------
+  // CLOUD → LOCAL (stub)
+  // --------------------------------------------------
+
+  Future<void> _syncCloudToLocal() async {
+    if (!_connectivity.isConnected.value) return;
+
+    // TODO: Implement when backend exists
+    // Strategy:
+    // - Pull changes newer than lastPulledAt
+    // - Compare timestamps
+    // - Merge safely
+
+    debugPrint('SyncService → Cloud pull skipped (not configured)');
   }
 }

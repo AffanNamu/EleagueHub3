@@ -9,6 +9,7 @@ import 'core/theme/theme_controller.dart';
 import 'core/locale/locale_controller.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/notification_service.dart';
+import 'core/services/sync_queue_service.dart';
 import 'core/widgets/offline_banner.dart';
 
 Future<void> main() async {
@@ -19,9 +20,18 @@ Future<void> main() async {
     // Load persisted preferences
     final prefs = await PreferencesService.create();
 
-    // Connectivity & notifications
+    // Initialize Services
     ConnectivityService.instance.initialize();
+    SyncQueueService.init(prefs); // Initialize Sync Queue with prefs
     await NotificationService().init();
+
+    // Setup Auto-Sync listener when coming back online
+    ConnectivityService.instance.isConnected.addListener(() {
+      if (ConnectivityService.instance.isConnected.value) {
+        // Trigger background sync when online
+        // SyncQueueService.instance.syncAll(); 
+      }
+    });
 
     runApp(
       ProviderScope(

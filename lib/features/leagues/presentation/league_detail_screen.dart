@@ -42,8 +42,8 @@ class _LeagueDetailScreenState
     extends ConsumerState<LeagueDetailScreen> {
   late final LocalLeaguesRepository _repo;
   late final PreferencesService _prefs;
-  late final LeagueAnnouncementsLocal _annRepo;
-  late final LeagueSpacesLocal _spaceRepo;
+  late final LeagueAnnouncementsFirebase _annRepo;
+  late final LeagueSpacesFirebase _spaceRepo;
 
   int? _lastViewedRound;
   static String _lastRoundKey(String leagueId) =>
@@ -64,8 +64,8 @@ class _LeagueDetailScreenState
     super.initState();
     _prefs = ref.read(prefsServiceProvider);
     _repo = LocalLeaguesRepository(_prefs);
-    _annRepo = LeagueAnnouncementsLocal(_prefs);
-    _spaceRepo = LeagueSpacesLocal(_prefs);
+    _annRepo = LeagueAnnouncementsFirebase(_prefs);
+    _spaceRepo = LeagueSpacesFirebase(_prefs);
 
     final rawRound =
         _prefs.getString(_lastRoundKey(widget.leagueId));

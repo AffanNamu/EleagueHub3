@@ -16,6 +16,11 @@ dependencies:
   go_router: ^14.0.0
   cupertino_icons: ^1.0.6
 
+  # Firebase
+  firebase_core: ^3.27.0
+  cloud_firestore: ^5.0.0
+  firebase_auth: ^5.0.0
+
   # Data Persistence
   shared_preferences: ^2.2.3
   hive: ^2.2.3

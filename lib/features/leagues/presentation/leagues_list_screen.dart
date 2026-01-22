@@ -28,7 +28,7 @@ class LeaguesListScreen extends ConsumerStatefulWidget {
 class _LeaguesListScreenState
     extends ConsumerState<LeaguesListScreen> {
   late LocalLeaguesRepository _localRepo;
-  late LeagueAnnouncementsLocal _annRepo;
+  late LeagueAnnouncementsFirebase _annRepo;
 
   List<League> _leagues = [];
 
@@ -46,7 +46,7 @@ class _LeaguesListScreenState
     super.initState();
     final prefs = ref.read(prefsServiceProvider);
     _localRepo = LocalLeaguesRepository(prefs);
-    _annRepo = LeagueAnnouncementsLocal(prefs);
+    _annRepo = LeagueAnnouncementsFirebase(prefs);
     _refreshLeagues();
   }
 

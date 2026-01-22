@@ -36,8 +36,8 @@ class LeagueAdminScreen extends ConsumerStatefulWidget {
 class _LeagueAdminScreenState
     extends ConsumerState<LeagueAdminScreen> {
   late LocalLeaguesRepository _localRepo;
-  late LeagueAnnouncementsLocal _annRepo;
-  late LeagueSpacesLocal _spaceRepo;
+  late LeagueAnnouncementsFirebase _annRepo;
+  late LeagueSpacesFirebase _spaceRepo;
 
   League? _league;
   LeagueSpace? _space;
@@ -52,8 +52,8 @@ class _LeagueAdminScreenState
     super.initState();
     final prefs = ref.read(prefsServiceProvider);
     _localRepo = LocalLeaguesRepository(prefs);
-    _annRepo = LeagueAnnouncementsLocal(prefs);
-    _spaceRepo = LeagueSpacesLocal(prefs);
+    _annRepo = LeagueAnnouncementsFirebase(prefs);
+    _spaceRepo = LeagueSpacesFirebase(prefs);
     _loadLeague();
   }
 

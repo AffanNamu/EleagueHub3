@@ -3,10 +3,10 @@ import 'dart:convert';
 import '../../../core/persistence/prefs_service.dart';
 import '../models/league_announcement.dart';
 
-class LeagueAnnouncementsLocal {
+class LeagueAnnouncementsFirebase {
   final PreferencesService _prefs;
 
-  LeagueAnnouncementsLocal(this._prefs);
+  LeagueAnnouncementsFirebase(this._prefs);
 
   String _key(String leagueId) => 'league_announcements_$leagueId';
 
