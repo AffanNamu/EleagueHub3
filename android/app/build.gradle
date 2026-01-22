@@ -2,6 +2,8 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
+    // Apply the Google services Gradle plugin
+    id "com.google.gms.google-services"
 }
 
 android {
@@ -19,18 +21,13 @@ android {
 
     defaultConfig {
         applicationId "com.eleaguehub.app"
-        // Supports Android 5.0, 6.0 and higher
         minSdkVersion 21
         targetSdkVersion 34
-        // Bumped to 7 to ensure the phone sees it as a new update
         versionCode 7
         versionName "1.0.6"
-
-        // Essential for older Android versions to handle many plugins
         multiDexEnabled true
     }
 
-    // Prevent occasional native duplicate libs errors when adding WebRTC/Streaming
     packagingOptions {
         pickFirst 'lib/**/libc++_shared.so'
     }
@@ -45,8 +42,15 @@ android {
 }
 
 dependencies {
-    // Standard multidex support for older Android versions
     implementation "androidx.multidex:multidex:2.0.1"
+    
+    // Import the Firebase BoM for unified versioning
+    implementation platform('com.google.firebase:firebase-bom:33.1.2')
+    
+    // Core Firebase libraries (mapped to BoM)
+    implementation 'com.google.firebase:firebase-analytics'
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
 }
 
 flutter {

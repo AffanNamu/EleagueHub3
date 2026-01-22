@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "155243307303",
+    "project_id": "esportlyic",
+    "storage_bucket": "esportlyic.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:155243307303:android:3152827141fd25ed878902",
+        "android_client_info": {
+          "package_name": "com.eleaguehub.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2lIyhi9wgPOWkAuJA0tmizB_rrj7QZnM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
