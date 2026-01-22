@@ -69,7 +69,7 @@ class _LeagueAdminScreenState
   }
 
   // League Space controls using shared local repo
-  Future<void> _onStartSpace() async {
+  Future<void> _spaceRepo.startSpace(widget.leagueId) async {
     if (_league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -110,7 +110,7 @@ class _LeagueAdminScreenState
     }
   }
 
-  Future<void> _onEndSpace() async {
+  Future<void> _spaceRepo.endSpace(widget.leagueId) async {
     if (_league == null) return;
     try {
       final updated = await _spaceRepo.endSpace(_league!.id);
@@ -586,7 +586,7 @@ class _LeagueAdminScreenState
                                 child: FilledButton.icon(
                                   onPressed: () {
                                     Navigator.of(ctx).pop();
-                                    _onStartSpace();
+                                    _spaceRepo.startSpace(widget.leagueId);
                                   },
                                   icon: const Icon(Icons.mic),
                                   label: const Text('Start Space'),
@@ -615,7 +615,7 @@ class _LeagueAdminScreenState
                                   ),
                                   onPressed: () {
                                     Navigator.of(ctx).pop();
-                                    _onEndSpace();
+                                    _spaceRepo.endSpace(widget.leagueId);
                                   },
                                   icon: const Icon(Icons.stop_circle_outlined),
                                   label: const Text('End Space'),
