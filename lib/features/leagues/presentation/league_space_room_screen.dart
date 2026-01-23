@@ -41,6 +41,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _connected = false;
   bool _micEnabled = false;
 
+  // ---- Spaces (requests/speakers) state ----
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _mySpeakerSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _myRequestSub;
+
+  bool _isSpeakerApproved = false;
+  bool _speakerMutedByHost = false;
+  String _myRequestStatus = ''; // '', 'pending', 'approved', 'denied'
+
   static const _reactions = <String>[
     '👍','😂','🎉','👏','🙏','💯','❤️','💪','👎','👌','🤸','⚽','🏁',
     '🇺🇸','🇬🇧','🇳🇬','🇫🇷','🇩🇪','🇪🇸','🇮🇹','🇧🇷','🇦🇷','🇵🇹','🇲🇽','🇨🇦','🇿🇦','🇯🇵','🇰🇷','🇨🇳','🇮🇳'
@@ -49,8 +57,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   DocumentReference<Map<String, dynamic>> get _spaceDoc =>
       _firestore.collection('leagues').doc(widget.leagueId).collection('space').doc('current');
 
-  CollectionReference<Map<String, dynamic>> get _reactionsCol =>
-      _spaceDoc.collection('reactions');
+  CollectionReference<Map<String, dynamic>> get _reactionsCol => _spaceDoc.collection('reactions');
+
+  CollectionReference<Map<String, dynamic>> get _requestsCol => _spaceDoc.collection('requests');
+  CollectionReference<Map<String, dynamic>> get _speakersCol => _spaceDoc.collection('speakers');
+
+  DocumentReference<Map<String, dynamic>> get _myRequestDoc => _requestsCol.doc(_uid);
+  DocumentReference<Map<String, dynamic>> get _mySpeakerDoc => _speakersCol.doc(_uid);
 
   @override
   void initState() {
@@ -85,6 +98,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _loading = false;
           _error = '';
         });
+
+        // once we have uid + a space doc, attach speaker/request listeners
+        _ensureSpaceRoleListeners();
       } catch (e) {
         setState(() {
           _loading = false;
@@ -100,10 +116,81 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     });
   }
 
+  void _ensureSpaceRoleListeners() {
+    if (_uid.isEmpty) return;
+    if (_space == null) return;
+
+    // Host is always "speaker-approved" from the UI perspective.
+    if (_isHost) {
+      if (!_isSpeakerApproved || _speakerMutedByHost) {
+        setState(() {
+          _isSpeakerApproved = true;
+          _speakerMutedByHost = false;
+          _myRequestStatus = '';
+        });
+      }
+      return;
+    }
+
+    _mySpeakerSub ??= _mySpeakerDoc.snapshots().listen((snap) async {
+      final approved = snap.exists;
+      final muted = (snap.data()?['muted'] == true);
+
+      final prevApproved = _isSpeakerApproved;
+      final prevMuted = _speakerMutedByHost;
+
+      if (!mounted) return;
+      setState(() {
+        _isSpeakerApproved = approved;
+        _speakerMutedByHost = muted;
+      });
+
+      // Enforce mic policy in app:
+      // - if removed as speaker => force mic off
+      // - if muted by host => force mic off
+      if (_connected && _room != null) {
+        if (!approved || muted) {
+          if (_micEnabled) {
+            await _room!.localParticipant?.setMicrophoneEnabled(false);
+            if (!mounted) return;
+            setState(() => _micEnabled = false);
+          }
+        } else {
+          // approved & not muted
+          // We do NOT auto-enable mic here to avoid surprise.
+          // The UI will allow them to turn it on.
+        }
+      }
+
+      // Friendly toast on state transitions
+      if (prevApproved != approved && approved) _toast('You are now a speaker.');
+      if (prevApproved != approved && !approved) _toast('You are now a listener.');
+      if (prevMuted != muted && muted) _toast('Host muted you.');
+      if (prevMuted != muted && !muted && approved) _toast('Host unmuted you.');
+    });
+
+    _myRequestSub ??= _myRequestDoc.snapshots().listen((snap) {
+      if (!mounted) return;
+      if (!snap.exists) {
+        setState(() => _myRequestStatus = '');
+        return;
+      }
+      final status = (snap.data()?['status'] ?? '').toString();
+      setState(() => _myRequestStatus = status);
+    });
+  }
+
   @override
   void dispose() {
     _spaceSub?.cancel();
     _spaceSub = null;
+
+    _mySpeakerSub?.cancel();
+    _mySpeakerSub = null;
+
+    _myRequestSub?.cancel();
+    _myRequestSub = null;
+
     _disconnectAudio();
     super.dispose();
   }
@@ -166,7 +253,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         token.token,
       );
 
-      // Host publishes mic, listener does not
+      // Mic policy on join:
+      // - Host: mic ON
+      // - Everyone else: mic OFF (even if approved) until they explicitly enable
       if (_isHost) {
         await room.localParticipant?.setMicrophoneEnabled(true);
         _micEnabled = true;
@@ -182,7 +271,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _joiningAudio = false;
       });
 
-      _toast(_isHost ? 'Connected as host' : 'Connected as listener');
+      _toast(_isHost ? 'Connected as host' : 'Connected to audio');
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -204,16 +293,64 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     _micEnabled = false;
   }
 
+  bool get _canToggleMic {
+    if (_room == null || !_connected) return false;
+    if (_isHost) return true;
+    if (!_isSpeakerApproved) return false;
+    if (_speakerMutedByHost) return false;
+    return true;
+  }
+
   Future<void> _toggleMic() async {
     if (_room == null) return;
-    if (!_isHost) {
-      _toast('Only host mic is enabled for now.');
+
+    if (!_canToggleMic) {
+      if (_isHost) {
+        _toast('Mic unavailable.');
+      } else if (_speakerMutedByHost) {
+        _toast('You are muted by the host.');
+      } else if (!_isSpeakerApproved) {
+        _toast('Request to speak to enable your mic.');
+      }
       return;
     }
+
     final next = !_micEnabled;
     await _room!.localParticipant?.setMicrophoneEnabled(next);
     if (!mounted) return;
     setState(() => _micEnabled = next);
+  }
+
+  Future<void> _requestToSpeak() async {
+    if (_uid.isEmpty) return;
+    if (_space == null) return;
+    if (_isHost) return;
+    if (!_isLive) {
+      _toast('Space is not live.');
+      return;
+    }
+
+    try {
+      await _myRequestDoc.set({
+        'userId': _uid,
+        'status': 'pending',
+        'createdAtMs': DateTime.now().millisecondsSinceEpoch,
+        'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+      }, SetOptions(merge: true));
+      _toast('Request sent.');
+    } catch (e) {
+      _toast('Request failed: $e');
+    }
+  }
+
+  Future<void> _withdrawRequest() async {
+    if (_uid.isEmpty) return;
+    try {
+      await _myRequestDoc.delete();
+      _toast('Request removed.');
+    } catch (e) {
+      _toast('Failed: $e');
+    }
   }
 
   Future<void> _sendReaction(String emoji) async {
@@ -223,6 +360,57 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       'userId': _uid,
       'atMs': DateTime.now().millisecondsSinceEpoch,
     });
+  }
+
+  Future<void> _approveRequest(String userId) async {
+    if (!_isHost) return;
+
+    final batch = _firestore.batch();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    batch.set(_speakersCol.doc(userId), {
+      'userId': userId,
+      'approvedBy': _uid,
+      'approvedAtMs': now,
+      'muted': false,
+    }, SetOptions(merge: true));
+
+    batch.set(_requestsCol.doc(userId), {
+      'userId': userId,
+      'status': 'approved',
+      'updatedAtMs': now,
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+    _toast('Approved $userId');
+  }
+
+  Future<void> _denyRequest(String userId) async {
+    if (!_isHost) return;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await _requestsCol.doc(userId).set({
+      'userId': userId,
+      'status': 'denied',
+      'updatedAtMs': now,
+    }, SetOptions(merge: true));
+
+    // ensure not speaker
+    await _speakersCol.doc(userId).delete().catchError((_) {});
+    _toast('Denied $userId');
+  }
+
+  Future<void> _removeSpeaker(String userId) async {
+    if (!_isHost) return;
+    await _speakersCol.doc(userId).delete();
+    _toast('Removed speaker $userId');
+  }
+
+  Future<void> _toggleMuteSpeaker(String userId, bool muted) async {
+    if (!_isHost) return;
+    await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true));
+    _toast(muted ? 'Muted $userId' : 'Unmuted $userId');
   }
 
   void _toast(String msg) {
@@ -360,7 +548,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: (_connected && _isHost) ? _toggleMic : null,
+                        onPressed: _canToggleMic ? _toggleMic : null,
                         icon: Icon(_micEnabled ? Icons.mic : Icons.mic_off),
                         label: Text(_micEnabled ? 'Mic ON' : 'Mic OFF'),
                       ),
@@ -370,16 +558,194 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 const SizedBox(height: 8),
                 Text(
                   _connected
-                      ? (_isHost ? 'Connected as host' : 'Connected as listener')
+                      ? (_isHost
+                          ? 'Connected as host'
+                          : (_isSpeakerApproved
+                              ? (_speakerMutedByHost ? 'Connected as speaker (muted)' : 'Connected as speaker')
+                              : 'Connected as listener'))
                       : 'Not connected to audio',
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
                 ),
+                const SizedBox(height: 10),
+
+                // Listener UI: request-to-speak controls
+                if (!_isHost) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: (_isLive && !_isSpeakerApproved && _myRequestStatus != 'pending')
+                              ? _requestToSpeak
+                              : null,
+                          icon: const Icon(Icons.record_voice_over),
+                          label: Text(
+                            _isSpeakerApproved
+                                ? 'You are a speaker'
+                                : (_myRequestStatus == 'pending' ? 'Request Pending' : 'Request to Speak'),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton(
+                        onPressed: (_myRequestStatus == 'pending') ? _withdrawRequest : null,
+                        child: const Text('Cancel'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  if (_myRequestStatus == 'denied')
+                    const Text(
+                      'Request denied.',
+                      style: TextStyle(color: Colors.white60, fontSize: 12),
+                    ),
+                ],
               ],
             ),
           ),
         ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+
+        // Host panel: approve/deny + speaker controls
+        if (_isHost) ...[
+          Glass(
+            borderRadius: 16,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Host Panel', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+
+                  const Text('Requests', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: _requestsCol
+                        .where('status', isEqualTo: 'pending')
+                        .orderBy('createdAtMs', descending: false)
+                        .snapshots(),
+                    builder: (context, snap) {
+                      if (!snap.hasData) return const SizedBox.shrink();
+                      final docs = snap.data!.docs;
+                      if (docs.isEmpty) {
+                        return const Text('No pending requests.', style: TextStyle(color: Colors.white38));
+                      }
+                      return Column(
+                        children: docs.map((doc) {
+                          final d = doc.data();
+                          final userId = (d['userId'] ?? doc.id).toString();
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: ListTile(
+                              dense: true,
+                              title: Text(userId, style: const TextStyle(color: Colors.white)),
+                              subtitle: const Text('wants to speak', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                              trailing: Wrap(
+                                spacing: 8,
+                                children: [
+                                  OutlinedButton(
+                                    onPressed: () async {
+                                      try {
+                                        await _denyRequest(userId);
+                                      } catch (e) {
+                                        _toast('Deny failed: $e');
+                                      }
+                                    },
+                                    child: const Text('Deny'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () async {
+                                      try {
+                                        await _approveRequest(userId);
+                                      } catch (e) {
+                                        _toast('Approve failed: $e');
+                                      }
+                                    },
+                                    child: const Text('Approve'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 12),
+                  const Text('Speakers', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: _speakersCol.orderBy('approvedAtMs', descending: false).snapshots(),
+                    builder: (context, snap) {
+                      if (!snap.hasData) return const SizedBox.shrink();
+                      final docs = snap.data!.docs;
+                      if (docs.isEmpty) {
+                        return const Text('No speakers yet.', style: TextStyle(color: Colors.white38));
+                      }
+                      return Column(
+                        children: docs.map((doc) {
+                          final d = doc.data();
+                          final userId = (d['userId'] ?? doc.id).toString();
+                          final muted = d['muted'] == true;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: ListTile(
+                              dense: true,
+                              title: Text(userId, style: const TextStyle(color: Colors.white)),
+                              subtitle: Text(
+                                muted ? 'Muted' : 'Unmuted',
+                                style: TextStyle(color: muted ? Colors.orangeAccent : Colors.white54, fontSize: 12),
+                              ),
+                              trailing: Wrap(
+                                spacing: 8,
+                                children: [
+                                  OutlinedButton(
+                                    onPressed: () async {
+                                      try {
+                                        await _toggleMuteSpeaker(userId, !muted);
+                                      } catch (e) {
+                                        _toast('Mute failed: $e');
+                                      }
+                                    },
+                                    child: Text(muted ? 'Unmute' : 'Mute'),
+                                  ),
+                                  OutlinedButton(
+                                    onPressed: () async {
+                                      try {
+                                        await _removeSpeaker(userId);
+                                      } catch (e) {
+                                        _toast('Remove failed: $e');
+                                      }
+                                    },
+                                    child: const Text('Remove'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+
         const Text('Reactions', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
 
