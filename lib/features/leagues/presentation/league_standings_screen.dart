@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/widgets/glass_scaffold.dart';
+import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
+import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
 import '../domain/standings/standings.dart';
 import '../models/league_format.dart';
-import 'widgets/standings_table.dart';
 import 'standings_providers.dart';
+import 'widgets/standings_table.dart';
 
-class LeagueStandingsScreen extends ConsumerWidget {
+class LeagueStandingsScreen extends ConsumerStatefulWidget {
   final String id;
 
   const LeagueStandingsScreen({
@@ -18,292 +19,267 @@ class LeagueStandingsScreen extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // 1) Load the league to know which format we're dealing with.
-    final leagueAsync = ref.watch(leagueProvider(id));
+  ConsumerState<LeagueStandingsScreen> createState() => _LeagueStandingsScreenState();
+}
+
+class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Auto-sync when opening standings (participant will pull latest matches)
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _syncAndRefresh();
+    });
+  }
+
+  Future<void> _syncAndRefresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+
+    await SyncTrigger.trySync();
+
+    // Recompute providers from local storage after pull
+    ref.invalidate(leagueProvider(widget.id));
+    ref.invalidate(leagueStandingsProvider(widget.id));
+    ref.invalidate(leagueGroupedStandingsProvider(widget.id));
+
+    if (mounted) setState(() => _refreshing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final leagueAsync = ref.watch(leagueProvider(widget.id));
 
     return GlassScaffold(
       appBar: AppBar(
         title: const Text('Standings'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            onPressed: _refreshing ? null : _syncAndRefresh,
+            icon: _refreshing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                  )
+                : const Icon(Icons.refresh),
+          ),
+        ],
       ),
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 700),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Glass(
+        child: RefreshIndicator(
+          onRefresh: _syncAndRefresh,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 700),
+              child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SectionHeader('League Standings'),
-                    const SizedBox(height: 12),
-                    // 2) Inside the glass card, show content based on league format.
-                    Expanded(
-                      child: leagueAsync.when(
-                        loading: () => const Center(
-                          child: CircularProgressIndicator(
-                            color: Colors.cyanAccent,
+                child: Glass(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SectionHeader('League Standings'),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: leagueAsync.when(
+                          loading: () => const Center(
+                            child: CircularProgressIndicator(color: Colors.cyanAccent),
                           ),
-                        ),
-                        error: (error, stack) => Center(
-                          child: Text(
-                            'Failed to load league.\n${error.toString()}',
-                            style: const TextStyle(color: Colors.white70),
-                            textAlign: TextAlign.center,
+                          error: (error, stack) => Center(
+                            child: Text(
+                              'Failed to load league.\n${error.toString()}',
+                              style: const TextStyle(color: Colors.white70),
+                              textAlign: TextAlign.center,
+                            ),
                           ),
-                        ),
-                        data: (league) {
-                          switch (league.format) {
-                            case LeagueFormat.uclGroup:
-                              // UCL Group: one table per group.
-                              final groupedAsync = ref.watch(
-                                leagueGroupedStandingsProvider(id),
-                              );
-                              return groupedAsync.when(
-                                loading: () => const Center(
-                                  child: CircularProgressIndicator(
-                                    color: Colors.cyanAccent,
+                          data: (league) {
+                            switch (league.format) {
+                              case LeagueFormat.uclGroup:
+                                final groupedAsync = ref.watch(
+                                  leagueGroupedStandingsProvider(widget.id),
+                                );
+                                return groupedAsync.when(
+                                  loading: () => const Center(
+                                    child: CircularProgressIndicator(color: Colors.cyanAccent),
                                   ),
-                                ),
-                                error: (error, stack) => Center(
-                                  child: Text(
-                                    'Failed to load group standings.\n${error.toString()}',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
+                                  error: (error, stack) => Center(
+                                    child: Text(
+                                      'Failed to load group standings.\n${error.toString()}',
+                                      style: const TextStyle(color: Colors.white70),
+                                      textAlign: TextAlign.center,
                                     ),
-                                    textAlign: TextAlign.center,
                                   ),
-                                ),
-                                data: (groupMap) {
-                                  if (groupMap.isEmpty) {
-                                    return const Center(
-                                      child: Text(
-                                        'No group results yet.\n'
-                                        'Standings will appear after group matches are played.',
-                                        style: TextStyle(
-                                          color: Colors.white54,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    );
-                                  }
-
-                                  // Order groups by name: Group A, Group B, ...
-                                  final groupKeys = groupMap.keys.toList()
-                                    ..sort();
-
-                                  return ListView.builder(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    itemCount: groupKeys.length,
-                                    itemBuilder: (context, index) {
-                                      final groupId = groupKeys[index];
-                                      final rows = groupMap[groupId] ??
-                                          const <StandingsRow>[];
-
-                                      return Padding(
-                                        padding: EdgeInsets.only(
-                                          bottom: index ==
-                                                  groupKeys.length - 1
-                                              ? 0
-                                              : 16,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.stretch,
-                                          children: [
-                                            Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 4),
-                                              child: Text(
-                                                groupId,
-                                                style: const TextStyle(
-                                                  color: Colors.cyanAccent,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            StandingsTable(rows: rows),
-                                          ],
+                                  data: (groupMap) {
+                                    if (groupMap.isEmpty) {
+                                      return const Center(
+                                        child: Text(
+                                          'No group results yet.\n'
+                                          'Standings will appear after group matches are played.',
+                                          style: TextStyle(color: Colors.white54),
+                                          textAlign: TextAlign.center,
                                         ),
                                       );
-                                    },
-                                  );
-                                },
-                              );
+                                    }
 
-                            case LeagueFormat.uclSwiss:
-                              // UCL Swiss: single global table + Swiss phase round indicator + color legend.
-                              final standingsAsync =
-                                  ref.watch(leagueStandingsProvider(id));
-                              return standingsAsync.when(
-                                loading: () => const Center(
-                                  child: CircularProgressIndicator(
-                                    color: Colors.cyanAccent,
-                                  ),
-                                ),
-                                error: (error, stack) => Center(
-                                  child: Text(
-                                    'Failed to load standings.\n${error.toString()}',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                                data: (rows) {
-                                  return FutureBuilder<int>(
-                                    future:
-                                        _getSwissCurrentRound(ref, id),
-                                    builder: (context, snapshot) {
-                                      final current = snapshot.data ?? 0;
-                                      final total =
-                                          league.settings.swissRounds;
+                                    final groupKeys = groupMap.keys.toList()..sort();
 
-                                      final label = current == 0
-                                          ? 'Swiss phase: no rounds yet (max $total rounds)'
-                                          : 'Swiss phase: Round $current of $total';
+                                    return ListView.builder(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      itemCount: groupKeys.length,
+                                      itemBuilder: (context, index) {
+                                        final groupId = groupKeys[index];
+                                        final rows = groupMap[groupId] ?? const <StandingsRow>[];
 
-                                      // Legend colors
-                                      final autoColor =
-                                          Colors.green.withOpacity(0.12);
-                                      final playoffColor =
-                                          Theme.of(context)
-                                              .colorScheme
-                                              .primary
-                                              .withOpacity(0.10);
-                                      final eliminatedColor =
-                                          Colors.red.withOpacity(0.08);
-
-                                      if (rows.isEmpty) {
-                                        return Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.stretch,
-                                          children: [
-                                            Text(
-                                              label,
-                                              style: const TextStyle(
-                                                color: Colors.white54,
-                                                fontSize: 12,
+                                        return Padding(
+                                          padding: EdgeInsets.only(
+                                            bottom: index == groupKeys.length - 1 ? 0 : 16,
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                                            children: [
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                                child: Text(
+                                                  groupId,
+                                                  style: const TextStyle(
+                                                    color: Colors.cyanAccent,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
                                               ),
-                                            ),
+                                              const SizedBox(height: 8),
+                                              StandingsTable(rows: rows),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
+                                );
+
+                              case LeagueFormat.uclSwiss:
+                                final standingsAsync = ref.watch(leagueStandingsProvider(widget.id));
+                                return standingsAsync.when(
+                                  loading: () => const Center(
+                                    child: CircularProgressIndicator(color: Colors.cyanAccent),
+                                  ),
+                                  error: (error, stack) => Center(
+                                    child: Text(
+                                      'Failed to load standings.\n${error.toString()}',
+                                      style: const TextStyle(color: Colors.white70),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                  data: (rows) {
+                                    return FutureBuilder<int>(
+                                      future: _getSwissCurrentRound(ref, widget.id),
+                                      builder: (context, snapshot) {
+                                        final current = snapshot.data ?? 0;
+                                        final total = league.settings.swissRounds;
+
+                                        final label = current == 0
+                                            ? 'Swiss phase: no rounds yet (max $total rounds)'
+                                            : 'Swiss phase: Round $current of $total';
+
+                                        final autoColor = Colors.green.withOpacity(0.12);
+                                        final playoffColor = Theme.of(context).colorScheme.primary.withOpacity(0.10);
+                                        final eliminatedColor = Colors.red.withOpacity(0.08);
+
+                                        if (rows.isEmpty) {
+                                          return Column(
+                                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                                            children: [
+                                              Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                                              const SizedBox(height: 8),
+                                              _swissLegend(
+                                                autoColor: autoColor,
+                                                playoffColor: playoffColor,
+                                                eliminatedColor: eliminatedColor,
+                                              ),
+                                              const SizedBox(height: 12),
+                                              const Expanded(
+                                                child: Center(
+                                                  child: Text(
+                                                    'No results yet.\n'
+                                                    'Standings will appear here after matches are played.',
+                                                    style: TextStyle(color: Colors.white54),
+                                                    textAlign: TextAlign.center,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        }
+
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                                          children: [
+                                            Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
                                             const SizedBox(height: 8),
                                             _swissLegend(
                                               autoColor: autoColor,
                                               playoffColor: playoffColor,
-                                              eliminatedColor:
-                                                  eliminatedColor,
+                                              eliminatedColor: eliminatedColor,
                                             ),
-                                            const SizedBox(height: 12),
-                                            const Expanded(
-                                              child: Center(
-                                                child: Text(
-                                                  'No results yet.\n'
-                                                  'Standings will appear here after matches are played.',
-                                                  style: TextStyle(
-                                                    color: Colors.white54,
-                                                  ),
-                                                  textAlign:
-                                                      TextAlign.center,
-                                                ),
+                                            const SizedBox(height: 8),
+                                            Expanded(
+                                              child: StandingsTable(
+                                                rows: rows,
+                                                rowColorBuilder: (ctx, index, row, totalRows) {
+                                                  final rank = index + 1;
+                                                  if (rank <= 8) return autoColor;
+                                                  if (rank <= 24) return playoffColor;
+                                                  return eliminatedColor;
+                                                },
                                               ),
                                             ),
                                           ],
                                         );
-                                      }
-
-                                      return Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        children: [
-                                          Text(
-                                            label,
-                                            style: const TextStyle(
-                                              color: Colors.white54,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          _swissLegend(
-                                            autoColor: autoColor,
-                                            playoffColor: playoffColor,
-                                            eliminatedColor: eliminatedColor,
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Expanded(
-                                            child: StandingsTable(
-                                              rows: rows,
-                                              rowColorBuilder: (ctx, index,
-                                                  row, total) {
-                                                // Positions are 1-based for interpretation.
-                                                final rank = index + 1;
-                                                // Default UEFA-style Swiss:
-                                                // - 1–8: automatic Round of 16
-                                                // - 9–24: play-off
-                                                // - 25+: eliminated
-                                                if (rank <= 8) {
-                                                  return autoColor;
-                                                } else if (rank <= 24) {
-                                                  return playoffColor;
-                                                } else {
-                                                  return eliminatedColor;
-                                                }
-                                              },
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  );
-                                },
-                              );
-
-                            case LeagueFormat.classic:
-                            default:
-                              // Classic: single global standings table.
-                              final standingsAsync =
-                                  ref.watch(leagueStandingsProvider(id));
-                              return standingsAsync.when(
-                                loading: () => const Center(
-                                  child: CircularProgressIndicator(
-                                    color: Colors.cyanAccent,
-                                  ),
-                                ),
-                                error: (error, stack) => Center(
-                                  child: Text(
-                                    'Failed to load standings.\n${error.toString()}',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                                data: (rows) {
-                                  if (rows.isEmpty) {
-                                    return const Center(
-                                      child: Text(
-                                        'No results yet.\n'
-                                        'Standings will appear here after matches are played.',
-                                        style: TextStyle(
-                                          color: Colors.white54,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
+                                      },
                                     );
-                                  }
-                                  return StandingsTable(rows: rows);
-                                },
-                              );
-                          }
-                        },
+                                  },
+                                );
+
+                              case LeagueFormat.classic:
+                              default:
+                                final standingsAsync = ref.watch(leagueStandingsProvider(widget.id));
+                                return standingsAsync.when(
+                                  loading: () => const Center(
+                                    child: CircularProgressIndicator(color: Colors.cyanAccent),
+                                  ),
+                                  error: (error, stack) => Center(
+                                    child: Text(
+                                      'Failed to load standings.\n${error.toString()}',
+                                      style: const TextStyle(color: Colors.white70),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                  data: (rows) {
+                                    if (rows.isEmpty) {
+                                      return const Center(
+                                        child: Text(
+                                          'No results yet.\n'
+                                          'Standings will appear here after matches are played.',
+                                          style: TextStyle(color: Colors.white54),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      );
+                                    }
+                                    return StandingsTable(rows: rows);
+                                  },
+                                );
+                            }
+                          },
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -314,21 +290,13 @@ class LeagueStandingsScreen extends ConsumerWidget {
   }
 }
 
-/// Helper to compute the highest Swiss round that has been generated so far
-/// (based purely on existing matches).
 Future<int> _getSwissCurrentRound(WidgetRef ref, String leagueId) async {
   final repo = ref.read(localLeaguesRepositoryProvider);
   final allMatches = await repo.getMatches(leagueId);
   if (allMatches.isEmpty) return 0;
-  return allMatches
-      .map((m) => m.roundNumber)
-      .reduce((a, b) => a > b ? a : b);
+  return allMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
 }
 
-/// Legend for Swiss standings colors:
-/// - Green: automatic Round of 16
-/// - Primary: play-off
-/// - Red: eliminated
 Widget _swissLegend({
   required Color autoColor,
   required Color playoffColor,
@@ -344,10 +312,7 @@ Widget _swissLegend({
         ),
       );
 
-  const labelStyle = TextStyle(
-    color: Colors.white54,
-    fontSize: 11,
-  );
+  const labelStyle = TextStyle(color: Colors.white54, fontSize: 11);
 
   return Row(
     children: [
