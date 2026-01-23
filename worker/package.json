@@ -1,0 +1,8 @@
+{
+  "name": "livekit-token-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "livekit-server-sdk": "^2.7.2"
+  }
+}
