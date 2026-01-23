@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../models/league_space.dart';
+import '../services/livekit_service.dart';
 
 class LeagueSpaceRoomScreen extends StatefulWidget {
   final String leagueId;
@@ -32,6 +34,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   String _uid = '';
 
+  Room? _room;
+  EventsListener<RoomEvent>? _listener;
+
+  bool _joiningAudio = false;
+  bool _connected = false;
+  bool _micEnabled = false;
+
   static const _reactions = <String>[
     '👍','😂','🎉','👏','🙏','💯','❤️','💪','👎','👌','🤸','⚽','🏁',
     '🇺🇸','🇬🇧','🇳🇬','🇫🇷','🇩🇪','🇪🇸','🇮🇹','🇧🇷','🇦🇷','🇵🇹','🇲🇽','🇨🇦','🇿🇦','🇯🇵','🇰🇷','🇨🇳','🇮🇳'
@@ -50,7 +59,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _init() async {
-    // Pull latest first (so local cache stays updated too)
     await SyncTrigger.trySync();
 
     final prefs = await PreferencesService.create();
@@ -96,17 +104,120 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   void dispose() {
     _spaceSub?.cancel();
     _spaceSub = null;
+    _disconnectAudio();
     super.dispose();
   }
 
   bool get _isLive => _space?.isLive == true;
   bool get _isHost => _space != null && _uid.isNotEmpty && _space!.hostUserId == _uid;
 
+  Future<void> _connectAudio() async {
+    if (_joiningAudio || _connected) return;
+    if (!_isLive) {
+      _toast('Space is not live.');
+      return;
+    }
+    if (_uid.isEmpty) {
+      _toast('No user id available.');
+      return;
+    }
+
+    setState(() {
+      _joiningAudio = true;
+      _error = '';
+    });
+
+    try {
+      final token = await LiveKitService.fetchToken(
+        leagueId: widget.leagueId,
+        userId: _uid,
+        isHost: _isHost,
+      );
+
+      final room = Room(
+        roomOptions: const RoomOptions(
+          adaptiveStream: true,
+          dynacast: true,
+          defaultAudioPublishOptions: AudioPublishOptions(
+            dtx: true,
+          ),
+        ),
+      );
+
+      _listener = room.createListener();
+
+      _listener!.on<RoomConnectedEvent>((event) {
+        if (!mounted) return;
+        setState(() {
+          _connected = true;
+        });
+      });
+
+      _listener!.on<RoomDisconnectedEvent>((event) {
+        if (!mounted) return;
+        setState(() {
+          _connected = false;
+          _micEnabled = false;
+        });
+      });
+
+      await room.connect(
+        token.url,
+        token.token,
+      );
+
+      // Host publishes mic, listener does not
+      if (_isHost) {
+        await room.localParticipant?.setMicrophoneEnabled(true);
+        _micEnabled = true;
+      } else {
+        await room.localParticipant?.setMicrophoneEnabled(false);
+        _micEnabled = false;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _room = room;
+        _connected = true;
+        _joiningAudio = false;
+      });
+
+      _toast(_isHost ? 'Connected as host' : 'Connected as listener');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _joiningAudio = false;
+        _error = 'Audio connect failed: $e';
+      });
+    }
+  }
+
+  Future<void> _disconnectAudio() async {
+    try {
+      _listener?.dispose();
+      _listener = null;
+      await _room?.disconnect();
+      await _room?.dispose();
+    } catch (_) {}
+    _room = null;
+    _connected = false;
+    _micEnabled = false;
+  }
+
+  Future<void> _toggleMic() async {
+    if (_room == null) return;
+    if (!_isHost) {
+      _toast('Only host mic is enabled for now.');
+      return;
+    }
+    final next = !_micEnabled;
+    await _room!.localParticipant?.setMicrophoneEnabled(next);
+    if (!mounted) return;
+    setState(() => _micEnabled = next);
+  }
+
   Future<void> _sendReaction(String emoji) async {
     if (_uid.isEmpty) return;
-
-    // Firestore event (cheap + scalable enough for MVP)
-    // Auto-cleanup can be added later via TTL/Cloud Function.
     await _reactionsCol.add({
       'emoji': emoji,
       'userId': _uid,
@@ -149,9 +260,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               child: Glass(
                 padding: const EdgeInsets.all(16),
                 child: _loading
-                    ? const Center(
-                        child: CircularProgressIndicator(color: Colors.cyanAccent),
-                      )
+                    ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
                     : _error.isNotEmpty
                         ? Center(
                             child: Text(
@@ -192,11 +301,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             Expanded(
               child: Text(
                 space.title ?? 'League Space',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 16,
-                ),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -219,46 +324,55 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        Text(
-          'Host: ${space.hostUserId}',
-          style: const TextStyle(color: Colors.white60, fontSize: 12),
-        ),
+        const SizedBox(height: 10),
+        Text('Host: ${space.hostUserId}', style: const TextStyle(color: Colors.white60, fontSize: 12)),
         const SizedBox(height: 16),
 
-        // Voice controls placeholder (we'll implement actual audio next)
         Glass(
           borderRadius: 16,
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  _isHost
-                      ? 'You are the host. Mic control will be enabled when voice engine is wired.'
-                      : 'You are a listener. Audio playback will be enabled when voice engine is wired.',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: _isLive ? () => _toast('Voice engine not connected yet.') : null,
-                        icon: const Icon(Icons.headset),
-                        label: const Text('Join Audio'),
+                        onPressed: _joiningAudio
+                            ? null
+                            : _connected
+                                ? () async {
+                                    await _disconnectAudio();
+                                    if (!mounted) return;
+                                    setState(() {});
+                                  }
+                                : _connectAudio,
+                        icon: _joiningAudio
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Icon(_connected ? Icons.call_end : Icons.headset),
+                        label: Text(_connected ? 'Leave Audio' : 'Join Audio'),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close),
-                        label: const Text('Close'),
+                        onPressed: (_connected && _isHost) ? _toggleMic : null,
+                        icon: Icon(_micEnabled ? Icons.mic : Icons.mic_off),
+                        label: Text(_micEnabled ? 'Mic ON' : 'Mic OFF'),
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _connected
+                      ? (_isHost ? 'Connected as host' : 'Connected as listener')
+                      : 'Not connected to audio',
+                  style: const TextStyle(color: Colors.white60, fontSize: 12),
                 ),
               ],
             ),
@@ -266,10 +380,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         ),
 
         const SizedBox(height: 16),
-        const Text(
-          'Reactions',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+        const Text('Reactions', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
 
         Wrap(
@@ -303,16 +414,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _reactionsCol.orderBy('atMs', descending: true).limit(30).snapshots(),
             builder: (context, snap) {
-              if (!snap.hasData) {
-                return const SizedBox.shrink();
-              }
+              if (!snap.hasData) return const SizedBox.shrink();
               final docs = snap.data!.docs;
               if (docs.isEmpty) {
                 return const Center(
-                  child: Text(
-                    'No reactions yet.',
-                    style: TextStyle(color: Colors.white38),
-                  ),
+                  child: Text('No reactions yet.', style: TextStyle(color: Colors.white38)),
                 );
               }
               return ListView.separated(
@@ -324,14 +430,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                   final userId = (d['userId'] ?? '').toString();
                   return ListTile(
                     dense: true,
-                    title: Text(
-                      emoji,
-                      style: const TextStyle(fontSize: 22),
-                    ),
-                    subtitle: Text(
-                      userId,
-                      style: const TextStyle(color: Colors.white54, fontSize: 11),
-                    ),
+                    title: Text(emoji, style: const TextStyle(fontSize: 22)),
+                    subtitle: Text(userId, style: const TextStyle(color: Colors.white54, fontSize: 11)),
                   );
                 },
               );
