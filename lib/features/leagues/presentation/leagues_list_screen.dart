@@ -1,3 +1,4 @@
+import 'package:eleaguehub3/core/services/sync_trigger.dart';
 import '../utils/current_user.dart';
 import "package:eleaguehub3/core/app/sync_debug_screen.dart";
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
@@ -44,6 +45,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     final prefs = ref.read(prefsServiceProvider);
     _localRepo = LocalLeaguesRepository(prefs);
     _annRepo = LeagueAnnouncementsFirebase(prefs);
+    // Pull latest from cloud in background (safe offline)
+    
+    // ignore: discarded_futures
+    SyncTrigger.trySync().then((_) => _refreshLeagues());
     _refreshLeagues();
   }
 
