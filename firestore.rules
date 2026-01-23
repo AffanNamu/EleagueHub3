@@ -2,34 +2,60 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() { return request.auth != null; }
+    function signedIn() {
+      return request.auth != null;
+    }
 
     match /leagues/{leagueId} {
+
       function isOwner() {
-        return signedIn() && resource.data.organizerUserId == request.auth.uid;
+        return signedIn()
+          && resource.data.organizerUserId == request.auth.uid;
       }
+
       function isMember() {
         return signedIn()
           && (resource.data.memberIds is list)
           && (request.auth.uid in resource.data.memberIds);
       }
 
-      // League doc
-      allow get: if (!resource.data.isPrivate) || isOwner() || isMember();
+      /* =======================
+         League document rules
+         ======================= */
+
+      // Single document read
+      allow get: if (!resource.data.isPrivate)
+        || isOwner()
+        || isMember();
+
+      // Collection queries (VERY IMPORTANT)
+      allow list: if signedIn();
+
+      // Create league
       allow create: if signedIn()
         && request.resource.data.organizerUserId == request.auth.uid
         && (request.resource.data.memberIds is list)
         && (request.auth.uid in request.resource.data.memberIds);
 
-      // Owner edits + join-self
+      // Update league:
+      // - owner can edit anything
+      // - members can only add themselves
       allow update: if isOwner()
-        || (signedIn()
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
-          && request.auth.uid in request.resource.data.memberIds);
+        || (
+          signedIn()
+          && request.resource.data.diff(resource.data)
+            .changedKeys()
+            .hasOnly(['memberIds', 'updatedAtMs'])
+          && request.auth.uid in request.resource.data.memberIds
+        );
 
+      // Delete league
       allow delete: if isOwner();
 
-      // Subcollections: teams/matches/knockout/memberships
+      /* =======================
+         Subcollections
+         ======================= */
+
       match /teams/{teamId} {
         allow read: if isOwner() || isMember();
         allow write: if isOwner();
@@ -48,7 +74,10 @@ service cloud.firestore {
       match /memberships/{membershipId} {
         allow read: if isOwner() || isMember();
         allow write: if isOwner()
-          || (signedIn() && request.resource.data.userId == request.auth.uid);
+          || (
+            signedIn()
+            && request.resource.data.userId == request.auth.uid
+          );
       }
     }
   }
