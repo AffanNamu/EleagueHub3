@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
-import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/sync_queue_service.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
@@ -164,7 +163,7 @@ class LocalLeaguesRepository {
       payload: stored.toJson(),
     );
 
-    // (optional) queue membership create for future cloud sync
+    // queue membership create
     await _queue.enqueue(
       id: _uuid.v4(),
       entityType: 'membership',
@@ -178,7 +177,7 @@ class LocalLeaguesRepository {
   }
 
   // ------------------------------------------------------
-  // JOIN by code (online-first, offline fallback)
+  // JOIN by code (strict online, offline fallback only on network error)
   // ------------------------------------------------------
 
   Future<League> joinLeagueLocallyByCode({
@@ -189,10 +188,10 @@ class LocalLeaguesRepository {
     final code = joinCode.trim().toUpperCase();
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    final online = ConnectivityService.instance.isConnected.value;
-    if (online) {
-      final firestore = FirebaseFirestore.instance;
+    final firestore = FirebaseFirestore.instance;
 
+    try {
+      // Always try ONLINE first (don't trust connectivity flag)
       final query = await firestore
           .collection('leagues')
           .where('code', isEqualTo: code)
@@ -200,12 +199,16 @@ class LocalLeaguesRepository {
           .get();
 
       if (query.docs.isEmpty) {
-        throw StateError('League not found for Join ID: $code');
+        // Online reachable but league not found: DO NOT create placeholder
+        throw StateError(
+          'League not found online. Ask admin to sync and share the correct Join ID.',
+        );
       }
 
       final doc = query.docs.first;
       final leagueId = doc.id;
 
+      // Add memberIds
       await firestore.collection('leagues').doc(leagueId).set(
         {
           'memberIds': FieldValue.arrayUnion([userId]),
@@ -214,6 +217,7 @@ class LocalLeaguesRepository {
         SetOptions(merge: true),
       );
 
+      // Pull league doc
       final fresh = await firestore.collection('leagues').doc(leagueId).get();
       final data = (fresh.data() ?? <String, dynamic>{});
       data['id'] = leagueId;
@@ -221,6 +225,7 @@ class LocalLeaguesRepository {
       final league = League.fromRemoteMap(data);
       await _upsertLeagueLocalNoQueue(league);
 
+      // Local membership
       final membership = Membership(
         id: _uuid.v4(),
         leagueId: leagueId,
@@ -232,6 +237,7 @@ class LocalLeaguesRepository {
       );
       await _upsertMembershipLocalNoQueue(membership);
 
+      // Optional: queue membership doc to cloud
       await _queue.enqueue(
         id: _uuid.v4(),
         entityType: 'membership',
@@ -242,50 +248,57 @@ class LocalLeaguesRepository {
       );
 
       return league;
+    } on FirebaseException catch (e) {
+      // Only fallback to offline placeholder on network-type errors.
+      final isNetwork = e.code == 'unavailable' || e.code == 'deadline-exceeded';
+      if (!isNetwork) {
+        throw StateError('Join failed: ${e.message ?? e.code}');
+      }
+
+      // Offline fallback
+      final generatedLeagueId = _uuid.v4();
+      final placeholder = placeholderBuilder(generatedLeagueId).copyWith(
+        code: code,
+        updatedAtMs: now,
+      );
+
+      await _upsertLeagueLocalNoQueue(placeholder);
+
+      final membership = Membership(
+        id: _uuid.v4(),
+        leagueId: generatedLeagueId,
+        userId: userId,
+        teamId: null,
+        role: LeagueRole.member,
+        updatedAtMs: now,
+        version: 1,
+      );
+      await _upsertMembershipLocalNoQueue(membership);
+
+      // Queue join for later
+      await _queue.enqueue(
+        id: _uuid.v4(),
+        entityType: 'league_join',
+        entityId: generatedLeagueId,
+        action: 'join',
+        lastModified: now,
+        payload: {
+          'code': code,
+          'userId': userId,
+        },
+      );
+
+      await _queue.enqueue(
+        id: _uuid.v4(),
+        entityType: 'membership',
+        entityId: membership.id,
+        action: 'create',
+        lastModified: now,
+        payload: membership.toRemoteMap(),
+      );
+
+      return placeholder;
     }
-
-    // offline placeholder
-    final generatedLeagueId = _uuid.v4();
-    final placeholder = placeholderBuilder(generatedLeagueId).copyWith(
-      code: code,
-      updatedAtMs: now,
-    );
-
-    await _upsertLeagueLocalNoQueue(placeholder);
-
-    final membership = Membership(
-      id: _uuid.v4(),
-      leagueId: generatedLeagueId,
-      userId: userId,
-      teamId: null,
-      role: LeagueRole.member,
-      updatedAtMs: now,
-      version: 1,
-    );
-    await _upsertMembershipLocalNoQueue(membership);
-
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'league_join',
-      entityId: generatedLeagueId,
-      action: 'join',
-      lastModified: now,
-      payload: {
-        'code': code,
-        'userId': userId,
-      },
-    );
-
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'membership',
-      entityId: membership.id,
-      action: 'create',
-      lastModified: now,
-      payload: membership.toRemoteMap(),
-    );
-
-    return placeholder;
   }
 
   // ------------------------------------------------------
@@ -347,7 +360,6 @@ class LocalLeaguesRepository {
     return all.where((m) => m.leagueId == leagueId).toList();
   }
 
-  /// Save specific matches (upsert). Used by admin score mgmt and fixtures edits.
   Future<void> saveMatches(String leagueId, List<FixtureMatch> matches) async {
     final all = await _getAllMatches();
 
@@ -379,7 +391,6 @@ class LocalLeaguesRepository {
     );
   }
 
-  /// Replace all matches of a league (used by AddTeamsScreen generation).
   Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
     final all = await _getAllMatches();
     all.removeWhere((m) => m.leagueId == leagueId);
