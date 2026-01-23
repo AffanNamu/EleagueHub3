@@ -40,13 +40,13 @@ dependencies:
   http: ^1.2.2
 
   # Local LAN Streaming (Screen + Front Camera) via WebRTC
-  flutter_webrtc: ^0.12.11
+  flutter_webrtc: ^0.12.5+hotfix.2
   permission_handler: ^11.3.1
 
   # Local notifications (for app creator via SettingsScreen)
   flutter_local_notifications: ^17.2.3
 
-  livekit_client: 2.4.0
+  livekit_client: ^2.3.6
 
   # Marquee scrolling text (for announcements)
   marquee: ^2.2.3
