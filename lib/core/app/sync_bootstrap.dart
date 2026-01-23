@@ -1,22 +1,21 @@
 import '../services/connectivity_service.dart';
 import '../services/sync_service.dart';
 
-/// Bootstraps connectivity + syncing:
-/// - starts monitoring
-/// - runs sync once at startup (if online)
-/// - runs sync whenever internet comes back
 class SyncBootstrap {
   static Future<void> init() async {
     await ConnectivityService.instance.initialize();
 
-    // try once on startup
-    await SyncService.instance.syncAll();
+    // try once on startup (non-fatal)
+    try {
+      await SyncService.instance.syncAll();
+    } catch (_) {}
 
-    // sync when internet comes back
+    // sync when internet comes back (non-fatal)
     ConnectivityService.instance.connectionStream.listen((online) async {
-      if (online) {
+      if (!online) return;
+      try {
         await SyncService.instance.syncAll();
-      }
+      } catch (_) {}
     });
   }
 }

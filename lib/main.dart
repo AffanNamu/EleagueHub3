@@ -18,47 +18,41 @@ import 'core/widgets/offline_banner.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Fatal only if these fail
+  await Firebase.initializeApp();
+  final prefs = await PreferencesService.create();
+  SyncQueueService.init(prefs);
+
+  // Non-fatal: auth/sync/notifications
   try {
-    // Firebase
-    await Firebase.initializeApp();
-
-    // Local prefs
-    final prefs = await PreferencesService.create();
-
-    // Queue
-    SyncQueueService.init(prefs);
-
-    // Auth (anonymous)
     await AuthBootstrap.ensureSignedIn(prefs);
-
-    // Notifications
-    await NotificationService().init();
-
-    // Connectivity + sync
-    await SyncBootstrap.init();
-
-    runApp(
-      ProviderScope(
-        overrides: [
-          prefsServiceProvider.overrideWithValue(prefs),
-        ],
-        child: const AppRoot(),
-      ),
-    );
   } catch (e) {
-    runApp(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: Text(
-              'Fatal Start Error: $e',
-              style: const TextStyle(color: Colors.red),
-            ),
-          ),
-        ),
-      ),
-    );
+    // ignore: avoid_print
+    print('AuthBootstrap failed (non-fatal): $e');
   }
+
+  try {
+    await NotificationService().init();
+  } catch (e) {
+    // ignore: avoid_print
+    print('NotificationService init failed (non-fatal): $e');
+  }
+
+  try {
+    await SyncBootstrap.init();
+  } catch (e) {
+    // ignore: avoid_print
+    print('SyncBootstrap init failed (non-fatal): $e');
+  }
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        prefsServiceProvider.overrideWithValue(prefs),
+      ],
+      child: const AppRoot(),
+    ),
+  );
 }
 
 class AppRoot extends ConsumerWidget {
