@@ -7,23 +7,24 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
-import '../data/leagues_repository_local.dart';
 import '../data/league_announcements_local.dart';
 import '../data/league_spaces_local.dart';
+import '../data/leagues_repository_local.dart';
 import '../domain/logic/tournament_controller.dart';
 import '../domain/standings/standings.dart';
 import '../domain/standings/standings_calculator.dart';
 import '../models/fixture_match.dart';
+import '../models/knockout_match.dart';
 import '../models/league.dart';
+import '../models/league_announcement.dart';
 import '../models/league_format.dart';
+import '../models/league_space.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
-import '../models/knockout_match.dart';
-import '../models/league_announcement.dart';
-import '../models/league_space.dart';
 
 class LeagueDetailScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -34,28 +35,22 @@ class LeagueDetailScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<LeagueDetailScreen> createState() =>
-      _LeagueDetailScreenState();
+  ConsumerState<LeagueDetailScreen> createState() => _LeagueDetailScreenState();
 }
 
-class _LeagueDetailScreenState
-    extends ConsumerState<LeagueDetailScreen> {
+class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   late final LocalLeaguesRepository _repo;
   late final PreferencesService _prefs;
   late final LeagueAnnouncementsFirebase _annRepo;
   late final LeagueSpacesFirebase _spaceRepo;
 
   int? _lastViewedRound;
-  static String _lastRoundKey(String leagueId) =>
-      'ui_last_round_$leagueId';
+  static String _lastRoundKey(String leagueId) => 'ui_last_round_$leagueId';
 
   int _lastSeenAnnMs = 0;
-  static String _lastSeenAnnKey(String leagueId) =>
-      'ui_last_seen_ann_$leagueId';
+  static String _lastSeenAnnKey(String leagueId) => 'ui_last_seen_ann_$leagueId';
 
-  // For auto-scrolling the announcements row
-  final ScrollController _annScrollController =
-      ScrollController();
+  final ScrollController _annScrollController = ScrollController();
   Timer? _annScrollTimer;
   int _annLastCount = 0;
 
@@ -67,12 +62,16 @@ class _LeagueDetailScreenState
     _annRepo = LeagueAnnouncementsFirebase(_prefs);
     _spaceRepo = LeagueSpacesFirebase(_prefs);
 
-    final rawRound =
-        _prefs.getString(_lastRoundKey(widget.leagueId));
+    final rawRound = _prefs.getString(_lastRoundKey(widget.leagueId));
     _lastViewedRound = int.tryParse((rawRound ?? '').trim());
 
-    _lastSeenAnnMs =
-        _prefs.getInt(_lastSeenAnnKey(widget.leagueId)) ?? 0;
+    _lastSeenAnnMs = _prefs.getInt(_lastSeenAnnKey(widget.leagueId)) ?? 0;
+
+    // Auto pull latest cloud state (space, announcements, matches, etc.)
+    // ignore: discarded_futures
+    SyncTrigger.trySync().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -82,11 +81,22 @@ class _LeagueDetailScreenState
     super.dispose();
   }
 
+  // Simple snack helper (no floating behavior)
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _persistRound(int round) async {
     _lastViewedRound = round;
     if (mounted) setState(() {});
-    await _prefs.setString(
-        _lastRoundKey(widget.leagueId), '$round');
+    await _prefs.setString(_lastRoundKey(widget.leagueId), '$round');
   }
 
   Future<void> _markAnnouncementsSeen(int ms) async {
@@ -95,7 +105,6 @@ class _LeagueDetailScreenState
   }
 
   void _ensureAnnounceAutoScroll(int count) {
-    // Stop if 0 or 1 announcement: nothing to scroll
     if (count <= 1) {
       _annScrollTimer?.cancel();
       _annScrollTimer = null;
@@ -103,24 +112,18 @@ class _LeagueDetailScreenState
       return;
     }
 
-    // If same count and timer already running, do nothing
-    if (_annLastCount == count && _annScrollTimer != null) {
-      return;
-    }
+    if (_annLastCount == count && _annScrollTimer != null) return;
 
     _annLastCount = count;
     _annScrollTimer?.cancel();
 
-    _annScrollTimer =
-        Timer.periodic(const Duration(milliseconds: 40), (timer) {
+    _annScrollTimer = Timer.periodic(const Duration(milliseconds: 40), (timer) {
       if (!_annScrollController.hasClients) return;
-      final maxScroll =
-          _annScrollController.position.maxScrollExtent;
+      final maxScroll = _annScrollController.position.maxScrollExtent;
       if (maxScroll <= 0) return;
 
       final current = _annScrollController.offset;
       final next = current + 1;
-
       if (next >= maxScroll) {
         _annScrollController.jumpTo(0);
       } else {
@@ -132,33 +135,24 @@ class _LeagueDetailScreenState
   Future<Map<String, dynamic>> _loadData() async {
     final league = await _repo.getLeagueById(widget.leagueId);
     if (league == null) {
-      throw Exception("League not found in local storage");
+      throw Exception('League not found in local storage');
     }
 
-    final fixtures =
-        await _repo.getMatches(widget.leagueId);
+    final fixtures = await _repo.getMatches(widget.leagueId);
     final teams = await _repo.getTeams(widget.leagueId);
-    final knockouts =
-        await _repo.getKnockoutMatches(widget.leagueId);
-    final announcements =
-        await _annRepo.listForLeague(widget.leagueId);
+    final knockouts = await _repo.getKnockoutMatches(widget.leagueId);
+    final announcements = await _annRepo.listForLeague(widget.leagueId);
 
-    final currentUserId = _prefs.getCurrentUserId() ??
-        _prefs.getString(
-                PreferencesService.kCurrentUserIdKey) ??
-        '';
+    final currentUserId = _prefs.getCurrentUserId() ?? '';
 
     final membership = await _repo.getMembership(
       leagueId: widget.leagueId,
       userId: currentUserId,
     );
 
-    final teamNames = {
-      for (final t in teams) t.id: t.name
-    };
+    final teamNames = {for (final t in teams) t.id: t.name};
 
-    final space =
-        await _spaceRepo.getActiveSpace(widget.leagueId);
+    final space = await _spaceRepo.getActiveSpace(widget.leagueId);
 
     return {
       'league': league,
@@ -173,8 +167,7 @@ class _LeagueDetailScreenState
     };
   }
 
-  List<FixtureMatch> _sortedSchedule(
-      List<FixtureMatch> fixtures) {
+  List<FixtureMatch> _sortedSchedule(List<FixtureMatch> fixtures) {
     final sorted = fixtures.toList()
       ..sort((a, b) {
         final r = a.roundNumber.compareTo(b.roundNumber);
@@ -187,143 +180,104 @@ class _LeagueDetailScreenState
   }
 
   List<int> _allRounds(List<FixtureMatch> sorted) {
-    final rounds = sorted
-        .map((m) => m.roundNumber)
-        .toSet()
-        .toList()
-      ..sort();
+    final rounds = sorted.map((m) => m.roundNumber).toSet().toList()..sort();
     return rounds;
   }
 
-  /// Returns only NOT played fixtures starting from [selectedRound].
-  /// Auto-advances to next round with unplayed matches.
   List<FixtureMatch> _computeUpcomingUnplayed({
     required List<FixtureMatch> sortedAll,
     required int selectedRound,
     int limit = 8,
   }) {
-    final unplayed =
-        sortedAll.where((m) => !m.isPlayed).toList();
+    final unplayed = sortedAll.where((m) => !m.isPlayed).toList();
     if (unplayed.isEmpty) return [];
 
-    final roundsWithUnplayed = unplayed
-        .map((m) => m.roundNumber)
-        .toSet()
-        .toList()
-      ..sort();
+    final roundsWithUnplayed = unplayed.map((m) => m.roundNumber).toSet().toList()..sort();
 
     int effectiveRound = selectedRound;
     if (!roundsWithUnplayed.contains(effectiveRound)) {
-      final next = roundsWithUnplayed
-          .where((r) => r > selectedRound)
-          .toList();
-      effectiveRound =
-          next.isNotEmpty ? next.first : roundsWithUnplayed.first;
+      final next = roundsWithUnplayed.where((r) => r > selectedRound).toList();
+      effectiveRound = next.isNotEmpty ? next.first : roundsWithUnplayed.first;
     }
 
-    // Auto-update stored round if we had to jump
     if (effectiveRound != selectedRound) {
       _persistRound(effectiveRound);
     }
 
-    final filtered = sortedAll
-        .where((m) =>
-            !m.isPlayed && m.roundNumber >= effectiveRound)
-        .toList();
+    final filtered = sortedAll.where((m) => !m.isPlayed && m.roundNumber >= effectiveRound).toList();
     if (filtered.length <= limit) return filtered;
     return filtered.take(limit).toList();
   }
 
-  // League Space handlers (using real local repo)
-  Future<void> _onStartSpace(
-    League league,
-    String currentUserId,
-  ) async {
+  // League Space handlers (now: start/end + sync + open room route)
+  Future<void> _onStartSpace(League league, String currentUserId) async {
     try {
       await _spaceRepo.startSpace(
         leagueId: league.id,
         hostUserId: currentUserId,
         title: '${league.name} Space',
       );
+
+      await SyncTrigger.trySync();
+
       if (!mounted) return;
-      setState(() {}); // triggers FutureBuilder to reload
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'League Space started (local only).',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      setState(() {});
+      _toast('League Space started');
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to start space: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('Failed to start space: $e');
     }
   }
 
   Future<void> _onEndSpace(League league) async {
     try {
       await _spaceRepo.endSpace(league.id);
+
+      await SyncTrigger.trySync();
+
       if (!mounted) return;
       setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('League Space ended.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('League Space ended');
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to end space: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('Failed to end space: $e');
     }
   }
 
   void _onOpenSpace(League league) {
-    // TODO: navigate to real League Space screen (audio room)
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Opening League Space (audio room not implemented yet).',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    // You will create this screen next (voice room + reactions)
+    // Route suggestion: /leagues/:id/space
+    context.push('/leagues/${league.id}/space');
   }
 
   @override
   Widget build(BuildContext context) {
-    final primary =
-        Theme.of(context).colorScheme.primary;
-    final isWide =
-        MediaQuery.of(context).size.width > 600;
+    final primary = Theme.of(context).colorScheme.primary;
+    final isWide = MediaQuery.of(context).size.width > 600;
 
     return GlassScaffold(
       appBar: AppBar(
         title: const Text('League Details'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Sync',
+            onPressed: () async {
+              await SyncTrigger.trySync();
+              if (mounted) setState(() {});
+              _toast('Synced');
+            },
+            icon: const Icon(Icons.sync),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Center(
           child: FutureBuilder<Map<String, dynamic>>(
             future: _loadData(),
             builder: (context, snapshot) {
-              if (snapshot.connectionState ==
-                  ConnectionState.waiting) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(
-                    color: Colors.cyanAccent,
-                  ),
+                  child: CircularProgressIndicator(color: Colors.cyanAccent),
                 );
               }
 
@@ -332,31 +286,19 @@ class _LeagueDetailScreenState
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
-                      mainAxisAlignment:
-                          MainAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(
-                          Icons.error_outline,
-                          color: Colors.redAccent,
-                          size: 48,
-                        ),
+                        const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
                         const SizedBox(height: 16),
                         Text(
-                          "Error: ${snapshot.error}",
+                          'Error: ${snapshot.error}',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                          ),
+                          style: const TextStyle(color: Colors.white70),
                         ),
                         const SizedBox(height: 16),
                         TextButton(
                           onPressed: () => setState(() {}),
-                          child: const Text(
-                            'Retry',
-                            style: TextStyle(
-                              color: Colors.cyanAccent,
-                            ),
-                          ),
+                          child: const Text('Retry', style: TextStyle(color: Colors.cyanAccent)),
                         ),
                       ],
                     ),
@@ -364,40 +306,23 @@ class _LeagueDetailScreenState
                 );
               }
 
-              if (!snapshot.hasData) {
-                return const SizedBox.shrink();
-              }
+              if (!snapshot.hasData) return const SizedBox.shrink();
 
-              final league =
-                  snapshot.data!['league'] as League;
-              final fixtures = snapshot
-                  .data!['fixtures'] as List<FixtureMatch>;
-              final teams =
-                  snapshot.data!['teams'] as List<Team>;
-              final teamNames =
-                  snapshot.data!['teamNames']
-                      as Map<String, String>;
-              final currentUserId =
-                  snapshot.data!['currentUserId'] as String;
-              final membership =
-                  snapshot.data!['membership']
-                      as Membership?;
-              final knockouts =
-                  snapshot.data!['knockouts']
-                      as List<KnockoutMatch>;
-              final announcements =
-                  snapshot.data!['announcements']
-                      as List<LeagueAnnouncement>;
-              final space =
-                  snapshot.data!['space'] as LeagueSpace?;
+              final league = snapshot.data!['league'] as League;
+              final fixtures = snapshot.data!['fixtures'] as List<FixtureMatch>;
+              final teams = snapshot.data!['teams'] as List<Team>;
+              final teamNames = snapshot.data!['teamNames'] as Map<String, String>;
+              final currentUserId = snapshot.data!['currentUserId'] as String;
+              final membership = snapshot.data!['membership'] as Membership?;
+              final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
+              final announcements = snapshot.data!['announcements'] as List<LeagueAnnouncement>;
+              final space = snapshot.data!['space'] as LeagueSpace?;
 
               final sorted = _sortedSchedule(fixtures);
               final rounds = _allRounds(sorted);
-              final selectedRound =
-                  (_lastViewedRound != null &&
-                          rounds.contains(_lastViewedRound))
-                      ? _lastViewedRound!
-                      : (rounds.isEmpty ? 1 : rounds.first);
+              final selectedRound = (_lastViewedRound != null && rounds.contains(_lastViewedRound))
+                  ? _lastViewedRound!
+                  : (rounds.isEmpty ? 1 : rounds.first);
 
               final upcoming = _computeUpcomingUnplayed(
                 sortedAll: sorted,
@@ -407,13 +332,9 @@ class _LeagueDetailScreenState
 
               int latestAnnMs = 0;
               if (announcements.isNotEmpty) {
-                latestAnnMs = announcements
-                    .map((a) => a.createdAtMs)
-                    .reduce(max);
+                latestAnnMs = announcements.map((a) => a.createdAtMs).reduce(max);
               }
-              final hasUnreadAnnouncements =
-                  announcements.isNotEmpty &&
-                  latestAnnMs > _lastSeenAnnMs;
+              final hasUnreadAnnouncements = announcements.isNotEmpty && latestAnnMs > _lastSeenAnnMs;
 
               if (hasUnreadAnnouncements) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -421,41 +342,21 @@ class _LeagueDetailScreenState
                 });
               }
 
-              // Start / stop auto-scroll based on count
               _ensureAnnounceAutoScroll(announcements.length);
 
-              final isOwnerByLeague =
-                  membership?.role ==
-                      LeagueRole.organizer;
-              final isOwnerFallback =
-                  league.organizerUserId ==
-                      currentUserId;
-              final isOwner =
-                  isOwnerByLeague || isOwnerFallback;
+              final isOwnerByLeague = membership?.role == LeagueRole.organizer;
+              final isOwnerFallback = league.organizerUserId == currentUserId;
+              final isOwner = isOwnerByLeague || isOwnerFallback;
 
               return ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: isWide ? 600 : 500,
-                ),
+                constraints: BoxConstraints(maxWidth: isWide ? 600 : 500),
                 child: ListView(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   children: [
-                    _overviewCard(
-                      context,
-                      primary,
-                      league,
-                      isOwner,
-                    ),
+                    _overviewCard(context, primary, league, isOwner),
                     if (announcements.isNotEmpty) ...[
                       const SizedBox(height: 16),
-                      _announcementsCard(
-                        context,
-                        announcements,
-                        hasUnreadAnnouncements,
-                      ),
+                      _announcementsCard(context, announcements, hasUnreadAnnouncements),
                     ],
                     const SizedBox(height: 16),
                     _quickActions(
@@ -475,8 +376,7 @@ class _LeagueDetailScreenState
                       names: teamNames,
                       rounds: rounds,
                       selectedRound: selectedRound,
-                      onRoundSelected: (r) =>
-                          _persistRound(r),
+                      onRoundSelected: (r) => _persistRound(r),
                     ),
                   ],
                 ),
@@ -488,63 +388,30 @@ class _LeagueDetailScreenState
     );
   }
 
-  Widget _overviewCard(
-    BuildContext context,
-    Color c,
-    League league,
-    bool isOwner,
-  ) {
-    // Build rule summary pills from settings
+  Widget _overviewCard(BuildContext context, Color c, League league, bool isOwner) {
     final settings = league.settings;
 
     final rulePills = <Widget>[
-      _pill(
-        league.isPrivate ? 'Private' : 'Public',
-        Colors.cyanAccent,
-      ),
-      _pill(
-        '${league.maxTeams} Teams Max',
-        Colors.orangeAccent,
-      ),
-      _pill(
-        league.region,
-        Colors.purpleAccent,
-      ),
-      _pill(
-        settings.doubleRoundRobin
-            ? 'Double RR'
-            : 'Single RR',
-        Colors.lightBlueAccent,
-      ),
+      _pill(league.isPrivate ? 'Private' : 'Public', Colors.cyanAccent),
+      _pill('${league.maxTeams} Teams Max', Colors.orangeAccent),
+      _pill(league.region, Colors.purpleAccent),
+      _pill(settings.doubleRoundRobin ? 'Double RR' : 'Single RR', Colors.lightBlueAccent),
     ];
 
     if (league.format == LeagueFormat.uclGroup) {
-      rulePills.add(
-        _pill(
-          'Group Size ${settings.groupSize}',
-          Colors.tealAccent,
-        ),
-      );
+      rulePills.add(_pill('Group Size ${settings.groupSize}', Colors.tealAccent));
     }
-
     if (league.format == LeagueFormat.uclSwiss) {
-      rulePills.add(
-        _pill(
-          'Swiss Rounds ${settings.swissRounds}',
-          Colors.tealAccent,
-        ),
-      );
+      rulePills.add(_pill('Swiss Rounds ${settings.swissRounds}', Colors.tealAccent));
     }
 
     return Glass(
       padding: const EdgeInsets.all(20),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment:
-                MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Expanded(
                 child: Text(
@@ -560,18 +427,12 @@ class _LeagueDetailScreenState
                 Tooltip(
                   message: 'Organiser',
                   child: Container(
-                    padding:
-                        const EdgeInsets.all(6),
+                    padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: Colors.cyanAccent
-                          .withOpacity(0.1),
+                      color: Colors.cyanAccent.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
-                      Icons.verified_user,
-                      color: Colors.cyanAccent,
-                      size: 20,
-                    ),
+                    child: const Icon(Icons.verified_user, color: Colors.cyanAccent, size: 20),
                   ),
                 ),
             ],
@@ -579,66 +440,41 @@ class _LeagueDetailScreenState
           const SizedBox(height: 4),
           Text(
             '${league.format.displayName} • ${league.season}',
-            style: const TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-            ),
+            style: const TextStyle(color: Colors.white60, fontSize: 14),
           ),
           const SizedBox(height: 18),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: rulePills,
-          ),
+          Wrap(spacing: 8, runSpacing: 8, children: rulePills),
         ],
       ),
     );
   }
 
-  Widget _announcementsCard(
-    BuildContext context,
-    List<LeagueAnnouncement> anns,
-    bool hasUnread,
-  ) {
-    final sorted = anns.toList()
-      ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+  Widget _announcementsCard(BuildContext context, List<LeagueAnnouncement> anns, bool hasUnread) {
+    final sorted = anns.toList()..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
     final formatter = DateFormat('MMM d • HH:mm');
 
     return Glass(
       padding: const EdgeInsets.all(20),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               const Text(
                 'Announcements',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                  fontSize: 16,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 16),
               ),
               if (hasUnread) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: Colors.redAccent.withOpacity(0.8),
-                    borderRadius:
-                        BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(999),
                   ),
                   child: const Text(
                     'NEW',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -651,20 +487,11 @@ class _LeagueDetailScreenState
               controller: _annScrollController,
               scrollDirection: Axis.horizontal,
               itemCount: sorted.length,
-              separatorBuilder: (_, __) =>
-                  const SizedBox(width: 12),
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, index) {
                 final a = sorted[index];
-                final timeStr = formatter.format(
-                  DateTime.fromMillisecondsSinceEpoch(
-                    a.createdAtMs,
-                  ),
-                );
-                return GlassAnnouncement(
-                  title: a.title,
-                  message: a.message,
-                  time: timeStr,
-                );
+                final timeStr = formatter.format(DateTime.fromMillisecondsSinceEpoch(a.createdAtMs));
+                return GlassAnnouncement(title: a.title, message: a.message, time: timeStr);
               },
             ),
           ),
@@ -683,46 +510,24 @@ class _LeagueDetailScreenState
     LeagueSpace? space,
     String currentUserId,
   ) {
-    final isSwiss =
-        league.format == LeagueFormat.uclSwiss;
-    final isGroup =
-        league.format == LeagueFormat.uclGroup;
+    final isSwiss = league.format == LeagueFormat.uclSwiss;
+    final isGroup = league.format == LeagueFormat.uclGroup;
     final hasKnockouts = knockouts.isNotEmpty;
     final spaceLive = space?.isLive == true;
 
-    void showNeedKnockoutsSnack() {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Generate the knockout bracket first.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+    void showNeedKnockoutsSnack() => _toast('Generate the knockout bracket first.');
 
     return Glass(
       padding: const EdgeInsets.all(20),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             'League Menu',
-            style: TextStyle(
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-              fontSize: 16,
-            ),
+            style: TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 16),
           ),
           const SizedBox(height: 8),
-          _buildLeagueSpaceRow(
-            context,
-            league,
-            isOwner,
-            spaceLive,
-            currentUserId,
-          ),
+          _buildLeagueSpaceRow(context, league, isOwner, spaceLive, currentUserId),
           const SizedBox(height: 16),
           Row(
             children: [
@@ -730,9 +535,7 @@ class _LeagueDetailScreenState
                 child: _actionButton(
                   icon: Icons.list_alt,
                   label: 'Fixtures',
-                  onTap: () => context.push(
-                    '/leagues/${widget.leagueId}/fixtures',
-                  ),
+                  onTap: () => context.push('/leagues/${widget.leagueId}/fixtures'),
                 ),
               ),
               const SizedBox(width: 12),
@@ -740,9 +543,7 @@ class _LeagueDetailScreenState
                 child: _actionButton(
                   icon: Icons.leaderboard,
                   label: 'Standings',
-                  onTap: () => context.push(
-                    '/leagues/${widget.leagueId}/standings',
-                  ),
+                  onTap: () => context.push('/leagues/${widget.leagueId}/standings'),
                 ),
               ),
             ],
@@ -755,26 +556,15 @@ class _LeagueDetailScreenState
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.cyanAccent,
                   foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(12),
-                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 icon: const Icon(Icons.edit_note),
-                label: const Text(
-                  'MANAGE LEAGUE SCORES',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                label: const Text('MANAGE LEAGUE SCORES', style: TextStyle(fontWeight: FontWeight.bold)),
                 onPressed: () async {
-                  await context.push(
-                      '/leagues/${widget.leagueId}/admin-scores');
+                  await context.push('/leagues/${widget.leagueId}/admin-scores');
                   if (!mounted) return;
-                  setState(() {}); // refresh
+                  setState(() {});
                 },
               ),
             ),
@@ -783,29 +573,17 @@ class _LeagueDetailScreenState
               width: double.infinity,
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(
-                    color: Colors.white24,
-                  ),
+                  side: const BorderSide(color: Colors.white24),
                   foregroundColor: Colors.cyanAccent,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 14,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(12),
-                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 icon: const Icon(Icons.settings),
                 label: const Text(
                   'LEAGUE SETTINGS (ADMIN)',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                 ),
-                onPressed: () => context.push(
-                  '/leagues/${widget.leagueId}/admin',
-                ),
+                onPressed: () => context.push('/leagues/${widget.leagueId}/admin'),
               ),
             ),
             if (isSwiss) ...[
@@ -814,34 +592,17 @@ class _LeagueDetailScreenState
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(
-                      color: Colors.cyanAccent,
-                    ),
+                    side: const BorderSide(color: Colors.cyanAccent),
                     foregroundColor: Colors.cyanAccent,
-                    padding:
-                        const EdgeInsets.symmetric(
-                      vertical: 14,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(12),
-                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   icon: const Icon(Icons.emoji_events),
                   label: const Text(
                     'GENERATE KNOCKOUT BRACKET (SWISS)',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                   ),
-                  onPressed: () =>
-                      _generateSwissKnockouts(
-                    context,
-                    league,
-                    teams,
-                    fixtures,
-                  ),
+                  onPressed: () => _generateSwissKnockouts(context, league, teams, fixtures),
                 ),
               ),
             ],
@@ -851,33 +612,17 @@ class _LeagueDetailScreenState
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(
-                      color: Colors.cyanAccent,
-                    ),
+                    side: const BorderSide(color: Colors.cyanAccent),
                     foregroundColor: Colors.cyanAccent,
-                    padding:
-                        const EdgeInsets.symmetric(
-                      vertical: 14,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(12),
-                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  icon:
-                      const Icon(Icons.emoji_events_outlined),
+                  icon: const Icon(Icons.emoji_events_outlined),
                   label: const Text(
                     'GENERATE KNOCKOUT BRACKET (GROUPS)',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                   ),
-                  onPressed: () =>
-                      _generateGroupKnockouts(
-                    context,
-                    league,
-                  ),
+                  onPressed: () => _generateGroupKnockouts(context, league),
                 ),
               ),
             ],
@@ -888,55 +633,28 @@ class _LeagueDetailScreenState
                   Expanded(
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
-                        foregroundColor: hasKnockouts
-                            ? Colors.cyanAccent
-                            : Colors.white30,
+                        foregroundColor: hasKnockouts ? Colors.cyanAccent : Colors.white30,
                       ),
-                      onPressed: hasKnockouts
-                          ? () => context.push(
-                                '/leagues/${widget.leagueId}/knockout',
-                              )
-                          : showNeedKnockoutsSnack,
-                      icon: const Icon(
-                        Icons.account_tree_outlined,
-                        size: 18,
-                      ),
-                      label: const Text(
-                        'VIEW KNOCKOUT BRACKET',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
+                      onPressed: hasKnockouts ? () => context.push('/leagues/${widget.leagueId}/knockout') : showNeedKnockoutsSnack,
+                      icon: const Icon(Icons.account_tree_outlined, size: 18),
+                      label: const Text('VIEW KNOCKOUT BRACKET', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
-                        foregroundColor: hasKnockouts
-                            ? Colors.cyanAccent
-                            : Colors.white30,
+                        foregroundColor: hasKnockouts ? Colors.cyanAccent : Colors.white30,
                       ),
                       onPressed: hasKnockouts
                           ? () async {
-                              await context.push(
-                                  '/leagues/${widget.leagueId}/knockout-admin');
+                              await context.push('/leagues/${widget.leagueId}/knockout-admin');
                               if (!mounted) return;
-                              setState(() {}); // refresh
+                              setState(() {});
                             }
                           : showNeedKnockoutsSnack,
-                      icon: const Icon(
-                        Icons.sports_score,
-                        size: 18,
-                      ),
-                      label: const Text(
-                        'MANAGE KO SCORES',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
+                      icon: const Icon(Icons.sports_score, size: 18),
+                      label: const Text('MANAGE KO SCORES', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     ),
                   ),
                 ],
@@ -946,24 +664,15 @@ class _LeagueDetailScreenState
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                vertical: 14,
-                horizontal: 12,
-              ),
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.05),
-                borderRadius:
-                    BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white10,
-                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white10),
               ),
               child: const Text(
                 'View-only: You are a participant in this league.',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -980,82 +689,49 @@ class _LeagueDetailScreenState
     bool isLive,
     String currentUserId,
   ) {
-    // If there is no live space and user is not admin, hide the row
-    if (!isLive && !isOwner) {
-      return const SizedBox.shrink();
-    }
+    if (!isLive && !isOwner) return const SizedBox.shrink();
 
-    // Admin, no live space -> show "Start League Space"
     if (!isLive && isOwner) {
       return Align(
         alignment: Alignment.centerLeft,
         child: TextButton.icon(
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.cyanAccent,
-          ),
+          style: TextButton.styleFrom(foregroundColor: Colors.cyanAccent),
           onPressed: () => _onStartSpace(league, currentUserId),
           icon: const Icon(Icons.mic, size: 18),
-          label: const Text(
-            'Start League Space',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
+          label: const Text('Start League Space', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
         ),
       );
     }
 
-    // Space is live -> everyone sees a pill, admin can also end it
     return InkWell(
       onTap: () => _onOpenSpace(league),
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 6,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.06),
           borderRadius: BorderRadius.circular(999),
-          border:
-              Border.all(color: Colors.cyanAccent.withOpacity(0.6)),
+          border: Border.all(color: Colors.cyanAccent.withOpacity(0.6)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.graphic_eq,
-              color: Colors.cyanAccent,
-              size: 18,
-            ),
+            const Icon(Icons.graphic_eq, color: Colors.cyanAccent, size: 18),
             const SizedBox(width: 8),
             const Text(
               'League Space • LIVE',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-              ),
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
             ),
             if (isOwner) ...[
               const SizedBox(width: 10),
-              Container(
-                width: 1,
-                height: 16,
-                color: Colors.white24,
-              ),
+              Container(width: 1, height: 16, color: Colors.white24),
               const SizedBox(width: 6),
               InkWell(
                 onTap: () => _onEndSpace(league),
                 borderRadius: BorderRadius.circular(999),
                 child: const Padding(
                   padding: EdgeInsets.all(4),
-                  child: Icon(
-                    Icons.stop_circle_outlined,
-                    size: 18,
-                    color: Colors.redAccent,
-                  ),
+                  child: Icon(Icons.stop_circle_outlined, size: 18, color: Colors.redAccent),
                 ),
               ),
             ],
@@ -1073,30 +749,15 @@ class _LeagueDetailScreenState
     required int selectedRound,
     required void Function(int) onRoundSelected,
   }) {
-    // Safety: only unplayed fixtures
-    final unplayedFixtures =
-        fixtures.where((f) => !f.isPlayed).toList();
-
-    final unplayedRounds = rounds
-        .where((r) =>
-            unplayedFixtures.any(
-                (f) => f.roundNumber == r))
-        .toList();
+    final unplayedFixtures = fixtures.where((f) => !f.isPlayed).toList();
+    final unplayedRounds = rounds.where((r) => unplayedFixtures.any((f) => f.roundNumber == r)).toList();
 
     return Glass(
       padding: const EdgeInsets.all(20),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Coming Up Next',
-            style: TextStyle(
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-              fontSize: 16,
-            ),
-          ),
+          const Text('Coming Up Next', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 16)),
           const SizedBox(height: 8),
           if (unplayedRounds.isNotEmpty)
             SingleChildScrollView(
@@ -1115,18 +776,10 @@ class _LeagueDetailScreenState
               ),
             ),
           const SizedBox(height: 12),
-          if (unplayedRounds.isEmpty ||
-              unplayedFixtures.isEmpty)
+          if (unplayedRounds.isEmpty || unplayedFixtures.isEmpty)
             const Padding(
-              padding:
-                  EdgeInsets.symmetric(vertical: 12),
-              child: Center(
-                child: Text(
-                  'No upcoming fixtures.',
-                  style:
-                      TextStyle(color: Colors.white38),
-                ),
-              ),
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: Text('No upcoming fixtures.', style: TextStyle(color: Colors.white38))),
             )
           else
             Column(
@@ -1141,16 +794,10 @@ class _LeagueDetailScreenState
           Align(
             alignment: Alignment.center,
             child: TextButton(
-              onPressed: () => context.push(
-                '/leagues/${widget.leagueId}/fixtures',
-              ),
+              onPressed: () => context.push('/leagues/${widget.leagueId}/fixtures'),
               child: const Text(
                 'VIEW ALL FIXTURES',
-                style: TextStyle(
-                  color: Colors.cyanAccent,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(color: Colors.cyanAccent, fontSize: 12, fontWeight: FontWeight.bold),
               ),
             ),
           ),
@@ -1159,38 +806,21 @@ class _LeagueDetailScreenState
     );
   }
 
-  Widget _roundChip({
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
+  Widget _roundChip({required String label, required bool selected, required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
-      borderRadius:
-          BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(999),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 8,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected
-              ? Colors.cyanAccent
-              : Colors.white.withOpacity(0.06),
-          borderRadius:
-              BorderRadius.circular(999),
-          border: Border.all(
-            color: selected
-                ? Colors.cyanAccent
-                : Colors.white10,
-          ),
+          color: selected ? Colors.cyanAccent : Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: selected ? Colors.cyanAccent : Colors.white10),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected
-                ? Colors.black
-                : Colors.white70,
+            color: selected ? Colors.black : Colors.white70,
             fontWeight: FontWeight.w900,
             fontSize: 12,
           ),
@@ -1199,55 +829,28 @@ class _LeagueDetailScreenState
     );
   }
 
-  Widget _fixtureRow(
-    BuildContext context,
-    FixtureMatch f,
-    Map<String, String> names,
-  ) {
-    final homeName =
-        names[f.homeTeamId] ?? f.homeTeamId;
-    final awayName =
-        names[f.awayTeamId] ?? f.awayTeamId;
+  Widget _fixtureRow(BuildContext context, FixtureMatch f, Map<String, String> names) {
+    final homeName = names[f.homeTeamId] ?? f.homeTeamId;
+    final awayName = names[f.awayTeamId] ?? f.awayTeamId;
 
     return InkWell(
-      onTap: () => context.push(
-        '/leagues/${widget.leagueId}/matches/${f.id}',
-      ),
-      borderRadius:
-          BorderRadius.circular(12),
+      onTap: () => context.push('/leagues/${widget.leagueId}/matches/${f.id}'),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 12,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.05),
-          borderRadius:
-              BorderRadius.circular(12),
-          border: Border.all(
-            color: Colors.white10,
-          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white10),
         ),
         child: Row(
           children: [
             Container(
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 3,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white10,
-                borderRadius:
-                    BorderRadius.circular(6),
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(6)),
               child: Text(
                 'R${f.roundNumber}',
-                style: const TextStyle(
-                  color: Colors.white60,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: const TextStyle(color: Colors.white60, fontSize: 11, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(width: 10),
@@ -1257,25 +860,12 @@ class _LeagueDetailScreenState
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.right,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
               ),
             ),
             const Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: 14,
-              ),
-              child: Text(
-                'VS',
-                style: TextStyle(
-                  color: Colors.cyanAccent,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12,
-                ),
-              ),
+              padding: EdgeInsets.symmetric(horizontal: 14),
+              child: Text('VS', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900, fontSize: 12)),
             ),
             Expanded(
               child: Text(
@@ -1283,59 +873,33 @@ class _LeagueDetailScreenState
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.left,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
               ),
             ),
             const SizedBox(width: 8),
-            const Icon(
-              Icons.chevron_right,
-              color: Colors.white38,
-            ),
+            const Icon(Icons.chevron_right, color: Colors.white38),
           ],
         ),
       ),
     );
   }
 
-  Widget _actionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
+  Widget _actionButton({required IconData icon, required String label, required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
-      borderRadius:
-          BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          vertical: 16,
-        ),
+        padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.05),
-          borderRadius:
-              BorderRadius.circular(12),
-          border: Border.all(
-            color: Colors.white10,
-          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white10),
         ),
         child: Column(
           children: [
-            Icon(
-              icon,
-              color: Colors.white70,
-            ),
+            Icon(icon, color: Colors.white70),
             const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-              ),
-            ),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
           ],
         ),
       ),
@@ -1344,235 +908,104 @@ class _LeagueDetailScreenState
 
   Widget _pill(String text, Color c) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 6,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        borderRadius:
-            BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(8),
         color: c.withOpacity(0.1),
-        border: Border.all(
-          color: c.withOpacity(0.2),
-        ),
+        border: Border.all(color: c.withOpacity(0.2)),
       ),
       child: Text(
         text,
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          color: c,
-          fontSize: 11,
-        ),
+        style: TextStyle(fontWeight: FontWeight.bold, color: c, fontSize: 11),
       ),
     );
   }
 
-  Future<void> _generateSwissKnockouts(
-    BuildContext context,
-    League league,
-    List<Team> teams,
-    List<FixtureMatch> fixtures,
-  ) async {
+  Future<void> _generateSwissKnockouts(BuildContext context, League league, List<Team> teams, List<FixtureMatch> fixtures) async {
     if (league.format != LeagueFormat.uclSwiss) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'This action is only for Swiss leagues.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('This action is only for Swiss leagues.');
       return;
     }
 
-    final existing =
-        await _repo.getKnockoutMatches(league.id);
+    final existing = await _repo.getKnockoutMatches(league.id);
     if (existing.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Knockout bracket already generated.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('Knockout bracket already generated.');
       return;
     }
 
-    // Filter only Swiss league phase matches (no groupId)
-    final swissMatches = fixtures
-        .where((m) => m.groupId == null)
-        .toList();
-
+    final swissMatches = fixtures.where((m) => m.groupId == null).toList();
     if (swissMatches.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No Swiss league matches found.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('No Swiss league matches found.');
       return;
     }
 
-    final roundsSet = swissMatches
-        .map((m) => m.roundNumber)
-        .toSet();
+    final roundsSet = swissMatches.map((m) => m.roundNumber).toSet();
     if (roundsSet.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No Swiss rounds found.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('No Swiss rounds found.');
       return;
     }
 
     final requiredRounds = league.settings.swissRounds;
 
-    // Check that we have all rounds 1..requiredRounds
-    final hasAllRounds = List.generate(
-      requiredRounds,
-      (i) => i + 1,
-    ).every((r) => roundsSet.contains(r));
-
-    // Check that all matches in rounds 1..requiredRounds are played
-    final anyUnplayedInRequired = swissMatches
-        .where((m) => m.roundNumber <= requiredRounds)
-        .any((m) => !m.isPlayed);
+    final hasAllRounds = List.generate(requiredRounds, (i) => i + 1).every((r) => roundsSet.contains(r));
+    final anyUnplayedInRequired = swissMatches.where((m) => m.roundNumber <= requiredRounds).any((m) => !m.isPlayed);
 
     if (!hasAllRounds || anyUnplayedInRequired) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'You must finish all $requiredRounds Swiss rounds before generating knockouts.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('You must finish all $requiredRounds Swiss rounds before generating knockouts.');
       return;
     }
 
-    final swissStandings =
-        StandingsCalculator.calculate(
-      teams: teams,
-      matches: swissMatches,
-    );
+    final swissStandings = StandingsCalculator.calculate(teams: teams, matches: swissMatches);
 
     if (swissStandings.length < 16) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'At least 16 teams are required to generate Swiss knockouts.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('At least 16 teams are required to generate Swiss knockouts.');
       return;
     }
 
-    final koMatches =
-        TournamentController.seedSwissKnockouts(
+    final koMatches = TournamentController.seedSwissKnockouts(
       leagueId: league.id,
       swissStandings: swissStandings,
     );
 
     if (koMatches.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Failed to seed knockout bracket from Swiss standings.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('Failed to seed knockout bracket from Swiss standings.');
       return;
     }
 
-    await _repo.saveKnockoutMatches(
-      league.id,
-      koMatches,
-    );
+    await _repo.saveKnockoutMatches(league.id, koMatches);
+    await SyncTrigger.trySync();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Knockout bracket generated (Play-off + Round of 16).',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
+    _toast('Knockout bracket generated (Play-off + Round of 16).');
     if (mounted) setState(() {});
   }
 
-  Future<void> _generateGroupKnockouts(
-    BuildContext context,
-    League league,
-  ) async {
+  Future<void> _generateGroupKnockouts(BuildContext context, League league) async {
     if (league.format != LeagueFormat.uclGroup) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'This action is only for UCL Group leagues.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('This action is only for UCL Group leagues.');
       return;
     }
 
-    final existing =
-        await _repo.getKnockoutMatches(league.id);
+    final existing = await _repo.getKnockoutMatches(league.id);
     if (existing.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Knockout bracket already generated.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('Knockout bracket already generated.');
       return;
     }
 
     final teams = await _repo.getTeams(league.id);
     final matches = await _repo.getMatches(league.id);
 
-    // All GROUP matches must be played before generating knockouts.
-    final groupMatches = matches
-        .where((m) => m.groupId != null)
-        .toList();
-
+    final groupMatches = matches.where((m) => m.groupId != null).toList();
     if (groupMatches.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No group matches found. Generate group fixtures first.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('No group matches found. Generate group fixtures first.');
       return;
     }
 
-    final anyUnplayedGroup =
-        groupMatches.any((m) => !m.isPlayed);
+    final anyUnplayedGroup = groupMatches.any((m) => !m.isPlayed);
     if (anyUnplayedGroup) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'You must finish all group matches before generating the knockout bracket.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('You must finish all group matches before generating the knockout bracket.');
       return;
     }
 
-    // Build standings from fully played groupMatches.
     final groupIds = groupMatches
         .map((m) => m.groupId)
         .whereType<String>()
@@ -1580,13 +1013,10 @@ class _LeagueDetailScreenState
         .where((g) => g.isNotEmpty)
         .toSet();
 
-    final groupStandings =
-        <String, List<StandingsRow>>{};
+    final groupStandings = <String, List<StandingsRow>>{};
 
     for (final groupId in groupIds) {
-      final gm = groupMatches
-          .where((m) => m.groupId == groupId)
-          .toList();
+      final gm = groupMatches.where((m) => m.groupId == groupId).toList();
       if (gm.isEmpty) continue;
 
       final teamIds = <String>{};
@@ -1595,64 +1025,32 @@ class _LeagueDetailScreenState
         teamIds.add(m.awayTeamId);
       }
 
-      final groupTeams = teams
-          .where((t) => teamIds.contains(t.id))
-          .toList();
+      final groupTeams = teams.where((t) => teamIds.contains(t.id)).toList();
       if (groupTeams.isEmpty) continue;
 
-      final rows =
-          StandingsCalculator.calculate(
-        teams: groupTeams,
-        matches: gm,
-      );
-
+      final rows = StandingsCalculator.calculate(teams: groupTeams, matches: gm);
       groupStandings[groupId] = rows;
     }
 
     if (groupStandings.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No group standings available to seed knockouts.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('No group standings available to seed knockouts.');
       return;
     }
 
-    final koMatches =
-        TournamentController.seedKnockoutsFromGroups(
+    final koMatches = TournamentController.seedKnockoutsFromGroups(
       leagueId: league.id,
       groupStandings: groupStandings,
     );
 
     if (koMatches.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Failed to seed knockout bracket from group standings.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _toast('Failed to seed knockout bracket from group standings.');
       return;
     }
 
-    await _repo.saveKnockoutMatches(
-      league.id,
-      koMatches,
-    );
+    await _repo.saveKnockoutMatches(league.id, koMatches);
+    await SyncTrigger.trySync();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Knockout bracket generated from group standings.',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
+    _toast('Knockout bracket generated from group standings.');
     if (mounted) setState(() {});
   }
 }
