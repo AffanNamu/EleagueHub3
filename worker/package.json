@@ -2,7 +2,15 @@
   "name": "livekit-token-worker",
   "private": true,
   "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
   "dependencies": {
     "livekit-server-sdk": "^2.7.2"
+  },
+  "devDependencies": {
+    "wrangler": "^3.101.0"
   }
 }
