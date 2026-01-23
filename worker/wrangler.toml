@@ -1,6 +1,7 @@
-name = "esportlyic-livekit-worker"
+name = "livekit-token-worker"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
+workers_dev = true
 
 [vars]
 LIVEKIT_URL = "wss://esportlyic-tnvub6ag.livekit.cloud"
