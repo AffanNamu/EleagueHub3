@@ -156,9 +156,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             setState(() => _micEnabled = false);
           }
         } else {
-          // approved & not muted
-          // We do NOT auto-enable mic here to avoid surprise.
-          // The UI will allow them to turn it on.
+          // approved & not muted -> auto-enable mic if connected
+          if (!_micEnabled) {
+            await _room!.localParticipant?.setMicrophoneEnabled(true);
+            if (!mounted) return;
+            setState(() => _micEnabled = true);
+          }
         }
       }
 
