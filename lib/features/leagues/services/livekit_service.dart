@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:http/http.dart' as http;
 
 class LiveKitTokenResponse {
@@ -23,8 +22,8 @@ class LiveKitTokenResponse {
 }
 
 class LiveKitService {
-  // Your deployed Worker endpoint:
-  static const String workerUrl = 'https://livekit-token-worker.esportlyic.workers.dev';
+  static const String workerUrl =
+      'https://livekit-token-worker.esportlyic.workers.dev';
 
   static Future<LiveKitTokenResponse> fetchToken({
     required String leagueId,
@@ -53,5 +52,26 @@ class LiveKitService {
     }
 
     return tok;
+  }
+
+  /// 🔑 VERY IMPORTANT
+  /// This updates LiveKit server-side permissions
+  static Future<void> approveSpeaker({
+    required String leagueId,
+    required String targetUserId,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$workerUrl/admin'),
+      headers: const {'content-type': 'application/json'},
+      body: jsonEncode({
+        'leagueId': leagueId,
+        'action': 'approve',
+        'targetUserId': targetUserId,
+      }),
+    );
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('LiveKit approve failed: ${res.body}');
+    }
   }
 }

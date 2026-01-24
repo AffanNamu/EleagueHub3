@@ -145,23 +145,35 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _speakerMutedByHost = muted;
       });
 
-      // Enforce mic policy in app:
-      // - if removed as speaker => force mic off
-      // - if muted by host => force mic off
-      // - if approved & not muted => auto-enable mic (if connected)
+      // ✅ SAFE FLOW: Enforce mic policy in app
       if (_connected && _room != null) {
         if (!approved || muted) {
           if (_micEnabled) {
-            await _room!.localParticipant?.setMicrophoneEnabled(false);
-            if (!mounted) return;
-            setState(() => _micEnabled = false);
+            await _room!.localParticipant.setMicrophoneEnabled(false);
+            if (mounted) setState(() => _micEnabled = false);
           }
         } else {
-          // approved & not muted -> auto-enable mic
+          // approved & not muted -> auto-enable mic with server sync
           if (!_micEnabled) {
-            await _room!.localParticipant?.setMicrophoneEnabled(true);
-            if (!mounted) return;
-            setState(() => _micEnabled = true);
+            try {
+              // 1️⃣ Update LiveKit server permissions FIRST
+              await LiveKitService.approveSpeaker(
+                leagueId: widget.leagueId,
+                targetUserId: _uid,
+              );
+
+              // 2️⃣ Small delay to allow permission propagation
+              await Future.delayed(const Duration(milliseconds: 300));
+
+              // 3️⃣ Enable mic safely
+              await _room!.localParticipant.setMicrophoneEnabled(true);
+
+              if (mounted) {
+                setState(() => _micEnabled = true);
+              }
+            } catch (e) {
+              _toast('Mic enable failed: $e');
+            }
           }
         }
       }
@@ -257,17 +269,24 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         token.token,
       );
 
-      // Mic policy on join:
-      // - Host: mic ON
-      // - Everyone else: mic OFF until speaker-approved
+      // ✅ SAFE FLOW Mic policy on join:
       if (_isHost) {
-        await room.localParticipant?.setMicrophoneEnabled(true);
+        await room.localParticipant.setMicrophoneEnabled(true);
         _micEnabled = true;
       } else {
-        // If already approved & not muted, enable mic; else keep off
         final shouldEnable = _isSpeakerApproved && !_speakerMutedByHost;
-        await room.localParticipant?.setMicrophoneEnabled(shouldEnable);
-        _micEnabled = shouldEnable;
+        if (shouldEnable) {
+          try {
+            await LiveKitService.approveSpeaker(leagueId: widget.leagueId, targetUserId: _uid);
+            await Future.delayed(const Duration(milliseconds: 300));
+            await room.localParticipant.setMicrophoneEnabled(true);
+            _micEnabled = true;
+          } catch (_) {
+             _micEnabled = false;
+          }
+        } else {
+          _micEnabled = false;
+        }
       }
 
       if (!mounted) return;
@@ -322,7 +341,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
 
     final next = !_micEnabled;
-    await _room!.localParticipant?.setMicrophoneEnabled(next);
+    await _room!.localParticipant.setMicrophoneEnabled(next);
     if (!mounted) return;
     setState(() => _micEnabled = next);
   }
@@ -627,7 +646,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                   const Text('Requests', style: TextStyle(color: Colors.white70, fontSize: 12)),
                   const SizedBox(height: 6),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    // NOTE: no orderBy => no composite index needed
                     stream: _requestsCol.where('status', isEqualTo: 'pending').snapshots(),
                     builder: (context, snap) {
                       if (snap.hasError) {
