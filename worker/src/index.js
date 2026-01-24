@@ -1,74 +1,80 @@
 import { AccessToken } from "livekit-server-sdk";
 
-// LiveKit Server API helpers.
-// These endpoints are provided by LiveKit server.
-// Docs: https://docs.livekit.io/home/server/api/
-async function lkUpdateParticipant(env, roomName, identity, permissions) {
+/**
+ * Create an admin JWT that can call LiveKit RoomService APIs.
+ * We use roomAdmin: true which is required for UpdateParticipant / MutePublishedTrack.
+ */
+async function makeAdminJwt(env, roomName) {
   const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
     identity: "worker-admin",
     ttl: "5m",
   });
 
-  // Grant only what's needed to call admin APIs
   at.addGrant({
     room: roomName,
     roomAdmin: true,
   });
 
-  const adminToken = await at.toJwt();
+  return at.toJwt();
+}
 
-  const res = await fetch(`${env.LIVEKIT_URL}/twirp/livekit.RoomService/UpdateParticipant`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${adminToken}`,
-    },
-    body: JSON.stringify({
-      room: roomName,
-      identity,
-      permission: permissions,
-    }),
-  });
+/**
+ * Call LiveKit Twirp API: UpdateParticipant
+ * This is what actually changes publish permissions server-side (strong enforcement).
+ */
+async function updateParticipant(env, roomName, identity, permission) {
+  const adminJwt = await makeAdminJwt(env, roomName);
+
+  const res = await fetch(
+    `${env.LIVEKIT_URL}/twirp/livekit.RoomService/UpdateParticipant`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${adminJwt}`,
+      },
+      body: JSON.stringify({
+        room: roomName,
+        identity,
+        permission,
+      }),
+    }
+  );
 
   if (!res.ok) {
     const txt = await res.text();
-    throw new Error(`LiveKit UpdateParticipant failed ${res.status}: ${txt}`);
+    throw new Error(`UpdateParticipant failed ${res.status}: ${txt}`);
   }
 
   return res.json();
 }
 
-async function lkMuteTrack(env, roomName, identity, muted) {
-  const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
-    identity: "worker-admin",
-    ttl: "5m",
-  });
+/**
+ * Call LiveKit Twirp API: MutePublishedTrack
+ * This is optional; we also keep Firestore muted state in your app.
+ */
+async function mutePublishedTrack(env, roomName, identity, muted) {
+  const adminJwt = await makeAdminJwt(env, roomName);
 
-  at.addGrant({
-    room: roomName,
-    roomAdmin: true,
-  });
-
-  const adminToken = await at.toJwt();
-
-  const res = await fetch(`${env.LIVEKIT_URL}/twirp/livekit.RoomService/MutePublishedTrack`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${adminToken}`,
-    },
-    body: JSON.stringify({
-      room: roomName,
-      identity,
-      muted,
-      // trackSid optional; if omitted, LiveKit mutes matching published track.
-      // Some deployments require trackSid; if so, we can fetch participant info first.
-    }),
-  });
+  const res = await fetch(
+    `${env.LIVEKIT_URL}/twirp/livekit.RoomService/MutePublishedTrack`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${adminJwt}`,
+      },
+      body: JSON.stringify({
+        room: roomName,
+        identity,
+        muted,
+      }),
+    }
+  );
 
   if (!res.ok) {
     const txt = await res.text();
-    throw new Error(`LiveKit MutePublishedTrack failed ${res.status}: ${txt}`);
+    throw new Error(`MutePublishedTrack failed ${res.status}: ${txt}`);
   }
 
   return res.json();
@@ -76,6 +82,7 @@ async function lkMuteTrack(env, roomName, identity, muted) {
 
 export default {
   async fetch(request, env) {
+    // Basic env validation
     if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
       return new Response(JSON.stringify({ error: "Worker missing LiveKit env vars" }), {
         status: 500,
@@ -83,11 +90,10 @@ export default {
       });
     }
 
-    // -------- TOKEN ISSUER (same endpoint) --------
-    // POST with { leagueId, userId, role }
-    // role: "host" | "listener"
-    // Enforcement: listeners get canPublish=false always.
-    if (request.method === "POST" && new URL(request.url).pathname === "/") {
+    const url = new URL(request.url);
+
+    // ---- ROUTE: POST /  -> issue token ----
+    if (url.pathname === "/" && request.method === "POST") {
       let body;
       try {
         body = await request.json();
@@ -100,7 +106,7 @@ export default {
 
       const leagueId = (body.leagueId || "").toString().trim();
       const userId = (body.userId || "").toString().trim();
-      const role = (body.role || "listener").toString().trim();
+      const role = (body.role || "listener").toString().trim(); // "host" | "listener"
 
       if (!leagueId || !userId) {
         return new Response(JSON.stringify({ error: "leagueId and userId required" }), {
@@ -116,35 +122,26 @@ export default {
         ttl: "2h",
       });
 
+      // Strong enforcement tokens:
+      // - host token can publish
+      // - listener token cannot publish, until host calls /admin approve
       at.addGrant({
         room: roomName,
         roomJoin: true,
         canSubscribe: true,
         canPublishData: true,
-
-        // Strong enforcement:
-        // - host token can publish
-        // - listener token cannot publish (approval is done by server API UpdateParticipant)
         canPublish: role === "host",
       });
 
       const token = await at.toJwt();
 
-      return new Response(
-        JSON.stringify({
-          token,
-          url: env.LIVEKIT_URL,
-          roomName,
-          role,
-        }),
-        { headers: { "content-type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ token, url: env.LIVEKIT_URL, roomName, role }), {
+        headers: { "content-type": "application/json" },
+      });
     }
 
-    // -------- ADMIN ACTIONS --------
-    // POST /admin with { leagueId, hostId, action, targetUserId, muted? }
-    // action: "approve" | "revoke" | "mute" | "unmute"
-    if (request.method === "POST" && new URL(request.url).pathname === "/admin") {
+    // ---- ROUTE: POST /admin  -> update participant permissions ----
+    if (url.pathname === "/admin" && request.method === "POST") {
       let body;
       try {
         body = await request.json();
@@ -156,32 +153,24 @@ export default {
       }
 
       const leagueId = (body.leagueId || "").toString().trim();
-      const hostId = (body.hostId || "").toString().trim();
-      const action = (body.action || "").toString().trim();
+      const action = (body.action || "").toString().trim(); // approve|revoke|mute|unmute
       const targetUserId = (body.targetUserId || "").toString().trim();
 
-      if (!leagueId || !hostId || !action || !targetUserId) {
-        return new Response(JSON.stringify({ error: "leagueId, hostId, action, targetUserId required" }), {
+      if (!leagueId || !action || !targetUserId) {
+        return new Response(JSON.stringify({ error: "leagueId, action, targetUserId required" }), {
           status: 400,
           headers: { "content-type": "application/json" },
         });
       }
 
-      // NOTE: This worker does not verify hostId against Firestore.
-      // For real security, add Firebase Admin verification OR signed host JWT.
-      // MVP assumes clients are honest. (Still stronger than app-only because LiveKit blocks publish)
-
       const roomName = `league_${leagueId}`;
 
       try {
         if (action === "approve") {
-          const out = await lkUpdateParticipant(env, roomName, targetUserId, {
+          const out = await updateParticipant(env, roomName, targetUserId, {
             canPublish: true,
             canSubscribe: true,
             canPublishData: true,
-            // LiveKit supports granular sources in newer versions.
-            // If your server supports it:
-            // canPublishSources: ["microphone"]
           });
           return new Response(JSON.stringify({ ok: true, action, out }), {
             headers: { "content-type": "application/json" },
@@ -189,7 +178,7 @@ export default {
         }
 
         if (action === "revoke") {
-          const out = await lkUpdateParticipant(env, roomName, targetUserId, {
+          const out = await updateParticipant(env, roomName, targetUserId, {
             canPublish: false,
             canSubscribe: true,
             canPublishData: true,
@@ -200,14 +189,14 @@ export default {
         }
 
         if (action === "mute") {
-          const out = await lkMuteTrack(env, roomName, targetUserId, true);
+          const out = await mutePublishedTrack(env, roomName, targetUserId, true);
           return new Response(JSON.stringify({ ok: true, action, out }), {
             headers: { "content-type": "application/json" },
           });
         }
 
         if (action === "unmute") {
-          const out = await lkMuteTrack(env, roomName, targetUserId, false);
+          const out = await mutePublishedTrack(env, roomName, targetUserId, false);
           return new Response(JSON.stringify({ ok: true, action, out }), {
             headers: { "content-type": "application/json" },
           });
@@ -225,7 +214,8 @@ export default {
       }
     }
 
+    // Anything else
     return new Response("Not found", { status: 404 });
   },
 };
-// Redeploy: Sat Jan 24 11:45:19 WAT 2026
+// Redeploy: Sat Jan 24 14:10:27 WAT 2026
