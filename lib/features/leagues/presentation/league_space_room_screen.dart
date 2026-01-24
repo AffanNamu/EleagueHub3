@@ -148,6 +148,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       // Enforce mic policy in app:
       // - if removed as speaker => force mic off
       // - if muted by host => force mic off
+      // - if approved & not muted => auto-enable mic (if connected)
       if (_connected && _room != null) {
         if (!approved || muted) {
           if (_micEnabled) {
@@ -156,7 +157,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             setState(() => _micEnabled = false);
           }
         } else {
-          // approved & not muted -> auto-enable mic if connected
+          // approved & not muted -> auto-enable mic
           if (!_micEnabled) {
             await _room!.localParticipant?.setMicrophoneEnabled(true);
             if (!mounted) return;
@@ -258,13 +259,15 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       // Mic policy on join:
       // - Host: mic ON
-      // - Everyone else: mic OFF (even if approved) until they explicitly enable
+      // - Everyone else: mic OFF until speaker-approved
       if (_isHost) {
         await room.localParticipant?.setMicrophoneEnabled(true);
         _micEnabled = true;
       } else {
-        await room.localParticipant?.setMicrophoneEnabled(false);
-        _micEnabled = false;
+        // If already approved & not muted, enable mic; else keep off
+        final shouldEnable = _isSpeakerApproved && !_speakerMutedByHost;
+        await room.localParticipant?.setMicrophoneEnabled(shouldEnable);
+        _micEnabled = shouldEnable;
       }
 
       if (!mounted) return;
@@ -624,10 +627,15 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                   const Text('Requests', style: TextStyle(color: Colors.white70, fontSize: 12)),
                   const SizedBox(height: 6),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: _requestsCol
-                        .where('status', isEqualTo: 'pending')
-                        .snapshots(),
+                    // NOTE: no orderBy => no composite index needed
+                    stream: _requestsCol.where('status', isEqualTo: 'pending').snapshots(),
                     builder: (context, snap) {
+                      if (snap.hasError) {
+                        return Text(
+                          'Requests error: ${snap.error}',
+                          style: const TextStyle(color: Colors.redAccent),
+                        );
+                      }
                       if (!snap.hasData) return const SizedBox.shrink();
                       final docs = snap.data!.docs;
                       if (docs.isEmpty) {
@@ -686,6 +694,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: _speakersCol.orderBy('approvedAtMs', descending: false).snapshots(),
                     builder: (context, snap) {
+                      if (snap.hasError) {
+                        return Text(
+                          'Speakers error: ${snap.error}',
+                          style: const TextStyle(color: Colors.redAccent),
+                        );
+                      }
                       if (!snap.hasData) return const SizedBox.shrink();
                       final docs = snap.data!.docs;
                       if (docs.isEmpty) {
