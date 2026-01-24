@@ -623,7 +623,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: _requestsCol
                         .where('status', isEqualTo: 'pending')
-                        .orderBy('createdAtMs', descending: false)
                         .snapshots(),
                     builder: (context, snap) {
                       if (!snap.hasData) return const SizedBox.shrink();
