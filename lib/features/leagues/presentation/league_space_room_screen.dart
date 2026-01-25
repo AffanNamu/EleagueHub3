@@ -145,15 +145,15 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _speakerMutedByHost = muted;
       });
 
-      // ✅ SAFE FLOW: Enforce mic policy in app:
+      // ✅ FIXED: Added ?. for null safety
       if (_connected && _room != null) {
         if (!approved || muted) {
           if (_micEnabled) {
-            await _room!.localParticipant.setMicrophoneEnabled(false);
+            await _room!.localParticipant?.setMicrophoneEnabled(false);
             if (mounted) setState(() => _micEnabled = false);
           }
         } else {
-          // approved & not muted -> auto-enable mic (if connected) with safe flow
+          // approved & not muted -> auto-enable mic
           if (!_micEnabled) {
             try {
               // 1️⃣ Update LiveKit server permissions FIRST
@@ -166,7 +166,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               await Future.delayed(const Duration(milliseconds: 300));
 
               // 3️⃣ Enable mic safely
-              await _room!.localParticipant.setMicrophoneEnabled(true);
+              await _room!.localParticipant?.setMicrophoneEnabled(true);
 
               if (mounted) {
                 setState(() => _micEnabled = true);
@@ -269,20 +269,17 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         token.token,
       );
 
-      // Mic policy on join:
-      // - Host: mic ON
-      // - Everyone else: mic OFF until speaker-approved
+      // ✅ FIXED: Added ?. for null safety
       if (_isHost) {
-        await room.localParticipant.setMicrophoneEnabled(true);
+        await room.localParticipant?.setMicrophoneEnabled(true);
         _micEnabled = true;
       } else {
-        // ✅ SAFE FLOW for reconnecting/joining while already approved
         final shouldEnable = _isSpeakerApproved && !_speakerMutedByHost;
         if (shouldEnable) {
           try {
             await LiveKitService.approveSpeaker(leagueId: widget.leagueId, targetUserId: _uid);
             await Future.delayed(const Duration(milliseconds: 300));
-            await room.localParticipant.setMicrophoneEnabled(true);
+            await room.localParticipant?.setMicrophoneEnabled(true);
             _micEnabled = true;
           } catch (_) {
              _micEnabled = false;
@@ -344,7 +341,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
 
     final next = !_micEnabled;
-    await _room!.localParticipant.setMicrophoneEnabled(next);
+    // ✅ FIXED: Added ?. for null safety
+    await _room!.localParticipant?.setMicrophoneEnabled(next);
     if (!mounted) return;
     setState(() => _micEnabled = next);
   }
