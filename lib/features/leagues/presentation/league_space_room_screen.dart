@@ -42,6 +42,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _connected = false;
   bool _micEnabled = false;
 
+  // New: pending flag to enable mic when server permissions arrive
+  bool _pendingEnableMic = false;
+
   // ---- Spaces (requests/speakers) state ----
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _mySpeakerSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _myRequestSub;
@@ -156,81 +159,57 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         } else if (approved && !wasApproved) {
           // User was just approved!
           _toast('Syncing speaker permissions...');
-          
-          // 1️⃣ First, ensure we have server-side approval
+
+          // Set pending flag so we will enable mic when LiveKit server grants canPublish
+          _pendingEnableMic = true;
+
+          // Best-effort request to ensure server-side grant exists (may be a no-op for participants)
           try {
             await LiveKitService.approveSpeaker(
               leagueId: widget.leagueId,
               targetUserId: _uid,
             );
           } catch (e) {
-            _toast('Approval failed: $e');
+            // ignore — approval is a server/host action, but we attempt best-effort
+            print('approveSpeaker best-effort error: $e');
           }
 
-          // 2️⃣ Wait for permission propagation with better error handling
-          bool canPublish = false;
-          int retryCount = 0;
-          const maxRetries = 12; // 6 seconds total
-          
-          while (!canPublish && retryCount < maxRetries && mounted) {
-            await Future.delayed(const Duration(milliseconds: 500));
-            
-            try {
-              // Check if we can publish now
-              if (_room?.localParticipant?.permissions?.canPublish == true) {
-                canPublish = true;
-                break;
-              }
-            } catch (e) {
-              print('Permission check error: $e');
-            }
-            
-            retryCount++;
-          }
-
-          // 3️⃣ Only try to enable mic if we have permissions AND app permission
-          if (canPublish && mounted) {
-            final micStatus = await Permission.microphone.status;
-            if (micStatus.isGranted) {
-              try {
-                // IMPORTANT: Use try-catch for TrackPublishException
-                await _room!.localParticipant!.setMicrophoneEnabled(true);
-
-                // Short delay to allow the SDK to process
-                await Future.delayed(const Duration(milliseconds: 300));
-
-                // livekit_client version used doesn't expose audioTracks; assume success if no exception
-                if (mounted) {
+          // Attempt immediate enable only if permission already present
+          try {
+            if (_room?.localParticipant?.permissions?.canPublish == true) {
+              final micStatus = await Permission.microphone.status;
+              if (micStatus.isGranted) {
+                try {
+                  await _room!.localParticipant!.setMicrophoneEnabled(true);
+                  if (mounted) {
+                    setState(() => _micEnabled = true);
+                    _pendingEnableMic = false;
+                    _toast('Mic enabled!');
+                  }
+                } catch (publishError) {
+                  // Will rely on ParticipantPermissionsUpdatedEvent to enable when ready
+                  print('Immediate publish error (will wait for permission update): $publishError');
+                }
+              } else {
+                // request if not granted
+                final newStatus = await Permission.microphone.request();
+                if (newStatus.isGranted && mounted) {
                   setState(() {
                     _micEnabled = true;
                   });
-                  _toast('Mic enabled successfully!');
-                }
-              } catch (e) {
-                // Track publish error or similar
-                print('Track publish error: $e');
-                _toast('Setting up mic... Please use mic button if needed.');
-                if (mounted) {
-                  setState(() {
-                    _micEnabled = false;
-                  });
+                  _toast('Mic permission granted!');
+                  _pendingEnableMic = false;
+                } else {
+                  _toast('Mic permission required.');
+                  openAppSettings();
                 }
               }
             } else {
-              // Request permission if not granted
-              final newStatus = await Permission.microphone.request();
-              if (newStatus.isGranted && mounted) {
-                setState(() {
-                  _micEnabled = true;
-                });
-                _toast('Mic permission granted!');
-              } else {
-                _toast('Mic permission required.');
-                openAppSettings();
-              }
+              // server permission not yet ready — we'll enable on permission event
+              _toast('Waiting for server permission to enable mic...');
             }
-          } else if (!canPublish) {
-            _toast('Waiting for server permissions...');
+          } catch (e) {
+            print('Error while trying immediate mic enable: $e');
           }
         }
       }
@@ -314,18 +293,44 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       _listener = room.createListener();
 
+      // Important: when permissions change, enable mic if we were waiting
+      _listener!.on<ParticipantPermissionsUpdatedEvent>((event) async {
+         if (event.participant == room.localParticipant) {
+           print('Permissions updated: canPublish=${event.permissions.canPublish}');
+           if (event.permissions.canPublish == true && _pendingEnableMic && !_micEnabled) {
+             // Attempt to enable microphone now that server allows publishing
+             final micStatus = await Permission.microphone.status;
+             if (!micStatus.isGranted) {
+               final newStatus = await Permission.microphone.request();
+               if (!newStatus.isGranted) {
+                 _toast('Mic permission denied.');
+                 _pendingEnableMic = false;
+                 return;
+               }
+             }
+             try {
+               await room.localParticipant!.setMicrophoneEnabled(true);
+               if (mounted) {
+                 setState(() {
+                   _micEnabled = true;
+                 });
+               }
+               _toast('Mic enabled');
+             } catch (e) {
+               print('Error enabling mic after permission update: $e');
+               _toast('Failed to enable mic automatically. Please toggle mic.');
+             } finally {
+               _pendingEnableMic = false;
+             }
+           }
+         }
+      });
+
       _listener!.on<RoomConnectedEvent>((event) {
         if (!mounted) return;
         setState(() {
           _connected = true;
         });
-      });
-      
-      _listener!.on<ParticipantPermissionsUpdatedEvent>((event) {
-         // This helps us know when we can actually publish
-         if (event.participant == room.localParticipant) {
-           print('Permissions updated: canPublish=${event.permissions.canPublish}');
-         }
       });
 
       _listener!.on<RoomDisconnectedEvent>((event) {
@@ -341,45 +346,46 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         token.token,
       );
 
+      // IMPORTANT: assign room to state immediately after connection so other code sees it
+      if (!mounted) return;
+      setState(() {
+        _room = room;
+        _connected = true;
+      });
+
       // Mic policy on join:
       if (_isHost) {
-        await room.localParticipant?.setMicrophoneEnabled(true);
-        _micEnabled = true;
+        try {
+          await _room?.localParticipant?.setMicrophoneEnabled(true);
+          if (mounted) setState(() => _micEnabled = true);
+        } catch (e) {
+          print('Host mic enable error: $e');
+        }
       } else {
         final shouldEnable = _isSpeakerApproved && !_speakerMutedByHost;
         if (shouldEnable) {
+          // We are allowed by Firestore to be a speaker — request server permission best-effort
+          _pendingEnableMic = true;
           try {
-            // Get permissions first
+            // best-effort: ask server to approve publishing; server/host will ultimately grant permission
             await LiveKitService.approveSpeaker(leagueId: widget.leagueId, targetUserId: _uid);
-            
-            // Wait for permissions with timeout
-            bool canPublish = false;
-            for (int i = 0; i < 10; i++) {
-              if (room.localParticipant?.permissions?.canPublish == true) {
-                canPublish = true;
-                break;
-              }
-              await Future.delayed(const Duration(milliseconds: 500));
-            }
-            
-            // Only enable if we have permissions AND device permission
-            if (canPublish && await Permission.microphone.isGranted) {
-              try {
-                await room.localParticipant!.setMicrophoneEnabled(true);
-                // Short delay to allow the SDK to process
-                await Future.delayed(const Duration(milliseconds: 300));
-                // Assume success if no exception was thrown
-                _micEnabled = true;
-              } catch (e) {
-                print('Failed to enable mic on connect: $e');
-                _micEnabled = false;
-              }
+          } catch (e) {
+            print('approveSpeaker best-effort on connect failed: $e');
+          }
+
+          // If server permission already present, try immediate enable
+          try {
+            if (_room?.localParticipant?.permissions?.canPublish == true) {
+              await _room!.localParticipant!.setMicrophoneEnabled(true);
+              if (mounted) setState(() => _micEnabled = true);
+              _pendingEnableMic = false;
             } else {
-              _micEnabled = false;
+              // wait for ParticipantPermissionsUpdatedEvent (will handle enabling)
+              _toast('Waiting for server permission to enable mic...');
             }
           } catch (e) {
-            print('Approval failed on connect: $e');
-            _micEnabled = false;
+            print('Immediate mic enable on connect failed: $e');
+            // will wait for permission update event
           }
         } else {
           _micEnabled = false;
@@ -388,8 +394,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       if (!mounted) return;
       setState(() {
-        _room = room;
-        _connected = true;
         _joiningAudio = false;
       });
 
@@ -413,6 +417,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     _room = null;
     _connected = false;
     _micEnabled = false;
+    _pendingEnableMic = false;
   }
 
   bool get _canToggleMic {
@@ -438,7 +443,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
 
     final next = !_micEnabled;
-    
+
     // For enabling mic
     if (next) {
       // Check permissions
@@ -450,44 +455,32 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           return;
         }
       }
-      
-      // Check LiveKit permissions
+
+      // If server permission absent, request and wait for ParticipantPermissionsUpdatedEvent to enable
       if (_room!.localParticipant?.permissions?.canPublish == false && !_isHost) {
-        // Try to get permissions
+        _pendingEnableMic = true;
+        // best-effort: ask server/worker to grant publish permission
         try {
           await LiveKitService.approveSpeaker(
             leagueId: widget.leagueId,
             targetUserId: _uid,
           );
-          await Future.delayed(const Duration(seconds: 1));
         } catch (e) {
-          _toast('Getting mic permissions...');
+          print('approveSpeaker request failed in toggleMic: $e');
         }
+        _toast('Waiting for server permission to publish...');
+        return;
       }
-      
-      // Try to enable with retry logic
-      bool success = false;
-      int attempts = 0;
-      
-      while (!success && attempts < 3 && mounted) {
-        try {
-          await _room!.localParticipant!.setMicrophoneEnabled(true);
-          await Future.delayed(const Duration(milliseconds: 300));
-          
-          // We can't query audioTracks on this client version; treat a successful call as success.
-          success = true;
-          if (mounted) {
-            setState(() => _micEnabled = true);
-          }
-          _toast('Mic ON');
-        } catch (e) {
-          attempts++;
-          if (attempts < 3) {
-            await Future.delayed(const Duration(milliseconds: 500));
-            continue;
-          }
-          _toast('Failed to enable mic: $e');
-        }
+
+      // If we already have server publish permission, enable immediately
+      try {
+        await _room!.localParticipant!.setMicrophoneEnabled(true);
+        if (!mounted) return;
+        setState(() => _micEnabled = true);
+        _toast('Mic ON');
+      } catch (e) {
+        _toast('Failed to enable mic: $e');
+        // rely on ParticipantPermissionsUpdatedEvent or manual retry after server permission arrives
       }
     } else {
       // For disabling mic
