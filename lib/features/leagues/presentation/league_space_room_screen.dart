@@ -145,7 +145,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _speakerMutedByHost = muted;
       });
 
-      // ✅ SAFE FLOW: Enforce mic policy in app
+      // ✅ SAFE FLOW: Enforce mic policy in app:
       if (_connected && _room != null) {
         if (!approved || muted) {
           if (_micEnabled) {
@@ -153,7 +153,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             if (mounted) setState(() => _micEnabled = false);
           }
         } else {
-          // approved & not muted -> auto-enable mic with server sync
+          // approved & not muted -> auto-enable mic (if connected) with safe flow
           if (!_micEnabled) {
             try {
               // 1️⃣ Update LiveKit server permissions FIRST
@@ -269,11 +269,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         token.token,
       );
 
-      // ✅ SAFE FLOW Mic policy on join:
+      // Mic policy on join:
+      // - Host: mic ON
+      // - Everyone else: mic OFF until speaker-approved
       if (_isHost) {
         await room.localParticipant.setMicrophoneEnabled(true);
         _micEnabled = true;
       } else {
+        // ✅ SAFE FLOW for reconnecting/joining while already approved
         final shouldEnable = _isSpeakerApproved && !_speakerMutedByHost;
         if (shouldEnable) {
           try {
