@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/sync_trigger.dart';
@@ -162,15 +163,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               targetUserId: _uid,
             );
 
-            // 2️⃣ Wait for permission propagation (Extended to 800ms)
+            // 2️⃣ Wait for permission propagation
             await Future.delayed(const Duration(milliseconds: 800));
 
-            // 3️⃣ Enable mic hardware safely
-            await _room?.localParticipant?.setMicrophoneEnabled(true);
-
-            if (mounted) {
-              setState(() => _micEnabled = true);
-              _toast('Mic enabled!');
+            // 3️⃣ Enable mic hardware safely with PERMISSION CHECK
+            var status = await Permission.microphone.request();
+            if (status.isGranted) {
+              await _room?.localParticipant?.setMicrophoneEnabled(true);
+              if (mounted) {
+                setState(() => _micEnabled = true);
+                _toast('Mic enabled!');
+              }
+            } else {
+              _toast('Mic permission denied. Please enable in settings.');
+              openAppSettings();
             }
           } catch (e) {
             _toast('Mic sync failed: $e');
@@ -225,6 +231,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       return;
     }
 
+    // 🔴 CRITICAL: Request microphone permission before connection logic
+    // This ensures Android doesn't block the audio track creation
+    var status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      _toast('Microphone permission is required to join audio.');
+      return;
+    }
+
     setState(() {
       _joiningAudio = true;
       _error = '';
@@ -243,6 +257,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           dynacast: true,
           defaultAudioPublishOptions: AudioPublishOptions(
             dtx: true,
+            audioBitrate: 32000,
           ),
         ),
       );
@@ -279,8 +294,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           try {
             await LiveKitService.approveSpeaker(leagueId: widget.leagueId, targetUserId: _uid);
             await Future.delayed(const Duration(milliseconds: 500));
-            await room.localParticipant?.setMicrophoneEnabled(true);
-            _micEnabled = true;
+            // Check permission again just in case
+            if (await Permission.microphone.isGranted) {
+               await room.localParticipant?.setMicrophoneEnabled(true);
+               _micEnabled = true;
+            }
           } catch (_) {
              _micEnabled = false;
           }
@@ -341,9 +359,26 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
 
     final next = !_micEnabled;
-    await _room?.localParticipant?.setMicrophoneEnabled(next);
-    if (!mounted) return;
-    setState(() => _micEnabled = next);
+    
+    // Explicit permission check on toggle
+    if (next) {
+      var status = await Permission.microphone.status;
+      if (!status.isGranted) {
+        status = await Permission.microphone.request();
+        if (!status.isGranted) {
+           _toast('Mic permission denied.');
+           return;
+        }
+      }
+    }
+
+    try {
+      await _room?.localParticipant?.setMicrophoneEnabled(next);
+      if (!mounted) return;
+      setState(() => _micEnabled = next);
+    } catch (e) {
+      _toast('Failed to toggle mic: $e');
+    }
   }
 
   Future<void> _requestToSpeak() async {
@@ -777,67 +812,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
         ],
-
-        const Text('Reactions', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _reactions.map((e) {
-            return InkWell(
-              onTap: () async {
-                try {
-                  await _sendReaction(e);
-                } catch (err) {
-                  _toast('Reaction failed: $err');
-                }
-              },
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white10),
-                ),
-                child: Text(e, style: const TextStyle(fontSize: 18)),
-              ),
-            );
-          }).toList(),
-        ),
-
-        const SizedBox(height: 12),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _reactionsCol.orderBy('atMs', descending: true).limit(30).snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) return const SizedBox.shrink();
-              final docs = snap.data!.docs;
-              if (docs.isEmpty) {
-                return const Center(
-                  child: Text('No reactions yet.', style: TextStyle(color: Colors.white38)),
-                );
-              }
-              return ListView.separated(
-                itemCount: docs.length,
-                separatorBuilder: (_, __) => const Divider(color: Colors.white10),
-                itemBuilder: (context, i) {
-                  final d = docs[i].data();
-                  final emoji = (d['emoji'] ?? '').toString();
-                  final userId = (d['userId'] ?? '').toString();
-                  return ListTile(
-                    dense: true,
-                    title: Text(emoji, style: const TextStyle(fontSize: 22)),
-                    subtitle: Text(userId, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                  );
-                },
-              );
-            },
-          ),
-        ),
       ],
     );
   }
