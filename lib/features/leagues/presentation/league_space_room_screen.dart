@@ -195,29 +195,21 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               try {
                 // IMPORTANT: Use try-catch for TrackPublishException
                 await _room!.localParticipant!.setMicrophoneEnabled(true);
-                
-                // Double-check the track was actually created
+
+                // Short delay to allow the SDK to process
                 await Future.delayed(const Duration(milliseconds: 300));
-                
-                // Verify track exists
-                final audioTracks = _room!.localParticipant!.audioTracks;
-                final audioTrack = (audioTracks != null && audioTracks.isNotEmpty) ? audioTracks.first : null;
-                if (audioTrack != null) {
-                  if (mounted) {
-                    setState(() {
-                      _micEnabled = true;
-                    });
-                    _toast('Mic enabled successfully!');
-                  }
-                } else {
-                  _toast('Audio track not ready. Please try mic button.');
+
+                // livekit_client version used doesn't expose audioTracks; assume success if no exception
+                if (mounted) {
+                  setState(() {
+                    _micEnabled = true;
+                  });
+                  _toast('Mic enabled successfully!');
                 }
               } catch (e) {
-                // TrackPublishException caught here
-                print('TrackPublishException: $e');
+                // Track publish error or similar
+                print('Track publish error: $e');
                 _toast('Setting up mic... Please use mic button if needed.');
-                
-                // Set a flag to allow manual retry
                 if (mounted) {
                   setState(() {
                     _micEnabled = false;
@@ -374,10 +366,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             if (canPublish && await Permission.microphone.isGranted) {
               try {
                 await room.localParticipant!.setMicrophoneEnabled(true);
-                // Verify it worked
+                // Short delay to allow the SDK to process
                 await Future.delayed(const Duration(milliseconds: 300));
-                final hasTrack = room.localParticipant!.audioTracks.isNotEmpty;
-                _micEnabled = hasTrack;
+                // Assume success if no exception was thrown
+                _micEnabled = true;
               } catch (e) {
                 print('Failed to enable mic on connect: $e');
                 _micEnabled = false;
@@ -482,15 +474,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           await _room!.localParticipant!.setMicrophoneEnabled(true);
           await Future.delayed(const Duration(milliseconds: 300));
           
-          // Verify track exists
-          final hasAudio = _room!.localParticipant!.audioTracks.isNotEmpty;
-          if (hasAudio) {
-            success = true;
-            if (mounted) {
-              setState(() => _micEnabled = true);
-            }
-            _toast('Mic ON');
+          // We can't query audioTracks on this client version; treat a successful call as success.
+          success = true;
+          if (mounted) {
+            setState(() => _micEnabled = true);
           }
+          _toast('Mic ON');
         } catch (e) {
           attempts++;
           if (attempts < 3) {
