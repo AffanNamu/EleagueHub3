@@ -52,7 +52,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   static const _reactions = <String>[
     '👍','😂','🎉','👏','🙏','💯','❤️','💪','👎','👌','🤸','⚽','🏁',
-    '🇺🇸','🇬🇧','🇳🇬','🇫🇷','🇩🇪','🇪🇸','🇮🇹','🇧🇷','🇦🇷','🇵🇹','🇲🇽','🇨🇦','🇿🇦','🇯🇵','🇰🇷','🇨🇳','🇮🇳'
+    '🇺🇸','🇬🇧','🇳🇬','🇫🇷','🇩🇪','🇪����','🇮🇹','🇧🇷','🇦🇷','🇵🇹','🇲🇽','🇨🇦','🇿🇦','🇯🇵','🇰🇷','🇨🇳','🇮🇳'
   ];
 
   DocumentReference<Map<String, dynamic>> get _spaceDoc =>
@@ -156,47 +156,89 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         } else if (approved && !wasApproved) {
           // User was just approved!
           _toast('Syncing speaker permissions...');
+          
+          // 1️⃣ First, ensure we have server-side approval
           try {
-            // 1️⃣ Update LiveKit server permissions via Cloudflare Worker
             await LiveKitService.approveSpeaker(
               leagueId: widget.leagueId,
               targetUserId: _uid,
             );
+          } catch (e) {
+            _toast('Approval failed: $e');
+          }
 
-            // 2️⃣ Wait for permission propagation (Smart Poll)
-            bool canPublish = false;
-            for (int i = 0; i < 10; i++) { // Try for 5 seconds
+          // 2️⃣ Wait for permission propagation with better error handling
+          bool canPublish = false;
+          int retryCount = 0;
+          const maxRetries = 12; // 6 seconds total
+          
+          while (!canPublish && retryCount < maxRetries && mounted) {
+            await Future.delayed(const Duration(milliseconds: 500));
+            
+            try {
+              // Check if we can publish now
               if (_room?.localParticipant?.permissions?.canPublish == true) {
                 canPublish = true;
                 break;
               }
-              await Future.delayed(const Duration(milliseconds: 500));
+            } catch (e) {
+              print('Permission check error: $e');
             }
             
-            if (!canPublish) {
-              _toast('Server permission pending... retrying mic.');
-            }
+            retryCount++;
+          }
 
-            // 3️⃣ Enable mic hardware safely with PERMISSION CHECK
-            var status = await Permission.microphone.request();
-            if (status.isGranted) {
-               try {
-                  await _room?.localParticipant?.setMicrophoneEnabled(true);
+          // 3️⃣ Only try to enable mic if we have permissions AND app permission
+          if (canPublish && mounted) {
+            final micStatus = await Permission.microphone.status;
+            if (micStatus.isGranted) {
+              try {
+                // IMPORTANT: Use try-catch for TrackPublishException
+                await _room!.localParticipant!.setMicrophoneEnabled(true);
+                
+                // Double-check the track was actually created
+                await Future.delayed(const Duration(milliseconds: 300));
+                
+                // Verify track exists
+                final audioTracks = _room!.localParticipant!.audioTracks;
+                final audioTrack = (audioTracks != null && audioTracks.isNotEmpty) ? audioTracks.first : null;
+                if (audioTrack != null) {
                   if (mounted) {
-                    setState(() => _micEnabled = true);
-                    _toast('Mic enabled!');
+                    setState(() {
+                      _micEnabled = true;
+                    });
+                    _toast('Mic enabled successfully!');
                   }
-               } catch (publishError) {
-                  // Catch TrackPublishException explicitly
-                  _toast('Mic not ready yet. Please toggle mic button.');
-                  print('Publish error: $publishError');
-               }
+                } else {
+                  _toast('Audio track not ready. Please try mic button.');
+                }
+              } catch (e) {
+                // TrackPublishException caught here
+                print('TrackPublishException: $e');
+                _toast('Setting up mic... Please use mic button if needed.');
+                
+                // Set a flag to allow manual retry
+                if (mounted) {
+                  setState(() {
+                    _micEnabled = false;
+                  });
+                }
+              }
             } else {
-              _toast('Mic permission denied. Please enable in settings.');
-              openAppSettings();
+              // Request permission if not granted
+              final newStatus = await Permission.microphone.request();
+              if (newStatus.isGranted && mounted) {
+                setState(() {
+                  _micEnabled = true;
+                });
+                _toast('Mic permission granted!');
+              } else {
+                _toast('Mic permission required.');
+                openAppSettings();
+              }
             }
-          } catch (e) {
-            _toast('Mic sync failed: $e');
+          } else if (!canPublish) {
+            _toast('Waiting for server permissions...');
           }
         }
       }
