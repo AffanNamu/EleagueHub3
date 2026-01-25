@@ -163,17 +163,34 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               targetUserId: _uid,
             );
 
-            // 2️⃣ Wait for permission propagation
-            await Future.delayed(const Duration(milliseconds: 800));
+            // 2️⃣ Wait for permission propagation (Smart Poll)
+            bool canPublish = false;
+            for (int i = 0; i < 10; i++) { // Try for 5 seconds
+              if (_room?.localParticipant?.permissions?.canPublish == true) {
+                canPublish = true;
+                break;
+              }
+              await Future.delayed(const Duration(milliseconds: 500));
+            }
+            
+            if (!canPublish) {
+              _toast('Server permission pending... retrying mic.');
+            }
 
             // 3️⃣ Enable mic hardware safely with PERMISSION CHECK
             var status = await Permission.microphone.request();
             if (status.isGranted) {
-              await _room?.localParticipant?.setMicrophoneEnabled(true);
-              if (mounted) {
-                setState(() => _micEnabled = true);
-                _toast('Mic enabled!');
-              }
+               try {
+                  await _room?.localParticipant?.setMicrophoneEnabled(true);
+                  if (mounted) {
+                    setState(() => _micEnabled = true);
+                    _toast('Mic enabled!');
+                  }
+               } catch (publishError) {
+                  // Catch TrackPublishException explicitly
+                  _toast('Mic not ready yet. Please toggle mic button.');
+                  print('Publish error: $publishError');
+               }
             } else {
               _toast('Mic permission denied. Please enable in settings.');
               openAppSettings();
@@ -232,7 +249,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
 
     // 🔴 CRITICAL: Request microphone permission before connection logic
-    // This ensures Android doesn't block the audio track creation
     var status = await Permission.microphone.request();
     if (!status.isGranted) {
       _toast('Microphone permission is required to join audio.');
@@ -270,6 +286,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _connected = true;
         });
       });
+      
+      _listener!.on<ParticipantPermissionsUpdatedEvent>((event) {
+         // This helps us know when we can actually publish
+         if (event.participant == room.localParticipant) {
+           print('Permissions updated: canPublish=${event.permissions.canPublish}');
+         }
+      });
 
       _listener!.on<RoomDisconnectedEvent>((event) {
         if (!mounted) return;
@@ -293,8 +316,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         if (shouldEnable) {
           try {
             await LiveKitService.approveSpeaker(leagueId: widget.leagueId, targetUserId: _uid);
-            await Future.delayed(const Duration(milliseconds: 500));
-            // Check permission again just in case
+            
+            // Wait loop for permission
+            for (int i=0; i<6; i++) {
+              if (room.localParticipant?.permissions?.canPublish == true) break;
+              await Future.delayed(const Duration(milliseconds: 500));
+            }
+            
             if (await Permission.microphone.isGranted) {
                await room.localParticipant?.setMicrophoneEnabled(true);
                _micEnabled = true;
@@ -370,6 +398,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
            return;
         }
       }
+      
+      // Check server permissions before trying to publish
+      if (_room?.localParticipant?.permissions?.canPublish == false) {
+         _toast('Waiting for server permission...');
+         await LiveKitService.approveSpeaker(leagueId: widget.leagueId, targetUserId: _uid);
+         await Future.delayed(const Duration(milliseconds: 1000));
+      }
     }
 
     try {
@@ -378,6 +413,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       setState(() => _micEnabled = next);
     } catch (e) {
       _toast('Failed to toggle mic: $e');
+      // If we failed with TrackPublishException, permissions might still be syncing
     }
   }
 
