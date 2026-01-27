@@ -41,19 +41,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _joiningAudio = false;
   bool _connected = false;
 
-  /// Twitter Spaces behavior:
-  /// - everyone joins connected to audio
-  /// - everyone requests mic permission on join
-  /// - everyone publishes a mic track on join (if permission granted)
-  /// - "listener" == mic muted
-  ///
-  /// This flag represents whether the local already-published mic track is currently unmuted.
+  /// True iff the local mic is currently unmuted (sending).
   bool _micEnabled = false;
 
-  bool _requestedMicPermissionOnJoin = false;
+  /// True iff we have already caused LiveKit to create+publish the mic track once for this join.
+  /// This is the key Twitter-Spaces behavior: approval only unmutes an already-published track.
+  bool _micPrimed = false;
 
-  LocalAudioTrack? _localMicTrack;
-  LocalTrackPublication? _localMicPub;
+  bool _requestedMicPermissionOnJoin = false;
 
   // ---- Spaces (requests/speakers) state ----
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _mySpeakerSub;
@@ -127,7 +122,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final prefs = await PreferencesService.create();
     _uid = prefs.getCurrentUserId() ?? '';
 
-    // Twitter Spaces behavior: request mic permission on join (screen open), not on "become speaker".
+    // Twitter Spaces behavior: request microphone permission on join (screen open).
     _requestMicPermissionOnJoin();
 
     _spaceSub = _spaceDoc.snapshots().listen((snap) async {
@@ -156,7 +151,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         // once we have uid + a space doc, attach speaker/request listeners
         _ensureSpaceRoleListeners();
 
-        // auto-connect like Twitter Spaces: users join the Space already connected to audio
+        // Twitter Spaces: join already connected to audio
         _autoConnectIfNeeded();
 
         // if Space ended while connected, disconnect audio
@@ -206,7 +201,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     if (_uid.isEmpty) return;
     if (_space == null) return;
 
-    // Host is always "speaker-approved" from the UI perspective.
+    // Host is always speaker-approved.
     if (_isHost) {
       if (!_isSpeakerApproved || _speakerMutedByHost) {
         setState(() {
@@ -215,7 +210,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _myRequestStatus = '';
         });
       }
-      // If already connected, make sure host mic state matches.
       _syncMicWithSpaceState();
       return;
     }
@@ -233,11 +227,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _speakerMutedByHost = muted;
       });
 
-      // Twitter Spaces behavior: approval is instant with no reconnect/token refresh/republish.
-      // Speaking is only mute/unmute of an already-published mic track.
+      // Twitter Spaces behavior:
+      // speaker approval is instant and does NOT reconnect/refresh/republish.
+      // It only toggles mute/unmute of the already-published mic track.
       await _syncMicWithSpaceState();
 
-      // Friendly toast on state transitions
       if (wasApproved != approved && approved) _toast('You are now a speaker.');
       if (wasApproved != approved && !approved) _toast('You are now a listener.');
       if (prevMuted != muted && muted) _toast('Host muted you.');
@@ -316,6 +310,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         setState(() {
           _connected = false;
           _micEnabled = false;
+          _micPrimed = false;
         });
       });
 
@@ -328,12 +323,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _connected = true;
       });
 
-      // Twitter Spaces behavior:
-      // - Mic permission is requested on join (already done).
-      // - Everyone publishes mic track on join (if permission granted) and starts muted unless speaker/host.
-      await _publishMicTrackIfPossible();
+      // Prime mic publication ON JOIN (exactly once), then enforce listener vs speaker via mute state.
+      await _primeMicPublicationOnJoin();
 
-      // Enforce listener vs speaker purely by mute/unmute of the already-published track.
+      // Apply current Firestore speaker state.
       await _syncMicWithSpaceState();
 
       if (!mounted) return;
@@ -349,63 +342,60 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
   }
 
-  Future<void> _publishMicTrackIfPossible() async {
+  Future<void> _primeMicPublicationOnJoin() async {
     if (_room == null) return;
-    if (_localMicTrack != null || _localMicPub != null) return;
+    if (_micPrimed) return;
 
     final micStatus = await Permission.microphone.status;
     if (!micStatus.isGranted) {
-      // Still connected to audio (listening), but cannot publish mic track.
-      // This keeps "join audio" behavior intact; user can't speak until they grant permission.
+      // User can still listen; but cannot become a speaker instantly later without republish.
+      // This matches your non-negotiable: approval must only unmute an already-published track.
       return;
     }
 
     try {
-      final track = await LocalAudioTrack.createTrack();
-      final pub = await _room!.localParticipant!.publishTrack(track);
-
-      _localMicTrack = track;
-      _localMicPub = pub;
+      // This call creates + publishes the mic track if it doesn't exist.
+      // After this, further mic changes are mute/unmute only (no republish).
+      await _room!.localParticipant!.setMicrophoneEnabled(true);
+      _micPrimed = true;
+      _micEnabled = true;
     } catch (e) {
-      // If publishing fails here, do not retry on "become speaker" (no republish).
-      // User can still listen; speaking is unavailable.
-      debugPrint('Mic publish failed on join: $e');
+      debugPrint('Mic prime failed on join: $e');
+      _micPrimed = false;
+      _micEnabled = false;
     }
   }
 
   Future<void> _syncMicWithSpaceState() async {
     if (!_connected || _room == null) return;
 
-    // If we couldn't publish a mic track on join, we cannot do Twitter Spaces-style instant unmute later.
-    if (_localMicTrack == null) {
-      if (_isHost || (_isSpeakerApproved && !_speakerMutedByHost)) {
-        _toast('Mic unavailable (permission/publish failed). Rejoin after granting mic permission.');
+    final shouldBeUnmuted =
+        _isHost || (_isSpeakerApproved && !_speakerMutedByHost);
+
+    // If mic wasn't primed at join, we refuse to enable later (that would publish on approval).
+    if (!_micPrimed) {
+      if (shouldBeUnmuted) {
+        _toast('Mic not primed (permission denied). Leave/rejoin after granting mic permission.');
       }
       return;
     }
 
-    final shouldBeUnmuted =
-        _isHost || (_isSpeakerApproved && !_speakerMutedByHost);
-
-    await _setLocalMicMuted(!shouldBeUnmuted);
+    await _setMicEnabled(shouldBeUnmuted);
   }
 
-  Future<void> _setLocalMicMuted(bool muted) async {
-    if (_localMicTrack == null) return;
+  Future<void> _setMicEnabled(bool enabled) async {
+    if (_room == null) return;
+    if (!_micPrimed) return;
 
     try {
-      if (muted) {
-        await _localMicTrack!.mute();
-      } else {
-        await _localMicTrack!.unmute();
-      }
-
+      // With a primed mic track, this is a mute/unmute (no republish).
+      await _room!.localParticipant!.setMicrophoneEnabled(enabled);
       if (!mounted) return;
       setState(() {
-        _micEnabled = !muted;
+        _micEnabled = enabled;
       });
     } catch (e) {
-      debugPrint('Failed to set mic muted=$muted: $e');
+      debugPrint('setMicrophoneEnabled($enabled) failed: $e');
     }
   }
 
@@ -423,23 +413,16 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       } catch (_) {}
     } catch (_) {}
 
-    try {
-      await _localMicTrack?.dispose();
-    } catch (_) {}
-
     _room = null;
     _connected = false;
     _joiningAudio = false;
-
-    _localMicTrack = null;
-    _localMicPub = null;
-
     _micEnabled = false;
+    _micPrimed = false;
   }
 
   bool get _canToggleMic {
     if (_room == null || !_connected) return false;
-    if (_localMicTrack == null) return false;
+    if (!_micPrimed) return false;
     if (_isHost) return true;
     if (!_isSpeakerApproved) return false;
     if (_speakerMutedByHost) return false;
@@ -450,8 +433,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     if (_room == null) return;
 
     if (!_canToggleMic) {
-      if (_localMicTrack == null) {
-        _toast('Mic unavailable (permission/publish failed).');
+      if (!_micPrimed) {
+        _toast('Mic unavailable (permission denied on join). Leave/rejoin after granting mic permission.');
       } else if (_isHost) {
         _toast('Mic unavailable.');
       } else if (_speakerMutedByHost) {
@@ -462,10 +445,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       return;
     }
 
-    // Toggle is purely mute/unmute of already-published track (NO republish).
-    final nextUnmuted = !_micEnabled;
-    await _setLocalMicMuted(!nextUnmuted);
-    _toast(nextUnmuted ? 'Mic ON' : 'Mic OFF');
+    final next = !_micEnabled;
+    await _setMicEnabled(next);
+    _toast(next ? 'Mic ON' : 'Mic OFF');
   }
 
   Future<void> _requestToSpeak() async {
@@ -732,7 +714,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // Listener UI: request-to-speak controls
                 if (!_isHost) ...[
                   Row(
                     children: [
@@ -755,8 +736,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                       ),
                       const SizedBox(width: 10),
                       OutlinedButton(
-                        onPressed:
-                            (_myRequestStatus == 'pending') ? _withdrawRequest : null,
+                        onPressed: (_myRequestStatus == 'pending')
+                            ? _withdrawRequest
+                            : null,
                         child: const Text('Cancel'),
                       ),
                     ],
@@ -774,7 +756,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Host panel: approve/deny + speaker controls
         if (_isHost) ...[
           Glass(
             borderRadius: 16,

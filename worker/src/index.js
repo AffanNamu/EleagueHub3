@@ -1,101 +1,62 @@
 import { AccessToken } from "livekit-server-sdk";
 
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-function toHttpBase(livekitUrl) {
-  // LiveKit client uses ws(s); RoomService APIs require http(s).
-  const u = new URL(livekitUrl);
-  if (u.protocol === "ws:") u.protocol = "http:";
-  if (u.protocol === "wss:") u.protocol = "https:";
-  // Remove trailing slashes.
-  return u.toString().replace(/\/+$/, "");
-}
-
 /**
-Admin JWT for calling LiveKit RoomService APIs.
-*/
+ * Create an admin JWT that can call LiveKit RoomService APIs.
+ * We use roomAdmin: true which is required for MutePublishedTrack.
+ */
 async function makeAdminJwt(env, roomName) {
   const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
     identity: "worker-admin",
     ttl: "5m",
   });
+
   at.addGrant({
     room: roomName,
     roomAdmin: true,
   });
+
   return at.toJwt();
 }
 
-async function twirpPost(env, method, body) {
-  const base = toHttpBase(env.LIVEKIT_URL);
-  const adminJwt = await makeAdminJwt(env, body.room);
-  const res = await fetch(`${base}/twirp/livekit.RoomService/${method}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${adminJwt}`,
-    },
-    body: JSON.stringify(body),
-  });
+/**
+ * Call LiveKit Twirp API: MutePublishedTrack
+ */
+async function mutePublishedTrack(env, roomName, identity, muted) {
+  const adminJwt = await makeAdminJwt(env, roomName);
+
+  const res = await fetch(
+    `${env.LIVEKIT_URL}/twirp/livekit.RoomService/MutePublishedTrack`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${adminJwt}`,
+      },
+      body: JSON.stringify({
+        room: roomName,
+        identity,
+        muted,
+      }),
+    }
+  );
+
   if (!res.ok) {
     const txt = await res.text();
-    throw new Error(`${method} failed ${res.status}: ${txt}`);
+    throw new Error(`MutePublishedTrack failed ${res.status}: ${txt}`);
   }
+
   return res.json();
-}
-
-async function listParticipants(env, roomName) {
-  return twirpPost(env, "ListParticipants", { room: roomName });
-}
-
-function isAudioTrackType(trackInfo) {
-  const t = trackInfo && trackInfo.type;
-  if (t === "AUDIO") return true;
-  if (t === 0) return true; // TrackType.AUDIO
-  if (typeof t === "string" && t.toUpperCase() === "AUDIO") return true;
-  return false;
-}
-
-/**
-Mute/unmute ALL published audio tracks for an identity.
-*/
-async function muteAllPublishedAudioTracks(env, roomName, identity, muted) {
-  const lp = await listParticipants(env, roomName);
-  const participants = Array.isArray(lp && lp.participants) ? lp.participants : [];
-  const p = participants.find((x) => x && x.identity === identity);
-  if (!p) {
-    return { ok: true, room: roomName, identity, muted, tracks: [], note: "participant_not_found" };
-  }
-  const tracks = Array.isArray(p.tracks) ? p.tracks : [];
-  const audioSids = tracks
-    .filter((t) => t && isAudioTrackType(t) && typeof t.sid === "string" && t.sid.length > 0)
-    .map((t) => t.sid);
-  if (audioSids.length === 0) {
-    return { ok: true, room: roomName, identity, muted, tracks: [], note: "no_published_audio_tracks" };
-  }
-  const results = [];
-  for (const sid of audioSids) {
-    const out = await twirpPost(env, "MutePublishedTrack", {
-      room: roomName,
-      identity,
-      trackSid: sid,
-      muted,
-    });
-    results.push({ trackSid: sid, out });
-  }
-  return { ok: true, room: roomName, identity, muted, tracks: audioSids, results };
 }
 
 export default {
   async fetch(request, env) {
     if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
-      return json({ error: "Worker missing LiveKit env vars" }, 500);
+      return new Response(JSON.stringify({ error: "Worker missing LiveKit env vars" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
     }
+
     const url = new URL(request.url);
 
     // ---- ROUTE: POST /  -> issue token ----
@@ -104,46 +65,59 @@ export default {
       try {
         body = await request.json();
       } catch {
-        return json({ error: "Invalid JSON" }, 400);
+        return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       const leagueId = (body.leagueId || "").toString().trim();
       const userId = (body.userId || "").toString().trim();
-      const isHost =
-        typeof body.isHost === "boolean"
-          ? body.isHost
-          : ((body.role || "").toString().trim().toLowerCase() === "host");
+      const role = (body.role || "participant").toString().trim(); // "host" | "participant"
 
       if (!leagueId || !userId) {
-        return json({ error: "leagueId and userId required" }, 400);
+        return new Response(JSON.stringify({ error: "leagueId and userId required" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       const roomName = `league_${leagueId}`;
+
       const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
         identity: userId,
         ttl: "2h",
       });
 
+      // Twitter Spaces-style behavior:
+      // - listener vs speaker is NOT a different token
+      // - everyone can publish audio immediately (client keeps listeners muted)
       at.addGrant({
         room: roomName,
         roomJoin: true,
         canSubscribe: true,
-        canPublish: true,
         canPublishData: true,
-        roomAdmin: isHost,
+        canPublish: true,
+        roomAdmin: role === "host",
       });
 
       const token = await at.toJwt();
-      return json({ token, url: env.LIVEKIT_URL, roomName, isHost });
+
+      return new Response(JSON.stringify({ token, url: env.LIVEKIT_URL, roomName, role }), {
+        headers: { "content-type": "application/json" },
+      });
     }
 
-    // ---- ROUTE: POST /admin  -> moderation (mute/unmute) ----
+    // ---- ROUTE: POST /admin  -> moderation helper (mute/unmute only) ----
     if (url.pathname === "/admin" && request.method === "POST") {
       let body;
       try {
         body = await request.json();
       } catch {
-        return json({ error: "Invalid JSON" }, 400);
+        return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       const leagueId = (body.leagueId || "").toString().trim();
@@ -151,22 +125,38 @@ export default {
       const targetUserId = (body.targetUserId || "").toString().trim();
 
       if (!leagueId || !action || !targetUserId) {
-        return json({ error: "leagueId, action, targetUserId required" }, 400);
+        return new Response(JSON.stringify({ error: "leagueId, action, targetUserId required" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       const roomName = `league_${leagueId}`;
+
       try {
         if (action === "mute") {
-          const out = await muteAllPublishedAudioTracks(env, roomName, targetUserId, true);
-          return json({ ok: true, action, out });
+          const out = await mutePublishedTrack(env, roomName, targetUserId, true);
+          return new Response(JSON.stringify({ ok: true, action, out }), {
+            headers: { "content-type": "application/json" },
+          });
         }
+
         if (action === "unmute") {
-          const out = await muteAllPublishedAudioTracks(env, roomName, targetUserId, false);
-          return json({ ok: true, action, out });
+          const out = await mutePublishedTrack(env, roomName, targetUserId, false);
+          return new Response(JSON.stringify({ ok: true, action, out }), {
+            headers: { "content-type": "application/json" },
+          });
         }
-        return json({ error: "Unknown action" }, 400);
+
+        return new Response(JSON.stringify({ error: "Unsupported action" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
       } catch (e) {
-        return json({ error: (e && e.message) || String(e) }, 500);
+        return new Response(JSON.stringify({ error: e.message || String(e) }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
       }
     }
 
