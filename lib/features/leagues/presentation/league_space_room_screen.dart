@@ -42,27 +42,19 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _connected = false;
   bool _micEnabled = false;
 
-  // New: pending flag to enable mic when server permissions arrive
-  bool _pendingEnableMic = false;
+  LocalAudioTrack? _localAudioTrack;
 
-  // ---- Spaces (requests/speakers) state ----
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _mySpeakerSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _myRequestSub;
 
   bool _isSpeakerApproved = false;
   bool _speakerMutedByHost = false;
-  String _myRequestStatus = ''; // '', 'pending', 'approved', 'denied'
-
-  static const _reactions = <String>[
-    '👍','😂','🎉','👏','🙏','💯','❤️','💪','👎','👌','🤸','⚽','🏁',
-    '🇺🇸','🇬🇧','🇳🇬','🇫🇷','🇩🇪','🇪🇸','🇮🇹','🇧🇷','🇦🇷','🇵🇹','🇲🇽','🇨🇦','🇿🇦','🇯🇵','🇰🇷','🇨🇳','🇮🇳'
-  ];
+  String _myRequestStatus = '';
 
   DocumentReference<Map<String, dynamic>> get _spaceDoc =>
       _firestore.collection('leagues').doc(widget.leagueId).collection('space').doc('current');
 
   CollectionReference<Map<String, dynamic>> get _reactionsCol => _spaceDoc.collection('reactions');
-
   CollectionReference<Map<String, dynamic>> get _requestsCol => _spaceDoc.collection('requests');
   CollectionReference<Map<String, dynamic>> get _speakersCol => _spaceDoc.collection('speakers');
 
@@ -103,8 +95,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _error = '';
         });
 
-        // once we have uid + a space doc, attach speaker/request listeners
         _ensureSpaceRoleListeners();
+
+        if (_space?.isLive == true && !_connected && !_joiningAudio) {
+          _connectAudio();
+        }
       } catch (e) {
         setState(() {
           _loading = false;
@@ -124,7 +119,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     if (_uid.isEmpty) return;
     if (_space == null) return;
 
-    // Host is always "speaker-approved" from the UI perspective.
     if (_isHost) {
       if (!_isSpeakerApproved || _speakerMutedByHost) {
         setState(() {
@@ -149,72 +143,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _speakerMutedByHost = muted;
       });
 
-      // ✅ SAFE FLOW: Handling Mic Activation
-      if (_connected && _room != null) {
+      if (_connected && _room != null && _localAudioTrack != null) {
         if (!approved || muted) {
-          if (_micEnabled) {
-            await _room?.localParticipant?.setMicrophoneEnabled(false);
+          if (_localAudioTrack!.enabled) {
+            _localAudioTrack!.enabled = false;
             if (mounted) setState(() => _micEnabled = false);
           }
         } else if (approved && !wasApproved) {
-          // User was just approved!
-          _toast('Syncing speaker permissions...');
-
-          // Set pending flag so we will enable mic when LiveKit server grants canPublish
-          _pendingEnableMic = true;
-
-          // Best-effort request to ensure server-side grant exists (may be a no-op for participants)
-          try {
-            await LiveKitService.approveSpeaker(
-              leagueId: widget.leagueId,
-              targetUserId: _uid,
-            );
-          } catch (e) {
-            // ignore — approval is a server/host action, but we attempt best-effort
-            print('approveSpeaker best-effort error: $e');
-          }
-
-          // Attempt immediate enable only if permission already present
-          try {
-            if (_room?.localParticipant?.permissions?.canPublish == true) {
-              final micStatus = await Permission.microphone.status;
-              if (micStatus.isGranted) {
-                try {
-                  await _room!.localParticipant!.setMicrophoneEnabled(true);
-                  if (mounted) {
-                    setState(() => _micEnabled = true);
-                    _pendingEnableMic = false;
-                    _toast('Mic enabled!');
-                  }
-                } catch (publishError) {
-                  // Will rely on ParticipantPermissionsUpdatedEvent to enable when ready
-                  print('Immediate publish error (will wait for permission update): $publishError');
-                }
-              } else {
-                // request if not granted
-                final newStatus = await Permission.microphone.request();
-                if (newStatus.isGranted && mounted) {
-                  setState(() {
-                    _micEnabled = true;
-                  });
-                  _toast('Mic permission granted!');
-                  _pendingEnableMic = false;
-                } else {
-                  _toast('Mic permission required.');
-                  openAppSettings();
-                }
-              }
-            } else {
-              // server permission not yet ready — we'll enable on permission event
-              _toast('Waiting for server permission to enable mic...');
-            }
-          } catch (e) {
-            print('Error while trying immediate mic enable: $e');
+          if (!_localAudioTrack!.enabled) {
+            _localAudioTrack!.enabled = true;
+            if (mounted) setState(() => _micEnabled = true);
           }
         }
       }
 
-      // Friendly toast on state transitions
       if (wasApproved != approved && approved) _toast('You are now a speaker.');
       if (wasApproved != approved && !approved) _toast('You are now a listener.');
       if (prevMuted != muted && muted) _toast('Host muted you.');
@@ -235,14 +177,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   @override
   void dispose() {
     _spaceSub?.cancel();
-    _spaceSub = null;
-
     _mySpeakerSub?.cancel();
-    _mySpeakerSub = null;
-
     _myRequestSub?.cancel();
-    _myRequestSub = null;
-
     _disconnectAudio();
     super.dispose();
   }
@@ -261,10 +197,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       return;
     }
 
-    // 🔴 CRITICAL: Request microphone permission before connection logic
     var status = await Permission.microphone.request();
     if (!status.isGranted) {
-      _toast('Microphone permission is required to join audio.');
+      _toast('Microphone permission is required.');
       return;
     }
 
@@ -293,39 +228,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       _listener = room.createListener();
 
-      // Important: when permissions change, enable mic if we were waiting
-      _listener!.on<ParticipantPermissionsUpdatedEvent>((event) async {
-         if (event.participant == room.localParticipant) {
-           print('Permissions updated: canPublish=${event.permissions.canPublish}');
-           if (event.permissions.canPublish == true && _pendingEnableMic && !_micEnabled) {
-             // Attempt to enable microphone now that server allows publishing
-             final micStatus = await Permission.microphone.status;
-             if (!micStatus.isGranted) {
-               final newStatus = await Permission.microphone.request();
-               if (!newStatus.isGranted) {
-                 _toast('Mic permission denied.');
-                 _pendingEnableMic = false;
-                 return;
-               }
-             }
-             try {
-               await room.localParticipant!.setMicrophoneEnabled(true);
-               if (mounted) {
-                 setState(() {
-                   _micEnabled = true;
-                 });
-               }
-               _toast('Mic enabled');
-             } catch (e) {
-               print('Error enabling mic after permission update: $e');
-               _toast('Failed to enable mic automatically. Please toggle mic.');
-             } finally {
-               _pendingEnableMic = false;
-             }
-           }
-         }
-      });
-
       _listener!.on<RoomConnectedEvent>((event) {
         if (!mounted) return;
         setState(() {
@@ -346,50 +248,30 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         token.token,
       );
 
-      // IMPORTANT: assign room to state immediately after connection so other code sees it
       if (!mounted) return;
       setState(() {
         _room = room;
         _connected = true;
       });
 
-      // Mic policy on join:
-      if (_isHost) {
-        try {
-          await _room?.localParticipant?.setMicrophoneEnabled(true);
-          if (mounted) setState(() => _micEnabled = true);
-        } catch (e) {
-          print('Host mic enable error: $e');
-        }
-      } else {
-        final shouldEnable = _isSpeakerApproved && !_speakerMutedByHost;
-        if (shouldEnable) {
-          // We are allowed by Firestore to be a speaker — request server permission best-effort
-          _pendingEnableMic = true;
-          try {
-            // best-effort: ask server to approve publishing; server/host will ultimately grant permission
-            await LiveKitService.approveSpeaker(leagueId: widget.leagueId, targetUserId: _uid);
-          } catch (e) {
-            print('approveSpeaker best-effort on connect failed: $e');
-          }
+      _localAudioTrack = await LocalAudioTrack.create(
+        enabled: false,
+      );
 
-          // If server permission already present, try immediate enable
-          try {
-            if (_room?.localParticipant?.permissions?.canPublish == true) {
-              await _room!.localParticipant!.setMicrophoneEnabled(true);
-              if (mounted) setState(() => _micEnabled = true);
-              _pendingEnableMic = false;
-            } else {
-              // wait for ParticipantPermissionsUpdatedEvent (will handle enabling)
-              _toast('Waiting for server permission to enable mic...');
-            }
-          } catch (e) {
-            print('Immediate mic enable on connect failed: $e');
-            // will wait for permission update event
-          }
-        } else {
-          _micEnabled = false;
-        }
+      await room.localParticipant?.publishAudioTrack(
+        _localAudioTrack!,
+        PublishAudioOptions(
+          dtx: true,
+          simulcast: false,
+        ),
+      );
+
+      if (_isHost) {
+        _localAudioTrack!.enabled = true;
+        if (mounted) setState(() => _micEnabled = true);
+      } else {
+        _localAudioTrack!.enabled = false;
+        if (mounted) setState(() => _micEnabled = false);
       }
 
       if (!mounted) return;
@@ -411,13 +293,19 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     try {
       _listener?.dispose();
       _listener = null;
+
+      if (_localAudioTrack != null) {
+        await _localAudioTrack?.stop();
+        _localAudioTrack = null;
+      }
+
       await _room?.disconnect();
       await _room?.dispose();
     } catch (_) {}
+
     _room = null;
     _connected = false;
     _micEnabled = false;
-    _pendingEnableMic = false;
   }
 
   bool get _canToggleMic {
@@ -429,7 +317,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _toggleMic() async {
-    if (_room == null) return;
+    if (_room == null || _localAudioTrack == null) return;
 
     if (!_canToggleMic) {
       if (_isHost) {
@@ -444,55 +332,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     final next = !_micEnabled;
 
-    // For enabling mic
     if (next) {
-      // Check permissions
-      var status = await Permission.microphone.status;
-      if (!status.isGranted) {
-        status = await Permission.microphone.request();
-        if (!status.isGranted) {
-          _toast('Mic permission denied.');
-          return;
-        }
-      }
-
-      // If server permission absent, request and wait for ParticipantPermissionsUpdatedEvent to enable
-      if (_room!.localParticipant?.permissions?.canPublish == false && !_isHost) {
-        _pendingEnableMic = true;
-        // best-effort: ask server/worker to grant publish permission
-        try {
-          await LiveKitService.approveSpeaker(
-            leagueId: widget.leagueId,
-            targetUserId: _uid,
-          );
-        } catch (e) {
-          print('approveSpeaker request failed in toggleMic: $e');
-        }
-        _toast('Waiting for server permission to publish...');
-        return;
-      }
-
-      // If we already have server publish permission, enable immediately
-      try {
-        await _room!.localParticipant!.setMicrophoneEnabled(true);
-        if (!mounted) return;
-        setState(() => _micEnabled = true);
-        _toast('Mic ON');
-      } catch (e) {
-        _toast('Failed to enable mic: $e');
-        // rely on ParticipantPermissionsUpdatedEvent or manual retry after server permission arrives
-      }
+      _localAudioTrack!.enabled = true;
+      if (mounted) setState(() => _micEnabled = true);
+      _toast('Mic ON');
     } else {
-      // For disabling mic
-      try {
-        await _room!.localParticipant!.setMicrophoneEnabled(false);
-        if (mounted) {
-          setState(() => _micEnabled = false);
-        }
-        _toast('Mic OFF');
-      } catch (e) {
-        _toast('Failed to disable mic: $e');
-      }
+      _localAudioTrack!.enabled = false;
+      if (mounted) setState(() => _micEnabled = false);
+      _toast('Mic OFF');
     }
   }
 
@@ -557,6 +404,16 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }, SetOptions(merge: true));
 
     await batch.commit();
+
+    try {
+      await LiveKitService.approveSpeaker(
+        leagueId: widget.leagueId,
+        targetUserId: userId,
+      );
+    } catch (e) {
+      print('LiveKit approve error: $e');
+    }
+
     _toast('Approved $userId');
   }
 
@@ -571,20 +428,55 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       'updatedAtMs': now,
     }, SetOptions(merge: true));
 
-    // ensure not speaker
     await _speakersCol.doc(userId).delete().catchError((_) {});
+
+    try {
+      await LiveKitService.denySpeaker(
+        leagueId: widget.leagueId,
+        targetUserId: userId,
+      );
+    } catch (e) {
+      print('LiveKit deny error: $e');
+    }
+
     _toast('Denied $userId');
   }
 
   Future<void> _removeSpeaker(String userId) async {
     if (!_isHost) return;
     await _speakersCol.doc(userId).delete();
+    try {
+      await LiveKitService.denySpeaker(
+        leagueId: widget.leagueId,
+        targetUserId: userId,
+      );
+    } catch (e) {
+      print('LiveKit remove error: $e');
+    }
     _toast('Removed speaker $userId');
   }
 
   Future<void> _toggleMuteSpeaker(String userId, bool muted) async {
     if (!_isHost) return;
+
     await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true));
+
+    try {
+      if (muted) {
+        await LiveKitService.muteSpeaker(
+          leagueId: widget.leagueId,
+          targetUserId: userId,
+        );
+      } else {
+        await LiveKitService.unmuteSpeaker(
+          leagueId: widget.leagueId,
+          targetUserId: userId,
+        );
+      }
+    } catch (e) {
+      print('LiveKit mute/unmute error: $e');
+    }
+
     _toast(muted ? 'Muted $userId' : 'Unmuted $userId');
   }
 
@@ -743,7 +635,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // Listener UI: request-to-speak controls
                 if (!_isHost) ...[
                   Row(
                     children: [
@@ -781,7 +672,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
         const SizedBox(height: 12),
 
-        // Host panel: approve/deny + speaker controls
         if (_isHost) ...[
           Glass(
             borderRadius: 16,

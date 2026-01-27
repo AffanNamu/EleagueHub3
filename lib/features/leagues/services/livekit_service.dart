@@ -36,7 +36,6 @@ class LiveKitService {
       body: jsonEncode({
         'leagueId': leagueId,
         'userId': userId,
-        // IMPORTANT: non-hosts must be allowed to publish audio, not 'listener'
         'role': isHost ? 'host' : 'speaker',
       }),
     );
@@ -55,8 +54,6 @@ class LiveKitService {
     return tok;
   }
 
-  /// 🔑 VERY IMPORTANT
-  /// This updates LiveKit server-side permissions
   static Future<void> approveSpeaker({
     required String leagueId,
     required String targetUserId,
@@ -73,6 +70,63 @@ class LiveKitService {
 
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('LiveKit approve failed: ${res.body}');
+    }
+  }
+
+  static Future<void> denySpeaker({
+    required String leagueId,
+    required String targetUserId,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$workerUrl/admin'),
+      headers: const {'content-type': 'application/json'},
+      body: jsonEncode({
+        'leagueId': leagueId,
+        'action': 'revoke',
+        'targetUserId': targetUserId,
+      }),
+    );
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('LiveKit revoke failed: ${res.body}');
+    }
+  }
+
+  static Future<void> muteSpeaker({
+    required String leagueId,
+    required String targetUserId,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$workerUrl/admin'),
+      headers: const {'content-type': 'application/json'},
+      body: jsonEncode({
+        'leagueId': leagueId,
+        'action': 'mute',
+        'targetUserId': targetUserId,
+      }),
+    );
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('LiveKit mute failed: ${res.body}');
+    }
+  }
+
+  static Future<void> unmuteSpeaker({
+    required String leagueId,
+    required String targetUserId,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$workerUrl/admin'),
+      headers: const {'content-type': 'application/json'},
+      body: jsonEncode({
+        'leagueId': leagueId,
+        'action': 'unmute',
+        'targetUserId': targetUserId,
+      }),
+    );
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('LiveKit unmute failed: ${res.body}');
     }
   }
 }
