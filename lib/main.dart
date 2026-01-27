@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'core/app/app.dart';
 import 'core/app/sync_bootstrap.dart';
@@ -18,30 +19,25 @@ import 'core/widgets/offline_banner.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Fatal only if these fail
   await Firebase.initializeApp();
   final prefs = await PreferencesService.create();
   SyncQueueService.init(prefs);
 
-  // Non-fatal: auth/sync/notifications
   try {
     await AuthBootstrap.ensureSignedIn(prefs);
   } catch (e) {
-    // ignore: avoid_print
     print('AuthBootstrap failed (non-fatal): $e');
   }
 
   try {
     await NotificationService().init();
   } catch (e) {
-    // ignore: avoid_print
     print('NotificationService init failed (non-fatal): $e');
   }
 
   try {
     await SyncBootstrap.init();
   } catch (e) {
-    // ignore: avoid_print
     print('SyncBootstrap init failed (non-fatal): $e');
   }
 
@@ -79,7 +75,7 @@ class AppRoot extends ConsumerWidget {
       builder: (context, child) {
         return Stack(
           children: [
-            if (child != null) child,
+            PermissionWrapper(child: child ?? const SizedBox.shrink()),
             ValueListenableBuilder<bool>(
               valueListenable: ConnectivityService.instance.isConnected,
               builder: (context, online, _) {
@@ -91,5 +87,35 @@ class AppRoot extends ConsumerWidget {
       },
       home: const EleagueHubApp(),
     );
+  }
+}
+
+class PermissionWrapper extends StatefulWidget {
+  final Widget child;
+  const PermissionWrapper({super.key, required this.child});
+
+  @override
+  State<PermissionWrapper> createState() => _PermissionWrapperState();
+}
+
+class _PermissionWrapperState extends State<PermissionWrapper> {
+  @override
+  void initState() {
+    super.initState();
+    _checkPermissions();
+  }
+
+  Future<void> _checkPermissions() async {
+    await [
+      Permission.camera,
+      Permission.microphone,
+      Permission.notification,
+      Permission.bluetoothConnect,
+    ].request();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }

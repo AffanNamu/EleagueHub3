@@ -43,18 +43,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _micEnabled = false;
 
   LocalAudioTrack? _localAudioTrack;
+  LocalTrackPublication? _localAudioPublication;
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _mySpeakerSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _myRequestSub;
 
   bool _isSpeakerApproved = false;
   bool _speakerMutedByHost = false;
-  String _myRequestStatus = '';
+  String _myRequestStatus = ''; 
 
   DocumentReference<Map<String, dynamic>> get _spaceDoc =>
       _firestore.collection('leagues').doc(widget.leagueId).collection('space').doc('current');
 
   CollectionReference<Map<String, dynamic>> get _reactionsCol => _spaceDoc.collection('reactions');
+
   CollectionReference<Map<String, dynamic>> get _requestsCol => _spaceDoc.collection('requests');
   CollectionReference<Map<String, dynamic>> get _speakersCol => _spaceDoc.collection('speakers');
 
@@ -82,6 +84,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _loading = false;
           _error = '';
         });
+        if (_room != null) {
+          unawaited(_disconnectAudio());
+        }
         return;
       }
 
@@ -97,8 +102,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
         _ensureSpaceRoleListeners();
 
-        if (_space?.isLive == true && !_connected && !_joiningAudio) {
-          _connectAudio();
+        // If space just ended, disconnect audio
+        if (_space?.isLive != true && _room != null) {
+          unawaited(_disconnectAudio());
         }
       } catch (e) {
         setState(() {
@@ -143,19 +149,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _speakerMutedByHost = muted;
       });
 
-      if (_connected && _room != null && _localAudioTrack != null) {
-        if (!approved || muted) {
-          if (_localAudioTrack!.enabled) {
-            _localAudioTrack!.enabled = false;
-            if (mounted) setState(() => _micEnabled = false);
-          }
-        } else if (approved && !wasApproved) {
-          if (!_localAudioTrack!.enabled) {
-            _localAudioTrack!.enabled = true;
-            if (mounted) setState(() => _micEnabled = true);
-          }
-        }
-      }
+      // Enforce policy: listeners (or host-muted speakers) cannot transmit.
+      // IMPORTANT: do NOT publish/re-publish here. Speaking is ONLY by unmuting the existing track.
+      await _enforceLocalMutePolicy();
 
       if (wasApproved != approved && approved) _toast('You are now a speaker.');
       if (wasApproved != approved && !approved) _toast('You are now a listener.');
@@ -174,12 +170,25 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     });
   }
 
+  Future<void> _enforceLocalMutePolicy() async {
+    final t = _localAudioTrack;
+    if (t == null) return;
+    
+    // If not host, and (not approved OR muted by host), FORCE mute locally
+    final mustBeMuted = !_isHost && (!_isSpeakerApproved || _speakerMutedByHost);
+    
+    if (mustBeMuted && t.enabled) {
+      t.enabled = false;
+      if (mounted) setState(() => _micEnabled = false);
+    }
+  }
+
   @override
   void dispose() {
     _spaceSub?.cancel();
     _mySpeakerSub?.cancel();
     _myRequestSub?.cancel();
-    _disconnectAudio();
+    unawaited(_disconnectAudio());
     super.dispose();
   }
 
@@ -187,7 +196,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool get _isHost => _space != null && _uid.isNotEmpty && _space!.hostUserId == _uid;
 
   Future<void> _connectAudio() async {
-    if (_joiningAudio || _connected) return;
+    if (_joiningAudio) return;
+    if (_room != null) return;
     if (!_isLive) {
       _toast('Space is not live.');
       return;
@@ -197,7 +207,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       return;
     }
 
-    var status = await Permission.microphone.request();
+    // Request permissions first
+    final status = await Permission.microphone.request();
     if (!status.isGranted) {
       _toast('Microphone permission is required.');
       return;
@@ -208,6 +219,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       _error = '';
     });
 
+    Room? room;
+    EventsListener<RoomEvent>? listener;
+    LocalAudioTrack? localTrack;
+    LocalTrackPublication? publication;
+
     try {
       final token = await LiveKitService.fetchToken(
         leagueId: widget.leagueId,
@@ -215,7 +231,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         isHost: _isHost,
       );
 
-      final room = Room(
+      room = Room(
         roomOptions: const RoomOptions(
           adaptiveStream: true,
           dynacast: true,
@@ -226,90 +242,156 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         ),
       );
 
-      _listener = room.createListener();
+      listener = room.createListener();
 
-      _listener!.on<RoomConnectedEvent>((event) {
+      listener.on<RoomConnectedEvent>((event) {
         if (!mounted) return;
-        setState(() {
-          _connected = true;
-        });
+        setState(() => _connected = true);
       });
 
-      _listener!.on<RoomDisconnectedEvent>((event) {
-        if (!mounted) return;
-        setState(() {
-          _connected = false;
-          _micEnabled = false;
-        });
+      listener.on<RoomDisconnectedEvent>((event) {
+        unawaited(_handleUnexpectedDisconnect());
       });
 
       await room.connect(
         token.url,
         token.token,
+        const ConnectOptions(autoSubscribe: true),
       );
 
-      if (!mounted) return;
-      setState(() {
-        _room = room;
-        _connected = true;
-      });
+      // Publish exactly once, immediately after connecting.
+      // Create enabled:true to guarantee the SDK has an active capturer, then mute (enabled=false).
+      localTrack = await LocalAudioTrack.create(enabled: true);
 
-      _localAudioTrack = await LocalAudioTrack.create(
-        enabled: false,
-      );
+      final lp = room.localParticipant;
+      if (lp == null) {
+        throw Exception('Local participant not available after connect.');
+      }
 
-      await room.localParticipant?.publishAudioTrack(
-        _localAudioTrack!,
-        PublishAudioOptions(
+      publication = await lp.publishAudioTrack(
+        localTrack,
+        const PublishAudioOptions(
           dtx: true,
           simulcast: false,
         ),
       );
 
-      if (_isHost) {
-        _localAudioTrack!.enabled = true;
-        if (mounted) setState(() => _micEnabled = true);
-      } else {
-        _localAudioTrack!.enabled = false;
-        if (mounted) setState(() => _micEnabled = false);
+      // Everyone joins mic-ready but muted. No republish later.
+      localTrack.enabled = false;
+
+      if (!mounted) {
+        // user left screen while connecting
+        await localTrack.stop();
+        await room.disconnect();
+        await room.dispose();
+        return;
       }
 
-      if (!mounted) return;
       setState(() {
+        _room = room;
+        _listener = listener;
+        _localAudioTrack = localTrack;
+        _localAudioPublication = publication;
+        _connected = true;
+        _micEnabled = false;
         _joiningAudio = false;
       });
 
-      _toast(_isHost ? 'Connected as host' : 'Connected to audio');
+      // If listeners are not allowed to speak, enforce mute now
+      await _enforceLocalMutePolicy();
+
+      _toast('Connected to audio');
     } catch (e) {
+      // Cleanup on failure
+      try {
+        if (publication != null && room?.localParticipant != null && localTrack != null) {
+          await room!.localParticipant!.unpublishTrack(localTrack);
+        }
+      } catch (_) {}
+      try {
+        if (localTrack != null) await localTrack.stop();
+      } catch (_) {}
+      try {
+        await listener?.dispose();
+      } catch (_) {}
+      try {
+        await room?.disconnect();
+      } catch (_) {}
+      try {
+        await room?.dispose();
+      } catch (_) {}
+
       if (!mounted) return;
       setState(() {
         _joiningAudio = false;
+        _connected = false;
+        _micEnabled = false;
+        _room = null;
+        _listener = null;
+        _localAudioTrack = null;
+        _localAudioPublication = null;
         _error = 'Audio connect failed: $e';
       });
     }
   }
 
-  Future<void> _disconnectAudio() async {
-    try {
-      _listener?.dispose();
-      _listener = null;
+  Future<void> _handleUnexpectedDisconnect() async {
+    // No auto-reconnect logic, just clean up state
+    await _disconnectAudio(showToast: false);
+    if (!mounted) return;
+    setState(() {
+      _error = 'Disconnected from audio.';
+    });
+  }
 
-      if (_localAudioTrack != null) {
-        await _localAudioTrack?.stop();
-        _localAudioTrack = null;
-      }
-
-      await _room?.disconnect();
-      await _room?.dispose();
-    } catch (_) {}
+  Future<void> _disconnectAudio({bool showToast = true}) async {
+    final room = _room;
+    final listener = _listener;
+    final track = _localAudioTrack;
+    final pub = _localAudioPublication;
 
     _room = null;
-    _connected = false;
-    _micEnabled = false;
+    _listener = null;
+    _localAudioTrack = null;
+    _localAudioPublication = null;
+
+    if (mounted) {
+      setState(() {
+        _connected = false;
+        _joiningAudio = false;
+        _micEnabled = false;
+      });
+    }
+
+    try {
+      if (room != null && room.localParticipant != null && track != null && pub != null) {
+        await room.localParticipant!.unpublishTrack(track);
+      }
+    } catch (_) {}
+
+    try {
+      await track?.stop();
+    } catch (_) {}
+
+    try {
+      await listener?.dispose();
+    } catch (_) {}
+
+    try {
+      await room?.disconnect();
+    } catch (_) {}
+
+    try {
+      await room?.dispose();
+    } catch (_) {}
+
+    if (showToast && mounted) _toast('Left audio');
   }
 
   bool get _canToggleMic {
     if (_room == null || !_connected) return false;
+    if (_localAudioTrack == null) return false;
+
     if (_isHost) return true;
     if (!_isSpeakerApproved) return false;
     if (_speakerMutedByHost) return false;
@@ -317,7 +399,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _toggleMic() async {
-    if (_room == null || _localAudioTrack == null) return;
+    final track = _localAudioTrack;
+    if (track == null) return;
 
     if (!_canToggleMic) {
       if (_isHost) {
@@ -331,16 +414,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
 
     final next = !_micEnabled;
+    track.enabled = next; // Hardware mute/unmute
 
-    if (next) {
-      _localAudioTrack!.enabled = true;
-      if (mounted) setState(() => _micEnabled = true);
-      _toast('Mic ON');
-    } else {
-      _localAudioTrack!.enabled = false;
-      if (mounted) setState(() => _micEnabled = false);
-      _toast('Mic OFF');
-    }
+    if (!mounted) return;
+    setState(() => _micEnabled = next);
+    _toast(next ? 'Mic ON' : 'Mic OFF');
   }
 
   Future<void> _requestToSpeak() async {
@@ -390,6 +468,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final batch = _firestore.batch();
     final now = DateTime.now().millisecondsSinceEpoch;
 
+    // Approval is purely app-level (Firestore). LiveKit publish remains constant.
     batch.set(_speakersCol.doc(userId), {
       'userId': userId,
       'approvedBy': _uid,
@@ -404,16 +483,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }, SetOptions(merge: true));
 
     await batch.commit();
-
-    try {
-      await LiveKitService.approveSpeaker(
-        leagueId: widget.leagueId,
-        targetUserId: userId,
-      );
-    } catch (e) {
-      print('LiveKit approve error: $e');
-    }
-
     _toast('Approved $userId');
   }
 
@@ -429,38 +498,31 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }, SetOptions(merge: true));
 
     await _speakersCol.doc(userId).delete().catchError((_) {});
-
-    try {
-      await LiveKitService.denySpeaker(
-        leagueId: widget.leagueId,
-        targetUserId: userId,
-      );
-    } catch (e) {
-      print('LiveKit deny error: $e');
-    }
-
     _toast('Denied $userId');
   }
 
   Future<void> _removeSpeaker(String userId) async {
     if (!_isHost) return;
     await _speakersCol.doc(userId).delete();
+    
+    // Also try to mute them on LiveKit via admin API (best effort)
     try {
-      await LiveKitService.denySpeaker(
+      await LiveKitService.muteSpeaker(
         leagueId: widget.leagueId,
         targetUserId: userId,
       );
-    } catch (e) {
-      print('LiveKit remove error: $e');
-    }
+    } catch (_) {}
+    
     _toast('Removed speaker $userId');
   }
 
   Future<void> _toggleMuteSpeaker(String userId, bool muted) async {
     if (!_isHost) return;
-
+    
+    // Firestore state is authoritative for UI
     await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true));
 
+    // LiveKit moderation is best-effort
     try {
       if (muted) {
         await LiveKitService.muteSpeaker(
@@ -474,7 +536,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         );
       }
     } catch (e) {
-      print('LiveKit mute/unmute error: $e');
+      if (mounted) _toast('LiveKit moderation failed: $e');
+      return;
     }
 
     _toast(muted ? 'Muted $userId' : 'Unmuted $userId');
@@ -598,8 +661,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                             : _connected
                                 ? () async {
                                     await _disconnectAudio();
-                                    if (!mounted) return;
-                                    setState(() {});
                                   }
                                 : _connectAudio,
                         icon: _joiningAudio
@@ -626,9 +687,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 Text(
                   _connected
                       ? (_isHost
-                          ? 'Connected as host'
+                          ? 'Connected as host (mic muted)'
                           : (_isSpeakerApproved
-                              ? (_speakerMutedByHost ? 'Connected as speaker (muted)' : 'Connected as speaker')
+                              ? (_speakerMutedByHost ? 'Connected as speaker (host-muted)' : 'Connected as speaker')
                               : 'Connected as listener'))
                       : 'Not connected to audio',
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
@@ -682,7 +743,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 children: [
                   const Text('Host Panel', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
-
                   const Text('Requests', style: TextStyle(color: Colors.white70, fontSize: 12)),
                   const SizedBox(height: 6),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -779,7 +839,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                               dense: true,
                               title: Text(userId, style: const TextStyle(color: Colors.white)),
                               subtitle: Text(
-                                muted ? 'Muted' : 'Unmuted',
+                                muted ? 'Host-muted' : 'Not host-muted',
                                 style: TextStyle(color: muted ? Colors.orangeAccent : Colors.white54, fontSize: 12),
                               ),
                               trailing: Wrap(
