@@ -1,19 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:livekit_client/livekit_client.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../leagues/services/livekit_service.dart';
 import '../data/local_discovery.dart';
-import '../data/local_live_service.dart';
-import '../data/local_webrtc_host.dart';
-import '../data/local_webrtc_viewer.dart';
 import 'battery_optimization_guide.dart';
+import 'widgets/live_floating_quick_message.dart';
 
 enum _PrimarySide { home, away }
 enum _ViewerLayoutMode { single, dual }
@@ -23,8 +25,8 @@ class LiveViewScreen extends ConsumerStatefulWidget {
     super.key,
     required this.matchId,
     required this.isHost,
-    this.hostAddress,
-    this.port,
+    this.hostAddress, // legacy (ignored for online)
+    this.port, // legacy (ignored for online)
     this.homeName,
     this.awayName,
     this.hostSide,
@@ -45,46 +47,44 @@ class LiveViewScreen extends ConsumerStatefulWidget {
 class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   static const MethodChannel _liveChannel = MethodChannel('local_live');
 
-  final _chat = TextEditingController();
-  final _messages = <String>[
-    'Welcome to the live match.',
-  ];
-
-  LocalLiveHostSession? _hostSession;
-  StreamSubscription? _hostEventsSub;
-
-  LocalLiveViewerSession? _homeViewer;
-  LocalLiveViewerSession? _awayViewer;
-  StreamSubscription? _homeEventsSub;
-  StreamSubscription? _awayEventsSub;
-
-  final _discovery = LocalLiveDiscoveryListener();
-  VoidCallback? _discoveryListener;
+  Room? _room;
+  EventsListener<RoomEvent>? _listener;
+  Timer? _pollTimer;
 
   bool _busy = false;
   String? _errorText;
 
-  bool _chatMinimized = false;
+  bool _connected = false;
+  String? _roomName;
+
+  String _uid = '';
+
   _PrimarySide _primary = _PrimarySide.home;
 
-  // Viewer permissions (admin/global controlled)
-  bool _viewerChatEnabled = true;
-  bool _viewerVoiceEnabled = true;
-  bool _viewerReactionsEnabled = true;
-
-  // Viewer audio toggle (what viewer hears)
   bool _viewerAudioEnabled = true;
-
-  // Viewer layout + full-screen
   _ViewerLayoutMode _viewerLayoutMode = _ViewerLayoutMode.single;
   bool _isFullscreen = false;
 
-  // Quick message overlay (what viewers see on top of video)
-  Timer? _quickTimer;
-  String? _quickText;
-  String? _quickFrom;
+  bool _hostMicEnabled = true;
+  bool _hostCameraEnabled = true;
+  bool _hostScreenEnabled = true;
 
-  int get _port => widget.port ?? 8765;
+  // Incoming quick message overlay
+  Timer? _incomingQuickTimer;
+  String? _incomingQuickText;
+  String? _incomingQuickFrom;
+
+  static const List<String> _quickMessages = <String>[
+    'Focus!',
+    'Calm down',
+    'We got this',
+    'One more goal!',
+    'Don’t give up',
+    'Sorry',
+    'Unlucky',
+    'What a goal!',
+    'Ref??',
+  ];
 
   String get _homeLabel =>
       (widget.homeName?.trim().isNotEmpty == true) ? widget.homeName!.trim() : 'HOME';
@@ -98,57 +98,27 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     super.initState();
 
     final prefs = ref.read(prefsServiceProvider);
-    _viewerChatEnabled = prefs.liveViewerChatEnabled();
-    _viewerVoiceEnabled = prefs.liveViewerVoiceEnabled();
-    _viewerReactionsEnabled = prefs.liveViewerReactionsEnabled();
-    _viewerAudioEnabled = _viewerVoiceEnabled;
+    _uid = prefs.getCurrentUserId() ?? '';
 
+    // Viewer: auto-connect online
     if (!widget.isHost) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) async {
-          await _startInitialViewer();
-          await _startDiscoveryForOtherSide();
-        },
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _connectOnline(publishIfHost: false);
+      });
     }
   }
 
   @override
   void dispose() {
-    // reset system UI/orientation if we leave while full-screen
     if (_isFullscreen) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     }
 
-    _quickTimer?.cancel();
-    _chat.dispose();
-    _hostEventsSub?.cancel();
-    _homeEventsSub?.cancel();
-    _awayEventsSub?.cancel();
-    _stopDiscovery();
-    _stopAll();
+    _incomingQuickTimer?.cancel();
+    _pollTimer?.cancel();
+    _disconnectRoom();
     super.dispose();
-  }
-
-  Future<void> _stopAll() async {
-    if (widget.isHost) {
-      await LocalLiveService.instance.stopHostSession(liveMatchId: widget.matchId);
-      await _stopOverlayBubble();
-      return;
-    }
-
-    try {
-      await _homeViewer?.disconnect();
-    } catch (_) {}
-    try {
-      await _awayViewer?.disconnect();
-    } catch (_) {}
-
-    _homeViewer = null;
-    _awayViewer = null;
-
-    await _stopOverlayBubble();
   }
 
   Future<void> _maybeStartOverlayBubble() async {
@@ -173,206 +143,369 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     } catch (_) {}
   }
 
-  Future<void> _startHost() async {
-    setState(() {
-      _busy = true;
-      _errorText = null;
-    });
+  Future<void> _connectOnline({required bool publishIfHost}) async {
+    if (_busy) return;
 
-    try {
-      final s = await LocalLiveService.instance.startHostSession(
-        liveMatchId: widget.matchId,
-        port: _port,
-        homeName: widget.homeName,
-        awayName: widget.awayName,
-        side: _mySide,
-      );
-
-      _hostEventsSub?.cancel();
-      _hostEventsSub = s.events.listen(_appendEvent);
-
-      setState(() => _hostSession = s);
-
-      await _maybeStartOverlayBubble();
-    } catch (e) {
-      setState(() => _errorText = e.toString());
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
-  Future<void> _startInitialViewer() async {
-    final host = widget.hostAddress?.trim();
-    if (host == null || host.isEmpty) {
-      setState(() =>
-          _errorText = 'Missing host IP. Go back and join from discovery/manual connect.');
-      return;
-    }
-
-    // If join screen passed side, use it; otherwise assume home as default.
-    final initialSide = parseLiveHostSide(widget.hostSide);
-    final slot = (initialSide == LiveHostSide.away) ? _PrimarySide.away : _PrimarySide.home;
-
-    setState(() {
-      _busy = true;
-      _errorText = null;
-      _primary = slot;
-    });
-
-    try {
-      final v = LocalLiveViewerSession(
-        liveMatchId: widget.matchId,
-        host: host,
-        port: _port,
-      );
-      await v.connect();
-
-      if (slot == _PrimarySide.home) {
-        _homeEventsSub?.cancel();
-        _homeEventsSub = v.events.listen(_appendEvent);
-        _homeViewer = v;
-      } else {
-        _awayEventsSub?.cancel();
-        _awayEventsSub = v.events.listen(_appendEvent);
-        _awayViewer = v;
-      }
-
-      if (mounted) setState(() {});
-      await _maybeStartOverlayBubble();
-    } catch (e) {
-      setState(() => _errorText = e.toString());
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
-  Future<void> _startDiscoveryForOtherSide() async {
-    await _discovery.start();
-
-    _discoveryListener = () {
-      final list =
-          _discovery.hosts.value.where((h) => h.matchId == widget.matchId).toList();
-      if (list.isEmpty) return;
-
-      for (final h in list) {
-        final endpoint = '${h.hostIp}:${h.port}';
-        final homeEndpoint =
-            _homeViewer == null ? null : '${_homeViewer!.host}:${_homeViewer!.port}';
-        final awayEndpoint =
-            _awayViewer == null ? null : '${_awayViewer!.host}:${_awayViewer!.port}';
-        if (endpoint == homeEndpoint || endpoint == awayEndpoint) continue;
-
-        if (h.side == LiveHostSide.home && _homeViewer == null) {
-          _connectHome(h.hostIp, h.port);
-        } else if (h.side == LiveHostSide.away && _awayViewer == null) {
-          _connectAway(h.hostIp, h.port);
-        } else if (h.side == LiveHostSide.unknown) {
-          if (_homeViewer == null) {
-            _connectHome(h.hostIp, h.port);
-          } else if (_awayViewer == null) {
-            _connectAway(h.hostIp, h.port);
-          }
-        }
-      }
-    };
-
-    _discovery.hosts.addListener(_discoveryListener!);
-  }
-
-  void _stopDiscovery() {
-    if (_discoveryListener != null) {
-      _discovery.hosts.removeListener(_discoveryListener!);
-      _discoveryListener = null;
-    }
-    _discovery.stop();
-  }
-
-  Future<void> _connectHome(String hostIp, int port) async {
-    if (_homeViewer != null) return;
-    try {
-      final v = LocalLiveViewerSession(
-        liveMatchId: widget.matchId,
-        host: hostIp,
-        port: port,
-      );
-      await v.connect();
-      _homeEventsSub?.cancel();
-      _homeEventsSub = v.events.listen(_appendEvent);
-      if (!mounted) return;
-      setState(() => _homeViewer = v);
-      await _maybeStartOverlayBubble();
-    } catch (_) {}
-  }
-
-  Future<void> _connectAway(String hostIp, int port) async {
-    if (_awayViewer != null) return;
-    try {
-      final v = LocalLiveViewerSession(
-        liveMatchId: widget.matchId,
-        host: hostIp,
-        port: port,
-      );
-      await v.connect();
-      _awayEventsSub?.cancel();
-      _awayEventsSub = v.events.listen(_appendEvent);
-      if (!mounted) return;
-      setState(() => _awayViewer = v);
-      await _maybeStartOverlayBubble();
-    } catch (_) {}
-  }
-
-  void _appendEvent(Map<String, dynamic> evt) {
-    final kind = evt['kind']?.toString();
-    final from = evt['from']?.toString();
-
-    // Quick message event: show overlay, don't log
-    if (kind == 'quick') {
-      final label = evt['label']?.toString() ?? '';
-      if (label.isEmpty) return;
-      if (!mounted) return;
-      _quickTimer?.cancel();
+    if (_uid.trim().isEmpty) {
       setState(() {
-        _quickText = label;
-        _quickFrom = from;
-      });
-      _quickTimer = Timer(const Duration(seconds: 3), () {
-        if (!mounted) return;
-        setState(() {
-          _quickText = null;
-          _quickFrom = null;
-        });
+        _errorText = 'Missing user ID. Please login/restart so current_user_id is set.';
       });
       return;
     }
 
-    String line;
-    if (kind == 'chat') {
-      final txt = evt['text']?.toString() ?? '';
-      line = (from == null) ? txt : '$from: $txt';
-    } else if (kind == 'reaction') {
-      final r = evt['reaction']?.toString() ?? '';
-      line = (from == null) ? 'Reaction: $r' : '$from reacted: $r';
-    } else if (kind == 'mic') {
-      final enabled = evt['enabled'] == true;
-      line = 'Host mic is now ${enabled ? 'ON' : 'OFF'}';
-    } else {
-      line = 'Event: $evt';
+    setState(() {
+      _busy = true;
+      _errorText = null;
+    });
+
+    try {
+      await _disconnectRoom();
+
+      final tok = await LiveKitService.fetchMatchToken(
+        matchId: widget.matchId,
+        userId: _uid,
+        isHost: widget.isHost,
+        side: liveHostSideToWire(_mySide),
+      );
+
+      _roomName = tok.roomName;
+
+      final room = Room(
+        roomOptions: const RoomOptions(
+          adaptiveStream: true,
+          dynacast: true,
+        ),
+      );
+
+      _listener = room.createListener();
+
+      _listener!.on<RoomConnectedEvent>((event) {
+        if (!mounted) return;
+        setState(() => _connected = true);
+      });
+
+      _listener!.on<RoomDisconnectedEvent>((event) {
+        if (!mounted) return;
+        setState(() => _connected = false);
+      });
+
+      // Catch-all listener: handle data messages without relying on specific event class imports
+      _listener!.on<RoomEvent>((event) {
+        final type = event.runtimeType.toString().toLowerCase();
+        if (!type.contains('data')) return;
+
+        // Attempt to read fields dynamically.
+        try {
+          final dyn = event as dynamic;
+          final payload = dyn.payload;
+          final participant = dyn.participant;
+
+          String? fromIdentity;
+          try {
+            fromIdentity = (participant as dynamic).identity?.toString();
+          } catch (_) {
+            fromIdentity = null;
+          }
+
+          final msg = _decodeQuickPayload(payload);
+          if (msg == null) return;
+
+          // Only show if it's intended for me (opponent behavior)
+          final to = (msg['to'] ?? '').toString().trim().toLowerCase();
+          final fromSide = (msg['fromSide'] ?? '').toString().trim().toLowerCase();
+          final label = (msg['label'] ?? '').toString();
+
+          if (label.trim().isEmpty) return;
+
+          final my = liveHostSideToWire(_mySide).toLowerCase();
+
+          // If "to" is set, enforce it strictly.
+          if (to.isNotEmpty && my.isNotEmpty && my != 'unknown') {
+            if (to != my) return;
+          } else {
+            // Otherwise: don't show if it's from my own side (avoid echo for host)
+            if (my != 'unknown' && fromSide.isNotEmpty && fromSide == my) return;
+          }
+
+          _showIncomingQuick(
+            label,
+            from: fromIdentity ?? (fromSide.isNotEmpty ? fromSide.toUpperCase() : null),
+          );
+        } catch (_) {
+          // ignore parse errors
+        }
+      });
+
+      await room.connect(tok.url, tok.token);
+
+      if (!mounted) return;
+
+      setState(() {
+        _room = room;
+        _connected = true;
+      });
+
+      // Poll-based refresh: stable + simple
+      _pollTimer?.cancel();
+      _pollTimer = Timer.periodic(const Duration(milliseconds: 700), (_) {
+        if (!mounted) return;
+        setState(() {});
+        _applyViewerAudioSetting();
+      });
+
+      await _maybeStartOverlayBubble();
+
+      if (publishIfHost && widget.isHost) {
+        await _ensureHostPublishing();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _errorText = e.toString());
+    } finally {
+      if (!mounted) return;
+      setState(() => _busy = false);
+    }
+  }
+
+  Map<String, dynamic>? _decodeQuickPayload(dynamic payload) {
+    try {
+      if (payload is Uint8List) {
+        final s = utf8.decode(payload);
+        final j = jsonDecode(s);
+        if (j is Map<String, dynamic>) return j;
+        if (j is Map) return j.cast<String, dynamic>();
+      }
+      if (payload is List<int>) {
+        final s = utf8.decode(Uint8List.fromList(payload));
+        final j = jsonDecode(s);
+        if (j is Map<String, dynamic>) return j;
+        if (j is Map) return j.cast<String, dynamic>();
+      }
+      if (payload is String) {
+        final j = jsonDecode(payload);
+        if (j is Map<String, dynamic>) return j;
+        if (j is Map) return j.cast<String, dynamic>();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  void _showIncomingQuick(String text, {String? from}) {
+    _incomingQuickTimer?.cancel();
+    if (!mounted) return;
+
+    setState(() {
+      _incomingQuickText = text;
+      _incomingQuickFrom = from;
+    });
+
+    _incomingQuickTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() {
+        _incomingQuickText = null;
+        _incomingQuickFrom = null;
+      });
+    });
+  }
+
+  Future<void> _ensureHostPublishing() async {
+    final room = _room;
+    if (room == null) return;
+
+    try {
+      await Permission.microphone.request();
+    } catch (_) {}
+    try {
+      await Permission.camera.request();
+    } catch (_) {}
+
+    try {
+      await room.localParticipant?.setMicrophoneEnabled(true);
+      _hostMicEnabled = true;
+    } catch (_) {}
+
+    try {
+      await room.localParticipant?.setCameraEnabled(true);
+      _hostCameraEnabled = true;
+    } catch (_) {}
+
+    try {
+      await (room.localParticipant as dynamic).setScreenShareEnabled(true);
+      _hostScreenEnabled = true;
+    } catch (_) {
+      _hostScreenEnabled = false;
     }
 
     if (!mounted) return;
-    setState(() => _messages.add(line));
+    setState(() {});
+  }
+
+  Future<void> _disconnectRoom() async {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+
+    try {
+      _listener?.dispose();
+    } catch (_) {}
+    _listener = null;
+
+    final r = _room;
+    _room = null;
+
+    try {
+      await r?.disconnect();
+    } catch (_) {}
+    try {
+      await r?.dispose();
+    } catch (_) {}
+
+    _connected = false;
+    await _stopOverlayBubble();
+  }
+
+  String _enumName(Object e) {
+    final s = e.toString();
+    final i = s.indexOf('.');
+    return i == -1 ? s : s.substring(i + 1);
+  }
+
+  LiveHostSide _sideFromParticipant(dynamic p) {
+    try {
+      final meta = (p as dynamic).metadata;
+      if (meta is String && meta.trim().isNotEmpty) {
+        final decoded = jsonDecode(meta) as Map<String, dynamic>;
+        final side = (decoded['side'] ?? '').toString().trim().toLowerCase();
+        if (side == 'home') return LiveHostSide.home;
+        if (side == 'away') return LiveHostSide.away;
+      }
+    } catch (_) {}
+    return LiveHostSide.unknown;
+  }
+
+  bool _isScreenSource(dynamic source) {
+    try {
+      final n = _enumName(source as Object).toLowerCase();
+      return n.contains('screen');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _isCameraSource(dynamic source) {
+    try {
+      final n = _enumName(source as Object).toLowerCase();
+      return n.contains('camera');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  VideoTrack? _videoTrackFromParticipant(dynamic p, {required String prefer}) {
+    try {
+      final pubs = (p as dynamic).videoTrackPublications;
+      Iterable<dynamic> videoPubs = const [];
+      if (pubs is Iterable) {
+        videoPubs = pubs.cast<dynamic>();
+      } else if (pubs is Map) {
+        videoPubs = pubs.values.cast<dynamic>();
+      }
+
+      for (final pub in videoPubs) {
+        final track = (pub as dynamic).track;
+        if (track == null) continue;
+
+        final src = (pub as dynamic).source;
+        if (prefer == 'screen' && _isScreenSource(src)) return track as VideoTrack;
+        if (prefer == 'camera' && _isCameraSource(src)) return track as VideoTrack;
+      }
+
+      for (final pub in videoPubs) {
+        final track = (pub as dynamic).track;
+        if (track == null) continue;
+        return track as VideoTrack;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  VideoTrack? _localVideo({required String prefer}) {
+    final room = _room;
+    if (room == null) return null;
+    final lp = room.localParticipant;
+    if (lp == null) return null;
+    return _videoTrackFromParticipant(lp, prefer: prefer);
+  }
+
+  VideoTrack? _remoteVideoForSide(LiveHostSide side, {required String prefer}) {
+    final room = _room;
+    if (room == null) return null;
+
+    try {
+      final remotes = (room as dynamic).remoteParticipants;
+      Iterable<dynamic> participants = const [];
+      if (remotes is Map) {
+        participants = remotes.values.cast<dynamic>();
+      } else if (remotes is Iterable) {
+        participants = remotes.cast<dynamic>();
+      }
+
+      for (final p in participants) {
+        final ps = _sideFromParticipant(p);
+        if (ps != side) continue;
+        final t = _videoTrackFromParticipant(p, prefer: prefer);
+        if (t != null) return t;
+      }
+
+      for (final p in participants) {
+        final ps = _sideFromParticipant(p);
+        if (ps != LiveHostSide.unknown) continue;
+        final t = _videoTrackFromParticipant(p, prefer: prefer);
+        if (t != null) return t;
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   void _toggleViewerAudio() {
-    final enabled = !_viewerAudioEnabled;
-    setState(() => _viewerAudioEnabled = enabled);
+    setState(() => _viewerAudioEnabled = !_viewerAudioEnabled);
+    _applyViewerAudioSetting();
+  }
 
-    final v = _homeViewer ?? _awayViewer;
-    v?.setRemoteAudioEnabled(enabled);
+  void _applyViewerAudioSetting() {
+    if (widget.isHost) return;
+    final room = _room;
+    if (room == null) return;
+
+    final volume = _viewerAudioEnabled ? 1.0 : 0.0;
+
+    try {
+      final remotes = (room as dynamic).remoteParticipants;
+      Iterable<dynamic> participants = const [];
+      if (remotes is Map) {
+        participants = remotes.values.cast<dynamic>();
+      } else if (remotes is Iterable) {
+        participants = remotes.cast<dynamic>();
+      }
+
+      for (final p in participants) {
+        final pubs = (p as dynamic).audioTrackPublications;
+        Iterable<dynamic> audioPubs = const [];
+        if (pubs is Iterable) {
+          audioPubs = pubs.cast<dynamic>();
+        } else if (pubs is Map) {
+          audioPubs = pubs.values.cast<dynamic>();
+        }
+
+        for (final pub in audioPubs) {
+          final track = (pub as dynamic).track;
+          if (track == null) continue;
+          try {
+            (track as dynamic).setVolume(volume);
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _toggleFullscreen() async {
@@ -401,144 +534,103 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     });
   }
 
-  // Send quick message event (host or viewer)
-  void _sendQuick(String label) {
-    final trimmed = label.trim();
-    if (trimmed.isEmpty) return;
+  Future<void> _toggleHostMic() async {
+    final room = _room;
+    if (room == null) return;
 
-    // For now, quick messages are mainly for hosts.
-    if (widget.isHost) {
-      final evt = {
-        'kind': 'quick',
-        'label': trimmed,
-        'from': liveHostSideToWire(_mySide),
-      };
-
-      // Send to connected viewers
-      LocalLiveService.instance.broadcastHostEvent(
-        liveMatchId: widget.matchId,
-        event: evt,
-      );
-
-      // Also forward to Android overlay bubble so it can show over other apps.
-      if (Platform.isAndroid) {
-        try {
-          _liveChannel.invokeMethod('sendQuickMessage', {
-            'label': trimmed,
-            'from': liveHostSideToWire(_mySide),
-            'matchId': widget.matchId,
-          });
-        } catch (_) {}
-      }
-    } else {
-      // Optional: viewers can also send quick messages
-      final v = _homeViewer ?? _awayViewer;
-      v?.sendEvent({
-        'kind': 'quick',
-        'label': trimmed,
-      });
-    }
+    final next = !_hostMicEnabled;
+    try {
+      await room.localParticipant?.setMicrophoneEnabled(next);
+      if (!mounted) return;
+      setState(() => _hostMicEnabled = next);
+    } catch (_) {}
   }
 
-  void _showQuickMessageSheet() {
-    // Host quick messages: short, gamer-style, no typing required.
-    const msgs = [
-      'Sorry',
-      'Unlucky',
-      'Too easy 😎',
-      'What a goal!',
-      'Ref?? 😡',
-      'GG',
-      'Rematch?',
-      'Good game bro',
-      'Respect 🤝',
-    ];
+  Future<void> _toggleHostCamera() async {
+    final room = _room;
+    if (room == null) return;
 
-    showModalBottomSheet(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.1),
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: Opacity(
-                  opacity: 0.8, // very transparent glass panel
-                  child: Glass(
-                    borderRadius: 24,
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Quick Messages',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: msgs
-                              .map(
-                                (m) => ActionChip(
-                                  label: Text(
-                                    m,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  backgroundColor:
-                                      Colors.white.withOpacity(0.06), // extra transparent
-                                  onPressed: () {
-                                    Navigator.of(ctx).pop();
-                                    _sendQuick(m);
-                                  },
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
+    final next = !_hostCameraEnabled;
+    try {
+      await room.localParticipant?.setCameraEnabled(next);
+      if (!mounted) return;
+      setState(() => _hostCameraEnabled = next);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleHostScreenShare() async {
+    final room = _room;
+    if (room == null) return;
+
+    final next = !_hostScreenEnabled;
+    try {
+      await (room.localParticipant as dynamic).setScreenShareEnabled(next);
+      if (!mounted) return;
+      setState(() => _hostScreenEnabled = next);
+    } catch (_) {}
+  }
+
+  void _sendQuickToOpponent(String label) {
+    final room = _room;
+    if (room == null) return;
+    if (!_connected) return;
+
+    // Only hosts send opponent quick messages
+    if (!widget.isHost) return;
+
+    final my = liveHostSideToWire(_mySide).toLowerCase();
+    String to = '';
+    if (my == 'home') to = 'away';
+    if (my == 'away') to = 'home';
+
+    final payload = <String, dynamic>{
+      'kind': 'quick',
+      'label': label,
+      'fromSide': my,
+      if (to.isNotEmpty) 'to': to,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    final bytes = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
+
+    // Use dynamic so we don't depend on exact publishData signature at compile time.
+    try {
+      (room.localParticipant as dynamic).publishData(bytes, reliable: true);
+    } catch (_) {
+      try {
+        (room.localParticipant as dynamic).publishData(bytes);
+      } catch (_) {}
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width > 700;
+    final canSendQuick = widget.isHost && _connected;
 
-    // Viewer full-screen mode: only video + exit button
+    // Viewer full-screen mode: only video + exit button + overlays
     if (!widget.isHost && _isFullscreen) {
       return GlassScaffold(
         appBar: null,
         body: Stack(
           children: [
-            Positioned.fill(
-              child: _buildStreamArea(context),
-            ),
+            Positioned.fill(child: _buildStreamArea(context)),
+            if (_incomingQuickText != null)
+              Positioned(
+                top: 22,
+                left: 16,
+                right: 16,
+                child: _IncomingQuickBanner(
+                  text: _incomingQuickText!,
+                  from: _incomingQuickFrom,
+                ),
+              ),
             Positioned(
               top: 16,
               left: 16,
               child: CircleAvatar(
                 backgroundColor: Colors.black54,
                 child: IconButton(
-                  icon: const Icon(
-                    Icons.fullscreen_exit,
-                    color: Colors.white,
-                  ),
+                  icon: const Icon(Icons.fullscreen_exit, color: Colors.white),
                   onPressed: _toggleFullscreen,
                   tooltip: 'Exit full screen',
                 ),
@@ -553,124 +645,74 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       appBar: AppBar(
         title: Text(
           widget.isHost
-              ? 'Host Live • ${widget.matchId}'
-              : 'Live • $_homeLabel vs $_awayLabel',
+              ? 'Host Live (Online) • ${widget.matchId}'
+              : 'Live (Online) • $_homeLabel vs $_awayLabel',
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          if (widget.isHost)
-            IconButton(
-              tooltip: 'Copy host info',
-              onPressed: (_hostSession?.hostIp.value == null)
-                  ? null
-                  : () {
-                      final ip = _hostSession!.hostIp.value!;
-                      final txt = 'Host: $ip:${_port}\nMatch: ${widget.matchId}';
-                      Clipboard.setData(ClipboardData(text: txt));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Copied host info'),
-                        ),
-                      );
-                    },
-              icon: const Icon(Icons.copy),
-            ),
+          IconButton(
+            tooltip: 'Copy match info',
+            onPressed: () {
+              final txt = 'Match: ${widget.matchId}\nRoom: ${_roomName ?? '(not connected)'}';
+              Clipboard.setData(ClipboardData(text: txt));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Copied match info')),
+              );
+            },
+            icon: const Icon(Icons.copy),
+          ),
         ],
       ),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            if (isWide || constraints.maxWidth > 700) {
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: _buildWideLayout(context),
-              );
-            }
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: _buildMobileLayout(context),
-            );
-          },
+        child: Stack(
+          children: [
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth > 700;
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: isWide
+                      ? Row(
+                          children: [
+                            Expanded(child: _buildStreamArea(context)),
+                            const SizedBox(width: 16),
+                            SizedBox(width: 360, child: _buildControls(context)),
+                          ],
+                        )
+                      : Column(
+                          children: [
+                            Expanded(child: _buildStreamArea(context)),
+                            const SizedBox(height: 12),
+                            _buildControls(context),
+                          ],
+                        ),
+                );
+              },
+            ),
+
+            // Incoming message banner overlay (hosts + viewers)
+            if (_incomingQuickText != null)
+              Positioned(
+                top: 12,
+                left: 12,
+                right: 12,
+                child: _IncomingQuickBanner(
+                  text: _incomingQuickText!,
+                  from: _incomingQuickFrom,
+                ),
+              ),
+
+            // Floating quick message icon (HOST only)
+            LiveFloatingQuickMessage(
+              enabled: canSendQuick,
+              messages: _quickMessages,
+              onSend: _sendQuickToOpponent,
+              icon: Icons.message_rounded,
+            ),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _buildWideLayout(BuildContext context) {
-    final allowTextInput = !widget.isHost && _viewerChatEnabled;
-    final allowReactions = widget.isHost || _viewerReactionsEnabled;
-
-    return Row(
-      children: [
-        Expanded(
-          flex: 3,
-          child: Column(
-            children: [
-              Expanded(
-                child: _buildStreamArea(context),
-              ),
-              const SizedBox(height: 12),
-              _buildControls(context),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          flex: 2,
-          child: _ChatOverlay(
-            minimized: false,
-            onToggleMinimize: () {},
-            messages: _messages,
-            chatController: _chat,
-            onSend: _send,
-            onReaction: _react,
-            allowTextInput: allowTextInput,
-            allowReactions: allowReactions,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMobileLayout(BuildContext context) {
-    final media = MediaQuery.of(context);
-    final allowTextInput = !widget.isHost && _viewerChatEnabled;
-    final allowReactions = widget.isHost || _viewerReactionsEnabled;
-
-    // Chat height responsive to screen height
-    final maxHeight = media.size.height;
-    final expandedChatHeight = maxHeight * 0.28; // ~28% of screen
-    final collapsedChatHeight = 56.0;
-
-    final chatHeight = _chatMinimized ? collapsedChatHeight : expandedChatHeight;
-
-    return Column(
-      children: [
-        Expanded(
-          child: _buildStreamArea(context),
-        ),
-        const SizedBox(height: 8),
-        _buildControls(context),
-        const SizedBox(height: 8),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          height: chatHeight,
-          padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
-          child: _ChatOverlay(
-            minimized: _chatMinimized,
-            onToggleMinimize: () {
-              setState(() => _chatMinimized = !_chatMinimized);
-            },
-            messages: _messages,
-            chatController: _chat,
-            onSend: _send,
-            onReaction: _react,
-            allowTextInput: allowTextInput,
-            allowReactions: allowReactions,
-          ),
-        ),
-      ],
     );
   }
 
@@ -681,17 +723,13 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         padding: const EdgeInsets.all(12),
         child: Text(
           'Error: $_errorText',
-          style: const TextStyle(
-            color: Colors.redAccent,
-          ),
+          style: const TextStyle(color: Colors.redAccent),
         ),
       );
     }
 
-    // HOST controls
     if (widget.isHost) {
-      final host = _hostSession;
-      final started = host != null;
+      final started = _connected;
 
       return Glass(
         borderRadius: 18,
@@ -699,30 +737,18 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (started) ...[
-              ValueListenableBuilder<String?>(
-                valueListenable: host.hostIp,
-                builder: (_, ip, __) => Text(
-                  'Host: ${(ip ?? '...')}:${_port} • side: ${liveHostSideToWire(_mySide)}',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
+            Text(
+              'Room: ${_roomName ?? '...'} • side: ${liveHostSideToWire(_mySide)}',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _busy || started ? null : _startHost,
+                    onPressed: _busy || started ? null : () => _connectOnline(publishIfHost: true),
                     icon: const Icon(Icons.cast),
-                    label: Text(
-                      _busy
-                          ? 'Starting...'
-                          : (started ? 'Broadcasting' : 'Start Broadcast'),
-                    ),
+                    label: Text(_busy ? 'Starting...' : (started ? 'Broadcasting' : 'Start Broadcast')),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -732,14 +758,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                         ? null
                         : () async {
                             setState(() => _busy = true);
-                            await LocalLiveService.instance.stopHostSession(
-                              liveMatchId: widget.matchId,
-                            );
-                            if (mounted) {
-                              setState(() => _busy = false);
-                              setState(() => _hostSession = null);
-                              await _stopOverlayBubble();
-                            }
+                            await _disconnectRoom();
+                            if (mounted) setState(() => _busy = false);
                           },
                     icon: const Icon(Icons.stop),
                     label: const Text('Stop'),
@@ -750,54 +770,39 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
             const SizedBox(height: 10),
             Row(
               children: [
-                if (started)
-                  ValueListenableBuilder<bool>(
-                    valueListenable: host.micEnabled,
-                    builder: (context, enabled, _) {
-                      return IconButton.filled(
-                        onPressed: () => host.setMicEnabled(!enabled),
-                        style: IconButton.styleFrom(
-                          backgroundColor: enabled
-                              ? Colors.greenAccent.withOpacity(0.3)
-                              : Colors.redAccent.withOpacity(0.3),
-                        ),
-                        icon: Icon(
-                          enabled ? Icons.mic : Icons.mic_off,
-                          color: Colors.white,
-                        ),
-                      );
-                    },
+                IconButton.filled(
+                  onPressed: started ? _toggleHostMic : null,
+                  style: IconButton.styleFrom(
+                    backgroundColor:
+                        (_hostMicEnabled ? Colors.greenAccent : Colors.redAccent).withOpacity(0.3),
                   ),
-                if (started) const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => BatteryOptimizationGuide.show(context),
-                    icon: const Icon(Icons.battery_alert_outlined),
-                    label: const Text(
-                      'Battery / Background Help',
-                    ),
+                  icon: Icon(_hostMicEnabled ? Icons.mic : Icons.mic_off, color: Colors.white),
+                  tooltip: _hostMicEnabled ? 'Mic ON' : 'Mic OFF',
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: started ? _toggleHostCamera : null,
+                  style: IconButton.styleFrom(backgroundColor: Colors.white12),
+                  icon: Icon(_hostCameraEnabled ? Icons.videocam : Icons.videocam_off, color: Colors.white),
+                  tooltip: _hostCameraEnabled ? 'Camera ON' : 'Camera OFF',
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: started ? _toggleHostScreenShare : null,
+                  style: IconButton.styleFrom(backgroundColor: Colors.white12),
+                  icon: Icon(
+                    _hostScreenEnabled ? Icons.screen_share : Icons.stop_screen_share,
+                    color: Colors.white,
                   ),
+                  tooltip: _hostScreenEnabled ? 'Screen share ON' : 'Screen share OFF',
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _showQuickMessageSheet,
-                icon: const Icon(
-                  Icons.chat_bubble_outline,
-                  color: Colors.cyanAccent,
-                  size: 18,
-                ),
-                label: const Text(
-                  'Quick message',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () => BatteryOptimizationGuide.show(context),
+              icon: const Icon(Icons.battery_alert_outlined),
+              label: const Text('Battery / Background Help'),
             ),
           ],
         ),
@@ -805,222 +810,157 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     }
 
     // VIEWER controls
-    final icon = _viewerAudioEnabled ? Icons.volume_up : Icons.volume_off;
-
-    final iconColor = _viewerAudioEnabled ? Colors.greenAccent : Colors.redAccent;
-
-    final isDual = _viewerLayoutMode == _ViewerLayoutMode.dual;
-
     return Glass(
       borderRadius: 18,
       padding: const EdgeInsets.all(12),
-      child: Row(
+      child: Column(
         children: [
-          // Viewer audio (app-only)
-          IconButton.filled(
-            onPressed: _viewerVoiceEnabled ? _toggleViewerAudio : null,
-            style: IconButton.styleFrom(
-              backgroundColor:
-                  _viewerVoiceEnabled ? iconColor.withOpacity(0.3) : Colors.white12,
-            ),
-            icon: Icon(
-              icon,
-              color: Colors.white,
-            ),
-            tooltip: _viewerVoiceEnabled
-                ? (_viewerAudioEnabled ? 'Mute audio' : 'Unmute audio')
-                : 'Viewer audio disabled by admin',
+          Row(
+            children: [
+              IconButton.filled(
+                onPressed: _toggleViewerAudio,
+                style: IconButton.styleFrom(
+                  backgroundColor: (_viewerAudioEnabled ? Colors.greenAccent : Colors.redAccent)
+                      .withOpacity(0.3),
+                ),
+                icon: Icon(
+                  _viewerAudioEnabled ? Icons.volume_up : Icons.volume_off,
+                  color: Colors.white,
+                ),
+                tooltip: _viewerAudioEnabled ? 'Mute audio' : 'Unmute audio',
+              ),
+              const SizedBox(width: 10),
+              IconButton.filled(
+                onPressed: _toggleViewerLayoutMode,
+                style: IconButton.styleFrom(backgroundColor: Colors.white12),
+                icon: Icon(
+                  _viewerLayoutMode == _ViewerLayoutMode.dual ? Icons.view_agenda : Icons.view_week,
+                  color: Colors.white,
+                ),
+                tooltip: _viewerLayoutMode == _ViewerLayoutMode.dual ? 'Focus one screen' : 'Show both screens',
+              ),
+              const SizedBox(width: 10),
+              IconButton.filled(
+                onPressed: _toggleFullscreen,
+                style: IconButton.styleFrom(backgroundColor: Colors.white12),
+                icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white),
+                tooltip: _isFullscreen ? 'Exit full screen' : 'Full screen',
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          setState(() => _busy = true);
+                          await _disconnectRoom();
+                          if (mounted) {
+                            setState(() => _busy = false);
+                            Navigator.maybePop(context);
+                          }
+                        },
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Leave'),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          // Layout: single vs dual
-          IconButton.filled(
-            onPressed: _toggleViewerLayoutMode,
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white12,
+          const SizedBox(height: 10),
+          if (!_connected)
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : () => _connectOnline(publishIfHost: false),
+                    icon: const Icon(Icons.refresh),
+                    label: Text(_busy ? 'Connecting...' : 'Reconnect'),
+                  ),
+                ),
+              ],
             ),
-            icon: Icon(
-              isDual ? Icons.view_agenda : Icons.view_week,
-              color: Colors.white,
-            ),
-            tooltip: isDual ? 'Focus one screen' : 'Show both screens',
-          ),
-          const SizedBox(width: 10),
-          // Full-screen toggle
-          IconButton.filled(
-            onPressed: _toggleFullscreen,
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white12,
-            ),
-            icon: Icon(
-              _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-              color: Colors.white,
-            ),
-            tooltip: _isFullscreen ? 'Exit full screen' : 'Full screen',
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _busy
-                  ? null
-                  : () async {
-                      setState(() => _busy = true);
-                      await _stopAll();
-                      if (mounted) {
-                        setState(() => _busy = false);
-                        Navigator.maybePop(context);
-                      }
-                    },
-              icon: const Icon(Icons.logout),
-              label: const Text('Leave'),
-            ),
-          ),
         ],
       ),
     );
   }
 
   Widget _buildStreamArea(BuildContext context) {
-    Widget base;
+    final homeScreen = _remoteVideoForSide(LiveHostSide.home, prefer: 'screen');
+    final awayScreen = _remoteVideoForSide(LiveHostSide.away, prefer: 'screen');
 
-    // HOST preview
-    if (widget.isHost && _hostSession != null) {
-      final host = _hostSession!;
+    final homeCam = _remoteVideoForSide(LiveHostSide.home, prefer: 'camera');
+    final awayCam = _remoteVideoForSide(LiveHostSide.away, prefer: 'camera');
+
+    final localScreen = _localVideo(prefer: 'screen');
+    final localCam = _localVideo(prefer: 'camera');
+
+    if (widget.isHost) {
       final mySide = _mySide;
+      final main = localScreen ?? localCam ?? (mySide == LiveHostSide.home ? homeScreen : awayScreen);
 
-      final leftCam = (mySide == LiveHostSide.away) ? null : host.cameraRenderer;
-      final rightCam = (mySide == LiveHostSide.home) ? null : host.cameraRenderer;
+      final leftTrack = (mySide == LiveHostSide.away) ? homeCam : localCam;
+      final rightTrack = (mySide == LiveHostSide.home) ? awayCam : localCam;
 
-      base = _GamerStreamLayout(
+      return _GamerStreamLayout(
         matchTitle: '$_homeLabel vs $_awayLabel',
-        screenRenderer: host.screenRenderer,
-        camLeft: leftCam,
-        camRight: rightCam,
+        screenTrack: main,
+        camLeft: leftTrack,
+        camRight: rightTrack,
         leftLabel: _homeLabel,
         rightLabel: _awayLabel,
-        leftHint: (mySide == LiveHostSide.away) ? 'Waiting…' : null,
-        rightHint: (mySide == LiveHostSide.home) ? 'Waiting…' : null,
+        leftHint: (mySide == LiveHostSide.away && leftTrack == null) ? 'Waiting…' : null,
+        rightHint: (mySide == LiveHostSide.home && rightTrack == null) ? 'Waiting…' : null,
         primary: _primary,
         onTapLeft: () => setState(() => _primary = _PrimarySide.home),
         onTapRight: () => setState(() => _primary = _PrimarySide.away),
       );
-    } else {
-      // VIEWER mode
-      final primaryScreen =
-          (_primary == _PrimarySide.home) ? _homeViewer?.screenRenderer : _awayViewer?.screenRenderer;
-
-      if (_viewerLayoutMode == _ViewerLayoutMode.single) {
-        // One main screen + 2 cams
-        base = _GamerStreamLayout(
-          matchTitle: '$_homeLabel vs $_awayLabel',
-          screenRenderer: primaryScreen,
-          camLeft: _homeViewer?.cameraRenderer,
-          camRight: _awayViewer?.cameraRenderer,
-          leftLabel: _homeLabel,
-          rightLabel: _awayLabel,
-          leftHint: (_homeViewer == null) ? 'Waiting…' : null,
-          rightHint: (_awayViewer == null) ? 'Waiting…' : null,
-          primary: _primary,
-          onTapLeft: () => setState(() {
-            _primary = _PrimarySide.home;
-          }),
-          onTapRight: () => setState(() {
-            _primary = _PrimarySide.away;
-          }),
-        );
-      } else {
-        // Dual layout: both screens + both cams
-        base = _DualViewerStreamLayout(
-          matchTitle: '$_homeLabel vs $_awayLabel',
-          homeScreen: _homeViewer?.screenRenderer,
-          awayScreen: _awayViewer?.screenRenderer,
-          homeCam: _homeViewer?.cameraRenderer,
-          awayCam: _awayViewer?.cameraRenderer,
-          homeLabel: _homeLabel,
-          awayLabel: _awayLabel,
-          onTapHomeScreen: () {
-            // tap HOME in dual -> switch to single HOME + auto full-screen
-            setState(() {
-              _primary = _PrimarySide.home;
-              _viewerLayoutMode = _ViewerLayoutMode.single;
-            });
-            _toggleFullscreen();
-          },
-          onTapAwayScreen: () {
-            // tap AWAY in dual -> switch to single AWAY + auto full-screen
-            setState(() {
-              _primary = _PrimarySide.away;
-              _viewerLayoutMode = _ViewerLayoutMode.single;
-            });
-            _toggleFullscreen();
-          },
-        );
-      }
     }
 
-    if (_quickText != null) {
-      return Stack(
-        children: [
-          base,
-          _QuickMessageOverlay(
-            text: _quickText!,
-            from: _quickFrom,
-          ),
-        ],
+    final primaryScreen = (_primary == _PrimarySide.home) ? (homeScreen ?? homeCam) : (awayScreen ?? awayCam);
+
+    if (_viewerLayoutMode == _ViewerLayoutMode.single) {
+      return _GamerStreamLayout(
+        matchTitle: '$_homeLabel vs $_awayLabel',
+        screenTrack: primaryScreen,
+        camLeft: homeCam,
+        camRight: awayCam,
+        leftLabel: _homeLabel,
+        rightLabel: _awayLabel,
+        leftHint: (homeScreen == null && homeCam == null) ? 'Waiting…' : null,
+        rightHint: (awayScreen == null && awayCam == null) ? 'Waiting…' : null,
+        primary: _primary,
+        onTapLeft: () => setState(() => _primary = _PrimarySide.home),
+        onTapRight: () => setState(() => _primary = _PrimarySide.away),
       );
     }
 
-    return base;
-  }
-
-  void _send() {
-    final txt = _chat.text.trim();
-    if (txt.isEmpty) return;
-    _chat.clear();
-
-    if (!widget.isHost) {
-      final v = _homeViewer ?? _awayViewer;
-      v?.sendChat(txt);
-      return;
-    }
-
-    final evt = {
-      'kind': 'chat',
-      'text': txt,
-      'from': 'HOST',
-    };
-    setState(() => _messages.add('HOST: $txt'));
-    LocalLiveService.instance.broadcastHostEvent(
-      liveMatchId: widget.matchId,
-      event: evt,
-    );
-  }
-
-  void _react(String reactionLabel) {
-    if (!widget.isHost) {
-      final v = _homeViewer ?? _awayViewer;
-      v?.sendReaction(reactionLabel);
-      return;
-    }
-
-    final evt = {
-      'kind': 'reaction',
-      'reaction': reactionLabel,
-      'from': 'HOST',
-    };
-    setState(() => _messages.add('HOST reacted: $reactionLabel'));
-    LocalLiveService.instance.broadcastHostEvent(
-      liveMatchId: widget.matchId,
-      event: evt,
+    return _DualViewerStreamLayout(
+      matchTitle: '$_homeLabel vs $_awayLabel',
+      homeMain: homeScreen ?? homeCam,
+      awayMain: awayScreen ?? awayCam,
+      homeCam: homeCam,
+      awayCam: awayCam,
+      homeLabel: _homeLabel,
+      awayLabel: _awayLabel,
+      onTapHome: () {
+        setState(() {
+          _primary = _PrimarySide.home;
+          _viewerLayoutMode = _ViewerLayoutMode.single;
+        });
+        _toggleFullscreen();
+      },
+      onTapAway: () {
+        setState(() {
+          _primary = _PrimarySide.away;
+          _viewerLayoutMode = _ViewerLayoutMode.single;
+        });
+        _toggleFullscreen();
+      },
     );
   }
 }
 
-class _QuickMessageOverlay extends StatelessWidget {
-  const _QuickMessageOverlay({
-    required this.text,
-    this.from,
-  });
-
+class _IncomingQuickBanner extends StatelessWidget {
+  const _IncomingQuickBanner({required this.text, this.from});
   final String text;
   final String? from;
 
@@ -1028,51 +968,26 @@ class _QuickMessageOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return IgnorePointer(
       ignoring: true,
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: Padding(
-          padding: const EdgeInsets.only(top: 24),
-          child: Glass(
-            borderRadius: 24,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 8,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.chat_bubble,
-                  color: Colors.cyanAccent,
-                  size: 18,
+      child: Glass(
+        borderRadius: 18,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.bolt, color: Colors.cyanAccent, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                from == null ? text : '$from: $text',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
                 ),
-                const SizedBox(width: 8),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (from != null)
-                      Text(
-                        from!,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    Text(
-                      text,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -1082,32 +997,31 @@ class _QuickMessageOverlay extends StatelessWidget {
 class _DualViewerStreamLayout extends StatelessWidget {
   const _DualViewerStreamLayout({
     required this.matchTitle,
-    required this.homeScreen,
-    required this.awayScreen,
+    required this.homeMain,
+    required this.awayMain,
     required this.homeCam,
     required this.awayCam,
     required this.homeLabel,
     required this.awayLabel,
-    required this.onTapHomeScreen,
-    required this.onTapAwayScreen,
+    required this.onTapHome,
+    required this.onTapAway,
   });
 
   final String matchTitle;
-  final RTCVideoRenderer? homeScreen;
-  final RTCVideoRenderer? awayScreen;
-  final RTCVideoRenderer? homeCam;
-  final RTCVideoRenderer? awayCam;
+
+  final VideoTrack? homeMain;
+  final VideoTrack? awayMain;
+  final VideoTrack? homeCam;
+  final VideoTrack? awayCam;
+
   final String homeLabel;
   final String awayLabel;
 
-  final VoidCallback onTapHomeScreen;
-  final VoidCallback onTapAwayScreen;
+  final VoidCallback onTapHome;
+  final VoidCallback onTapAway;
 
   @override
   Widget build(BuildContext context) {
-    final hasHomeScreen = homeScreen != null && homeScreen!.srcObject != null;
-    final hasAwayScreen = awayScreen != null && awayScreen!.srcObject != null;
-
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(10),
@@ -1117,10 +1031,7 @@ class _DualViewerStreamLayout extends StatelessWidget {
             opacity: 0.9,
             child: Glass(
               borderRadius: 999,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 6,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               child: Text(
                 matchTitle,
                 textAlign: TextAlign.center,
@@ -1140,24 +1051,17 @@ class _DualViewerStreamLayout extends StatelessWidget {
               children: [
                 Expanded(
                   child: GestureDetector(
-                    onTap: onTapHomeScreen,
+                    onTap: onTapHome,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
                       child: Container(
                         color: Colors.black.withOpacity(0.35),
-                        child: hasHomeScreen
-                            ? RTCVideoView(
-                                homeScreen!,
-                                objectFit: RTCVideoViewObjectFit
-                                    .RTCVideoViewObjectFitContain,
-                              )
+                        child: homeMain != null
+                            ? VideoTrackRenderer(homeMain!)
                             : Center(
                                 child: Text(
-                                  'Waiting for $homeLabel screen…',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleSmall
-                                      ?.copyWith(
+                                  'Waiting for $homeLabel…',
+                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                         color: Colors.white70,
                                       ),
                                 ),
@@ -1169,24 +1073,17 @@ class _DualViewerStreamLayout extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: GestureDetector(
-                    onTap: onTapAwayScreen,
+                    onTap: onTapAway,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
                       child: Container(
                         color: Colors.black.withOpacity(0.35),
-                        child: hasAwayScreen
-                            ? RTCVideoView(
-                                awayScreen!,
-                                objectFit: RTCVideoViewObjectFit
-                                    .RTCVideoViewObjectFitContain,
-                              )
+                        child: awayMain != null
+                            ? VideoTrackRenderer(awayMain!)
                             : Center(
                                 child: Text(
-                                  'Waiting for $awayLabel screen…',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleSmall
-                                      ?.copyWith(
+                                  'Waiting for $awayLabel…',
+                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                         color: Colors.white70,
                                       ),
                                 ),
@@ -1204,15 +1101,15 @@ class _DualViewerStreamLayout extends StatelessWidget {
             children: [
               _CircularCam(
                 label: homeLabel,
-                renderer: homeCam,
-                hint: (homeCam == null || homeCam!.srcObject == null) ? 'Cam…' : null,
+                track: homeCam,
+                hint: homeCam == null ? 'Cam…' : null,
                 selected: false,
                 onTap: () {},
               ),
               _CircularCam(
                 label: awayLabel,
-                renderer: awayCam,
-                hint: (awayCam == null || awayCam!.srcObject == null) ? 'Cam…' : null,
+                track: awayCam,
+                hint: awayCam == null ? 'Cam…' : null,
                 selected: false,
                 onTap: () {},
               ),
@@ -1227,7 +1124,7 @@ class _DualViewerStreamLayout extends StatelessWidget {
 class _GamerStreamLayout extends StatelessWidget {
   const _GamerStreamLayout({
     required this.matchTitle,
-    required this.screenRenderer,
+    required this.screenTrack,
     required this.camLeft,
     required this.camRight,
     required this.leftLabel,
@@ -1241,9 +1138,9 @@ class _GamerStreamLayout extends StatelessWidget {
 
   final String matchTitle;
 
-  final RTCVideoRenderer? screenRenderer;
-  final RTCVideoRenderer? camLeft;
-  final RTCVideoRenderer? camRight;
+  final VideoTrack? screenTrack;
+  final VideoTrack? camLeft;
+  final VideoTrack? camRight;
 
   final String leftLabel;
   final String rightLabel;
@@ -1256,8 +1153,6 @@ class _GamerStreamLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasScreen = screenRenderer != null && screenRenderer!.srcObject != null;
-
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(10),
@@ -1268,19 +1163,12 @@ class _GamerStreamLayout extends StatelessWidget {
               borderRadius: BorderRadius.circular(18),
               child: Container(
                 color: Colors.black.withOpacity(0.35),
-                child: hasScreen
-                    ? RTCVideoView(
-                        screenRenderer!,
-                        objectFit: RTCVideoViewObjectFit
-                            .RTCVideoViewObjectFitContain,
-                      )
+                child: screenTrack != null
+                    ? VideoTrackRenderer(screenTrack!)
                     : Center(
                         child: Text(
-                          'Waiting for screen…',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
-                              ?.copyWith(
+                          'Waiting for stream…',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                 color: Colors.white70,
                               ),
                         ),
@@ -1296,10 +1184,7 @@ class _GamerStreamLayout extends StatelessWidget {
               opacity: 0.9,
               child: Glass(
                 borderRadius: 999,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 child: Text(
                   matchTitle,
                   textAlign: TextAlign.center,
@@ -1319,7 +1204,7 @@ class _GamerStreamLayout extends StatelessWidget {
             left: 10,
             child: _CircularCam(
               label: leftLabel,
-              renderer: camLeft,
+              track: camLeft,
               hint: leftHint,
               selected: primary == _PrimarySide.home,
               onTap: onTapLeft,
@@ -1330,7 +1215,7 @@ class _GamerStreamLayout extends StatelessWidget {
             right: 10,
             child: _CircularCam(
               label: rightLabel,
-              renderer: camRight,
+              track: camRight,
               hint: rightHint,
               selected: primary == _PrimarySide.away,
               onTap: onTapRight,
@@ -1345,22 +1230,20 @@ class _GamerStreamLayout extends StatelessWidget {
 class _CircularCam extends StatelessWidget {
   const _CircularCam({
     required this.label,
-    required this.renderer,
+    required this.track,
     required this.selected,
     required this.onTap,
     this.hint,
   });
 
   final String label;
-  final RTCVideoRenderer? renderer;
+  final VideoTrack? track;
   final bool selected;
   final VoidCallback onTap;
   final String? hint;
 
   @override
   Widget build(BuildContext context) {
-    final ready = renderer != null && renderer!.srcObject != null;
-
     return Opacity(
       opacity: 0.86,
       child: InkWell(
@@ -1374,19 +1257,14 @@ class _CircularCam extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color:
-                      selected ? Colors.cyanAccent.withOpacity(0.95) : Colors.white24,
+                  color: selected ? Colors.cyanAccent.withOpacity(0.95) : Colors.white24,
                   width: 2,
                 ),
                 color: Colors.black.withOpacity(0.35),
               ),
               child: ClipOval(
-                child: ready
-                    ? RTCVideoView(
-                        renderer!,
-                        objectFit: RTCVideoViewObjectFit
-                            .RTCVideoViewObjectFitCover,
-                      )
+                child: track != null
+                    ? VideoTrackRenderer(track!)
                     : Center(
                         child: Text(
                           hint ?? '…',
@@ -1401,16 +1279,11 @@ class _CircularCam extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 4,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.30),
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: Colors.white24,
-                ),
+                border: Border.all(color: Colors.white24),
               ),
               child: Text(
                 label,
@@ -1425,131 +1298,6 @@ class _CircularCam extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _ChatOverlay extends StatelessWidget {
-  const _ChatOverlay({
-    required this.minimized,
-    required this.onToggleMinimize,
-    required this.messages,
-    required this.chatController,
-    required this.onSend,
-    required this.onReaction,
-    required this.allowTextInput,
-    required this.allowReactions,
-  });
-
-  final bool minimized;
-  final VoidCallback onToggleMinimize;
-
-  final List<String> messages;
-  final TextEditingController chatController;
-  final VoidCallback onSend;
-  final void Function(String) onReaction;
-
-  /// If false: only show quick reactions, no text input.
-  final bool allowTextInput;
-
-  /// If false: hide quick reactions row.
-  final bool allowReactions;
-
-  @override
-  Widget build(BuildContext context) {
-    return Glass(
-      padding: const EdgeInsets.all(12),
-      borderRadius: 22,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Chat',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              IconButton(
-                tooltip: minimized ? 'Expand chat' : 'Minimize chat',
-                onPressed: onToggleMinimize,
-                icon: Icon(
-                  minimized ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                  color: Colors.white70,
-                ),
-              ),
-            ],
-          ),
-          if (!minimized) ...[
-            SizedBox(
-              height: 120,
-              child: ListView.builder(
-                reverse: true,
-                itemCount: messages.length,
-                itemBuilder: (context, i) {
-                  final msg = messages[messages.length - 1 - i];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      msg,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (allowReactions)
-              Row(
-                children: [
-                  ...[
-                    ('GG', Icons.emoji_events_outlined),
-                    ('Wow', Icons.flash_on_outlined),
-                    ('Clutch', Icons.local_fire_department_outlined),
-                  ].map(
-                    (e) => Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: IconButton(
-                        onPressed: () => onReaction(e.$1),
-                        icon: Icon(e.$2, size: 20),
-                        color: Colors.cyanAccent,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            if (allowTextInput) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: chatController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        hintText: 'Type a message',
-                      ),
-                      onSubmitted: (_) => onSend(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: onSend,
-                    child: const Text('Send'),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ],
       ),
     );
   }
