@@ -58,47 +58,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _speakerMutedByHost = false;
   String _myRequestStatus = ''; // '', 'pending', 'approved', 'denied'
 
-  static const _reactions = <String>[
-    '👍',
-    '😂',
-    '🎉',
-    '👏',
-    '🙏',
-    '💯',
-    '❤️',
-    '💪',
-    '👎',
-    '👌',
-    '🤸',
-    '⚽',
-    '🏁',
-    '🇺🇸',
-    '🇬🇧',
-    '🇳🇬',
-    '🇫🇷',
-    '🇩🇪',
-    '🇪🇸',
-    '🇮🇹',
-    '🇧🇷',
-    '🇦🇷',
-    '🇵🇹',
-    '🇲🇽',
-    '🇨🇦',
-    '🇿🇦',
-    '🇯🇵',
-    '🇰🇷',
-    '🇨🇳',
-    '🇮🇳'
-  ];
-
   DocumentReference<Map<String, dynamic>> get _spaceDoc => _firestore
       .collection('leagues')
       .doc(widget.leagueId)
       .collection('space')
       .doc('current');
-
-  CollectionReference<Map<String, dynamic>> get _reactionsCol =>
-      _spaceDoc.collection('reactions');
 
   CollectionReference<Map<String, dynamic>> get _requestsCol =>
       _spaceDoc.collection('requests');
@@ -122,8 +86,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final prefs = await PreferencesService.create();
     _uid = prefs.getCurrentUserId() ?? '';
 
-    // Twitter Spaces behavior: request microphone permission on join (screen open).
-    _requestMicPermissionOnJoin();
+    // IMPORTANT:
+    // Await the mic permission request before any auto-connect/prime happens.
+    await _requestMicPermissionOnJoin();
 
     _spaceSub = _spaceDoc.snapshots().listen((snap) async {
       if (!mounted) return;
@@ -173,13 +138,17 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     });
   }
 
-  Future<void> _requestMicPermissionOnJoin() async {
-    if (_requestedMicPermissionOnJoin) return;
+  Future<bool> _requestMicPermissionOnJoin() async {
+    if (_requestedMicPermissionOnJoin) {
+      final st = await Permission.microphone.status;
+      return st.isGranted;
+    }
     _requestedMicPermissionOnJoin = true;
     try {
-      await Permission.microphone.request();
+      final st = await Permission.microphone.request();
+      return st.isGranted;
     } catch (_) {
-      // ignore
+      return false;
     }
   }
 
@@ -268,6 +237,15 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool get _isHost =>
       _space != null && _uid.isNotEmpty && _space!.hostUserId == _uid;
 
+  Future<void> _maybeStartAudioPlayback(Room room) async {
+    // Best-effort: some platforms require explicit audio start.
+    try {
+      await (room as dynamic).startAudio();
+    } catch (_) {
+      // ignore
+    }
+  }
+
   Future<void> _connectAudio() async {
     if (_joiningAudio || _connected) return;
     if (!_isLive) return;
@@ -279,6 +257,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     });
 
     try {
+      // Ensure mic permission decision is final BEFORE join/prime.
+      await _requestMicPermissionOnJoin();
+
       final token = await LiveKitService.fetchToken(
         leagueId: widget.leagueId,
         userId: _uid,
@@ -316,6 +297,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       await room.connect(token.url, token.token);
 
+      // Start playback (best-effort)
+      await _maybeStartAudioPlayback(room);
+
       if (!mounted) return;
 
       setState(() {
@@ -349,7 +333,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final micStatus = await Permission.microphone.status;
     if (!micStatus.isGranted) {
       // User can still listen; but cannot become a speaker instantly later without republish.
-      // This matches your non-negotiable: approval must only unmute an already-published track.
+      // This matches: approval must only unmute an already-published track.
       return;
     }
 
@@ -482,15 +466,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
   }
 
-  Future<void> _sendReaction(String emoji) async {
-    if (_uid.isEmpty) return;
-    await _reactionsCol.add({
-      'emoji': emoji,
-      'userId': _uid,
-      'atMs': DateTime.now().millisecondsSinceEpoch,
-    });
-  }
-
   Future<void> _approveRequest(String userId) async {
     if (!_isHost) return;
 
@@ -538,9 +513,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   Future<void> _toggleMuteSpeaker(String userId, bool muted) async {
     if (!_isHost) return;
-    await _speakersCol
-        .doc(userId)
-        .set({'muted': muted}, SetOptions(merge: true));
+    await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true));
     _toast(muted ? 'Muted $userId' : 'Unmuted $userId');
   }
 
@@ -580,8 +553,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 padding: const EdgeInsets.all(16),
                 child: _loading
                     ? const Center(
-                        child: CircularProgressIndicator(
-                            color: Colors.cyanAccent))
+                        child: CircularProgressIndicator(color: Colors.cyanAccent))
                     : _error.isNotEmpty
                         ? Center(
                             child: Text(
@@ -680,8 +652,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(strokeWidth: 2),
                               )
                             : Icon(_connected
                                 ? Icons.call_end
@@ -713,7 +684,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
                 ),
                 const SizedBox(height: 10),
-
                 if (!_isHost) ...[
                   Row(
                     children: [
@@ -755,7 +725,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ),
         ),
         const SizedBox(height: 12),
-
         if (_isHost) ...[
           Glass(
             borderRadius: 16,
@@ -918,25 +887,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             ),
           ),
         ],
-        const SizedBox(height: 12),
-        Glass(
-          borderRadius: 16,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _reactions
-                  .map(
-                    (e) => OutlinedButton(
-                      onPressed: () => _sendReaction(e),
-                      child: Text(e),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ),
       ],
     );
   }
