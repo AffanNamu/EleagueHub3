@@ -13,6 +13,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../leagues/services/livekit_service.dart';
+import '../data/foreground_streaming_service.dart';
 import '../data/local_discovery.dart';
 import 'battery_optimization_guide.dart';
 import 'widgets/live_floating_quick_message.dart';
@@ -67,7 +68,11 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   bool _hostMicEnabled = true;
   bool _hostCameraEnabled = true;
-  bool _hostScreenEnabled = false; // IMPORTANT: do NOT auto-start screen share
+  bool _hostScreenEnabled = false;
+
+  // If true, host will start screen sharing right after "Start Broadcast"
+  // (Android will show a system prompt; user must accept).
+  final bool _autoStartScreenShareOnBroadcast = true;
 
   // Incoming quick message overlay
   Timer? _incomingQuickTimer;
@@ -120,9 +125,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     super.dispose();
   }
 
-  // IMPORTANT FIX:
-  // Do NOT request overlay permission automatically (this opens Settings and feels like "app kicked me out").
-  // Only start overlay bubble if permission is already granted.
+  // Do NOT request overlay permission automatically.
   Future<void> _maybeStartOverlayBubbleIfGranted() async {
     if (!Platform.isAndroid) return;
     final prefs = ref.read(prefsServiceProvider);
@@ -140,6 +143,29 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     if (!Platform.isAndroid) return;
     try {
       await _liveChannel.invokeMethod('stopLiveOverlayBubble');
+    } catch (_) {}
+  }
+
+  Future<void> _startHostForegroundService() async {
+    if (!widget.isHost) return;
+    try {
+      final title = 'Live: ${_homeLabel.isNotEmpty ? _homeLabel : ''}'
+          '${_awayLabel.isNotEmpty ? ' vs $_awayLabel' : ''}'.trim();
+      await ForegroundStreamingService.start(
+        matchId: widget.matchId,
+        title: title.isEmpty ? 'Live match: ${widget.matchId}' : title,
+        text: 'Broadcasting online • Keep app alive in background',
+      );
+    } catch (_) {
+      // If this fails, Android may kill the app in background.
+      // We keep going, but user might see "starts fresh" when minimized.
+    }
+  }
+
+  Future<void> _stopHostForegroundService() async {
+    if (!widget.isHost) return;
+    try {
+      await ForegroundStreamingService.stop();
     } catch (_) {}
   }
 
@@ -187,6 +213,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       _listener!.on<RoomDisconnectedEvent>((event) {
         if (!mounted) return;
         setState(() => _connected = false);
+        if (widget.isHost) {
+          ForegroundStreamingService.stop();
+        }
       });
 
       // Data event handling (quick messages)
@@ -249,7 +278,13 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       await _maybeStartOverlayBubbleIfGranted();
 
       if (publishIfHost && widget.isHost) {
+        await _startHostForegroundService();
         await _ensureHostPublishing();
+
+        if (_autoStartScreenShareOnBroadcast) {
+          // This will show Android “Start now” prompt; user must accept.
+          await _setHostScreenShareEnabled(true);
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -312,7 +347,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       await Permission.camera.request();
     } catch (_) {}
 
-    // Start only mic + camera. Screen share is manual toggle.
     try {
       await room.localParticipant?.setMicrophoneEnabled(true);
       _hostMicEnabled = true;
@@ -323,10 +357,25 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       _hostCameraEnabled = true;
     } catch (_) {}
 
-    _hostScreenEnabled = false;
-
     if (!mounted) return;
     setState(() {});
+  }
+
+  Future<void> _setHostScreenShareEnabled(bool enabled) async {
+    final room = _room;
+    if (room == null) return;
+
+    try {
+      await room.localParticipant?.setScreenShareEnabled(enabled);
+      if (!mounted) return;
+      setState(() => _hostScreenEnabled = enabled);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _hostScreenEnabled = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Screen share failed: $e')),
+      );
+    }
   }
 
   Future<void> _disconnectRoom() async {
@@ -349,13 +398,37 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     } catch (_) {}
 
     _connected = false;
+
     await _stopOverlayBubble();
+    await _stopHostForegroundService();
   }
 
-  String _enumName(Object e) {
-    final s = e.toString();
-    final i = s.indexOf('.');
-    return i == -1 ? s : s.substring(i + 1);
+  VideoTrack? _videoTrackFromParticipant(dynamic p, {TrackSource? preferredSource}) {
+    try {
+      final pubs = (p as dynamic).videoTrackPublications;
+      Iterable<dynamic> videoPubs = const [];
+      if (pubs is Iterable) {
+        videoPubs = pubs.cast<dynamic>();
+      } else if (pubs is Map) {
+        videoPubs = pubs.values.cast<dynamic>();
+      }
+
+      if (preferredSource != null) {
+        for (final pub in videoPubs) {
+          final track = (pub as dynamic).track;
+          if (track == null) continue;
+          final src = (pub as dynamic).source;
+          if (src == preferredSource) return track as VideoTrack;
+        }
+      }
+
+      for (final pub in videoPubs) {
+        final track = (pub as dynamic).track;
+        if (track == null) continue;
+        return track as VideoTrack;
+      }
+    } catch (_) {}
+    return null;
   }
 
   LiveHostSide _sideFromParticipant(dynamic p) {
@@ -371,84 +444,33 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     return LiveHostSide.unknown;
   }
 
-  bool _isScreenSource(dynamic source) {
-    try {
-      final n = _enumName(source as Object).toLowerCase();
-      return n.contains('screen');
-    } catch (_) {
-      return false;
-    }
-  }
-
-  bool _isCameraSource(dynamic source) {
-    try {
-      final n = _enumName(source as Object).toLowerCase();
-      return n.contains('camera');
-    } catch (_) {
-      return false;
-    }
-  }
-
-  VideoTrack? _videoTrackFromParticipant(dynamic p, {required String prefer}) {
-    try {
-      final pubs = (p as dynamic).videoTrackPublications;
-      Iterable<dynamic> videoPubs = const [];
-      if (pubs is Iterable) {
-        videoPubs = pubs.cast<dynamic>();
-      } else if (pubs is Map) {
-        videoPubs = pubs.values.cast<dynamic>();
-      }
-
-      for (final pub in videoPubs) {
-        final track = (pub as dynamic).track;
-        if (track == null) continue;
-
-        final src = (pub as dynamic).source;
-        if (prefer == 'screen' && _isScreenSource(src)) return track as VideoTrack;
-        if (prefer == 'camera' && _isCameraSource(src)) return track as VideoTrack;
-      }
-
-      for (final pub in videoPubs) {
-        final track = (pub as dynamic).track;
-        if (track == null) continue;
-        return track as VideoTrack;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  VideoTrack? _localVideo({required String prefer}) {
+  VideoTrack? _localVideo(TrackSource preferredSource) {
     final room = _room;
     if (room == null) return null;
     final lp = room.localParticipant;
     if (lp == null) return null;
-    return _videoTrackFromParticipant(lp, prefer: prefer);
+    return _videoTrackFromParticipant(lp, preferredSource: preferredSource);
   }
 
-  VideoTrack? _remoteVideoForSide(LiveHostSide side, {required String prefer}) {
+  VideoTrack? _remoteVideoForSide(LiveHostSide side, TrackSource preferredSource) {
     final room = _room;
     if (room == null) return null;
 
     try {
-      final remotes = (room as dynamic).remoteParticipants;
-      Iterable<dynamic> participants = const [];
-      if (remotes is Map) {
-        participants = remotes.values.cast<dynamic>();
-      } else if (remotes is Iterable) {
-        participants = remotes.cast<dynamic>();
-      }
+      final remotes = room.remoteParticipants;
+      final participants = remotes.values;
 
       for (final p in participants) {
         final ps = _sideFromParticipant(p);
         if (ps != side) continue;
-        final t = _videoTrackFromParticipant(p, prefer: prefer);
+        final t = _videoTrackFromParticipant(p, preferredSource: preferredSource);
         if (t != null) return t;
       }
 
       for (final p in participants) {
         final ps = _sideFromParticipant(p);
         if (ps != LiveHostSide.unknown) continue;
-        final t = _videoTrackFromParticipant(p, prefer: prefer);
+        final t = _videoTrackFromParticipant(p, preferredSource: preferredSource);
         if (t != null) return t;
       }
     } catch (_) {}
@@ -469,25 +491,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     final volume = _viewerAudioEnabled ? 1.0 : 0.0;
 
     try {
-      final remotes = (room as dynamic).remoteParticipants;
-      Iterable<dynamic> participants = const [];
-      if (remotes is Map) {
-        participants = remotes.values.cast<dynamic>();
-      } else if (remotes is Iterable) {
-        participants = remotes.cast<dynamic>();
-      }
-
-      for (final p in participants) {
-        final pubs = (p as dynamic).audioTrackPublications;
-        Iterable<dynamic> audioPubs = const [];
-        if (pubs is Iterable) {
-          audioPubs = pubs.cast<dynamic>();
-        } else if (pubs is Map) {
-          audioPubs = pubs.values.cast<dynamic>();
-        }
-
-        for (final pub in audioPubs) {
-          final track = (pub as dynamic).track;
+      for (final p in room.remoteParticipants.values) {
+        for (final pub in p.audioTrackPublications) {
+          final track = pub.track;
           if (track == null) continue;
           try {
             (track as dynamic).setVolume(volume);
@@ -517,8 +523,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   void _toggleViewerLayoutMode() {
     setState(() {
-      _viewerLayoutMode =
-          _viewerLayoutMode == _ViewerLayoutMode.single ? _ViewerLayoutMode.dual : _ViewerLayoutMode.single;
+      _viewerLayoutMode = _viewerLayoutMode == _ViewerLayoutMode.single
+          ? _ViewerLayoutMode.dual
+          : _ViewerLayoutMode.single;
     });
   }
 
@@ -547,18 +554,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   }
 
   Future<void> _toggleHostScreenShare() async {
-    final room = _room;
-    if (room == null) return;
-
-    final next = !_hostScreenEnabled;
-
-    // This is the action that triggers the Android "Start now" prompt.
-    // It should be user-initiated, not automatic.
-    try {
-      await (room.localParticipant as dynamic).setScreenShareEnabled(next);
-      if (!mounted) return;
-      setState(() => _hostScreenEnabled = next);
-    } catch (_) {}
+    await _setHostScreenShareEnabled(!_hostScreenEnabled);
   }
 
   void _sendQuickToOpponent(String label) {
@@ -583,10 +579,10 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     final bytes = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
 
     try {
-      (room.localParticipant as dynamic).publishData(bytes, reliable: true);
+      room.localParticipant?.publishData(bytes, reliable: true);
     } catch (_) {
       try {
-        (room.localParticipant as dynamic).publishData(bytes);
+        room.localParticipant?.publishData(bytes);
       } catch (_) {}
     }
   }
@@ -756,28 +752,22 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                 IconButton.filled(
                   onPressed: started ? _toggleHostMic : null,
                   style: IconButton.styleFrom(
-                    backgroundColor:
-                        (_hostMicEnabled ? Colors.greenAccent : Colors.redAccent).withOpacity(0.3),
+                    backgroundColor: (_hostMicEnabled ? Colors.greenAccent : Colors.redAccent).withOpacity(0.3),
                   ),
                   icon: Icon(_hostMicEnabled ? Icons.mic : Icons.mic_off, color: Colors.white),
-                  tooltip: _hostMicEnabled ? 'Mic ON' : 'Mic OFF',
                 ),
                 const SizedBox(width: 8),
                 IconButton.filled(
                   onPressed: started ? _toggleHostCamera : null,
                   style: IconButton.styleFrom(backgroundColor: Colors.white12),
                   icon: Icon(_hostCameraEnabled ? Icons.videocam : Icons.videocam_off, color: Colors.white),
-                  tooltip: _hostCameraEnabled ? 'Camera ON' : 'Camera OFF',
                 ),
                 const SizedBox(width: 8),
                 IconButton.filled(
                   onPressed: started ? _toggleHostScreenShare : null,
                   style: IconButton.styleFrom(backgroundColor: Colors.white12),
-                  icon: Icon(
-                    _hostScreenEnabled ? Icons.screen_share : Icons.stop_screen_share,
-                    color: Colors.white,
-                  ),
-                  tooltip: _hostScreenEnabled ? 'Screen share ON' : 'Screen share OFF',
+                  icon: Icon(_hostScreenEnabled ? Icons.screen_share : Icons.stop_screen_share, color: Colors.white),
+                  tooltip: _hostScreenEnabled ? 'Stop screen share' : 'Start screen share',
                 ),
               ],
             ),
@@ -804,11 +794,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                 style: IconButton.styleFrom(
                   backgroundColor: (_viewerAudioEnabled ? Colors.greenAccent : Colors.redAccent).withOpacity(0.3),
                 ),
-                icon: Icon(
-                  _viewerAudioEnabled ? Icons.volume_up : Icons.volume_off,
-                  color: Colors.white,
-                ),
-                tooltip: _viewerAudioEnabled ? 'Mute audio' : 'Unmute audio',
+                icon: Icon(_viewerAudioEnabled ? Icons.volume_up : Icons.volume_off, color: Colors.white),
               ),
               const SizedBox(width: 10),
               IconButton.filled(
@@ -818,14 +804,12 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                   _viewerLayoutMode == _ViewerLayoutMode.dual ? Icons.view_agenda : Icons.view_week,
                   color: Colors.white,
                 ),
-                tooltip: _viewerLayoutMode == _ViewerLayoutMode.dual ? 'Focus one screen' : 'Show both screens',
               ),
               const SizedBox(width: 10),
               IconButton.filled(
                 onPressed: _toggleFullscreen,
                 style: IconButton.styleFrom(backgroundColor: Colors.white12),
                 icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white),
-                tooltip: _isFullscreen ? 'Exit full screen' : 'Full screen',
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -865,14 +849,15 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   }
 
   Widget _buildStreamArea(BuildContext context) {
-    final homeScreen = _remoteVideoForSide(LiveHostSide.home, prefer: 'screen');
-    final awayScreen = _remoteVideoForSide(LiveHostSide.away, prefer: 'screen');
+    // Prefer real LiveKit sources:
+    final homeScreen = _remoteVideoForSide(LiveHostSide.home, TrackSource.screenShareVideo);
+    final awayScreen = _remoteVideoForSide(LiveHostSide.away, TrackSource.screenShareVideo);
 
-    final homeCam = _remoteVideoForSide(LiveHostSide.home, prefer: 'camera');
-    final awayCam = _remoteVideoForSide(LiveHostSide.away, prefer: 'camera');
+    final homeCam = _remoteVideoForSide(LiveHostSide.home, TrackSource.camera);
+    final awayCam = _remoteVideoForSide(LiveHostSide.away, TrackSource.camera);
 
-    final localScreen = _localVideo(prefer: 'screen');
-    final localCam = _localVideo(prefer: 'camera');
+    final localScreen = _localVideo(TrackSource.screenShareVideo);
+    final localCam = _localVideo(TrackSource.camera);
 
     if (widget.isHost) {
       final mySide = _mySide;
@@ -896,7 +881,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       );
     }
 
-    final primaryScreen = (_primary == _PrimarySide.home) ? (homeScreen ?? homeCam) : (awayScreen ?? awayCam);
+    final primaryScreen = (_primary == _PrimarySide.home)
+        ? (homeScreen ?? homeCam)
+        : (awayScreen ?? awayCam);
 
     if (_viewerLayoutMode == _ViewerLayoutMode.single) {
       return _GamerStreamLayout(
@@ -1042,9 +1029,10 @@ class _DualViewerStreamLayout extends StatelessWidget {
                             : Center(
                                 child: Text(
                                   'Waiting for $homeLabel…',
-                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                        color: Colors.white70,
-                                      ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(color: Colors.white70),
                                 ),
                               ),
                       ),
@@ -1064,9 +1052,10 @@ class _DualViewerStreamLayout extends StatelessWidget {
                             : Center(
                                 child: Text(
                                   'Waiting for $awayLabel…',
-                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                        color: Colors.white70,
-                                      ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(color: Colors.white70),
                                 ),
                               ),
                       ),
@@ -1149,9 +1138,10 @@ class _GamerStreamLayout extends StatelessWidget {
                     : Center(
                         child: Text(
                           'Waiting for stream…',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                color: Colors.white70,
-                              ),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(color: Colors.white70),
                         ),
                       ),
               ),
