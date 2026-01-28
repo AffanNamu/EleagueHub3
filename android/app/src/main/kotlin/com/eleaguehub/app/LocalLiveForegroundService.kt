@@ -1,6 +1,5 @@
 package com.eleaguehub.app
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -9,6 +8,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import androidx.core.app.NotificationCompat
+import androidx.core.app.PendingIntentCompat
 
 class LocalLiveForegroundService : Service() {
 
@@ -36,7 +37,10 @@ class LocalLiveForegroundService : Service() {
                 startAsForeground(title, text)
             }
             ACTION_STOP -> {
-                stopForeground(true)
+                try {
+                    stopForeground(true)
+                } catch (_: Throwable) {
+                }
                 releaseWakeLock()
                 stopSelf()
             }
@@ -46,30 +50,39 @@ class LocalLiveForegroundService : Service() {
 
     private fun startAsForeground(title: String, text: String) {
         createChannelIfNeeded()
-
         val notification = buildNotification(title, text)
         startForeground(NOTIF_ID, notification)
-
         acquireWakeLock()
     }
 
-    private fun buildNotification(title: String, text: String): Notification {
-        val builder =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Notification.Builder(this, CHANNEL_ID)
-            } else {
-                Notification.Builder(this)
-            }
+    private fun buildNotification(title: String, text: String) = run {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val contentIntent = if (launchIntent != null) {
+            PendingIntentCompat.getActivity(
+                this,
+                0,
+                launchIntent,
+                PendingIntentCompat.FLAG_IMMUTABLE or PendingIntentCompat.FLAG_UPDATE_CURRENT,
+                false
+            )
+        } else {
+            null
+        }
 
-        builder
+        val b = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            // Smaller mic-style icon instead of large video presence icon
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
 
-        return builder.build()
+        if (contentIntent != null) {
+            b.setContentIntent(contentIntent)
+        }
+
+        b.build()
     }
 
     private fun createChannelIfNeeded() {
@@ -84,7 +97,7 @@ class LocalLiveForegroundService : Service() {
             CHANNEL_NAME,
             NotificationManager.IMPORTANCE_LOW
         )
-        ch.description = "Keeps the app alive while streaming your screen/camera"
+        ch.description = "Keeps the app alive while streaming"
         nm.createNotificationChannel(ch)
     }
 
@@ -96,7 +109,6 @@ class LocalLiveForegroundService : Service() {
             wakeLock?.setReferenceCounted(false)
             wakeLock?.acquire()
         } catch (_: Throwable) {
-            // Some OEMs may restrict; ignore
         }
     }
 

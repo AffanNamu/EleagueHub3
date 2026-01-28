@@ -49,6 +49,17 @@
             </intent-filter>
         </activity>
 
+        <service
+            android:name="com.eleaguehub.app.LocalLiveForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="mediaProjection|camera|microphone" />
+
+        <service
+            android:name="com.eleaguehub.app.LiveOverlayBubbleService"
+            android:exported="false"
+            android:stopWithTask="false" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

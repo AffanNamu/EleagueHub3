@@ -61,7 +61,6 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
         final maxW = constraints.maxWidth;
         final maxH = constraints.maxHeight;
 
-        // Button size assumptions for clamping
         const btn = 56.0;
 
         double clampX(double x) {
@@ -76,7 +75,6 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
 
         _pos = Offset(clampX(_pos.dx), clampY(_pos.dy));
 
-        // Panel positioning
         const panelW = 220.0;
         const panelMaxH = 260.0;
 
@@ -84,11 +82,11 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
             ? (_pos.dx + btn + 10)
             : (_pos.dx - panelW - 10);
 
-        final panelTop = (_pos.dy - 10).clamp(8.0, (maxH - panelMaxH - 8).clamp(8.0, maxH));
+        final panelTop = (_pos.dy - 10)
+            .clamp(8.0, (maxH - panelMaxH - 8).clamp(8.0, maxH));
 
         return Stack(
           children: [
-            // Tap-outside to close
             if (_open)
               Positioned.fill(
                 child: GestureDetector(
@@ -97,8 +95,6 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
                   child: const SizedBox.expand(),
                 ),
               ),
-
-            // Dropdown panel
             if (_open)
               Positioned(
                 left: panelLeft.toDouble(),
@@ -118,11 +114,13 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
                         return InkWell(
                           onTap: () => _send(msg),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.06),
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.white.withOpacity(0.10)),
+                              border: Border.all(
+                                  color: Colors.white.withOpacity(0.10)),
                             ),
                             child: Text(
                               msg,
@@ -139,8 +137,6 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
                   ),
                 ),
               ),
-
-            // Floating draggable button
             Positioned(
               left: _pos.dx,
               top: _pos.dy,

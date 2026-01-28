@@ -67,7 +67,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   bool _hostMicEnabled = true;
   bool _hostCameraEnabled = true;
-  bool _hostScreenEnabled = true;
+  bool _hostScreenEnabled = false; // IMPORTANT: do NOT auto-start screen share
 
   // Incoming quick message overlay
   Timer? _incomingQuickTimer;
@@ -100,7 +100,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     final prefs = ref.read(prefsServiceProvider);
     _uid = prefs.getCurrentUserId() ?? '';
 
-    // Viewer: auto-connect online
     if (!widget.isHost) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await _connectOnline(publishIfHost: false);
@@ -121,7 +120,10 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     super.dispose();
   }
 
-  Future<void> _maybeStartOverlayBubble() async {
+  // IMPORTANT FIX:
+  // Do NOT request overlay permission automatically (this opens Settings and feels like "app kicked me out").
+  // Only start overlay bubble if permission is already granted.
+  Future<void> _maybeStartOverlayBubbleIfGranted() async {
     if (!Platform.isAndroid) return;
     final prefs = ref.read(prefsServiceProvider);
     if (!prefs.liveOverlayEnabled()) return;
@@ -129,9 +131,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     try {
       final bool granted =
           await _liveChannel.invokeMethod<bool>('isOverlayPermissionGranted') ?? false;
-      if (!granted) {
-        await _liveChannel.invokeMethod('requestOverlayPermission');
-      }
+      if (!granted) return;
       await _liveChannel.invokeMethod('startLiveOverlayBubble');
     } catch (_) {}
   }
@@ -189,12 +189,11 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         setState(() => _connected = false);
       });
 
-      // Catch-all listener: handle data messages without relying on specific event class imports
+      // Data event handling (quick messages)
       _listener!.on<RoomEvent>((event) {
         final type = event.runtimeType.toString().toLowerCase();
         if (!type.contains('data')) return;
 
-        // Attempt to read fields dynamically.
         try {
           final dyn = event as dynamic;
           final payload = dyn.payload;
@@ -210,7 +209,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
           final msg = _decodeQuickPayload(payload);
           if (msg == null) return;
 
-          // Only show if it's intended for me (opponent behavior)
           final to = (msg['to'] ?? '').toString().trim().toLowerCase();
           final fromSide = (msg['fromSide'] ?? '').toString().trim().toLowerCase();
           final label = (msg['label'] ?? '').toString();
@@ -219,11 +217,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
           final my = liveHostSideToWire(_mySide).toLowerCase();
 
-          // If "to" is set, enforce it strictly.
           if (to.isNotEmpty && my.isNotEmpty && my != 'unknown') {
             if (to != my) return;
           } else {
-            // Otherwise: don't show if it's from my own side (avoid echo for host)
             if (my != 'unknown' && fromSide.isNotEmpty && fromSide == my) return;
           }
 
@@ -231,9 +227,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
             label,
             from: fromIdentity ?? (fromSide.isNotEmpty ? fromSide.toUpperCase() : null),
           );
-        } catch (_) {
-          // ignore parse errors
-        }
+        } catch (_) {}
       });
 
       await room.connect(tok.url, tok.token);
@@ -245,7 +239,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         _connected = true;
       });
 
-      // Poll-based refresh: stable + simple
       _pollTimer?.cancel();
       _pollTimer = Timer.periodic(const Duration(milliseconds: 700), (_) {
         if (!mounted) return;
@@ -253,7 +246,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         _applyViewerAudioSetting();
       });
 
-      await _maybeStartOverlayBubble();
+      await _maybeStartOverlayBubbleIfGranted();
 
       if (publishIfHost && widget.isHost) {
         await _ensureHostPublishing();
@@ -319,6 +312,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       await Permission.camera.request();
     } catch (_) {}
 
+    // Start only mic + camera. Screen share is manual toggle.
     try {
       await room.localParticipant?.setMicrophoneEnabled(true);
       _hostMicEnabled = true;
@@ -329,12 +323,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       _hostCameraEnabled = true;
     } catch (_) {}
 
-    try {
-      await (room.localParticipant as dynamic).setScreenShareEnabled(true);
-      _hostScreenEnabled = true;
-    } catch (_) {
-      _hostScreenEnabled = false;
-    }
+    _hostScreenEnabled = false;
 
     if (!mounted) return;
     setState(() {});
@@ -528,9 +517,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   void _toggleViewerLayoutMode() {
     setState(() {
-      _viewerLayoutMode = _viewerLayoutMode == _ViewerLayoutMode.single
-          ? _ViewerLayoutMode.dual
-          : _ViewerLayoutMode.single;
+      _viewerLayoutMode =
+          _viewerLayoutMode == _ViewerLayoutMode.single ? _ViewerLayoutMode.dual : _ViewerLayoutMode.single;
     });
   }
 
@@ -563,6 +551,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     if (room == null) return;
 
     final next = !_hostScreenEnabled;
+
+    // This is the action that triggers the Android "Start now" prompt.
+    // It should be user-initiated, not automatic.
     try {
       await (room.localParticipant as dynamic).setScreenShareEnabled(next);
       if (!mounted) return;
@@ -574,8 +565,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     final room = _room;
     if (room == null) return;
     if (!_connected) return;
-
-    // Only hosts send opponent quick messages
     if (!widget.isHost) return;
 
     final my = liveHostSideToWire(_mySide).toLowerCase();
@@ -593,7 +582,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
     final bytes = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
 
-    // Use dynamic so we don't depend on exact publishData signature at compile time.
     try {
       (room.localParticipant as dynamic).publishData(bytes, reliable: true);
     } catch (_) {
@@ -607,7 +595,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   Widget build(BuildContext context) {
     final canSendQuick = widget.isHost && _connected;
 
-    // Viewer full-screen mode: only video + exit button + overlays
     if (!widget.isHost && _isFullscreen) {
       return GlassScaffold(
         appBar: null,
@@ -690,8 +677,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                 );
               },
             ),
-
-            // Incoming message banner overlay (hosts + viewers)
             if (_incomingQuickText != null)
               Positioned(
                 top: 12,
@@ -702,8 +687,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                   from: _incomingQuickFrom,
                 ),
               ),
-
-            // Floating quick message icon (HOST only)
             LiveFloatingQuickMessage(
               enabled: canSendQuick,
               messages: _quickMessages,
@@ -809,7 +792,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       );
     }
 
-    // VIEWER controls
     return Glass(
       borderRadius: 18,
       padding: const EdgeInsets.all(12),
@@ -820,8 +802,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
               IconButton.filled(
                 onPressed: _toggleViewerAudio,
                 style: IconButton.styleFrom(
-                  backgroundColor: (_viewerAudioEnabled ? Colors.greenAccent : Colors.redAccent)
-                      .withOpacity(0.3),
+                  backgroundColor: (_viewerAudioEnabled ? Colors.greenAccent : Colors.redAccent).withOpacity(0.3),
                 ),
                 icon: Icon(
                   _viewerAudioEnabled ? Icons.volume_up : Icons.volume_off,
