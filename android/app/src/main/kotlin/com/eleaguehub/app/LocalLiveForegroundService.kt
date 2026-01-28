@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -51,11 +52,22 @@ class LocalLiveForegroundService : Service() {
     private fun startAsForeground(title: String, text: String) {
         createChannelIfNeeded()
         val notification = buildNotification(title, text)
-        startForeground(NOTIF_ID, notification)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val types =
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+
+            startForeground(NOTIF_ID, notification, types)
+        } else {
+            startForeground(NOTIF_ID, notification)
+        }
+
         acquireWakeLock()
     }
 
-    private fun buildNotification(title: String, text: String) : android.app.Notification {
+    private fun buildNotification(title: String, text: String): android.app.Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val contentIntent = if (launchIntent != null) {
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or
