@@ -2,6 +2,7 @@ package com.eleaguehub.app
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -9,7 +10,6 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import androidx.core.app.PendingIntentCompat
 
 class LocalLiveForegroundService : Service() {
 
@@ -55,15 +55,17 @@ class LocalLiveForegroundService : Service() {
         acquireWakeLock()
     }
 
-    private fun buildNotification(title: String, text: String) = run {
+    private fun buildNotification(title: String, text: String) : android.app.Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val contentIntent = if (launchIntent != null) {
-            PendingIntentCompat.getActivity(
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+
+            PendingIntent.getActivity(
                 this,
                 0,
                 launchIntent,
-                PendingIntentCompat.FLAG_IMMUTABLE or PendingIntentCompat.FLAG_UPDATE_CURRENT,
-                false
+                flags
             )
         } else {
             null
@@ -82,7 +84,7 @@ class LocalLiveForegroundService : Service() {
             b.setContentIntent(contentIntent)
         }
 
-        b.build()
+        return b.build()
     }
 
     private fun createChannelIfNeeded() {
