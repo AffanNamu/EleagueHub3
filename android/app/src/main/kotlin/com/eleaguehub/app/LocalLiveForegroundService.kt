@@ -53,6 +53,9 @@ class LocalLiveForegroundService : Service() {
         createChannelIfNeeded()
         val notification = buildNotification(title, text)
 
+        // CRITICAL FIX for screen sharing (MediaProjection):
+        // On Android 10+ you should startForeground with service type flags that match the manifest
+        // otherwise MediaProjection/screen capture may fail or be blocked.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val types =
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
@@ -123,6 +126,7 @@ class LocalLiveForegroundService : Service() {
             wakeLock?.setReferenceCounted(false)
             wakeLock?.acquire()
         } catch (_: Throwable) {
+            // ignore OEM restrictions
         }
     }
 
