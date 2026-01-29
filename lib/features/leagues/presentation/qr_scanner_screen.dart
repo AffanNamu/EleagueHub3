@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/persistence/prefs_service.dart';
@@ -41,6 +42,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   String _currentUserId = '';
   bool _chargesPaid = false;
 
+  bool _permissionChecked = false;
+  bool _cameraPermissionGranted = false;
+  bool _requestingPermission = false;
+  bool _scannerStarted = false;
+
   @override
   void initState() {
     super.initState();
@@ -50,8 +56,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       detectionSpeed: DetectionSpeed.noDuplicates,
       facing: _facing,
       torchEnabled: false,
-      autoStart: true,
+      autoStart: false,
     );
+
+    // ignore: discarded_futures
+    _initScanner();
+  }
+
+  Future<void> _initScanner() async {
+    await _ensureCameraPermission(startScannerIfGranted: true);
   }
 
   @override
@@ -66,12 +79,88 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     if (_joinedLeague != null) return;
 
     if (state == AppLifecycleState.resumed) {
+      // Re-check permission when user returns from system settings
       // ignore: discarded_futures
-      _scannerController.start();
+      _ensureCameraPermission(startScannerIfGranted: true);
     } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      // ignore: discarded_futures
-      _scannerController.stop();
+      if (_scannerStarted) {
+        // ignore: discarded_futures
+        _scannerController.stop();
+        _scannerStarted = false;
+      }
     }
+  }
+
+  Future<void> _ensureCameraPermission({required bool startScannerIfGranted}) async {
+    final status = await Permission.camera.status;
+    final granted = status.isGranted;
+
+    if (!mounted) return;
+    setState(() {
+      _permissionChecked = true;
+      _cameraPermissionGranted = granted;
+    });
+
+    if (startScannerIfGranted && granted) {
+      await _startScannerSafely();
+    } else {
+      await _stopScannerSafely();
+    }
+  }
+
+  Future<void> _requestCameraPermission() async {
+    if (_requestingPermission) return;
+
+    setState(() {
+      _requestingPermission = true;
+      _error = null;
+    });
+
+    try {
+      final result = await Permission.camera.request();
+      final granted = result.isGranted;
+
+      if (!mounted) return;
+      setState(() {
+        _permissionChecked = true;
+        _cameraPermissionGranted = granted;
+        _requestingPermission = false;
+      });
+
+      if (granted) {
+        await _startScannerSafely();
+      } else {
+        await _stopScannerSafely();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _requestingPermission = false;
+        _error = 'Permission error: $e';
+      });
+    }
+  }
+
+  Future<void> _startScannerSafely() async {
+    if (_scannerStarted) return;
+    try {
+      await _scannerController.start();
+      _scannerStarted = true;
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Failed to start camera: $e';
+      });
+      _scannerStarted = false;
+    }
+  }
+
+  Future<void> _stopScannerSafely() async {
+    if (!_scannerStarted) return;
+    try {
+      await _scannerController.stop();
+    } catch (_) {}
+    _scannerStarted = false;
   }
 
   Future<void> _handleScan(String payload) async {
@@ -95,8 +184,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         _error = 'Invalid QR / Join code.';
         _isScanned = false;
       });
-      // ignore: discarded_futures
-      _scannerController.start();
+      await _startScannerSafely();
       return;
     }
 
@@ -152,8 +240,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         _error = 'Join failed: $e';
         _isScanned = false;
       });
-      // ignore: discarded_futures
-      _scannerController.start();
+      await _startScannerSafely();
     }
   }
 
@@ -284,6 +371,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   }
 
   void _onDetect(BarcodeCapture capture) {
+    if (!_cameraPermissionGranted) return;
     if (_isScanned || _joining) return;
 
     final barcodes = capture.barcodes;
@@ -295,8 +383,60 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     _isScanned = true;
     // ignore: discarded_futures
     _scannerController.stop();
+    _scannerStarted = false;
+
     // ignore: discarded_futures
     _handleScan(raw);
+  }
+
+  Future<void> _showManualEntryDialog() async {
+    final controller = TextEditingController();
+
+    try {
+      final code = await showDialog<String?>(
+        context: context,
+        builder: (ctx) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0A1D37),
+            title: const Text(
+              'Enter Join Code',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                hintText: 'e.g. ABC123',
+                hintStyle: TextStyle(color: Colors.white38),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(null),
+                child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                child: const Text('Join'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (code == null) return;
+      if (code.trim().isEmpty) return;
+
+      await _stopScannerSafely();
+      setState(() {
+        _isScanned = true;
+      });
+
+      await _handleScan(code);
+    } finally {
+      controller.dispose();
+    }
   }
 
   @override
@@ -461,9 +601,18 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                 _error = null;
                                 _isScanned = false;
                               });
-                              await _scannerController.start();
+                              await _ensureCameraPermission(startScannerIfGranted: true);
                             },
                             child: const Text('Retry'),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton(
+                            onPressed: _joining ? null : _showManualEntryDialog,
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: Colors.white.withOpacity(0.18)),
+                              foregroundColor: Colors.cyanAccent,
+                            ),
+                            child: const Text('Enter code instead'),
                           ),
                         ],
                       ),
@@ -474,7 +623,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
             ),
           ),
 
-          // Overlay with cut-out (no blur on camera)
+          // Overlay with cut-out
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
@@ -493,23 +642,33 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                     onPressed: () => context.pop(),
                   ),
                   const Spacer(),
-                  IconButton(
-                    tooltip: _torchOn ? 'Torch off' : 'Torch on',
-                    icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off, color: Colors.white),
-                    onPressed: () async {
-                      await _scannerController.toggleTorch();
-                      setState(() => _torchOn = !_torchOn);
-                    },
+                  TextButton(
+                    onPressed: _joining ? null : _showManualEntryDialog,
+                    child: const Text(
+                      'ENTER CODE',
+                      style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
+                    ),
                   ),
-                  IconButton(
-                    tooltip: 'Switch camera',
-                    icon: const Icon(Icons.cameraswitch, color: Colors.white),
-                    onPressed: () async {
-                      final newFacing = _facing == CameraFacing.back ? CameraFacing.front : CameraFacing.back;
-                      await _scannerController.switchCamera();
-                      setState(() => _facing = newFacing);
-                    },
-                  ),
+                  const SizedBox(width: 6),
+                  if (_cameraPermissionGranted) ...[
+                    IconButton(
+                      tooltip: _torchOn ? 'Torch off' : 'Torch on',
+                      icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off, color: Colors.white),
+                      onPressed: () async {
+                        await _scannerController.toggleTorch();
+                        setState(() => _torchOn = !_torchOn);
+                      },
+                    ),
+                    IconButton(
+                      tooltip: 'Switch camera',
+                      icon: const Icon(Icons.cameraswitch, color: Colors.white),
+                      onPressed: () async {
+                        final newFacing = _facing == CameraFacing.back ? CameraFacing.front : CameraFacing.back;
+                        await _scannerController.switchCamera();
+                        setState(() => _facing = newFacing);
+                      },
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -529,13 +688,72 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                         strokeWidth: 3,
                       ),
                     )
-                  : const Text(
-                      'Center the QR code within the frame',
-                      style: TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w600),
+                  : Text(
+                      _cameraPermissionGranted ? 'Center the QR code within the frame' : 'Camera permission is required',
+                      style: const TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w600),
                     ),
             ),
           ),
-          if (_error != null)
+
+          if (!_cameraPermissionGranted && _permissionChecked)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 18,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: Glass(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Allow Camera Access',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'To scan league QR codes, enable camera permission.\n\nOr tap ENTER CODE to join manually.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.35),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: _requestingPermission ? null : () => openAppSettings(),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(color: Colors.white.withOpacity(0.18)),
+                                  foregroundColor: Colors.white70,
+                                ),
+                                child: const Text('Open settings'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: _requestingPermission ? null : _requestCameraPermission,
+                                child: _requestingPermission
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Text('Grant permission'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          if (_error != null && _cameraPermissionGranted)
             Positioned(
               bottom: 70,
               left: 16,
@@ -554,27 +772,31 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                 ),
               ),
             ),
-          Positioned(
-            bottom: 18,
-            left: 16,
-            right: 16,
-            child: Center(
-              child: TextButton(
-                onPressed: () async {
-                  setState(() {
-                    _error = null;
-                    _isScanned = false;
-                    _joining = false;
-                  });
-                  await _scannerController.start();
-                },
-                child: const Text(
-                  'SCAN AGAIN',
-                  style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
+
+          if (_cameraPermissionGranted)
+            Positioned(
+              bottom: 18,
+              left: 16,
+              right: 16,
+              child: Center(
+                child: TextButton(
+                  onPressed: _joining
+                      ? null
+                      : () async {
+                          setState(() {
+                            _error = null;
+                            _isScanned = false;
+                            _joining = false;
+                          });
+                          await _ensureCameraPermission(startScannerIfGranted: true);
+                        },
+                  child: const Text(
+                    'SCAN AGAIN',
+                    style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
