@@ -118,7 +118,8 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         isTestMode: FlutterwaveConfig.isTestMode,
       );
 
-      final ChargeResponse response = await flutterwave.charge();
+      // flutterwave_standard 1.1.0 requires BuildContext in charge()
+      final ChargeResponse response = await flutterwave.charge(context);
 
       if (response.success == true) {
         final now = DateTime.now().millisecondsSinceEpoch;
