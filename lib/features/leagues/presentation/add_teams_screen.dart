@@ -59,7 +59,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         return 20;
       case LeagueFormat.uclGroup:
       case LeagueFormat.uclSwiss:
-        return 32;
+        return 36;
     }
   }
 
@@ -104,7 +104,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       return;
     }
 
-    if (_tempTeams.any((t) => t['name'] == trimmed)) return;
+    if (_tempTeams.any((t) => (t['name'] ?? '').toLowerCase() == trimmed.toLowerCase())) return;
 
     if (_existingTeams.any((t) => t.name.toLowerCase() == trimmed.toLowerCase())) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -374,7 +374,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width > 600;
+    final width = MediaQuery.of(context).size.width;
+    final showTwoPane = width >= 900;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -386,7 +387,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: isWide ? 720 : 540),
+            constraints: BoxConstraints(maxWidth: showTwoPane ? 980 : 620),
             child: _isLoading
                 ? const Center(
                     child: CircularProgressIndicator(color: Colors.cyanAccent),
@@ -449,12 +450,23 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       ),
                       if (widget.format == LeagueFormat.uclGroup) _buildGroupSelector(),
                       Expanded(
-                        child: Row(
-                          children: [
-                            Expanded(flex: 3, child: _buildBulkEntry()),
-                            const SizedBox(width: 12),
-                            Expanded(flex: 4, child: _buildPreviewPanel()),
-                          ],
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          child: showTwoPane
+                              ? Row(
+                                  children: [
+                                    Expanded(flex: 3, child: _buildBulkEntry()),
+                                    const SizedBox(width: 12),
+                                    Expanded(flex: 4, child: _buildPreviewPanel()),
+                                  ],
+                                )
+                              : Column(
+                                  children: [
+                                    Expanded(flex: 4, child: _buildBulkEntry()),
+                                    const SizedBox(height: 12),
+                                    Expanded(flex: 6, child: _buildPreviewPanel()),
+                                  ],
+                                ),
                         ),
                       ),
                     ],
@@ -713,6 +725,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     label: label,
                     isNew: false,
                     onTap: () => _editExistingTeam(i),
+                    onRemove: null,
                   );
                 } else {
                   final idx = i - existingCount;
@@ -725,6 +738,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     label: label,
                     isNew: true,
                     onTap: null,
+                    onRemove: () {
+                      setState(() {
+                        _tempTeams.removeAt(idx);
+                        _bulkError = null;
+                      });
+                    },
                   );
                 }
               },
@@ -879,6 +898,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     required String label,
     required bool isNew,
     required VoidCallback? onTap,
+    required VoidCallback? onRemove,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -930,6 +950,19 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     Icons.edit,
                     color: Colors.white54,
                     size: 16,
+                  ),
+                if (isNew && onRemove != null)
+                  InkWell(
+                    onTap: onRemove,
+                    borderRadius: BorderRadius.circular(999),
+                    child: const Padding(
+                      padding: EdgeInsets.all(6),
+                      child: Icon(
+                        Icons.close,
+                        color: Colors.white54,
+                        size: 16,
+                      ),
+                    ),
                   ),
               ],
             ),

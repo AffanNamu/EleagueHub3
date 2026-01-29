@@ -1,6 +1,7 @@
 import 'package:eleaguehub3/core/services/sync_trigger.dart';
 import '../utils/current_user.dart';
 import "package:eleaguehub3/core/app/sync_debug_screen.dart";
+import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
 import 'package:eleaguehub3/features/leagues/models/league.dart';
 import 'package:eleaguehub3/features/leagues/models/league_settings.dart';
@@ -37,6 +38,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   Map<String, int> _participantCounts = {};
   Map<String, LeagueAnnouncement?> _latestAnnouncements = {};
 
+  /// per league paid charges for the CURRENT viewer (used only for UI lock badges)
+  Map<String, bool> _viewerChargesPaid = {};
+
+  /// resolved viewer id (so owner/lock UI is accurate even if prefs.current_user_id is empty)
+  String _effectiveUserId = '';
+
   bool _isLoading = true;
 
   @override
@@ -46,7 +53,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     _localRepo = LocalLeaguesRepository(prefs);
     _annRepo = LeagueAnnouncementsFirebase(prefs);
     // Pull latest from cloud in background (safe offline)
-    
+
     // ignore: discarded_futures
     SyncTrigger.trySync().then((_) => _refreshLeagues());
     _refreshLeagues();
@@ -62,6 +69,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
     final leagues = await _localRepo.listLeagues();
 
+    final prefs = ref.read(prefsServiceProvider);
+
+    String effectiveUserId = prefs.getCurrentUserId() ?? '';
+    if (effectiveUserId.trim().isEmpty) {
+      effectiveUserId = await CurrentUser.getOrCreateUserId();
+    }
+
+    final chargesStore = LeagueChargesStore(prefs);
+
     // NOTE: Your current file references memberships/teams methods that are not shown here.
     // If those methods exist in your LocalLeaguesRepository in your real codebase,
     // keep them. If not, remove the membership/team counting section.
@@ -74,6 +90,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
     final Map<String, int> counts = {};
     final Map<String, LeagueAnnouncement?> latestAnns = {};
+    final Map<String, bool> viewerPaid = {};
 
     await Future.wait(
       leagues.map((league) async {
@@ -93,6 +110,18 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
           anns.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
           latestAnns[league.id] = anns.first;
         }
+
+        final requiresCharges =
+            league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+
+        if (!requiresCharges) {
+          viewerPaid[league.id] = true; // classic is always “unlocked”
+        } else {
+          viewerPaid[league.id] = chargesStore.hasPaidCharges(
+            userId: effectiveUserId,
+            leagueId: league.id,
+          );
+        }
       }),
     );
 
@@ -101,6 +130,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
       _leagues = leagues;
       _participantCounts = counts;
       _latestAnnouncements = latestAnns;
+      _viewerChargesPaid = viewerPaid;
+      _effectiveUserId = effectiveUserId;
       _isLoading = false;
     });
   }
@@ -187,6 +218,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   ) {
     final prefs = ref.read(prefsServiceProvider);
     final String currentUserId = prefs.getCurrentUserId() ?? '';
+    final String viewerId = _effectiveUserId.isNotEmpty ? _effectiveUserId : currentUserId;
 
     final media = MediaQuery.of(context);
     final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
@@ -206,7 +238,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
       itemCount: leagues.length,
       itemBuilder: (context, index) {
         final league = leagues[index];
-        final bool isOwner = league.organizerUserId == currentUserId;
+
+        final bool isOwner = league.organizerUserId == viewerId || league.organizerUserId == currentUserId;
+
+        final requiresCharges =
+            league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+        final paid = _viewerChargesPaid[league.id] ?? false;
+        final showLockedBadge = requiresCharges && !isOwner && !paid;
 
         final registered = _participantCounts[league.id] ?? 0;
         final latestAnn = _latestAnnouncements[league.id];
@@ -261,6 +299,40 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                         'OWNER',
                         style: TextStyle(
                           color: Colors.cyanAccent,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (showLockedBadge)
+              Positioned(
+                top: 12,
+                left: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.orangeAccent.withOpacity(0.45),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.lock_outline,
+                        size: 12,
+                        color: Colors.orangeAccent,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'LOCKED',
+                        style: TextStyle(
+                          color: Colors.orangeAccent,
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
                         ),
@@ -525,8 +597,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                         organizerUserId: '',
                         code: code,
                         qrPayloadOverride: '',
-                        settings: LeagueSettings.defaultsFor(LeagueFormat.classic)
-                            .copyWith(lastPulledAtMs: now),
+                        settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
                         updatedAtMs: now,
                         version: 1,
                       );

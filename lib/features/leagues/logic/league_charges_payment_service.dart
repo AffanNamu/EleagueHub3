@@ -1,8 +1,13 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutterwave_standard/flutterwave.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/config/flutterwave_config.dart';
+
 final leagueChargesPaymentServiceProvider = Provider<LeagueChargesPaymentService>((ref) {
-  return SimulatedLeagueChargesPaymentService();
+  return FlutterwaveLeagueChargesPaymentService();
 });
 
 class LeagueChargesPaymentResult {
@@ -50,6 +55,7 @@ class LeagueChargesPaymentResult {
 
 abstract class LeagueChargesPaymentService {
   Future<LeagueChargesPaymentResult> payLeagueCharges({
+    required BuildContext context,
     required String userId,
     required String leagueId,
     required String leagueName,
@@ -58,26 +64,96 @@ abstract class LeagueChargesPaymentService {
   String get providerName;
 }
 
-class SimulatedLeagueChargesPaymentService implements LeagueChargesPaymentService {
+class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentService {
   final Uuid _uuid = const Uuid();
 
   @override
-  String get providerName => 'simulated';
+  String get providerName => 'flutterwave';
 
   @override
   Future<LeagueChargesPaymentResult> payLeagueCharges({
+    required BuildContext context,
     required String userId,
     required String leagueId,
     required String leagueName,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 700));
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final receiptId = 'SIM-CHG-${_uuid.v4()}';
+    try {
+      FlutterwaveConfig.assertConfigured();
 
-    return LeagueChargesPaymentResult.paid(
-      receiptId: receiptId,
-      paidAtMs: now,
-      provider: providerName,
-    );
+      final locale = Localizations.maybeLocaleOf(context);
+      final pricing = FlutterwaveConfig.pricingForLocale(locale);
+      FlutterwaveConfig.assertValidPricing(pricing);
+
+      final authUser = FirebaseAuth.instance.currentUser;
+      final String email = (authUser?.email?.trim().isNotEmpty ?? false)
+          ? authUser!.email!.trim()
+          : 'user_$userId@eleaguehub.app';
+      final String phone = (authUser?.phoneNumber?.trim().isNotEmpty ?? false)
+          ? authUser!.phoneNumber!.trim()
+          : '0000000000';
+      final String name = (authUser?.displayName?.trim().isNotEmpty ?? false)
+          ? authUser!.displayName!.trim()
+          : 'EleagueHub User';
+
+      final customer = Customer(
+        name: name,
+        phoneNumber: phone,
+        email: email,
+      );
+
+      final txRef = 'EH-VIEW-$leagueId-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+
+      final style = FlutterwaveStyle(
+        appBarText: 'EleagueHub Payment',
+        buttonColor: Colors.cyanAccent,
+        appBarIcon: const Icon(Icons.arrow_back, color: Colors.white),
+        buttonTextStyle: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        appBarTextStyle: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+        mainBackgroundColor: Colors.white,
+        buttonText: 'Pay',
+        dialogCancelTextStyle: const TextStyle(color: Colors.black),
+        dialogContinueTextStyle: const TextStyle(color: Colors.blue),
+        dialogBackgroundColor: Colors.white,
+      );
+
+      final flutterwave = Flutterwave(
+        context: context,
+        style: style,
+        publicKey: FlutterwaveConfig.publicKey,
+        currency: pricing.currency,
+        redirectUrl: FlutterwaveConfig.redirectUrl,
+        txRef: txRef,
+        amount: pricing.viewLeagueAmount,
+        customer: customer,
+        paymentOptions: 'card,ussd,banktransfer',
+        customization: Customization(
+          title: 'EleagueHub',
+          description: 'League access charges: $leagueName',
+        ),
+        isTestMode: FlutterwaveConfig.isTestMode,
+      );
+
+      final ChargeResponse response = await flutterwave.charge();
+
+      if (response.success == true) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final receipt = (response.transactionId != null && '${response.transactionId}'.trim().isNotEmpty)
+            ? 'FLW-${response.transactionId}'
+            : (response.txRef?.trim().isNotEmpty ?? false)
+                ? 'FLW-${response.txRef}'
+                : 'FLW-$txRef';
+
+        return LeagueChargesPaymentResult.paid(
+          receiptId: receipt,
+          paidAtMs: now,
+          provider: providerName,
+        );
+      }
+
+      final message = (response.message?.trim().isNotEmpty ?? false) ? response.message!.trim() : 'Payment cancelled';
+      return LeagueChargesPaymentResult.failed(provider: providerName, errorMessage: message);
+    } catch (e) {
+      return LeagueChargesPaymentResult.failed(provider: providerName, errorMessage: e.toString());
+    }
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/flutterwave_config.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../data/leagues_repository_local.dart';
@@ -45,7 +46,11 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     final repo = LocalLeaguesRepository(prefs);
 
     final league = await repo.getLeagueById(widget.leagueId);
-    final userId = await CurrentUser.getOrCreateUserId();
+
+    String userId = prefs.getCurrentUserId() ?? '';
+    if (userId.trim().isEmpty) {
+      userId = await CurrentUser.getOrCreateUserId();
+    }
 
     final store = LeagueChargesStore(prefs);
 
@@ -98,6 +103,8 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
     if (_hasPaid) return widget.child;
 
+    final pricing = FlutterwaveConfig.pricingForLocale(Localizations.maybeLocaleOf(context));
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -124,7 +131,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'To view Fixtures and Standings for Series/Group leagues, participants must pay app charges.\n\nLeague: ${league.name}',
+                  'Amount: ${pricing.viewLeagueAmount} ${pricing.currency}\n\nTo view Fixtures and Standings for Series/Group leagues, participants must pay app charges.\n\nLeague: ${league.name}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.72),
@@ -182,6 +189,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       final store = LeagueChargesStore(prefs);
 
       final result = await payment.payLeagueCharges(
+        context: context,
         userId: _userId,
         leagueId: league.id,
         leagueName: league.name,

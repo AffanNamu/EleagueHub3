@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/flutterwave_config.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/league_creation_payment_service.dart';
@@ -26,6 +27,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final provider = ref.watch(leagueCreationPaymentServiceProvider);
+
+    final locale = Localizations.maybeLocaleOf(context);
+    final pricing = FlutterwaveConfig.pricingForLocale(locale);
 
     return GlassScaffold(
       appBar: AppBar(
@@ -59,7 +63,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'To create this Series/Group league, you must pay app charges.\n\nLeague: ${widget.leagueName}\nProvider: ${provider.providerName}',
+                    'Amount: ${pricing.createLeagueAmount} ${pricing.currency}\n\nTo create this Series/Group league, you must pay app charges.\n\nLeague: ${widget.leagueName}\nProvider: ${provider.providerName}',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.72),
@@ -86,6 +90,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     final userId = await CurrentUser.getOrCreateUserId();
 
                                     final result = await provider.collectLeagueCreationFee(
+                                      context: context,
                                       userId: userId,
                                       leagueName: widget.leagueName,
                                     );

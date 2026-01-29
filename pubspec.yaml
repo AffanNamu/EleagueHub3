@@ -39,6 +39,9 @@ dependencies:
 
   http: ^1.2.2
 
+  # Payments (Flutterwave)
+  flutterwave_standard: ^1.0.9
+
   # Local LAN Streaming (Screen + Front Camera) via WebRTC
   flutter_webrtc: 0.12.5+hotfix.2
   permission_handler: ^11.3.1
