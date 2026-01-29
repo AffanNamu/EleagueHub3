@@ -103,9 +103,7 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
 
       final txRef = 'EH-VIEW-$leagueId-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
-      // flutterwave_standard >= 1.1.0 uses BuildContext as a positional constructor arg.
       final flutterwave = Flutterwave(
-        context,
         publicKey: FlutterwaveConfig.publicKey,
         currency: pricing.currency,
         redirectUrl: FlutterwaveConfig.redirectUrl,
@@ -142,7 +140,10 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         errorMessage: 'Payment cancelled or not successful',
       );
     } catch (e) {
-      return LeagueChargesPaymentResult.failed(provider: providerName, errorMessage: e.toString());
+      return LeagueChargesPaymentResult.failed(
+        provider: providerName,
+        errorMessage: e.toString(),
+      );
     }
   }
 }
