@@ -103,22 +103,9 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
 
       final txRef = 'EH-VIEW-$leagueId-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
-      final style = FlutterwaveStyle(
-        appBarText: 'EleagueHub Payment',
-        buttonColor: Colors.cyanAccent,
-        appBarIcon: const Icon(Icons.arrow_back, color: Colors.white),
-        buttonTextStyle: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        appBarTextStyle: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
-        mainBackgroundColor: Colors.white,
-        buttonText: 'Pay',
-        dialogCancelTextStyle: const TextStyle(color: Colors.black),
-        dialogContinueTextStyle: const TextStyle(color: Colors.blue),
-        dialogBackgroundColor: Colors.white,
-      );
-
+      // flutterwave_standard >= 1.1.0 uses BuildContext as a positional constructor arg.
       final flutterwave = Flutterwave(
-        context: context,
-        style: style,
+        context,
         publicKey: FlutterwaveConfig.publicKey,
         currency: pricing.currency,
         redirectUrl: FlutterwaveConfig.redirectUrl,
@@ -150,8 +137,10 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         );
       }
 
-      final message = (response.message?.trim().isNotEmpty ?? false) ? response.message!.trim() : 'Payment cancelled';
-      return LeagueChargesPaymentResult.failed(provider: providerName, errorMessage: message);
+      return LeagueChargesPaymentResult.failed(
+        provider: providerName,
+        errorMessage: 'Payment cancelled or not successful',
+      );
     } catch (e) {
       return LeagueChargesPaymentResult.failed(provider: providerName, errorMessage: e.toString());
     }
