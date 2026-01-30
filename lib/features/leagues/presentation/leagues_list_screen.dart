@@ -1,6 +1,7 @@
 import 'package:eleaguehub3/core/services/sync_trigger.dart';
 import '../utils/current_user.dart';
 import "package:eleaguehub3/core/app/sync_debug_screen.dart";
+import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
 import 'package:eleaguehub3/features/leagues/models/league.dart';
@@ -38,7 +39,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   Map<String, int> _participantCounts = {};
   Map<String, LeagueAnnouncement?> _latestAnnouncements = {};
 
-  /// per league paid charges for the CURRENT viewer (used only for UI lock badges)
+  /// per league paid charges for the CURRENT viewer (used only for UI lock badges/buttons)
   Map<String, bool> _viewerChargesPaid = {};
 
   /// resolved viewer id (so owner/lock UI is accurate even if prefs.current_user_id is empty)
@@ -46,13 +47,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
   bool _isLoading = true;
 
+  String? _payingLeagueId;
+
   @override
   void initState() {
     super.initState();
     final prefs = ref.read(prefsServiceProvider);
     _localRepo = LocalLeaguesRepository(prefs);
     _annRepo = LeagueAnnouncementsFirebase(prefs);
-    // Pull latest from cloud in background (safe offline)
 
     // ignore: discarded_futures
     SyncTrigger.trySync().then((_) => _refreshLeagues());
@@ -64,7 +66,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
       _isLoading = true;
     });
 
-    // Try pulling latest from cloud to local first (if online)
     await SyncService.instance.syncAll();
 
     final leagues = await _localRepo.listLeagues();
@@ -78,14 +79,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
     final chargesStore = LeagueChargesStore(prefs);
 
-    // NOTE: Your current file references memberships/teams methods that are not shown here.
-    // If those methods exist in your LocalLeaguesRepository in your real codebase,
-    // keep them. If not, remove the membership/team counting section.
-    //
-    // For now we keep your original logic but it requires:
-    // - _localRepo.listMemberships()
-    // - _localRepo.getTeams(league.id)
-
     final memberships = await _localRepo.listMemberships();
 
     final Map<String, int> counts = {};
@@ -97,10 +90,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
         final teams = await _localRepo.getTeams(league.id);
 
         final orphanMembersCount = memberships
-            .where((m) =>
-                m.leagueId == league.id &&
-                m.role == LeagueRole.member &&
-                m.teamId == null)
+            .where((m) => m.leagueId == league.id && m.role == LeagueRole.member && m.teamId == null)
             .length;
 
         counts[league.id] = teams.length + orphanMembersCount;
@@ -111,8 +101,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
           latestAnns[league.id] = anns.first;
         }
 
-        final requiresCharges =
-            league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+        final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
 
         if (!requiresCharges) {
           viewerPaid[league.id] = true; // classic is always “unlocked”
@@ -136,14 +125,124 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     });
   }
 
+  Future<void> _payChargesForLeague(BuildContext context, League league) async {
+    if (_payingLeagueId == league.id) return;
+
+    final prefs = ref.read(prefsServiceProvider);
+    String userId = _effectiveUserId;
+    if (userId.trim().isEmpty) {
+      userId = prefs.getCurrentUserId() ?? '';
+    }
+    if (userId.trim().isEmpty) {
+      userId = await CurrentUser.getOrCreateUserId();
+    }
+
+    final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+    if (!requiresCharges) return;
+
+    if (league.organizerUserId == userId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You are the league creator. Access is already unlocked.')),
+      );
+      return;
+    }
+
+    final store = LeagueChargesStore(prefs);
+    final alreadyPaid = store.hasPaidCharges(userId: userId, leagueId: league.id);
+    if (alreadyPaid) {
+      setState(() {
+        _viewerChargesPaid[league.id] = true;
+      });
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0A1D37),
+          title: const Text(
+            'Unlock this league',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            'Pay charges to unlock Fixtures and Standings for:\n\n${league.name}',
+            style: const TextStyle(color: Colors.white70, height: 1.35),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Pay'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _payingLeagueId = league.id);
+
+    try {
+      final paymentService = ref.read(leagueChargesPaymentServiceProvider);
+
+      final result = await paymentService.payLeagueCharges(
+        context: context,
+        userId: userId,
+        leagueId: league.id,
+        leagueName: league.name,
+      );
+
+      if (!mounted) return;
+
+      if (!result.success) {
+        setState(() => _payingLeagueId = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.errorMessage ?? 'Payment failed')),
+        );
+        return;
+      }
+
+      final receipt = LeagueChargesReceipt(
+        leagueId: league.id,
+        userId: userId,
+        receiptId: result.receiptId ?? '',
+        provider: result.provider,
+        paidAtMs: result.paidAtMs,
+      );
+
+      await store.storeReceipt(receipt);
+
+      if (!mounted) return;
+
+      setState(() {
+        _payingLeagueId = null;
+        _viewerChargesPaid[league.id] = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unlocked successfully')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _payingLeagueId = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Payment failed: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final screenWidth = media.size.width;
     final isTablet = screenWidth >= 600;
 
-    final double fabBottomOffset =
-        kBottomNavigationBarHeight + media.padding.bottom + 16;
+    final double fabBottomOffset = kBottomNavigationBarHeight + media.padding.bottom + 16;
 
     return GlassScaffold(
       resizeToAvoidBottomInset: true,
@@ -241,8 +340,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
         final bool isOwner = league.organizerUserId == viewerId || league.organizerUserId == currentUserId;
 
-        final requiresCharges =
-            league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+        final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
         final paid = _viewerChargesPaid[league.id] ?? false;
         final showLockedBadge = requiresCharges && !isOwner && !paid;
 
@@ -250,6 +348,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
         final latestAnn = _latestAnnouncements[league.id];
         final baseSubtitle = '$registered / ${league.maxTeams} teams';
         final subtitle = latestAnn != null ? '$baseSubtitle • ${latestAnn.title}' : baseSubtitle;
+
+        final payingThis = _payingLeagueId == league.id;
 
         return Stack(
           children: [
@@ -338,6 +438,35 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+
+            // NEW: small PAY button on the card if user chose "Later" or hasn't paid yet.
+            if (showLockedBadge)
+              Positioned(
+                bottom: 14,
+                right: 14,
+                child: SizedBox(
+                  height: 32,
+                  child: FilledButton(
+                    onPressed: payingThis ? null : () => _payChargesForLeague(context, league),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.orangeAccent.withOpacity(0.92),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                    ),
+                    child: payingThis
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          )
+                        : const Text(
+                            'PAY',
+                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                          ),
                   ),
                 ),
               ),
@@ -581,30 +710,38 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                   final code = controller.text.trim().toUpperCase();
                   if (code.isEmpty) return;
 
-                  await repo.joinLeagueLocallyByCode(
-                    joinCode: code,
-                    userId: userId,
-                    placeholderBuilder: (generatedLeagueId) {
-                      final now = DateTime.now().millisecondsSinceEpoch;
-                      return League(
-                        id: generatedLeagueId,
-                        name: 'Joined League',
-                        format: LeagueFormat.classic,
-                        privacy: LeaguePrivacy.private,
-                        region: 'Global',
-                        maxTeams: 20,
-                        season: '2026',
-                        organizerUserId: '',
-                        code: code,
-                        qrPayloadOverride: '',
-                        settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
-                        updatedAtMs: now,
-                        version: 1,
-                      );
-                    },
-                  );
+                  try {
+                    await repo.joinLeagueLocallyByCode(
+                      joinCode: code,
+                      userId: userId,
+                      placeholderBuilder: (generatedLeagueId) {
+                        final now = DateTime.now().millisecondsSinceEpoch;
+                        return League(
+                          id: generatedLeagueId,
+                          name: 'Joined League',
+                          format: LeagueFormat.classic,
+                          privacy: LeaguePrivacy.private,
+                          region: 'Global',
+                          maxTeams: 20,
+                          season: '2026',
+                          organizerUserId: '',
+                          code: code,
+                          qrPayloadOverride: '',
+                          settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
+                          updatedAtMs: now,
+                          version: 1,
+                        );
+                      },
+                    );
 
-                  if (ctx.mounted) Navigator.of(ctx).pop();
+                    if (!ctx.mounted) return;
+                    Navigator.of(ctx).pop();
+                  } catch (e) {
+                    if (!ctx.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('$e')),
+                    );
+                  }
                 },
                 child: const Text('Join'),
               ),
