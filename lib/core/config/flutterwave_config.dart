@@ -17,18 +17,25 @@ class FlutterwavePricing {
 }
 
 class FlutterwaveConfig {
-  /// TEST by default (as you requested).
+  /// TEST mode by default (as requested).
   static const bool isTestMode = bool.fromEnvironment('FLW_TEST_MODE', defaultValue: true);
 
-  /// Provide keys via --dart-define.
+  /// IMPORTANT:
+  /// - Keep SECRET keys out of the app.
+  /// - We only use PUBLIC keys on-device.
   ///
-  /// TEST public key usually starts with: FLWPUBK_TEST-...
-  static const String publicKeyTest = String.fromEnvironment('FLW_PUBLIC_KEY_TEST', defaultValue: '');
+  /// You can still override these via --dart-define in CI/CD.
+  static const String publicKeyTest = String.fromEnvironment(
+    'FLW_PUBLIC_KEY_TEST',
+    defaultValue: 'FLWPUBK_TEST-65c33e45be4d1cfe5d417b10dfe692f0-X',
+  );
 
-  /// LIVE public key usually starts with: FLWPUBK-...
-  static const String publicKeyLive = String.fromEnvironment('FLW_PUBLIC_KEY_LIVE', defaultValue: '');
+  static const String publicKeyLive = String.fromEnvironment(
+    'FLW_PUBLIC_KEY_LIVE',
+    defaultValue: '',
+  );
 
-  /// Fallback key (optional): if you set only FLW_PUBLIC_KEY_TEST, you can also set FLW_PUBLIC_KEY.
+  /// Optional fallback if you prefer a single key name:
   static const String publicKeyFallback = String.fromEnvironment('FLW_PUBLIC_KEY', defaultValue: '');
 
   /// Redirect URL used by the Flutterwave checkout flow.
@@ -37,12 +44,14 @@ class FlutterwaveConfig {
     defaultValue: 'https://esportlyic.workers.dev/flutterwave/webhook',
   );
 
-  /// If we can't find any country code on device locales, we fall back to NG.
-  static const String defaultCountryCode = String.fromEnvironment('FLW_DEFAULT_COUNTRY', defaultValue: 'NG');
-
-  /// Optional hard override for testing:
-  /// --dart-define=FLW_FORCE_COUNTRY=NG  OR  --dart-define=FLW_FORCE_COUNTRY=US
-  static const String forcedCountryCode = String.fromEnvironment('FLW_FORCE_COUNTRY', defaultValue: '');
+  /// Nigeria-first pricing (fixes "shows $5 while I'm in Nigeria").
+  ///
+  /// This forces NG by default so your app shows NGN pricing on Nigerian devices even if
+  /// the phone locale is set to US/UK.
+  ///
+  /// If you want to test International pricing on your own device:
+  /// flutter run --dart-define=FLW_FORCE_COUNTRY=US
+  static const String forcedCountryCode = String.fromEnvironment('FLW_FORCE_COUNTRY', defaultValue: 'NG');
 
   static const String ngnCurrency = String.fromEnvironment('FLW_NGN_CURRENCY', defaultValue: 'NGN');
   static const String usdCurrency = String.fromEnvironment('FLW_USD_CURRENCY', defaultValue: 'USD');
@@ -77,19 +86,7 @@ class FlutterwaveConfig {
     return c == 'NG';
   }
 
-  static bool _anyDeviceLocaleIsNigeria() {
-    try {
-      final locales = PlatformDispatcher.instance.locales;
-      for (final l in locales) {
-        final cc = (l.countryCode ?? '').trim().toUpperCase();
-        if (cc == 'NG') return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
   static FlutterwavePricing pricingForLocale(Locale? locale) {
-    // Highest priority: forced override
     final forced = forcedCountryCode.trim().toUpperCase();
     if (forced.isNotEmpty) {
       if (isNigeriaCountryCode(forced)) {
@@ -106,22 +103,8 @@ class FlutterwaveConfig {
       );
     }
 
-    // Next: if any device locale includes NG, treat as Nigeria
-    if (_anyDeviceLocaleIsNigeria()) {
-      return const FlutterwavePricing(
-        currency: ngnCurrency,
-        createLeagueAmount: ngnCreateLeagueAmount,
-        viewLeagueAmount: ngnViewLeagueAmount,
-      );
-    }
-
-    // Next: use provided locale countryCode, else fallback to defaultCountryCode (NG)
-    String country = (locale?.countryCode ?? '').trim().toUpperCase();
-    if (country.isEmpty) {
-      country = defaultCountryCode.trim().toUpperCase();
-    }
-
-    if (isNigeriaCountryCode(country)) {
+    final cc = (locale?.countryCode ?? '').trim().toUpperCase();
+    if (isNigeriaCountryCode(cc)) {
       return const FlutterwavePricing(
         currency: ngnCurrency,
         createLeagueAmount: ngnCreateLeagueAmount,
