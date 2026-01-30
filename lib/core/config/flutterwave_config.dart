@@ -17,28 +17,39 @@ class FlutterwavePricing {
 }
 
 class FlutterwaveConfig {
-  /// Never commit secret keys in the mobile app.
-  /// We only use the public key on-device.
-  ///
-  /// You can override these using --dart-define if you want.
-  static const String publicKey = String.fromEnvironment(
-    'FLW_PUBLIC_KEY',
-    defaultValue: 'FLWPUBK-04018360c1fb4ebed56dd005bb7fb381-X',
-  );
+  /// TEST by default (as you requested).
+  static const bool isTestMode = bool.fromEnvironment('FLW_TEST_MODE', defaultValue: true);
 
-  /// Must match the redirect url configured in Flutterwave settings.
+  /// Provide keys via --dart-define.
+  ///
+  /// TEST public key usually starts with: FLWPUBK_TEST-...
+  static const String publicKeyTest = String.fromEnvironment('FLW_PUBLIC_KEY_TEST', defaultValue: '');
+
+  /// LIVE public key usually starts with: FLWPUBK-...
+  static const String publicKeyLive = String.fromEnvironment('FLW_PUBLIC_KEY_LIVE', defaultValue: '');
+
+  /// Fallback key (optional): if you set only FLW_PUBLIC_KEY_TEST, you can also set FLW_PUBLIC_KEY.
+  static const String publicKeyFallback = String.fromEnvironment('FLW_PUBLIC_KEY', defaultValue: '');
+
+  /// Redirect URL used by the Flutterwave checkout flow.
   static const String redirectUrl = String.fromEnvironment(
     'FLW_REDIRECT_URL',
     defaultValue: 'https://esportlyic.workers.dev/flutterwave/webhook',
   );
 
-  /// Flutterwave supported currency codes.
+  /// If we can't find any country code on device locales, we fall back to NG.
+  static const String defaultCountryCode = String.fromEnvironment('FLW_DEFAULT_COUNTRY', defaultValue: 'NG');
+
+  /// Optional hard override for testing:
+  /// --dart-define=FLW_FORCE_COUNTRY=NG  OR  --dart-define=FLW_FORCE_COUNTRY=US
+  static const String forcedCountryCode = String.fromEnvironment('FLW_FORCE_COUNTRY', defaultValue: '');
+
   static const String ngnCurrency = String.fromEnvironment('FLW_NGN_CURRENCY', defaultValue: 'NGN');
   static const String usdCurrency = String.fromEnvironment('FLW_USD_CURRENCY', defaultValue: 'USD');
 
-  /// Defaults per your business rule:
-  /// - Nigeria: NGN 4000 to create, NGN 1300 to view
-  /// - Outside Nigeria: USD 5 to create, USD 2 to view
+  /// Your business pricing defaults:
+  /// - Nigeria: NGN 4000 create, NGN 1300 view
+  /// - Outside Nigeria: USD 5 create, USD 2 view
   static const String ngnCreateLeagueAmount =
       String.fromEnvironment('FLW_NGN_CREATE_LEAGUE_AMOUNT', defaultValue: '4000');
   static const String ngnViewLeagueAmount =
@@ -49,22 +60,75 @@ class FlutterwaveConfig {
   static const String usdViewLeagueAmount =
       String.fromEnvironment('FLW_USD_VIEW_LEAGUE_AMOUNT', defaultValue: '2');
 
-  static const bool isTestMode = bool.fromEnvironment('FLW_TEST_MODE', defaultValue: false);
+  static String get publicKey {
+    if (isTestMode) {
+      if (publicKeyTest.trim().isNotEmpty) return publicKeyTest.trim();
+      if (publicKeyFallback.trim().isNotEmpty) return publicKeyFallback.trim();
+      return '';
+    }
+
+    if (publicKeyLive.trim().isNotEmpty) return publicKeyLive.trim();
+    if (publicKeyFallback.trim().isNotEmpty) return publicKeyFallback.trim();
+    return '';
+  }
 
   static bool isNigeriaCountryCode(String? countryCode) {
     final c = (countryCode ?? '').trim().toUpperCase();
     return c == 'NG';
   }
 
+  static bool _anyDeviceLocaleIsNigeria() {
+    try {
+      final locales = PlatformDispatcher.instance.locales;
+      for (final l in locales) {
+        final cc = (l.countryCode ?? '').trim().toUpperCase();
+        if (cc == 'NG') return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   static FlutterwavePricing pricingForLocale(Locale? locale) {
-    final isNg = isNigeriaCountryCode(locale?.countryCode);
-    if (isNg) {
+    // Highest priority: forced override
+    final forced = forcedCountryCode.trim().toUpperCase();
+    if (forced.isNotEmpty) {
+      if (isNigeriaCountryCode(forced)) {
+        return const FlutterwavePricing(
+          currency: ngnCurrency,
+          createLeagueAmount: ngnCreateLeagueAmount,
+          viewLeagueAmount: ngnViewLeagueAmount,
+        );
+      }
+      return const FlutterwavePricing(
+        currency: usdCurrency,
+        createLeagueAmount: usdCreateLeagueAmount,
+        viewLeagueAmount: usdViewLeagueAmount,
+      );
+    }
+
+    // Next: if any device locale includes NG, treat as Nigeria
+    if (_anyDeviceLocaleIsNigeria()) {
       return const FlutterwavePricing(
         currency: ngnCurrency,
         createLeagueAmount: ngnCreateLeagueAmount,
         viewLeagueAmount: ngnViewLeagueAmount,
       );
     }
+
+    // Next: use provided locale countryCode, else fallback to defaultCountryCode (NG)
+    String country = (locale?.countryCode ?? '').trim().toUpperCase();
+    if (country.isEmpty) {
+      country = defaultCountryCode.trim().toUpperCase();
+    }
+
+    if (isNigeriaCountryCode(country)) {
+      return const FlutterwavePricing(
+        currency: ngnCurrency,
+        createLeagueAmount: ngnCreateLeagueAmount,
+        viewLeagueAmount: ngnViewLeagueAmount,
+      );
+    }
+
     return const FlutterwavePricing(
       currency: usdCurrency,
       createLeagueAmount: usdCreateLeagueAmount,
@@ -73,8 +137,12 @@ class FlutterwaveConfig {
   }
 
   static void assertConfigured() {
-    if (publicKey.trim().isEmpty) {
-      throw StateError('Flutterwave is not configured: FLW_PUBLIC_KEY is missing.');
+    final key = publicKey.trim();
+    if (key.isEmpty) {
+      if (isTestMode) {
+        throw StateError('Flutterwave TEST key missing: set FLW_PUBLIC_KEY_TEST via --dart-define.');
+      }
+      throw StateError('Flutterwave LIVE key missing: set FLW_PUBLIC_KEY_LIVE via --dart-define.');
     }
     if (redirectUrl.trim().isEmpty) {
       throw StateError('Flutterwave is not configured: FLW_REDIRECT_URL is missing.');
