@@ -1,31 +1,22 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
 
 /// User identity for leagues.
 ///
-/// Priority:
-/// 1) FirebaseAuth uid (required for Firestore rules)
-/// 2) Fallback offline UUID (only if auth not available)
+/// Firebase Auth uid is the GLOBAL, IMMUTABLE userId.
 class CurrentUser {
   static const _kKey = 'leagues.currentUserId';
 
-  static Future<String> getOrCreateUserId() async {
+  static Future<String> getUserId() async {
     final authUser = FirebaseAuth.instance.currentUser;
-    if (authUser != null) {
-      // Keep prefs in sync (nice for offline logic)
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kKey, authUser.uid);
-      return authUser.uid;
+    if (authUser == null) {
+      throw StateError('Not signed in (FirebaseAuth.currentUser == null)');
     }
 
-    // Fallback (should not happen if you enabled anonymous auth bootstrap)
+    // Keep prefs in sync (useful for offline cache layers).
     final prefs = await SharedPreferences.getInstance();
-    final existing = prefs.getString(_kKey);
-    if (existing != null && existing.isNotEmpty) return existing;
+    await prefs.setString(_kKey, authUser.uid);
 
-    final id = const Uuid().v4();
-    await prefs.setString(_kKey, id);
-    return id;
+    return authUser.uid;
   }
 }

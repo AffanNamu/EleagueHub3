@@ -298,9 +298,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           ),
           const SizedBox(height: 10),
           Text(
-            _creationRequiresPayment
-                ? 'Series/Group leagues require payment before creation.'
-                : 'Classic league creation is free.',
+            _creationRequiresPayment ? 'Series/Group leagues require payment before creation.' : 'Classic league creation is free.',
             style: TextStyle(color: Colors.white.withOpacity(0.60), height: 1.35, fontSize: 12),
           ),
         ],
@@ -720,9 +718,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     }
 
     final statusTitle = _paymentCompleted ? 'Payment completed' : 'Payment required';
-    final statusSubtitle = _paymentCompleted
-        ? 'Receipt: ${_payment?.receiptId ?? ''}'
-        : 'You must pay app charges before creating this league.';
+    final statusSubtitle =
+        _paymentCompleted ? 'Receipt: ${_payment?.receiptId ?? ''}' : 'You must pay app charges before creating this league.';
     final statusIcon = _paymentCompleted ? Icons.verified : Icons.lock_outline;
     final accent = _paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent;
 
@@ -779,9 +776,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   }
 
   Widget _stepConfirm(BuildContext context, {Key? key}) {
-    final canCreate = _type != null &&
-        _name.text.trim().isNotEmpty &&
-        (!_creationRequiresPayment || _paymentCompleted);
+    final canCreate = _type != null && _name.text.trim().isNotEmpty && (!_creationRequiresPayment || _paymentCompleted);
 
     return Column(
       key: key,
@@ -1040,7 +1035,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       final prefs = ref.read(prefsServiceProvider);
       final repo = LocalLeaguesRepository(prefs);
 
-      final organizerUserId = await CurrentUser.getOrCreateUserId();
+      // Firebase Auth uid (immutable userId)
+      final organizerUserId = await CurrentUser.getUserId();
 
       final leagueId = _uuid.v4();
       final now = DateTime.now().millisecondsSinceEpoch;

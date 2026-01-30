@@ -174,7 +174,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
 
-    final currentUserId = await CurrentUser.getOrCreateUserId();
+    // Firebase Auth uid (immutable userId). No extra UI prompts.
+    final currentUserId = await CurrentUser.getUserId();
 
     final parsed = _parseJoinPayload(payload);
     if (parsed == null) {

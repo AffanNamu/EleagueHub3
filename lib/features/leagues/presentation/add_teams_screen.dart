@@ -3,11 +3,11 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../auth/data/user_profile_repository.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/round_robin.dart';
 import '../domain/algorithms/swiss_pairing.dart';
@@ -31,10 +31,14 @@ class AddTeamsScreen extends ConsumerStatefulWidget {
 
 class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   late LocalLeaguesRepository _localRepo;
+  final UserProfileRepository _profiles = UserProfileRepository();
 
   final _bulkController = TextEditingController();
 
+  /// Temp entries are userId-driven:
+  /// { userId, teamName, group }
   final List<Map<String, String>> _tempTeams = [];
+
   List<Team> _existingTeams = [];
 
   bool _isLoading = true;
@@ -52,6 +56,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   ];
 
   String? _bulkError;
+
+  /// Cache of fetched profiles for fast preview
+  final Map<String, String> _teamNameCacheByUserId = {};
 
   int get _maxTeamsForFormat {
     switch (widget.format) {
@@ -92,34 +99,70 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     return 'League Pool';
   }
 
-  void _addTeam(String name) {
-    final trimmed = name.trim();
+  Future<String?> _resolveTeamNameForUserId(String userId) async {
+    final cached = _teamNameCacheByUserId[userId];
+    if (cached != null && cached.trim().isNotEmpty) return cached;
+
+    final profile = await _profiles.fetchByUserId(userId);
+    final teamName = profile?.teamName.trim();
+    if (teamName == null || teamName.isEmpty) return null;
+
+    _teamNameCacheByUserId[userId] = teamName;
+    return teamName;
+  }
+
+  Future<void> _addUserId(String userId) async {
+    final trimmed = userId.trim();
     if (trimmed.isEmpty) return;
 
     final totalCurrent = _existingTeams.length + _tempTeams.length;
     if (totalCurrent >= _maxTeamsForFormat) {
+      if (!mounted) return;
       setState(() {
         _bulkError = 'Maximum $_maxTeamsForFormat teams allowed for this format.';
       });
       return;
     }
 
-    if (_tempTeams.any((t) => (t['name'] ?? '').toLowerCase() == trimmed.toLowerCase())) return;
+    final alreadyInPreview = _tempTeams.any((t) => (t['userId'] ?? '') == trimmed);
+    if (alreadyInPreview) return;
 
-    if (_existingTeams.any((t) => t.name.toLowerCase() == trimmed.toLowerCase())) {
+    final alreadySaved = _existingTeams.any((t) => t.id == trimmed);
+    if (alreadySaved) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('A team with this name already exists.'),
+          content: Text('This userId is already added to this league.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
       return;
     }
 
+    String? teamName;
+    try {
+      teamName = await _resolveTeamNameForUserId(trimmed);
+    } catch (_) {
+      teamName = null;
+    }
+
+    if (teamName == null || teamName.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No user profile found for this userId. Ask the player to login once and share their userId.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
     setState(() {
       _bulkError = null;
       _tempTeams.add({
-        'name': trimmed,
+        'userId': trimmed,
+        'teamName': teamName!,
         'group': widget.format == LeagueFormat.uclGroup ? _selectedGroup : 'League Pool',
       });
 
@@ -134,13 +177,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final text = _bulkController.text;
     if (text.isEmpty) return;
 
-    final names = text
+    final userIds = text
         .split(RegExp(r'[,\n]'))
         .map((n) => n.trim())
         .where((n) => n.isNotEmpty)
         .toList();
 
-    if (names.isEmpty) return;
+    if (userIds.isEmpty) return;
 
     FocusScope.of(context).unfocus();
 
@@ -149,6 +192,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
+        bool adding = false;
+
         return SafeArea(
           child: Padding(
             padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom).add(const EdgeInsets.all(16)),
@@ -159,95 +204,108 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                   borderRadius: 28,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Preview teams to add',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Review the names below. Duplicates or teams above the limit will be skipped automatically when adding.',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 11,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 12),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 260),
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: names.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 4),
-                            itemBuilder: (context, index) {
-                              final name = names[index];
-                              return Glass(
-                                borderRadius: 16,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  child: Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 13,
-                                        backgroundColor: Colors.cyanAccent.withOpacity(0.18),
-                                        child: Text(
-                                          '${index + 1}',
-                                          style: const TextStyle(
-                                            color: Colors.cyanAccent,
-                                            fontSize: 11,
+                    child: StatefulBuilder(
+                      builder: (ctx, setModalState) {
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Preview userIds to add',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Paste one Firebase userId per line (or separated by commas). We will auto-load the team name from the profile.',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 260),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: userIds.length,
+                                separatorBuilder: (_, __) => const SizedBox(height: 4),
+                                itemBuilder: (context, index) {
+                                  final id = userIds[index];
+                                  return Glass(
+                                    borderRadius: 16,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      child: Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 13,
+                                            backgroundColor: Colors.cyanAccent.withOpacity(0.18),
+                                            child: Text(
+                                              '${index + 1}',
+                                              style: const TextStyle(
+                                                color: Colors.cyanAccent,
+                                                fontSize: 11,
+                                              ),
+                                            ),
                                           ),
-                                        ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              id,
+                                              style: const TextStyle(color: Colors.white),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          name,
-                                          style: const TextStyle(color: Colors.white),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextButton(
+                                    onPressed: adding ? null : () => Navigator.of(ctx).pop(),
+                                    child: const Text(
+                                      'Cancel',
+                                      style: TextStyle(color: Colors.white70),
+                                    ),
                                   ),
                                 ),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text(
-                                  'Cancel',
-                                  style: TextStyle(color: Colors.white70),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: adding
+                                        ? null
+                                        : () async {
+                                            setModalState(() => adding = true);
+                                            for (final id in userIds) {
+                                              await _addUserId(id);
+                                            }
+                                            _bulkController.clear();
+                                            if (ctx.mounted) Navigator.of(ctx).pop();
+                                          },
+                                    child: adding
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                          )
+                                        : const Text('Add to preview'),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: FilledButton(
-                                onPressed: () {
-                                  for (final n in names) {
-                                    _addTeam(n);
-                                  }
-                                  _bulkController.clear();
-                                  Navigator.of(ctx).pop();
-                                },
-                                child: const Text('Add to preview'),
-                              ),
+                              ],
                             ),
                           ],
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -267,14 +325,18 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
+    // Teams are created from userId => teamName (profile), so admin never types team names.
     final newTeams = _tempTeams.map<Team>((t) {
       final groupName = t['group']!;
       final String? groupId = widget.format == LeagueFormat.uclGroup ? groupName : null;
 
+      final userId = t['userId']!;
+      final teamName = t['teamName']!;
+
       return Team(
-        id: const Uuid().v4(),
+        id: userId,
         leagueId: widget.leagueId,
-        name: t['name']!,
+        name: teamName,
         groupId: groupId,
         updatedAtMs: now,
         version: 1,
@@ -284,6 +346,15 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final allTeams = <Team>[..._existingTeams, ...newTeams];
 
     await _localRepo.saveTeams(widget.leagueId, allTeams);
+
+    // Link membership.teamId to the team (teamId == userId) so "My Matches" can work silently.
+    for (final t in newTeams) {
+      await _localRepo.assignTeamToUserInLeague(
+        leagueId: widget.leagueId,
+        userId: t.id,
+        teamId: t.id,
+      );
+    }
 
     final existingFixtures = await _localRepo.getMatches(widget.leagueId);
     List<FixtureMatch> generatedFixtures = [];
@@ -432,10 +503,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     const SizedBox(height: 4),
                                     Text(
                                       widget.format == LeagueFormat.classic
-                                          ? 'Add up to $_maxTeamsForFormat teams. We\'ll auto-generate a double round-robin schedule.'
+                                          ? 'Add up to $_maxTeamsForFormat teams by userId. We\'ll auto-generate a double round-robin schedule.'
                                           : widget.format == LeagueFormat.uclGroup
-                                              ? 'Assign teams into groups (A–H). Fixtures are generated per group.'
-                                              : 'Add teams and we\'ll create the first Swiss round for you.',
+                                              ? 'Assign teams into groups (A–H) by userId. Fixtures are generated per group.'
+                                              : 'Add teams by userId and we\'ll create the first Swiss round for you.',
                                       style: const TextStyle(
                                         color: Colors.white70,
                                         fontSize: 11,
@@ -554,7 +625,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Step 1 · Enter team names',
+                        'Step 1 · Enter userIds',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -563,7 +634,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       ),
                       SizedBox(height: 2),
                       Text(
-                        'Type or paste names, separated by commas or new lines.',
+                        'Paste Firebase userIds, separated by commas or new lines.',
                         style: TextStyle(
                           color: Colors.white60,
                           fontSize: 10,
@@ -593,7 +664,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     keyboardType: TextInputType.multiline,
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
-                      hintText: 'Team A\nTeam B\nTeam C\n\nor\n\nTeam A, Team B, Team C',
+                      hintText: 'uid_1\nuid_2\nuid_3\n\nor\n\nuid_1, uid_2, uid_3',
                       hintStyle: TextStyle(
                         color: Colors.white38,
                         fontSize: 12,
@@ -734,7 +805,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                   final label = group.isEmpty ? 'New' : 'New · $group';
                   return _buildTeamTile(
                     index: i,
-                    name: team['name']!,
+                    name: team['teamName']!,
                     label: label,
                     isNew: true,
                     onTap: null,
@@ -765,7 +836,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   void _editExistingTeam(int index) {
     final team = _existingTeams[index];
-    final nameController = TextEditingController(text: team.name);
     String selectedGroup = team.groupId ?? _selectedGroup;
 
     showModalBottomSheet(
@@ -789,24 +859,47 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text(
-                              'Edit team',
+                              'Team details',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            TextField(
-                              controller: nameController,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: const InputDecoration(
-                                labelText: 'Team name',
-                                labelStyle: TextStyle(color: Colors.white70),
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Team name',
+                                style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                team.name,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'userId',
+                                style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                team.id,
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
                               ),
                             ),
                             if (widget.format == LeagueFormat.uclGroup) ...[
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 10),
                               const Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
@@ -820,12 +913,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   dropdownColor: const Color(0xFF000428),
                                   style: const TextStyle(color: Colors.cyanAccent),
                                   isExpanded: true,
-                                  items: _groups
-                                      .map((g) => DropdownMenuItem(
-                                            value: g,
-                                            child: Text(g),
-                                          ))
-                                      .toList(),
+                                  items: _groups.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
                                   onChanged: (v) {
                                     if (v == null) return;
                                     setModalState(() => selectedGroup = v);
@@ -839,24 +927,19 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 Expanded(
                                   child: TextButton(
                                     onPressed: () => Navigator.of(ctx).pop(),
-                                    child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                                    child: const Text('Close', style: TextStyle(color: Colors.white70)),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: FilledButton(
                                     onPressed: () {
-                                      final newName = nameController.text.trim();
-                                      if (newName.isEmpty) return;
-
                                       setState(() {
                                         _existingTeams[index] = team.copyWith(
-                                          name: newName,
                                           groupId: widget.format == LeagueFormat.uclGroup ? selectedGroup : null,
                                           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
                                         );
                                       });
-
                                       Navigator.of(ctx).pop();
                                     },
                                     child: const Text('Save'),

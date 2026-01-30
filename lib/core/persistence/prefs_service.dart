@@ -12,8 +12,7 @@ class PreferencesService {
   static const _kThemeMode = 'theme_mode';
   static const _kLocaleCode = 'locale_code';
 
-  /// Logged in user id key (for now).
-  /// Later your auth_provider should set this after login.
+  /// Logged in user id key (Firebase Auth uid).
   static const String kCurrentUserIdKey = 'current_user_id';
 
   static Future<PreferencesService> create() async {
@@ -37,6 +36,10 @@ class PreferencesService {
     await _sp.setBool(key, value);
   }
 
+  Future<void> remove(String key) async {
+    await _sp.remove(key);
+  }
+
   /// Convenience helpers for current user id
   String? getCurrentUserId() => _sp.getString(kCurrentUserIdKey);
 
@@ -44,9 +47,12 @@ class PreferencesService {
     await _sp.setString(kCurrentUserIdKey, userId);
   }
 
+  Future<void> clearCurrentUserId() async {
+    await _sp.remove(kCurrentUserIdKey);
+  }
+
   /// Generic List helpers used by repositories
-  List<String> getStringList(String key) =>
-      _sp.getStringList(key) ?? [];
+  List<String> getStringList(String key) => _sp.getStringList(key) ?? [];
 
   Future<void> setStringList(String key, List<String> value) async {
     await _sp.setStringList(key, value);
@@ -84,8 +90,7 @@ class PreferencesService {
   Future<Map<String, bool>> loadNotificationPrefs() async {
     final enabled = _sp.getBool('notifications_enabled');
     final marketing = _sp.getBool('notifications_marketing');
-    final matchReminders =
-        _sp.getBool('notifications_match_reminders');
+    final matchReminders = _sp.getBool('notifications_match_reminders');
 
     return {
       'enabled': enabled ?? true,
@@ -95,24 +100,16 @@ class PreferencesService {
   }
 
   /// Live viewer preferences (global)
-  bool liveViewerChatEnabled() =>
-      _sp.getBool('live_viewer_chat_enabled') ?? true;
-  bool liveViewerVoiceEnabled() =>
-      _sp.getBool('live_viewer_voice_enabled') ?? true;
-  bool liveViewerReactionsEnabled() =>
-      _sp.getBool('live_viewer_reactions_enabled') ?? true;
+  bool liveViewerChatEnabled() => _sp.getBool('live_viewer_chat_enabled') ?? true;
+  bool liveViewerVoiceEnabled() => _sp.getBool('live_viewer_voice_enabled') ?? true;
+  bool liveViewerReactionsEnabled() => _sp.getBool('live_viewer_reactions_enabled') ?? true;
 
-  Future<void> setLiveViewerChatEnabled(bool value) async =>
-      setBool('live_viewer_chat_enabled', value);
-  Future<void> setLiveViewerVoiceEnabled(bool value) async =>
-      setBool('live_viewer_voice_enabled', value);
-  Future<void> setLiveViewerReactionsEnabled(bool value) async =>
-      setBool('live_viewer_reactions_enabled', value);
+  Future<void> setLiveViewerChatEnabled(bool value) async => setBool('live_viewer_chat_enabled', value);
+  Future<void> setLiveViewerVoiceEnabled(bool value) async => setBool('live_viewer_voice_enabled', value);
+  Future<void> setLiveViewerReactionsEnabled(bool value) async => setBool('live_viewer_reactions_enabled', value);
 
   /// Live overlay bubble (floating icon) global flag
-  bool liveOverlayEnabled() =>
-      _sp.getBool('live_overlay_enabled') ?? true;
+  bool liveOverlayEnabled() => _sp.getBool('live_overlay_enabled') ?? true;
 
-  Future<void> setLiveOverlayEnabled(bool value) async =>
-      setBool('live_overlay_enabled', value);
+  Future<void> setLiveOverlayEnabled(bool value) async => setBool('live_overlay_enabled', value);
 }

@@ -24,20 +24,23 @@ Future<void> main() async {
   SyncQueueService.init(prefs);
 
   try {
-    await AuthBootstrap.ensureSignedIn(prefs);
+    await AuthBootstrap.syncCurrentUserToPrefs(prefs);
   } catch (e) {
-    print('AuthBootstrap failed (non-fatal): $e');
+    // ignore: avoid_print
+    print('AuthBootstrap sync failed (non-fatal): $e');
   }
 
   try {
     await NotificationService().init();
   } catch (e) {
+    // ignore: avoid_print
     print('NotificationService init failed (non-fatal): $e');
   }
 
   try {
     await SyncBootstrap.init();
   } catch (e) {
+    // ignore: avoid_print
     print('SyncBootstrap init failed (non-fatal): $e');
   }
 

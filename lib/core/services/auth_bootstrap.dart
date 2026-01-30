@@ -2,32 +2,21 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../persistence/prefs_service.dart';
 
 class AuthBootstrap {
-  static Future<String> ensureSignedIn(PreferencesService prefs) async {
+  /// Syncs SharedPreferences with the currently signed-in Firebase user (if any).
+  /// Does NOT sign users in automatically.
+  static Future<void> syncCurrentUserToPrefs(PreferencesService prefs) async {
     final auth = FirebaseAuth.instance;
-
-    User? user = auth.currentUser;
-    if (user == null) {
-      final cred = await auth.signInAnonymously();
-      user = cred.user;
-    }
+    final user = auth.currentUser;
 
     if (user == null) {
-      throw StateError('FirebaseAuth anonymous sign-in failed (user == null)');
+      await prefs.clearCurrentUserId();
+      return;
     }
+
+    await prefs.setCurrentUserId(user.uid);
 
     // Debug
     // ignore: avoid_print
-    print('AuthBootstrap → signed in uid=${user.uid} isAnonymous=${user.isAnonymous}');
-
-    // Persist to your app prefs
-    try {
-      await prefs.setCurrentUserId(user.uid);
-    } catch (_) {
-      try {
-        await prefs.setString(PreferencesService.kCurrentUserIdKey, user.uid);
-      } catch (_) {}
-    }
-
-    return user.uid;
+    print('AuthBootstrap → current uid=${user.uid} provider=${user.providerData.map((e) => e.providerId).join(",")}');
   }
 }

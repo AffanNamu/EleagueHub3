@@ -129,9 +129,7 @@ class LocalLeaguesRepository {
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    final code = (league.code.trim().isNotEmpty)
-        ? league.code.trim().toUpperCase()
-        : _generateJoinCode();
+    final code = (league.code.trim().isNotEmpty) ? league.code.trim().toUpperCase() : _generateJoinCode();
 
     final stored = league.copyWith(
       organizerUserId: organizerUserId,
@@ -192,11 +190,7 @@ class LocalLeaguesRepository {
 
     try {
       // Always try ONLINE first (don't trust connectivity flag)
-      final query = await firestore
-          .collection('leagues')
-          .where('code', isEqualTo: code)
-          .limit(1)
-          .get();
+      final query = await firestore.collection('leagues').where('code', isEqualTo: code).limit(1).get();
 
       if (query.docs.isEmpty) {
         // Online reachable but league not found: DO NOT create placeholder
@@ -316,6 +310,65 @@ class LocalLeaguesRepository {
       if (m.leagueId == leagueId && m.userId == userId) return m;
     }
     return null;
+  }
+
+  /// Backend-driven team assignment:
+  /// - Admin supplies ONLY userId (Firebase uid)
+  /// - Team id can be the same as userId for a stable link
+  /// This updates/creates membership so "My Matches" can work without asking for team names.
+  Future<void> assignTeamToUserInLeague({
+    required String leagueId,
+    required String userId,
+    required String teamId,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final all = await _getAllMemberships();
+    final idx = all.indexWhere((m) => m.leagueId == leagueId && m.userId == userId);
+
+    late final Membership updated;
+    late final String action;
+
+    if (idx >= 0) {
+      final existing = all[idx];
+      updated = Membership(
+        id: existing.id,
+        leagueId: existing.leagueId,
+        userId: existing.userId,
+        teamId: teamId,
+        role: existing.role,
+        updatedAtMs: now,
+        version: existing.version + 1,
+      );
+      all[idx] = updated;
+      action = 'update';
+    } else {
+      updated = Membership(
+        id: _uuid.v4(),
+        leagueId: leagueId,
+        userId: userId,
+        teamId: teamId,
+        role: LeagueRole.member,
+        updatedAtMs: now,
+        version: 1,
+      );
+      all.add(updated);
+      action = 'create';
+    }
+
+    await _prefs.setStringList(
+      kMembershipsKey,
+      all.map((m) => jsonEncode(m.toRemoteMap())).toList(),
+    );
+
+    await _queue.enqueue(
+      id: _uuid.v4(),
+      entityType: 'membership',
+      entityId: updated.id,
+      action: action,
+      lastModified: now,
+      payload: updated.toRemoteMap(),
+    );
   }
 
   // ------------------------------------------------------

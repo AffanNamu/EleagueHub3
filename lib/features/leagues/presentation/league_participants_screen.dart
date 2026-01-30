@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../auth/data/user_profile_repository.dart';
 import '../data/leagues_repository_local.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
@@ -17,17 +18,19 @@ class LeagueParticipantsScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<LeagueParticipantsScreen> createState() =>
-      _LeagueParticipantsScreenState();
+  ConsumerState<LeagueParticipantsScreen> createState() => _LeagueParticipantsScreenState();
 }
 
-class _LeagueParticipantsScreenState
-    extends ConsumerState<LeagueParticipantsScreen> {
+class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScreen> {
   late LocalLeaguesRepository _repo;
+  final UserProfileRepository _profiles = UserProfileRepository();
 
   bool _loading = true;
   List<Membership> _memberships = [];
   Map<String, Team> _teamsById = {};
+
+  /// userId -> teamName (from users/{userId})
+  Map<String, String> _teamNameByUserId = {};
 
   @override
   void initState() {
@@ -38,18 +41,32 @@ class _LeagueParticipantsScreenState
 
   Future<void> _load() async {
     final allMemberships = await _repo.listMemberships();
-    final leagueMembers = allMemberships
-        .where((m) => m.leagueId == widget.leagueId)
-        .toList();
+    final leagueMembers = allMemberships.where((m) => m.leagueId == widget.leagueId).toList();
 
     final teams = await _repo.getTeams(widget.leagueId);
+
+    // Resolve profiles silently (no UI prompts).
+    final uniqueUserIds = leagueMembers.map((m) => m.userId).where((id) => id.trim().isNotEmpty).toSet().toList();
+
+    final Map<String, String> resolved = {};
+    await Future.wait(
+      uniqueUserIds.map((uid) async {
+        try {
+          final p = await _profiles.fetchByUserId(uid);
+          if (p != null && p.teamName.trim().isNotEmpty) {
+            resolved[uid] = p.teamName.trim();
+          }
+        } catch (_) {
+          // Offline / permission / transient error: ignore and fallback to userId in UI.
+        }
+      }),
+    );
 
     if (!mounted) return;
     setState(() {
       _memberships = leagueMembers;
-      _teamsById = {
-        for (final t in teams) t.id: t,
-      };
+      _teamsById = {for (final t in teams) t.id: t};
+      _teamNameByUserId = resolved;
       _loading = false;
     });
   }
@@ -120,12 +137,8 @@ class _LeagueParticipantsScreenState
       );
     }
 
-    final organizers = _memberships
-        .where((m) => m.role == LeagueRole.organizer)
-        .toList();
-    final members = _memberships
-        .where((m) => m.role == LeagueRole.member)
-        .toList();
+    final organizers = _memberships.where((m) => m.role == LeagueRole.organizer).toList();
+    final members = _memberships.where((m) => m.role == LeagueRole.member).toList();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -158,11 +171,19 @@ class _LeagueParticipantsScreenState
   }
 
   Widget _buildMembershipTile(Membership m) {
-    final teamName = (m.teamId != null && m.teamId!.isNotEmpty)
+    final assignedLeagueTeamName = (m.teamId != null && m.teamId!.isNotEmpty)
         ? _teamsById[m.teamId!]?.name ?? 'Team ${m.teamId}'
         : 'No team';
 
+    final globalTeamName = _teamNameByUserId[m.userId];
+
+    final title = (globalTeamName != null && globalTeamName.trim().isNotEmpty) ? globalTeamName : m.userId;
+
     final isOrganizer = m.role == LeagueRole.organizer;
+
+    final subtitle = isOrganizer
+        ? 'Organizer • $assignedLeagueTeamName • userId: ${m.userId}'
+        : '$assignedLeagueTeamName • userId: ${m.userId}';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -170,25 +191,22 @@ class _LeagueParticipantsScreenState
         borderRadius: 18,
         child: ListTile(
           leading: CircleAvatar(
-            backgroundColor: isOrganizer
-                ? Colors.cyanAccent.withOpacity(0.2)
-                : Colors.white.withOpacity(0.08),
+            backgroundColor: isOrganizer ? Colors.cyanAccent.withOpacity(0.2) : Colors.white.withOpacity(0.08),
             child: Icon(
               isOrganizer ? Icons.verified_user : Icons.person,
-              color:
-                  isOrganizer ? Colors.cyanAccent : Colors.white70,
+              color: isOrganizer ? Colors.cyanAccent : Colors.white70,
               size: 18,
             ),
           ),
           title: Text(
-            m.userId,
+            title,
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w600,
             ),
           ),
           subtitle: Text(
-            isOrganizer ? 'Organizer • $teamName' : teamName,
+            subtitle,
             style: const TextStyle(
               color: Colors.white60,
               fontSize: 12,
