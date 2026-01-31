@@ -42,6 +42,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   /// per league paid charges for the CURRENT viewer (used only for UI lock badges/buttons)
   Map<String, bool> _viewerChargesPaid = {};
 
+  /// Whether the CURRENT viewer has a participant membership in this league.
+  /// If false (and not owner), they are considered a VIEWER-only for UI badge purposes.
+  Map<String, bool> _viewerIsParticipantByLeagueId = {};
+
   /// resolved viewer id (so owner/lock UI is accurate even if prefs.current_user_id is empty)
   String _effectiveUserId = '';
 
@@ -84,6 +88,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     final Map<String, int> counts = {};
     final Map<String, LeagueAnnouncement?> latestAnns = {};
     final Map<String, bool> viewerPaid = {};
+    final Map<String, bool> viewerIsParticipant = {};
 
     await Future.wait(
       leagues.map((league) async {
@@ -94,6 +99,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
             .length;
 
         counts[league.id] = teams.length + orphanMembersCount;
+
+        // Viewer participation badge detection (local membership presence)
+        viewerIsParticipant[league.id] = memberships.any(
+          (m) =>
+              m.leagueId == league.id &&
+              m.userId == effectiveUserId &&
+              (m.role == LeagueRole.member || m.role == LeagueRole.organizer),
+        );
 
         final anns = await _annRepo.listForLeague(league.id);
         if (anns.isNotEmpty) {
@@ -120,6 +133,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
       _participantCounts = counts;
       _latestAnnouncements = latestAnns;
       _viewerChargesPaid = viewerPaid;
+      _viewerIsParticipantByLeagueId = viewerIsParticipant;
       _effectiveUserId = effectiveUserId;
       _isLoading = false;
     });
@@ -340,11 +354,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
         final bool isOwner = league.organizerUserId == viewerId || league.organizerUserId == currentUserId;
 
+        final bool viewerIsParticipant = _viewerIsParticipantByLeagueId[league.id] ?? false;
+        final bool viewerIsViewerOnly = !isOwner && !viewerIsParticipant;
+
         final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
         final paid = _viewerChargesPaid[league.id] ?? false;
         final showLockedBadge = requiresCharges && !isOwner && !paid;
 
         final registered = _participantCounts[league.id] ?? 0;
+        final isFull = registered >= league.maxTeams;
+
         final latestAnn = _latestAnnouncements[league.id];
         final baseSubtitle = '$registered / ${league.maxTeams} teams';
         final subtitle = latestAnn != null ? '$baseSubtitle • ${latestAnn.title}' : baseSubtitle;
@@ -373,76 +392,64 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                 ),
               ),
             ),
+
+            // OWNER badge
             if (isOwner)
               Positioned(
                 top: 12,
                 right: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.cyanAccent.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Colors.cyanAccent.withOpacity(0.5),
-                    ),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.admin_panel_settings,
-                        size: 12,
-                        color: Colors.cyanAccent,
-                      ),
-                      SizedBox(width: 4),
-                      Text(
-                        'OWNER',
-                        style: TextStyle(
-                          color: Colors.cyanAccent,
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            if (showLockedBadge)
-              Positioned(
-                top: 12,
-                left: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orangeAccent.withOpacity(0.16),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Colors.orangeAccent.withOpacity(0.45),
-                    ),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.lock_outline,
-                        size: 12,
-                        color: Colors.orangeAccent,
-                      ),
-                      SizedBox(width: 4),
-                      Text(
-                        'LOCKED',
-                        style: TextStyle(
-                          color: Colors.orangeAccent,
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: _CardBadge(
+                  label: 'OWNER',
+                  icon: Icons.admin_panel_settings,
+                  color: Colors.cyanAccent,
+                  bg: Colors.cyanAccent.withOpacity(0.20),
+                  border: Colors.cyanAccent.withOpacity(0.50),
                 ),
               ),
 
-            // NEW: small PAY button on the card if user chose "Later" or hasn't paid yet.
+            // VIEWER badge (not a participant)
+            if (viewerIsViewerOnly)
+              Positioned(
+                top: 12,
+                right: 12,
+                child: _CardBadge(
+                  label: 'VIEWER',
+                  icon: Icons.visibility,
+                  color: Colors.white70,
+                  bg: Colors.white.withOpacity(0.10),
+                  border: Colors.white.withOpacity(0.22),
+                ),
+              ),
+
+            // LEFT badges stack (FULL / LOCKED)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isFull)
+                    _CardBadge(
+                      label: 'FULL',
+                      icon: Icons.block,
+                      color: Colors.redAccent,
+                      bg: Colors.redAccent.withOpacity(0.16),
+                      border: Colors.redAccent.withOpacity(0.45),
+                    ),
+                  if (isFull && showLockedBadge) const SizedBox(height: 6),
+                  if (showLockedBadge)
+                    _CardBadge(
+                      label: 'LOCKED',
+                      icon: Icons.lock_outline,
+                      color: Colors.orangeAccent,
+                      bg: Colors.orangeAccent.withOpacity(0.16),
+                      border: Colors.orangeAccent.withOpacity(0.45),
+                    ),
+                ],
+              ),
+            ),
+
+            // PAY button if locked
             if (showLockedBadge)
               Positioned(
                 bottom: 14,
@@ -654,7 +661,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                         ),
                         onTap: () async {
                           context.pop();
-                          await _showJoinByIdDialog(context);
+                          await _showJoinByIdSheet(context);
                           if (mounted) _refreshLeagues();
                         },
                       ),
@@ -670,87 +677,289 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     );
   }
 
-  Future<void> _showJoinByIdDialog(BuildContext context) async {
+  Future<void> _showJoinByIdSheet(BuildContext context) async {
     final controller = TextEditingController();
+    LeagueJoinMode mode = LeagueJoinMode.participant;
+    String? error;
+    bool joining = false;
+
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
     final userId = await CurrentUser.getOrCreateUserId();
 
-    try {
-      await showDialog(
-        context: context,
-        builder: (ctx) {
-          return AlertDialog(
-            backgroundColor: const Color(0xFF0A1D37),
-            title: const Text(
-              'Join by ID',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            content: TextField(
-              controller: controller,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: 'Enter Join ID',
-                hintStyle: TextStyle(color: Colors.white38),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text(
-                  'Cancel',
-                  style: TextStyle(color: Colors.white70),
-                ),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  final code = controller.text.trim().toUpperCase();
-                  if (code.isEmpty) return;
+    Future<void> doJoin(StateSetter setModalState) async {
+      final code = controller.text.trim().toUpperCase();
+      if (code.isEmpty) {
+        setModalState(() => error = 'Join ID is required');
+        return;
+      }
 
-                  try {
-                    await repo.joinLeagueLocallyByCode(
-                      joinCode: code,
-                      userId: userId,
-                      placeholderBuilder: (generatedLeagueId) {
-                        final now = DateTime.now().millisecondsSinceEpoch;
-                        return League(
-                          id: generatedLeagueId,
-                          name: 'Joined League',
-                          format: LeagueFormat.classic,
-                          privacy: LeaguePrivacy.private,
-                          region: 'Global',
-                          maxTeams: 20,
-                          season: '2026',
-                          organizerUserId: '',
-                          code: code,
-                          qrPayloadOverride: '',
-                          settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
-                          updatedAtMs: now,
-                          version: 1,
+      setModalState(() {
+        joining = true;
+        error = null;
+      });
+
+      try {
+        final league = await repo.joinLeagueLocallyByCode(
+          joinCode: code,
+          userId: userId,
+          mode: mode,
+          placeholderBuilder: (generatedLeagueId) {
+            final now = DateTime.now().millisecondsSinceEpoch;
+            return League(
+              id: generatedLeagueId,
+              name: 'Joined League',
+              format: LeagueFormat.classic,
+              privacy: LeaguePrivacy.private,
+              region: 'Global',
+              maxTeams: 20,
+              season: '2026',
+              organizerUserId: '',
+              code: code,
+              qrPayloadOverride: '',
+              settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
+              updatedAtMs: now,
+              version: 1,
+            );
+          },
+        );
+
+        // Determine effective mode (participant may be blocked if league is full).
+        final membership = await repo.getMembership(leagueId: league.id, userId: userId);
+        final effectiveMode = (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
+
+        if (!context.mounted) return;
+        Navigator.of(context).pop();
+
+        if (!context.mounted) return;
+
+        if (mode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('League is full. You joined as Viewer only.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } else if (mode == LeagueJoinMode.viewer) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Joined as Viewer only.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Joined as Participant.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        setModalState(() {
+          joining = false;
+          error = '$e';
+        });
+      }
+    }
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (ctx) {
+          final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Glass(
+                    borderRadius: 28,
+                    child: StatefulBuilder(
+                      builder: (ctx, setModalState) {
+                        return Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'Join League',
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Enter Join ID, then choose how you want to join.',
+                                style: TextStyle(color: Colors.white70, fontSize: 11),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: controller,
+                                autofocus: true,
+                                textCapitalization: TextCapitalization.characters,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                                decoration: InputDecoration(
+                                  hintText: 'e.g. ABC123',
+                                  hintStyle: const TextStyle(color: Colors.white38),
+                                  prefixIcon: const Icon(Icons.key, color: Colors.white70),
+                                  errorText: error,
+                                ),
+                                onChanged: (_) {
+                                  if (error != null) setModalState(() => error = null);
+                                },
+                              ),
+                              const SizedBox(height: 12),
+                              Glass(
+                                borderRadius: 20,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Join as',
+                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: ChoiceChip(
+                                              label: const Text('Participant'),
+                                              selected: mode == LeagueJoinMode.participant,
+                                              onSelected: joining
+                                                  ? null
+                                                  : (v) {
+                                                      if (!v) return;
+                                                      setModalState(() => mode = LeagueJoinMode.participant);
+                                                    },
+                                              selectedColor: Colors.cyanAccent.withOpacity(0.25),
+                                              backgroundColor: Colors.white10,
+                                              labelStyle: TextStyle(
+                                                color: mode == LeagueJoinMode.participant ? Colors.cyanAccent : Colors.white70,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: ChoiceChip(
+                                              label: const Text('Viewer only'),
+                                              selected: mode == LeagueJoinMode.viewer,
+                                              onSelected: joining
+                                                  ? null
+                                                  : (v) {
+                                                      if (!v) return;
+                                                      setModalState(() => mode = LeagueJoinMode.viewer);
+                                                    },
+                                              selectedColor: Colors.white.withOpacity(0.12),
+                                              backgroundColor: Colors.white10,
+                                              labelStyle: TextStyle(
+                                                color: mode == LeagueJoinMode.viewer ? Colors.white : Colors.white70,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        mode == LeagueJoinMode.viewer
+                                            ? 'Viewer-only: you can browse the league but you won’t be counted as a participant.'
+                                            : 'Participant: you will be counted as a participant in this league (if there is space).',
+                                        style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.25),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextButton(
+                                      onPressed: joining ? null : () => Navigator.of(ctx).pop(),
+                                      child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: FilledButton.icon(
+                                      onPressed: joining ? null : () => doJoin(setModalState),
+                                      icon: joining
+                                          ? const SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                            )
+                                          : const Icon(Icons.login),
+                                      label: Text(joining ? 'Joining…' : 'Join'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         );
                       },
-                    );
-
-                    if (!ctx.mounted) return;
-                    Navigator.of(ctx).pop();
-                  } catch (e) {
-                    if (!ctx.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('$e')),
-                    );
-                  }
-                },
-                child: const Text('Join'),
+                    ),
+                  ),
+                ),
               ),
-            ],
+            ),
           );
         },
       );
     } finally {
       controller.dispose();
     }
+  }
+}
+
+class _CardBadge extends StatelessWidget {
+  const _CardBadge({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.bg,
+    required this.border,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final Color bg;
+  final Color border;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

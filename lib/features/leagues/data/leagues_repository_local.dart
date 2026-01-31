@@ -15,9 +15,9 @@ import '../models/team.dart';
 /// How a user joins a league from the UI.
 ///
 /// IMPORTANT:
-/// - `participant`: user is counted as a league participant (creates Membership).
-/// - `viewer`: user can view the league (still added to league.memberIds for access),
-///   but is NOT counted as a participant (no Membership is created).
+/// - `participant`: user is counted as a league participant (creates/keeps Membership).
+/// - `viewer`: user can view the league (added to league.memberIds for access),
+///   but is NOT counted as a participant (no new Membership is created).
 enum LeagueJoinMode { participant, viewer }
 
 class LocalLeaguesRepository {
@@ -157,7 +157,7 @@ class LocalLeaguesRepository {
       updatedAtMs: now,
       version: 1,
     );
-    await _upsertMembershipLocalNoQueue(membership);
+    await _upsertMembershipLocalByLeagueUserNoQueue(membership);
 
     // queue league create
     await _queue.enqueue(
@@ -222,7 +222,7 @@ class LocalLeaguesRepository {
         SetOptions(merge: true),
       );
 
-      // Pull league doc
+      // Pull league doc (now that memberIds includes the user, private get rules will pass)
       final fresh = await firestore.collection('leagues').doc(leagueId).get();
       final data = (fresh.data() ?? <String, dynamic>{});
       data['id'] = leagueId;
@@ -230,30 +230,69 @@ class LocalLeaguesRepository {
       final league = League.fromRemoteMap(data);
       await _upsertLeagueLocalNoQueue(league);
 
-      // PARTICIPANT mode: create local membership (counts as participant)
-      if (mode == LeagueJoinMode.participant) {
-        final membership = Membership(
-          id: _uuid.v4(),
-          leagueId: leagueId,
-          userId: userId,
-          teamId: null,
-          role: LeagueRole.member,
-          updatedAtMs: now,
-          version: 1,
-        );
-        await _upsertMembershipLocalNoQueue(membership);
+      // --- Membership resolution (important for "admin already added you") ---
+      //
+      // If admin already added the user, a membership record should exist in cloud.
+      // We fetch it and store it locally so the player immediately sees "My Matches".
+      final remoteMembership = await _fetchRemoteMembershipForUser(
+        firestore: firestore,
+        leagueId: leagueId,
+        userId: userId,
+      );
 
-        // Optional: queue membership doc to cloud
-        await _queue.enqueue(
-          id: _uuid.v4(),
-          entityType: 'membership',
-          entityId: membership.id,
-          action: 'create',
-          lastModified: now,
-          payload: membership.toRemoteMap(),
-        );
+      final localExisting = await getMembership(leagueId: leagueId, userId: userId);
+
+      final existingMembership = remoteMembership ?? localExisting;
+
+      if (existingMembership != null) {
+        // Store/refresh locally (no queue) using leagueId+userId uniqueness.
+        await _upsertMembershipLocalByLeagueUserNoQueue(existingMembership);
+        return league;
       }
 
+      // No existing membership. Decide whether to create one.
+      if (mode == LeagueJoinMode.participant) {
+        // Enforce "league full" as: teamsCount + orphanMembershipCount >= league.maxTeams
+        // If full -> do NOT create membership (user becomes viewer-only).
+        bool allowParticipantMembership = true;
+        try {
+          final registered = await _fetchRemoteRegisteredCount(
+            firestore: firestore,
+            leagueId: leagueId,
+          );
+          if (registered >= league.maxTeams) {
+            allowParticipantMembership = false;
+          }
+        } catch (_) {
+          // Best-effort: if we can't compute counts, keep prior behavior and allow membership.
+          allowParticipantMembership = true;
+        }
+
+        if (allowParticipantMembership) {
+          final membership = Membership(
+            id: _uuid.v4(),
+            leagueId: leagueId,
+            userId: userId,
+            teamId: null,
+            role: LeagueRole.member,
+            updatedAtMs: now,
+            version: 1,
+          );
+          await _upsertMembershipLocalByLeagueUserNoQueue(membership);
+
+          // Queue membership doc to cloud
+          await _queue.enqueue(
+            id: _uuid.v4(),
+            entityType: 'membership',
+            entityId: membership.id,
+            action: 'create',
+            lastModified: now,
+            payload: membership.toRemoteMap(),
+          );
+        }
+      }
+
+      // Viewer-only: no membership created.
       return league;
     } on FirebaseException catch (e) {
       // Only fallback to offline placeholder on network-type errors.
@@ -295,7 +334,7 @@ class LocalLeaguesRepository {
           updatedAtMs: now,
           version: 1,
         );
-        await _upsertMembershipLocalNoQueue(membership);
+        await _upsertMembershipLocalByLeagueUserNoQueue(membership);
 
         await _queue.enqueue(
           id: _uuid.v4(),
@@ -309,6 +348,72 @@ class LocalLeaguesRepository {
 
       return placeholder;
     }
+  }
+
+  Future<Membership?> _fetchRemoteMembershipForUser({
+    required FirebaseFirestore firestore,
+    required String leagueId,
+    required String userId,
+  }) async {
+    try {
+      final snap = await firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('memberships')
+          .where('userId', isEqualTo: userId)
+          .limit(1)
+          .get();
+
+      if (snap.docs.isEmpty) return null;
+
+      final doc = snap.docs.first;
+      final data = doc.data();
+
+      // Ensure required keys exist for local model parsing.
+      final map = <String, dynamic>{...data};
+
+      // Membership model expects `id` field inside map.
+      map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
+
+      // Ensure leagueId/userId exist in the payload.
+      map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+      map['userId'] = (map['userId'] as String?) ?? userId;
+
+      // Defaults for safety
+      map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+      map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+      map['version'] = (map['version'] as num?)?.toInt() ?? 1;
+
+      return Membership.fromRemoteMap(map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Remote participant count approximation (matches your local UI logic):
+  /// registered = (teams count) + (orphan members where role==member and teamId is null/empty)
+  ///
+  /// NOTE: This is best-effort and depends on those subcollections existing in Firestore.
+  Future<int> _fetchRemoteRegisteredCount({
+    required FirebaseFirestore firestore,
+    required String leagueId,
+  }) async {
+    final teamsSnap = await firestore.collection('leagues').doc(leagueId).collection('teams').get();
+    final membershipsSnap = await firestore.collection('leagues').doc(leagueId).collection('memberships').get();
+
+    final teamsCount = teamsSnap.size;
+
+    int orphanMembersCount = 0;
+    for (final d in membershipsSnap.docs) {
+      final data = d.data();
+      final role = (data['role'] as num?)?.toInt();
+      final teamId = data['teamId'] as String?;
+      final isMember = role == LeagueRole.member.index;
+      final isOrphan = teamId == null || teamId.trim().isEmpty;
+      if (isMember && isOrphan) orphanMembersCount++;
+    }
+
+    return teamsCount + orphanMembersCount;
   }
 
   // ------------------------------------------------------
@@ -544,9 +649,12 @@ class LocalLeaguesRepository {
     }).toList();
   }
 
-  Future<void> _upsertMembershipLocalNoQueue(Membership membership) async {
+  /// Ensures uniqueness by (leagueId + userId).
+  /// This prevents duplicate memberships when a user joins multiple times or was already added by admin.
+  Future<void> _upsertMembershipLocalByLeagueUserNoQueue(Membership membership) async {
     final all = await _getAllMemberships();
-    final idx = all.indexWhere((m) => m.id == membership.id);
+    final idx = all.indexWhere((m) => m.leagueId == membership.leagueId && m.userId == membership.userId);
+
     if (idx >= 0) {
       all[idx] = membership;
     } else {

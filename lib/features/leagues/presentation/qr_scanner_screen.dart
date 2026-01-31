@@ -19,6 +19,7 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import '../models/membership.dart';
 import '../utils/current_user.dart';
 
 class QRScannerScreen extends ConsumerStatefulWidget {
@@ -44,6 +45,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   bool _chargesPaid = false;
 
   LeagueJoinMode? _joinedMode;
+
+  /// Used to show a friendly message, e.g. when league is full and user is downgraded to viewer,
+  /// or when the user was already added by admin.
+  String? _joinNotice;
 
   bool _permissionChecked = false;
   bool _cameraPermissionGranted = false;
@@ -249,8 +254,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
     final joinCode = parsed.code;
 
-    final mode = await _promptJoinMode(context, joinCode: joinCode);
-    if (mode == null) {
+    final selectedMode = await _promptJoinMode(context, joinCode: joinCode);
+    if (selectedMode == null) {
       // User cancelled
       if (!mounted) return;
       setState(() {
@@ -265,6 +270,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     setState(() {
       _joining = true;
       _error = null;
+      _joinNotice = null;
     });
 
     final prefs = ref.read(prefsServiceProvider);
@@ -277,7 +283,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       final league = await repo.joinLeagueLocallyByCode(
         joinCode: joinCode,
         userId: currentUserId,
-        mode: mode,
+        mode: selectedMode,
         placeholderBuilder: (generatedLeagueId) {
           final now = DateTime.now().millisecondsSinceEpoch;
           return League(
@@ -300,6 +306,37 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         },
       );
 
+      // Determine whether the user actually became a participant (membership created),
+      // because:
+      // - participant join may be blocked when the league is full
+      // - admin may have already added the user (membership exists in cloud)
+      final Membership? membership = await repo.getMembership(leagueId: league.id, userId: currentUserId);
+      final effectiveMode = (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
+
+      String? notice;
+
+      final bool adminAlreadyAdded = membership != null && (membership.teamId?.trim().isNotEmpty == true);
+
+      if (adminAlreadyAdded) {
+        // If admin assigned a team already, we can confidently tell the user.
+        if (selectedMode == LeagueJoinMode.viewer) {
+          notice = 'You chose Viewer, but you were already added by the organizer as a participant (team assigned).';
+        } else {
+          notice = 'You were already added by the organizer (team assigned).';
+        }
+      } else if (membership != null) {
+        // Membership exists but no teamId assigned yet (still "already registered").
+        if (selectedMode == LeagueJoinMode.viewer) {
+          notice = 'You chose Viewer, but you are already registered as a participant in this league.';
+        } else {
+          notice = 'You are already registered in this league.';
+        }
+      } else if (selectedMode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
+        notice = 'League is full. You joined as Viewer only (not counted as a participant).';
+      } else if (selectedMode == LeagueJoinMode.viewer) {
+        notice = 'You joined as Viewer only (not counted as a participant).';
+      }
+
       if (!mounted) return;
 
       final store = LeagueChargesStore(prefs);
@@ -310,7 +347,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         _joining = false;
         _currentUserId = currentUserId;
         _chargesPaid = paid;
-        _joinedMode = mode;
+        _joinedMode = effectiveMode;
+        _joinNotice = notice;
       });
 
       await _maybePromptChargesAfterJoin(
@@ -639,10 +677,34 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                       child: Column(
                         children: [
                           Text(
-                            '$joinedLine\n\n${showUnlock ? 'This league requires charges to view fixtures & standings.' : 'You can open the league now.'}',
+                            joinedLine,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.75),
+                              color: Colors.white.withOpacity(0.82),
+                              height: 1.4,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          if (_joinNotice != null) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              _joinNotice!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.orangeAccent,
+                                fontWeight: FontWeight.w800,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Text(
+                            showUnlock
+                                ? 'This league requires charges to view fixtures & standings.'
+                                : 'You can open the league now.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.70),
                               height: 1.4,
                             ),
                           ),
