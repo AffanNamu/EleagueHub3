@@ -155,7 +155,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'EleagueHub',
+                      'eSportlyic.',
                       style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 8),
