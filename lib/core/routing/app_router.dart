@@ -36,11 +36,14 @@ class AuthRouterRefresh extends ChangeNotifier {
   AuthRouterRefresh() {
     _sub = FirebaseAuth.instance.authStateChanges().listen((user) {
       _user = user;
+      _retryTimer?.cancel();
+
       if (_user == null) {
         _profileState = _ProfileState.unknown;
         notifyListeners();
         return;
       }
+
       _checkProfileFor(_user!.uid);
     });
   }
@@ -51,6 +54,8 @@ class AuthRouterRefresh extends ChangeNotifier {
   final UserProfileRepository _profiles = UserProfileRepository();
 
   _ProfileState _profileState = _ProfileState.unknown;
+
+  Timer? _retryTimer;
 
   bool get isSignedIn => _user != null;
 
@@ -68,15 +73,35 @@ class AuthRouterRefresh extends ChangeNotifier {
   }
 
   Future<void> _checkProfileFor(String uid) async {
+    final prev = _profileState;
+
     _profileState = _ProfileState.checking;
     notifyListeners();
 
     try {
       final exists = await _profiles.profileExists(uid);
       _profileState = exists ? _ProfileState.exists : _ProfileState.missing;
-    } catch (_) {
-      // Fail "safe" to onboarding if we can't confirm existence.
-      _profileState = _ProfileState.missing;
+    } catch (e) {
+      // IMPORTANT:
+      // Never force onboarding on transient errors (offline / timeout / permission glitches),
+      // otherwise users who already completed onboarding could be asked again.
+      //
+      // If we previously confirmed a profile exists, keep that state sticky.
+      // Otherwise, go back to "unknown" and keep the user on the bootstrap loader
+      // while we retry silently.
+      _profileState = (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
+
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('AuthRouterRefresh: profile check failed for uid=$uid → $e');
+      }
+
+      _retryTimer?.cancel();
+      _retryTimer = Timer(const Duration(seconds: 3), () {
+        if (_user?.uid != uid) return;
+        // ignore: discarded_futures
+        _checkProfileFor(uid);
+      });
     }
 
     notifyListeners();
@@ -84,6 +109,7 @@ class AuthRouterRefresh extends ChangeNotifier {
 
   @override
   void dispose() {
+    _retryTimer?.cancel();
     _sub.cancel();
     super.dispose();
   }

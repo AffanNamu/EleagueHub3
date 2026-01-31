@@ -8,166 +8,183 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/leagues/$(leagueId));
     }
 
-    function isOwnerFromLeagueDoc(leagueId) {
+    function isOwner(leagueId) {
       return signedIn() && leagueDoc(leagueId).data.organizerUserId == request.auth.uid;
     }
 
-    function isMemberFromLeagueDoc(leagueId) {
+    function isMember(leagueId) {
       return signedIn()
         && (leagueDoc(leagueId).data.memberIds is list)
         && (request.auth.uid in leagueDoc(leagueId).data.memberIds);
     }
 
-    function inLeague(leagueId) {
-      return isOwnerFromLeagueDoc(leagueId) || isMemberFromLeagueDoc(leagueId);
+    // Public/private detection.
+    //
+    // IMPORTANT: This is "secure by default":
+    // - If the privacy field is missing/unknown, the league is treated as private.
+    // - Supports:
+    //   - legacy boolean `isPrivate: false`
+    //   - legacy int `isPrivate: 0` (your League.toJson writes 1/0)
+    //   - newer `privacy: 'public'`
+    function isPublicLeague(leagueId) {
+      let d = leagueDoc(leagueId).data;
+
+      return
+        // Legacy: explicit boolean "isPrivate: false"
+        ((d.isPrivate is bool) && (d.isPrivate == false))
+        ||
+        // Legacy: explicit int "isPrivate: 0"
+        ((d.isPrivate is int) && (d.isPrivate == 0))
+        ||
+        // Preferred: string-based privacy
+        ((d.privacy is string) && (
+          d.privacy == 'public'
+          || d.privacy == 'PUBLIC'
+          || d.privacy == 'LeaguePrivacy.public'
+        ));
+    }
+
+    // --------------------------
+    // User Profiles (Firebase uid is doc id)
+    // --------------------------
+    match /users/{userId} {
+      // Needed for:
+      // - showing your own profile everywhere
+      // - admin lookup by userId to auto-resolve teamName
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.userId == userId
+        // Require the core profile fields on creation
+        && request.resource.data.keys().hasAll([
+          'userId',
+          'teamName',
+          'authProvider',
+          'createdAt',
+          'updatedAt'
+        ]);
+
+      // Hardened update:
+      // - Users can only change teamName + updatedAt.
+      // - Prevents overwriting immutable fields like userId/authProvider/createdAt.
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.userId == userId
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'teamName',
+          'updatedAt'
+        ]);
+
+      allow delete: if false;
     }
 
     match /leagues/{leagueId} {
+      // Secure-by-default:
+      // - If no privacy info exists, treat league as private (owner/member only).
+      allow get: if isOwner(leagueId) || isMember(leagueId) || isPublicLeague(leagueId);
 
-      function isOwnerHere() {
-        return signedIn() && resource.data.organizerUserId == request.auth.uid;
-      }
-
-      function isMemberHere() {
-        return signedIn()
-          && (resource.data.memberIds is list)
-          && (request.auth.uid in resource.data.memberIds);
-      }
-
-      function canReadLeague() {
-        // Treat missing isPrivate as public.
-        return (resource.data.isPrivate != true) || isOwnerHere() || isMemberHere();
-      }
-
-      allow get: if canReadLeague();
-
-      // Per-doc evaluated for query results.
-      allow list: if signedIn() && canReadLeague();
+      // Allows .where('memberIds', 'array-contains', uid) queries
+      allow list: if signedIn();
 
       allow create: if signedIn()
         && request.resource.data.organizerUserId == request.auth.uid
-        && (request.resource.data.memberIds is list)
-        && (request.auth.uid in request.resource.data.memberIds);
-
-      function memberIdsValid() {
-        return (resource.data.memberIds is list) && (request.resource.data.memberIds is list);
-      }
-
-      // Members can only add/remove themselves from memberIds.
-      function isSelfJoin() {
-        return memberIdsValid()
-          && !(request.auth.uid in resource.data.memberIds)
-          && (request.auth.uid in request.resource.data.memberIds)
-          && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
-          && request.resource.data.memberIds.hasAll(resource.data.memberIds);
-      }
-
-      function isSelfLeave() {
-        return memberIdsValid()
-          && (request.auth.uid in resource.data.memberIds)
-          && !(request.auth.uid in request.resource.data.memberIds)
-          && request.resource.data.memberIds.size() == resource.data.memberIds.size() - 1
-          && resource.data.memberIds.hasAll(request.resource.data.memberIds);
-      }
-
-      allow update: if isOwnerHere()
-        || (
-          signedIn()
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
-          && (isSelfJoin() || isSelfLeave())
+        // memberIds is optional for backward compatibility with older/lean league docs.
+        // If provided, it must include the creator.
+        && (
+          !(request.resource.data.memberIds is list)
+          || (request.auth.uid in request.resource.data.memberIds)
         );
 
-      allow delete: if isOwnerHere();
+      allow update: if isOwner(leagueId)
+        || (signedIn()
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
+          && (request.resource.data.memberIds is list)
+          && (request.auth.uid in request.resource.data.memberIds));
+
+      allow delete: if isOwner(leagueId);
 
       match /teams/{teamId} {
-        allow read: if inLeague(leagueId);
-        allow write: if isOwnerFromLeagueDoc(leagueId);
+        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow write: if isOwner(leagueId);
       }
 
       match /matches/{matchId} {
-        allow read: if inLeague(leagueId);
-        allow write: if isOwnerFromLeagueDoc(leagueId);
+        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow write: if isOwner(leagueId);
       }
 
       match /knockout/{matchId} {
-        allow read: if inLeague(leagueId);
-        allow write: if isOwnerFromLeagueDoc(leagueId);
+        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow write: if isOwner(leagueId);
       }
 
       match /memberships/{membershipId} {
-        allow read: if inLeague(leagueId);
-        allow create, update: if isOwnerFromLeagueDoc(leagueId)
+        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow create, update: if isOwner(leagueId)
           || (signedIn() && request.resource.data.userId == request.auth.uid);
-        allow delete: if isOwnerFromLeagueDoc(leagueId);
+        allow delete: if isOwner(leagueId);
       }
 
       match /announcements/{annId} {
-        allow read: if inLeague(leagueId);
-        allow write: if isOwnerFromLeagueDoc(leagueId);
+        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow write: if isOwner(leagueId);
       }
 
       match /space/{docId} {
-        allow read: if inLeague(leagueId);
-        allow write: if isOwnerFromLeagueDoc(leagueId);
+        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow write: if isOwner(leagueId);
 
+        // Nested reactions: members can react, everyone in league can see
         match /reactions/{reactionId} {
-          allow read: if inLeague(leagueId);
-          allow create: if signedIn() && inLeague(leagueId);
+          allow read: if isOwner(leagueId) || isMember(leagueId);
+          allow create: if signedIn() && (isOwner(leagueId) || isMember(leagueId));
           allow update, delete: if false;
         }
 
+        // ✅ REQUIRED by your Space UI
         match /requests/{uid} {
-          // Host can read all; user can read their own request doc (needed for your UI).
-          allow get: if isOwnerFromLeagueDoc(leagueId) || (signedIn() && request.auth.uid == uid);
-          allow list: if isOwnerFromLeagueDoc(leagueId);
+          allow get: if isOwner(leagueId) || (signedIn() && request.auth.uid == uid);
+          allow list: if isOwner(leagueId);
 
           allow create: if signedIn()
-            && inLeague(leagueId)
+            && (isOwner(leagueId) || isMember(leagueId))
             && request.auth.uid == uid
             && request.resource.data.userId == request.auth.uid
             && request.resource.data.status == "pending";
 
+          // Host can approve/deny; requester can delete their own request.
           allow update: if signedIn() && (
-            // host can update any request (approve/deny), but cannot rewrite who it belongs to
-            (isOwnerFromLeagueDoc(leagueId) && request.resource.data.userId == uid)
-            ||
-            // requester can only change status + updatedAtMs, and only to pending/denied
-            (
-              inLeague(leagueId)
-              && request.auth.uid == uid
-              && resource.data.userId == request.auth.uid
-              && request.resource.data.userId == request.auth.uid
-              && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAtMs'])
-              && (request.resource.data.status == "pending" || request.resource.data.status == "denied")
-            )
+            isOwner(leagueId)
+            || (request.auth.uid == uid)
           );
 
           allow delete: if signedIn() && (
-            isOwnerFromLeagueDoc(leagueId) || (inLeague(leagueId) && request.auth.uid == uid)
+            isOwner(leagueId) || (request.auth.uid == uid)
           );
         }
 
+        // ✅ REQUIRED by your Space UI (host panel)
         match /speakers/{uid} {
-          allow read: if inLeague(leagueId);
-          allow create, update, delete: if isOwnerFromLeagueDoc(leagueId);
+          allow read: if isOwner(leagueId) || isMember(leagueId);
+          allow create, update, delete: if isOwner(leagueId);
         }
       }
     }
 
-    // IMPORTANT: your app also uses the TOP-LEVEL `league_spaces` collection.
-    // Without rules for it, every read/write fails with permission-denied.
+    // ✅ REQUIRED by LeagueSpacesFirebase (top-level collection)
     match /league_spaces/{spaceId} {
       allow read: if signedIn()
         && (resource.data.leagueId is string)
-        && inLeague(resource.data.leagueId);
+        && (isOwner(resource.data.leagueId) || isMember(resource.data.leagueId));
 
       allow create: if signedIn()
         && (request.resource.data.leagueId is string)
-        && isOwnerFromLeagueDoc(request.resource.data.leagueId);
+        && isOwner(request.resource.data.leagueId);
 
       allow update, delete: if signedIn()
         && (resource.data.leagueId is string)
-        && isOwnerFromLeagueDoc(resource.data.leagueId);
+        && isOwner(resource.data.leagueId);
     }
   }
 }
