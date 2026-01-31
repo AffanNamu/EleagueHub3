@@ -724,8 +724,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
           },
         );
 
-        // Determine effective mode (participant may be blocked if league is full).
-        final membership = await repo.getMembership(leagueId: league.id, userId: userId);
+        final Membership? membership = await repo.getMembership(leagueId: league.id, userId: userId);
         final effectiveMode = (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
 
         if (!context.mounted) return;
@@ -733,28 +732,32 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
         if (!context.mounted) return;
 
-        if (mode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('League is full. You joined as Viewer only.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+        String message;
+
+        final bool adminAlreadyAdded = membership != null && (membership.teamId?.trim().isNotEmpty == true);
+
+        if (adminAlreadyAdded) {
+          message = (mode == LeagueJoinMode.viewer)
+              ? 'You chose Viewer, but you were already added by the organizer (team assigned).'
+              : 'You were already added by the organizer (team assigned).';
+        } else if (membership != null) {
+          message = (mode == LeagueJoinMode.viewer)
+              ? 'You chose Viewer, but you are already registered as a participant in this league.'
+              : 'You are already registered in this league.';
+        } else if (mode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
+          message = 'League is full. You joined as Viewer only.';
         } else if (mode == LeagueJoinMode.viewer) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Joined as Viewer only.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          message = 'Joined as Viewer only.';
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Joined as Participant.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          message = 'Joined as Participant.';
         }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       } catch (e) {
         setModalState(() {
           joining = false;
