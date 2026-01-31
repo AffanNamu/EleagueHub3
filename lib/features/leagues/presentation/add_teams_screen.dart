@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -33,14 +34,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   late LocalLeaguesRepository _localRepo;
   final UserProfileRepository _profiles = UserProfileRepository();
 
-  final _bulkController = TextEditingController();
-
-  /// Temp entries are userId-driven:
+  /// Temp entries are uid-driven (internal Firebase uid):
   /// { userId, teamName, group }
   final List<Map<String, String>> _tempTeams = [];
 
   List<Team> _existingTeams = [];
-
   bool _isLoading = true;
 
   String _selectedGroup = 'Group A';
@@ -57,7 +55,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   String? _bulkError;
 
-  /// Cache of fetched profiles for fast preview
+  /// Cache of fetched profiles for fast preview (keyed by internal Firebase uid).
   final Map<String, String> _teamNameCacheByUserId = {};
 
   int get _maxTeamsForFormat {
@@ -77,12 +75,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     _loadExistingTeams();
   }
 
-  @override
-  void dispose() {
-    _bulkController.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadExistingTeams() async {
     final teams = await _localRepo.getTeams(widget.leagueId);
     if (!mounted) return;
@@ -93,64 +85,48 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   String _groupLabelForTeam(Team t) {
-    if (widget.format == LeagueFormat.uclGroup) {
-      return t.groupId ?? 'Unassigned';
-    }
+    if (widget.format == LeagueFormat.uclGroup) return t.groupId ?? 'Unassigned';
     return 'League Pool';
   }
 
-  Future<String?> _resolveTeamNameForUserId(String userId) async {
-    final cached = _teamNameCacheByUserId[userId];
-    if (cached != null && cached.trim().isNotEmpty) return cached;
+  Future<_ResolvedTeam?> _resolveTeamFromUserIdOrShareId(String userIdOrShareId) async {
+    final input = userIdOrShareId.trim();
+    if (input.isEmpty) return null;
 
-    final profile = await _profiles.fetchByUserId(userId);
-    final teamName = profile?.teamName.trim();
-    if (teamName == null || teamName.isEmpty) return null;
+    // If they pasted a real uid and we already cached the team name, skip network.
+    final cached = _teamNameCacheByUserId[input];
+    if (cached != null && cached.trim().isNotEmpty) {
+      return _ResolvedTeam(userId: input, teamName: cached.trim());
+    }
 
-    _teamNameCacheByUserId[userId] = teamName;
-    return teamName;
+    final profile = await _profiles.fetchByUserIdOrShareId(input);
+    if (profile == null) return null;
+
+    final resolvedUserId = profile.userId.trim();
+    final teamName = profile.teamName.trim();
+    if (resolvedUserId.isEmpty || teamName.isEmpty) return null;
+
+    _teamNameCacheByUserId[resolvedUserId] = teamName;
+    return _ResolvedTeam(userId: resolvedUserId, teamName: teamName);
   }
 
-  Future<void> _addUserId(String userId) async {
-    final trimmed = userId.trim();
-    if (trimmed.isEmpty) return;
-
+  Future<void> _addResolvedTeam(_ResolvedTeam resolved) async {
     final totalCurrent = _existingTeams.length + _tempTeams.length;
     if (totalCurrent >= _maxTeamsForFormat) {
       if (!mounted) return;
-      setState(() {
-        _bulkError = 'Maximum $_maxTeamsForFormat teams allowed for this format.';
-      });
+      setState(() => _bulkError = 'Maximum $_maxTeamsForFormat teams allowed for this format.');
       return;
     }
 
-    final alreadyInPreview = _tempTeams.any((t) => (t['userId'] ?? '') == trimmed);
+    final alreadyInPreview = _tempTeams.any((t) => (t['userId'] ?? '') == resolved.userId);
     if (alreadyInPreview) return;
 
-    final alreadySaved = _existingTeams.any((t) => t.id == trimmed);
+    final alreadySaved = _existingTeams.any((t) => t.id == resolved.userId);
     if (alreadySaved) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('This userId is already added to this league.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    String? teamName;
-    try {
-      teamName = await _resolveTeamNameForUserId(trimmed);
-    } catch (_) {
-      teamName = null;
-    }
-
-    if (teamName == null || teamName.trim().isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No user profile found for this userId. Ask the player to login once and share their userId.'),
+          content: Text('This user is already added to this league.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -161,11 +137,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     setState(() {
       _bulkError = null;
       _tempTeams.add({
-        'userId': trimmed,
-        'teamName': teamName!,
+        // IMPORTANT: Always store internal Firebase uid (not the short share id).
+        'userId': resolved.userId,
+        'teamName': resolved.teamName,
         'group': widget.format == LeagueFormat.uclGroup ? _selectedGroup : 'League Pool',
       });
 
+      // Optional convenience: auto-advance group assignment when adding.
       if (widget.format == LeagueFormat.uclGroup) {
         final next = (_groups.indexOf(_selectedGroup) + 1) % _groups.length;
         _selectedGroup = _groups[next];
@@ -173,140 +151,487 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     });
   }
 
-  void _importBulk() {
-    final text = _bulkController.text;
-    if (text.isEmpty) return;
+  Future<void> _showAddSingleDialog() async {
+    final controller = TextEditingController();
+    Timer? debounce;
 
-    final userIds = text
-        .split(RegExp(r'[,\n]'))
-        .map((n) => n.trim())
-        .where((n) => n.isNotEmpty)
-        .toList();
+    bool resolving = false;
+    _ResolvedTeam? resolved;
+    String? error;
 
-    if (userIds.isEmpty) return;
+    Future<void> resolveNow(StateSetter setModalState) async {
+      final raw = controller.text.trim();
+      if (raw.isEmpty) {
+        setModalState(() {
+          resolved = null;
+          error = null;
+          resolving = false;
+        });
+        return;
+      }
 
-    FocusScope.of(context).unfocus();
+      setModalState(() {
+        resolving = true;
+        error = null;
+      });
 
-    showModalBottomSheet(
+      try {
+        final r = await _resolveTeamFromUserIdOrShareId(raw);
+        if (!mounted) return;
+
+        if (r == null) {
+          setModalState(() {
+            resolved = null;
+            resolving = false;
+            error = 'No profile found for this UserId. Ask the player to login once and share their UserId (eSxxxxxx).';
+          });
+          return;
+        }
+
+        setModalState(() {
+          resolved = r;
+          resolving = false;
+          error = null;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setModalState(() {
+          resolved = null;
+          resolving = false;
+          error = 'Lookup failed: $e';
+        });
+      }
+    }
+
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0A1D37),
+            title: const Text(
+              'Add player by UserId',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            content: StatefulBuilder(
+              builder: (ctx, setModalState) {
+                return SizedBox(
+                  width: 520,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: controller,
+                        autofocus: true,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'eS44e35f  (or Firebase uid)',
+                          hintStyle: const TextStyle(color: Colors.white38),
+                          prefixIcon: const Icon(Icons.badge, color: Colors.white70),
+                          suffixIcon: resolving
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                                  ),
+                                )
+                              : IconButton(
+                                  tooltip: 'Lookup',
+                                  onPressed: () => resolveNow(setModalState),
+                                  icon: const Icon(Icons.search, color: Colors.cyanAccent),
+                                ),
+                        ),
+                        onChanged: (_) {
+                          debounce?.cancel();
+                          debounce = Timer(const Duration(milliseconds: 350), () {
+                            if (!ctx.mounted) return;
+                            resolveNow(setModalState);
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Glass(
+                        borderRadius: 16,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.info_outline, color: Colors.white70, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  widget.format == LeagueFormat.uclGroup
+                                      ? 'Tip: Use the short UserId (starts with eS). Group assignment rotates automatically.'
+                                      : 'Tip: Use the short UserId (starts with eS). Team name is loaded automatically.',
+                                  style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.25),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (resolved != null)
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.cyanAccent.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.cyanAccent.withOpacity(0.25)),
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Resolved profile',
+                                style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900, fontSize: 12),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                resolved!.teamName,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'uid: ${resolved!.userId}',
+                                style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (widget.format == LeagueFormat.uclGroup) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.grid_view, size: 16, color: Colors.white60),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Will be placed in: $_selectedGroup',
+                                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      if (error != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          error!,
+                          style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700, fontSize: 12),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+              ),
+              FilledButton.icon(
+                onPressed: () async {
+                  if (resolved == null) return;
+                  await _addResolvedTeam(resolved!);
+                  if (ctx.mounted) Navigator.of(ctx).pop();
+                },
+                icon: const Icon(Icons.person_add),
+                label: const Text('Add'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      debounce?.cancel();
+      controller.dispose();
+    }
+  }
+
+  Future<void> _showPasteListSheet() async {
+    final controller = TextEditingController();
+
+    bool validating = false;
+    String? error;
+
+    List<_BulkRow> rows = [];
+
+    List<String> parseLines(String raw) {
+      return raw
+          .split(RegExp(r'[,\n]'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
+    Future<void> validateNow(StateSetter setModalState) async {
+      final inputs = parseLines(controller.text);
+      if (inputs.isEmpty) {
+        setModalState(() {
+          rows = [];
+          error = 'Paste at least one UserId.';
+        });
+        return;
+      }
+
+      setModalState(() {
+        validating = true;
+        error = null;
+        rows = inputs.map((i) => _BulkRow(input: i, resolved: null, status: _BulkStatus.pending)).toList();
+      });
+
+      try {
+        final futures = inputs.map((input) async {
+          final r = await _resolveTeamFromUserIdOrShareId(input);
+          return MapEntry(input, r);
+        }).toList();
+
+        final results = await Future.wait(futures);
+
+        if (!mounted) return;
+
+        final updated = <_BulkRow>[];
+        for (final entry in results) {
+          final r = entry.value;
+          if (r == null) {
+            updated.add(_BulkRow(input: entry.key, resolved: null, status: _BulkStatus.notFound));
+          } else {
+            updated.add(_BulkRow(input: entry.key, resolved: r, status: _BulkStatus.ok));
+          }
+        }
+
+        setModalState(() {
+          rows = updated;
+          validating = false;
+          error = null;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setModalState(() {
+          validating = false;
+          error = 'Validation failed: $e';
+        });
+      }
+    }
+
+    Future<void> addValidAndClose(BuildContext ctx) async {
+      final valid = rows.where((r) => r.status == _BulkStatus.ok && r.resolved != null).map((r) => r.resolved!).toList();
+      if (valid.isEmpty) return;
+
+      for (final r in valid) {
+        await _addResolvedTeam(r);
+      }
+      if (ctx.mounted) Navigator.of(ctx).pop();
+    }
+
+    await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
-        bool adding = false;
+        final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom).add(const EdgeInsets.all(16)),
+            padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
+                constraints: const BoxConstraints(maxWidth: 720),
                 child: Glass(
                   borderRadius: 28,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                    child: StatefulBuilder(
-                      builder: (ctx, setModalState) {
-                        return Column(
+                  child: StatefulBuilder(
+                    builder: (ctx, setModalState) {
+                      final okCount = rows.where((r) => r.status == _BulkStatus.ok).length;
+                      final notFoundCount = rows.where((r) => r.status == _BulkStatus.notFound).length;
+
+                      return Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text(
-                              'Preview userIds to add',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
+                              'Paste UserIds',
+                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
                             ),
                             const SizedBox(height: 6),
                             const Text(
-                              'Paste one Firebase userId per line (or separated by commas). We will auto-load the team name from the profile.',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
-                              ),
+                              'Paste one per line (or comma-separated). Use short UserId (eSxxxxxx) or Firebase uid.',
+                              style: TextStyle(color: Colors.white70, fontSize: 11),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 12),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 260),
-                              child: ListView.separated(
-                                shrinkWrap: true,
-                                itemCount: userIds.length,
-                                separatorBuilder: (_, __) => const SizedBox(height: 4),
-                                itemBuilder: (context, index) {
-                                  final id = userIds[index];
-                                  return Glass(
-                                    borderRadius: 16,
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                      child: Row(
-                                        children: [
-                                          CircleAvatar(
-                                            radius: 13,
-                                            backgroundColor: Colors.cyanAccent.withOpacity(0.18),
-                                            child: Text(
-                                              '${index + 1}',
-                                              style: const TextStyle(
-                                                color: Colors.cyanAccent,
-                                                fontSize: 11,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Text(
-                                              id,
-                                              style: const TextStyle(color: Colors.white),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.25),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(color: Colors.white24),
+                                  ),
+                                  child: TextField(
+                                    controller: controller,
+                                    maxLines: 6,
+                                    style: const TextStyle(color: Colors.white),
+                                    decoration: const InputDecoration(
+                                      hintText: 'eS44e35f\neS91a2b3\nuid_3',
+                                      hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
+                                      border: InputBorder.none,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                     ),
-                                  );
-                                },
+                                  ),
+                                ),
                               ),
                             ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: validating
+                                        ? null
+                                        : () {
+                                            setModalState(() {
+                                              controller.clear();
+                                              rows = [];
+                                              error = null;
+                                            });
+                                          },
+                                    icon: const Icon(Icons.clear_all, size: 18),
+                                    label: const Text('Clear'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white70,
+                                      side: const BorderSide(color: Colors.white24),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: validating ? null : () => validateNow(setModalState),
+                                    icon: validating
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                          )
+                                        : const Icon(Icons.verified),
+                                    label: const Text('Validate'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (rows.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  _MiniChip(label: 'OK: $okCount', color: Colors.cyanAccent.withOpacity(0.22)),
+                                  const SizedBox(width: 8),
+                                  _MiniChip(label: 'Not found: $notFoundCount', color: Colors.redAccent.withOpacity(0.18)),
+                                  const Spacer(),
+                                  Text(
+                                    '${_existingTeams.length + _tempTeams.length} / $_maxTeamsForFormat',
+                                    style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 260),
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: rows.length,
+                                  separatorBuilder: (_, __) => const SizedBox(height: 6),
+                                  itemBuilder: (context, index) {
+                                    final r = rows[index];
+                                    final isOk = r.status == _BulkStatus.ok && r.resolved != null;
+
+                                    return Glass(
+                                      borderRadius: 16,
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                        child: Row(
+                                          children: [
+                                            CircleAvatar(
+                                              radius: 14,
+                                              backgroundColor: isOk
+                                                  ? Colors.cyanAccent.withOpacity(0.18)
+                                                  : Colors.white.withOpacity(0.08),
+                                              child: Icon(
+                                                isOk ? Icons.check : Icons.close,
+                                                size: 16,
+                                                color: isOk ? Colors.cyanAccent : Colors.white54,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    r.input,
+                                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    isOk ? r.resolved!.teamName : 'No profile found',
+                                                    style: TextStyle(
+                                                      color: isOk ? Colors.white70 : Colors.white38,
+                                                      fontSize: 11,
+                                                    ),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                            if (error != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                error!,
+                                style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             Row(
                               children: [
                                 Expanded(
                                   child: TextButton(
-                                    onPressed: adding ? null : () => Navigator.of(ctx).pop(),
-                                    child: const Text(
-                                      'Cancel',
-                                      style: TextStyle(color: Colors.white70),
-                                    ),
+                                    onPressed: () => Navigator.of(ctx).pop(),
+                                    child: const Text('Close', style: TextStyle(color: Colors.white70)),
                                   ),
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 10),
                                 Expanded(
-                                  child: FilledButton(
-                                    onPressed: adding
-                                        ? null
-                                        : () async {
-                                            setModalState(() => adding = true);
-                                            for (final id in userIds) {
-                                              await _addUserId(id);
-                                            }
-                                            _bulkController.clear();
-                                            if (ctx.mounted) Navigator.of(ctx).pop();
-                                          },
-                                    child: adding
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                          )
-                                        : const Text('Add to preview'),
+                                  child: FilledButton.icon(
+                                    onPressed: validating ? null : () => addValidAndClose(ctx),
+                                    icon: const Icon(Icons.playlist_add_check),
+                                    label: Text('Add valid${rows.isEmpty ? '' : ' ($okCount)'}'),
                                   ),
                                 ),
                               ],
                             ),
                           ],
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -315,6 +640,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         );
       },
     );
+
+    controller.dispose();
   }
 
   Future<void> _generateAndSave() async {
@@ -463,11 +790,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 ? const Center(
                     child: CircularProgressIndicator(color: Colors.cyanAccent),
                   )
-                : Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Glass(
+                : Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Glass(
                           borderRadius: 24,
                           padding: const EdgeInsets.all(14),
                           child: Row(
@@ -493,7 +820,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      'Build your league roster',
+                                      'Add players (by UserId)',
                                       style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 16,
@@ -502,15 +829,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      widget.format == LeagueFormat.classic
-                                          ? 'Add up to $_maxTeamsForFormat teams by userId. We\'ll auto-generate a double round-robin schedule.'
-                                          : widget.format == LeagueFormat.uclGroup
-                                              ? 'Assign teams into groups (A–H) by userId. Fixtures are generated per group.'
-                                              : 'Add teams by userId and we\'ll create the first Swiss round for you.',
-                                      style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 11,
-                                      ),
+                                      widget.format == LeagueFormat.uclGroup
+                                          ? 'Use the short UserId (starts with eS). We will auto-load the team name from the user profile and place teams into groups.'
+                                          : 'Use the short UserId (starts with eS). We will auto-load the team name from the user profile.',
+                                      style: const TextStyle(color: Colors.white70, fontSize: 11),
                                     ),
                                   ],
                                 ),
@@ -518,29 +840,30 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             ],
                           ),
                         ),
-                      ),
-                      if (widget.format == LeagueFormat.uclGroup) _buildGroupSelector(),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        if (widget.format == LeagueFormat.uclGroup) ...[
+                          const SizedBox(height: 10),
+                          _buildGroupSelector(),
+                        ],
+                        const SizedBox(height: 12),
+                        Expanded(
                           child: showTwoPane
                               ? Row(
                                   children: [
-                                    Expanded(flex: 3, child: _buildBulkEntry()),
+                                    Expanded(flex: 3, child: _buildAddPanel()),
                                     const SizedBox(width: 12),
                                     Expanded(flex: 4, child: _buildPreviewPanel()),
                                   ],
                                 )
                               : Column(
                                   children: [
-                                    Expanded(flex: 4, child: _buildBulkEntry()),
+                                    _buildAddPanel(),
                                     const SizedBox(height: 12),
-                                    Expanded(flex: 6, child: _buildPreviewPanel()),
+                                    Expanded(child: _buildPreviewPanel()),
                                   ],
                                 ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
           ),
         ),
@@ -548,189 +871,146 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  Widget _buildGroupSelector() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-      child: Glass(
-        borderRadius: 20,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            const Icon(Icons.grid_view, size: 18, color: Colors.cyanAccent),
-            const SizedBox(width: 8),
-            const Text(
-              'Current group',
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: _groups.map((g) {
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(g, style: const TextStyle(fontSize: 11)),
-                        selected: _selectedGroup == g,
-                        selectedColor: Colors.cyanAccent.withOpacity(0.25),
-                        backgroundColor: Colors.white10,
-                        labelStyle: TextStyle(
-                          color: _selectedGroup == g ? Colors.cyanAccent : Colors.white70,
-                        ),
-                        onSelected: (selected) {
-                          if (!selected) return;
-                          setState(() => _selectedGroup = g);
-                        },
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBulkEntry() {
-    final isShort = MediaQuery.of(context).size.height < 700;
+  Widget _buildAddPanel() {
+    final existingCount = _existingTeams.length;
+    final newCount = _tempTeams.length;
+    final totalCount = existingCount + newCount;
 
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
             child: Row(
               children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.cyanAccent.withOpacity(0.18),
-                  ),
-                  child: const Icon(
-                    Icons.format_list_bulleted,
-                    color: Colors.cyanAccent,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Step 1 · Enter userIds',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Paste Firebase userIds, separated by commas or new lines.',
-                        style: TextStyle(
-                          color: Colors.white60,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
+                Icon(Icons.person_add_alt_1, size: 18, color: Colors.cyanAccent),
+                SizedBox(width: 8),
+                Text(
+                  'Add players',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 8),
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.25),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.white24, width: 1),
-                  ),
-                  child: TextField(
-                    controller: _bulkController,
-                    maxLines: null,
-                    keyboardType: TextInputType.multiline,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      hintText: 'uid_1\nuid_2\nuid_3\n\nor\n\nuid_1, uid_2, uid_3',
-                      hintStyle: TextStyle(
-                        color: Colors.white38,
-                        fontSize: 12,
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    ),
-                  ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                _MiniChip(label: 'Saved: $existingCount', color: Colors.white24),
+                const SizedBox(width: 8),
+                _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
+                const Spacer(),
+                Text(
+                  '$totalCount / $_maxTeamsForFormat',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
                 ),
-              ),
+              ],
             ),
           ),
           if (_bulkError != null) ...[
-            const SizedBox(height: 4),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 4, right: 4, bottom: 2),
-                child: Text(
-                  _bulkError!,
-                  style: const TextStyle(
-                    color: Colors.redAccent,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                _bulkError!,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.w700),
+                textAlign: TextAlign.center,
               ),
             ),
           ],
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _bulkController.clear();
-                      _bulkError = null;
-                    });
-                  },
-                  icon: const Icon(Icons.clear_all, size: 16),
-                  label: const Text('Clear'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: const BorderSide(color: Colors.white24),
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: isShort ? 4 : 8),
-                    minimumSize: Size(0, isShort ? 34 : 44),
-                    visualDensity: isShort ? VisualDensity.compact : VisualDensity.standard,
-                  ),
-                ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _showAddSingleDialog,
+              icon: const Icon(Icons.person_add),
+              label: const Text('Add one player'),
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _showPasteListSheet,
+              icon: const Icon(Icons.playlist_add),
+              label: const Text('Paste a list'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white70,
+                side: const BorderSide(color: Colors.white24),
+                minimumSize: const Size.fromHeight(46),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _importBulk,
-                  style: FilledButton.styleFrom(
-                    minimumSize: Size(0, isShort ? 34 : 44),
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: isShort ? 4 : 8),
-                    backgroundColor: Colors.white.withOpacity(0.15),
-                    visualDensity: isShort ? VisualDensity.compact : VisualDensity.standard,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Glass(
+            borderRadius: 18,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.lock_outline, size: 18, color: Colors.white70),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Admin enters only UserId. Team name is loaded from the user profile automatically.',
+                      style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 11, height: 1.25),
+                    ),
                   ),
-                  icon: const Icon(Icons.playlist_add_check, size: 18),
-                  label: const Text('Add to preview'),
-                ),
+                ],
               ),
-            ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupSelector() {
+    return Glass(
+      borderRadius: 20,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.grid_view, size: 18, color: Colors.cyanAccent),
+          const SizedBox(width: 8),
+          const Text(
+            'Current group',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _groups.map((g) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(g, style: const TextStyle(fontSize: 11)),
+                      selected: _selectedGroup == g,
+                      selectedColor: Colors.cyanAccent.withOpacity(0.25),
+                      backgroundColor: Colors.white10,
+                      labelStyle: TextStyle(
+                        color: _selectedGroup == g ? Colors.cyanAccent : Colors.white70,
+                      ),
+                      onSelected: (selected) {
+                        if (!selected) return;
+                        setState(() => _selectedGroup = g);
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
           ),
         ],
       ),
@@ -754,7 +1034,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 Icon(Icons.groups, size: 18, color: Colors.cyanAccent),
                 SizedBox(width: 8),
                 Text(
-                  'Step 2 · Review teams',
+                  'Review teams',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 13,
@@ -769,9 +1049,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: [
-                _PreviewChip(label: 'Saved: $existingCount', color: Colors.white24),
+                _MiniChip(label: 'Saved: $existingCount', color: Colors.white24),
                 const SizedBox(width: 8),
-                _PreviewChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
+                _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
                 const Spacer(),
                 Text(
                   '$totalCount / $_maxTeamsForFormat',
@@ -782,43 +1062,51 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           ),
           const SizedBox(height: 6),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              itemCount: existingCount + newCount,
-              itemBuilder: (context, i) {
-                if (i < existingCount) {
-                  final team = _existingTeams[i];
-                  final groupLabel = _groupLabelForTeam(team);
-                  final label = widget.format == LeagueFormat.uclGroup ? 'Saved · $groupLabel' : 'Saved';
-                  return _buildTeamTile(
-                    index: i,
-                    name: team.name,
-                    label: label,
-                    isNew: false,
-                    onTap: () => _editExistingTeam(i),
-                    onRemove: null,
-                  );
-                } else {
-                  final idx = i - existingCount;
-                  final team = _tempTeams[idx];
-                  final group = team['group'] ?? '';
-                  final label = group.isEmpty ? 'New' : 'New · $group';
-                  return _buildTeamTile(
-                    index: i,
-                    name: team['teamName']!,
-                    label: label,
-                    isNew: true,
-                    onTap: null,
-                    onRemove: () {
-                      setState(() {
-                        _tempTeams.removeAt(idx);
-                        _bulkError = null;
-                      });
+            child: (existingCount + newCount) == 0
+                ? Center(
+                    child: Text(
+                      'No teams yet.\nTap “Add one player” or “Paste a list”.',
+                      style: TextStyle(color: Colors.white.withOpacity(0.55), height: 1.4),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    itemCount: existingCount + newCount,
+                    itemBuilder: (context, i) {
+                      if (i < existingCount) {
+                        final team = _existingTeams[i];
+                        final groupLabel = _groupLabelForTeam(team);
+                        final label = widget.format == LeagueFormat.uclGroup ? 'Saved · $groupLabel' : 'Saved';
+                        return _buildTeamTile(
+                          index: i,
+                          name: team.name,
+                          label: label,
+                          isNew: false,
+                          onTap: () => _editExistingTeam(i),
+                          onRemove: null,
+                        );
+                      } else {
+                        final idx = i - existingCount;
+                        final team = _tempTeams[idx];
+                        final group = team['group'] ?? '';
+                        final label = group.isEmpty ? 'New' : 'New · $group';
+                        return _buildTeamTile(
+                          index: i,
+                          name: team['teamName']!,
+                          label: label,
+                          isNew: true,
+                          onTap: null,
+                          onRemove: () {
+                            setState(() {
+                              _tempTeams.removeAt(idx);
+                              _bulkError = null;
+                            });
+                          },
+                        );
+                      }
                     },
-                  );
-                }
-              },
-            ),
+                  ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -886,7 +1174,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                'userId',
+                                'uid (internal)',
                                 style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
                               ),
                             ),
@@ -1056,8 +1344,32 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 }
 
-class _PreviewChip extends StatelessWidget {
-  const _PreviewChip({
+class _ResolvedTeam {
+  final String userId; // internal Firebase uid
+  final String teamName;
+
+  const _ResolvedTeam({
+    required this.userId,
+    required this.teamName,
+  });
+}
+
+enum _BulkStatus { pending, ok, notFound }
+
+class _BulkRow {
+  final String input;
+  final _ResolvedTeam? resolved;
+  final _BulkStatus status;
+
+  const _BulkRow({
+    required this.input,
+    required this.resolved,
+    required this.status,
+  });
+}
+
+class _MiniChip extends StatelessWidget {
+  const _MiniChip({
     required this.label,
     required this.color,
   });
@@ -1068,7 +1380,7 @@ class _PreviewChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(999),
@@ -1078,7 +1390,7 @@ class _PreviewChip extends StatelessWidget {
         style: const TextStyle(
           color: Colors.white,
           fontSize: 10,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

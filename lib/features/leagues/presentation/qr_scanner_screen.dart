@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -41,6 +42,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
   String _currentUserId = '';
   bool _chargesPaid = false;
+
+  LeagueJoinMode? _joinedMode;
 
   bool _permissionChecked = false;
   bool _cameraPermissionGranted = false;
@@ -163,19 +166,74 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     _scannerStarted = false;
   }
 
+  Future<LeagueJoinMode?> _promptJoinMode(BuildContext context, {required String joinCode}) async {
+    return showModalBottomSheet<LeagueJoinMode>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Join league as…',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Join code: ${joinCode.toUpperCase()}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        _JoinModeTile(
+                          title: 'Participant',
+                          subtitle: 'You will be counted as a participant in this league.',
+                          icon: Icons.sports_esports,
+                          accent: Colors.cyanAccent,
+                          onTap: () => Navigator.of(ctx).pop(LeagueJoinMode.participant),
+                        ),
+                        const SizedBox(height: 10),
+                        _JoinModeTile(
+                          title: 'Viewer only',
+                          subtitle: 'You can browse the league, but you won’t be counted as a participant.',
+                          icon: Icons.visibility,
+                          accent: Colors.white70,
+                          onTap: () => Navigator.of(ctx).pop(LeagueJoinMode.viewer),
+                        ),
+                        const SizedBox(height: 10),
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(null),
+                          child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _handleScan(String payload) async {
     if (_joining) return;
-
-    setState(() {
-      _joining = true;
-      _error = null;
-    });
-
-    final prefs = ref.read(prefsServiceProvider);
-    final repo = LocalLeaguesRepository(prefs);
-
-    // Firebase Auth uid (immutable userId). No extra UI prompts.
-    final currentUserId = await CurrentUser.getUserId();
 
     final parsed = _parseJoinPayload(payload);
     if (parsed == null) {
@@ -191,10 +249,35 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
     final joinCode = parsed.code;
 
+    final mode = await _promptJoinMode(context, joinCode: joinCode);
+    if (mode == null) {
+      // User cancelled
+      if (!mounted) return;
+      setState(() {
+        _joining = false;
+        _error = null;
+        _isScanned = false;
+      });
+      await _startScannerSafely();
+      return;
+    }
+
+    setState(() {
+      _joining = true;
+      _error = null;
+    });
+
+    final prefs = ref.read(prefsServiceProvider);
+    final repo = LocalLeaguesRepository(prefs);
+
+    // Firebase Auth uid (immutable userId). No extra UI prompts.
+    final currentUserId = await CurrentUser.getUserId();
+
     try {
       final league = await repo.joinLeagueLocallyByCode(
         joinCode: joinCode,
         userId: currentUserId,
+        mode: mode,
         placeholderBuilder: (generatedLeagueId) {
           final now = DateTime.now().millisecondsSinceEpoch;
           return League(
@@ -227,6 +310,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         _joining = false;
         _currentUserId = currentUserId;
         _chargesPaid = paid;
+        _joinedMode = mode;
       });
 
       await _maybePromptChargesAfterJoin(
@@ -390,44 +474,98 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     _handleScan(raw);
   }
 
-  Future<void> _showManualEntryDialog() async {
+  Future<void> _showManualEntrySheet() async {
     final controller = TextEditingController();
 
     try {
-      final code = await showDialog<String?>(
+      final code = await showModalBottomSheet<String?>(
         context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
         builder: (ctx) {
-          return AlertDialog(
-            backgroundColor: const Color(0xFF0A1D37),
-            title: const Text(
-              'Enter Join Code',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            content: TextField(
-              controller: controller,
-              autofocus: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: 'e.g. ABC123',
-                hintStyle: TextStyle(color: Colors.white38),
+          final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Glass(
+                    borderRadius: 28,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Enter Join Code',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Paste the Join ID (letters/numbers) from the organizer.',
+                            style: TextStyle(color: Colors.white70, fontSize: 11),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: controller,
+                            autofocus: true,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: InputDecoration(
+                              hintText: 'e.g. ABC123',
+                              hintStyle: const TextStyle(color: Colors.white38),
+                              prefixIcon: const Icon(Icons.key, color: Colors.white70),
+                              suffixIcon: IconButton(
+                                tooltip: 'Paste',
+                                icon: const Icon(Icons.content_paste, color: Colors.cyanAccent),
+                                onPressed: () async {
+                                  final data = await Clipboard.getData('text/plain');
+                                  final text = data?.text ?? '';
+                                  if (text.trim().isEmpty) return;
+                                  controller.text = text.trim();
+                                  controller.selection = TextSelection.fromPosition(
+                                    TextPosition(offset: controller.text.length),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(null),
+                                  child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                                  icon: const Icon(Icons.login),
+                                  label: const Text('Continue'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(null),
-                child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-                child: const Text('Join'),
-              ),
-            ],
           );
         },
       );
 
-      if (code == null) return;
-      if (code.trim().isEmpty) return;
+      if (!mounted) return;
+
+      if (code == null || code.trim().isEmpty) return;
 
       await _stopScannerSafely();
       setState(() {
@@ -450,6 +588,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       final requiresCharges = _requiresCharges(league);
       final isCreator = _currentUserId.isNotEmpty && _isCreator(league, _currentUserId);
       final showUnlock = requiresCharges && !isCreator && !_chargesPaid;
+
+      final mode = _joinedMode;
+      final joinedLine = (mode == LeagueJoinMode.viewer)
+          ? 'You joined as Viewer (not counted as a participant).'
+          : 'You joined as Participant.';
 
       return GlassScaffold(
         appBar: AppBar(
@@ -496,9 +639,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                       child: Column(
                         children: [
                           Text(
-                            showUnlock
-                                ? 'You joined successfully. This league requires charges to view fixtures & standings.'
-                                : 'You joined this league successfully.',
+                            '$joinedLine\n\n${showUnlock ? 'This league requires charges to view fixtures & standings.' : 'You can open the league now.'}',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.75),
@@ -608,7 +749,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                           ),
                           const SizedBox(height: 8),
                           OutlinedButton(
-                            onPressed: _joining ? null : _showManualEntryDialog,
+                            onPressed: _joining ? null : _showManualEntrySheet,
                             style: OutlinedButton.styleFrom(
                               side: BorderSide(color: Colors.white.withOpacity(0.18)),
                               foregroundColor: Colors.cyanAccent,
@@ -644,7 +785,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                   ),
                   const Spacer(),
                   TextButton(
-                    onPressed: _joining ? null : _showManualEntryDialog,
+                    onPressed: _joining ? null : _showManualEntrySheet,
                     child: const Text(
                       'ENTER CODE',
                       style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
@@ -829,6 +970,45 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 class _JoinParse {
   final String code;
   const _JoinParse({required this.code});
+}
+
+class _JoinModeTile extends StatelessWidget {
+  const _JoinModeTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Glass(
+      borderRadius: 20,
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: accent.withOpacity(0.18),
+          child: Icon(icon, color: accent),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.25),
+        ),
+        trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+        onTap: onTap,
+      ),
+    );
+  }
 }
 
 class _ScannerOverlayPainter extends CustomPainter {

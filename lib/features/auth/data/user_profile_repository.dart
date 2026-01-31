@@ -9,6 +9,17 @@ class UserProfileRepository {
 
   CollectionReference<Map<String, dynamic>> get _users => _firestore.collection('users');
 
+  static bool _looksLikeShareId(String raw) {
+    final s = raw.trim();
+    // Example: eS44e35f (prefix eS + 4..12 alnum)
+    return RegExp(r'^eS[A-Za-z0-9]{4,12}$').hasMatch(s);
+  }
+
+  static String _generateShareId(String userId) {
+    // Deterministic, starts with eS, short for human sharing.
+    return UserProfile.deriveShareIdFromUid(userId);
+  }
+
   Future<bool> profileExists(String userId) async {
     final doc = await _users.doc(userId).get();
     return doc.exists;
@@ -20,6 +31,42 @@ class UserProfileRepository {
     final data = doc.data();
     if (data == null) return null;
     return UserProfile.fromFirestore(userId: doc.id, data: data);
+  }
+
+  Future<UserProfile?> fetchByShareId(String shareId) async {
+    final sid = shareId.trim();
+    if (sid.isEmpty) return null;
+
+    final snap = await _users.where('shareId', isEqualTo: sid).limit(1).get();
+    if (snap.docs.isEmpty) return null;
+
+    final doc = snap.docs.first;
+    final data = doc.data();
+    return UserProfile.fromFirestore(userId: doc.id, data: data);
+  }
+
+  /// Accepts either:
+  /// - Firebase uid (internal userId), or
+  /// - short Share ID (e.g. eS44e35f)
+  Future<UserProfile?> fetchByUserIdOrShareId(String userIdOrShareId) async {
+    final key = userIdOrShareId.trim();
+    if (key.isEmpty) return null;
+
+    if (_looksLikeShareId(key)) {
+      return fetchByShareId(key);
+    }
+    return fetchByUserId(key);
+  }
+
+  /// Resolves a shareId (eS...) to the real Firebase uid (doc id).
+  Future<String?> resolveUserIdFromShareId(String shareId) async {
+    final sid = shareId.trim();
+    if (sid.isEmpty) return null;
+
+    final snap = await _users.where('shareId', isEqualTo: sid).limit(1).get();
+    if (snap.docs.isEmpty) return null;
+
+    return snap.docs.first.id;
   }
 
   Stream<UserProfile?> watchByUserId(String userId) {
@@ -47,6 +94,8 @@ class UserProfileRepository {
         'userId': userId,
         'teamName': teamName,
         'authProvider': authProvider,
+        // Store short shareId at creation time
+        'shareId': _generateShareId(userId),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };

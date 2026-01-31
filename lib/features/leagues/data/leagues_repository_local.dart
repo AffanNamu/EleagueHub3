@@ -12,6 +12,14 @@ import '../models/league.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 
+/// How a user joins a league from the UI.
+///
+/// IMPORTANT:
+/// - `participant`: user is counted as a league participant (creates Membership).
+/// - `viewer`: user can view the league (still added to league.memberIds for access),
+///   but is NOT counted as a participant (no Membership is created).
+enum LeagueJoinMode { participant, viewer }
+
 class LocalLeaguesRepository {
   final PreferencesService _prefs;
   final SyncQueueService _queue = SyncQueueService.instance;
@@ -182,6 +190,7 @@ class LocalLeaguesRepository {
     required String joinCode,
     required String userId,
     required League Function(String generatedLeagueId) placeholderBuilder,
+    LeagueJoinMode mode = LeagueJoinMode.participant,
   }) async {
     final code = joinCode.trim().toUpperCase();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -202,7 +211,9 @@ class LocalLeaguesRepository {
       final doc = query.docs.first;
       final leagueId = doc.id;
 
-      // Add memberIds
+      // IMPORTANT:
+      // We always add the userId to memberIds so they have access to the league doc
+      // (including "viewer-only" mode for private leagues).
       await firestore.collection('leagues').doc(leagueId).set(
         {
           'memberIds': FieldValue.arrayUnion([userId]),
@@ -219,27 +230,29 @@ class LocalLeaguesRepository {
       final league = League.fromRemoteMap(data);
       await _upsertLeagueLocalNoQueue(league);
 
-      // Local membership
-      final membership = Membership(
-        id: _uuid.v4(),
-        leagueId: leagueId,
-        userId: userId,
-        teamId: null,
-        role: LeagueRole.member,
-        updatedAtMs: now,
-        version: 1,
-      );
-      await _upsertMembershipLocalNoQueue(membership);
+      // PARTICIPANT mode: create local membership (counts as participant)
+      if (mode == LeagueJoinMode.participant) {
+        final membership = Membership(
+          id: _uuid.v4(),
+          leagueId: leagueId,
+          userId: userId,
+          teamId: null,
+          role: LeagueRole.member,
+          updatedAtMs: now,
+          version: 1,
+        );
+        await _upsertMembershipLocalNoQueue(membership);
 
-      // Optional: queue membership doc to cloud
-      await _queue.enqueue(
-        id: _uuid.v4(),
-        entityType: 'membership',
-        entityId: membership.id,
-        action: 'create',
-        lastModified: now,
-        payload: membership.toRemoteMap(),
-      );
+        // Optional: queue membership doc to cloud
+        await _queue.enqueue(
+          id: _uuid.v4(),
+          entityType: 'membership',
+          entityId: membership.id,
+          action: 'create',
+          lastModified: now,
+          payload: membership.toRemoteMap(),
+        );
+      }
 
       return league;
     } on FirebaseException catch (e) {
@@ -258,18 +271,7 @@ class LocalLeaguesRepository {
 
       await _upsertLeagueLocalNoQueue(placeholder);
 
-      final membership = Membership(
-        id: _uuid.v4(),
-        leagueId: generatedLeagueId,
-        userId: userId,
-        teamId: null,
-        role: LeagueRole.member,
-        updatedAtMs: now,
-        version: 1,
-      );
-      await _upsertMembershipLocalNoQueue(membership);
-
-      // Queue join for later
+      // Queue join for later (always), so the user is added to memberIds in the real league when online.
       await _queue.enqueue(
         id: _uuid.v4(),
         entityType: 'league_join',
@@ -282,14 +284,28 @@ class LocalLeaguesRepository {
         },
       );
 
-      await _queue.enqueue(
-        id: _uuid.v4(),
-        entityType: 'membership',
-        entityId: membership.id,
-        action: 'create',
-        lastModified: now,
-        payload: membership.toRemoteMap(),
-      );
+      // PARTICIPANT mode: create membership locally and queue it.
+      if (mode == LeagueJoinMode.participant) {
+        final membership = Membership(
+          id: _uuid.v4(),
+          leagueId: generatedLeagueId,
+          userId: userId,
+          teamId: null,
+          role: LeagueRole.member,
+          updatedAtMs: now,
+          version: 1,
+        );
+        await _upsertMembershipLocalNoQueue(membership);
+
+        await _queue.enqueue(
+          id: _uuid.v4(),
+          entityType: 'membership',
+          entityId: membership.id,
+          action: 'create',
+          lastModified: now,
+          payload: membership.toRemoteMap(),
+        );
+      }
 
       return placeholder;
     }

@@ -20,23 +20,21 @@ service cloud.firestore {
 
     // Public/private detection.
     //
-    // IMPORTANT: This is "secure by default":
-    // - If the privacy field is missing/unknown, the league is treated as private.
-    // - Supports:
-    //   - legacy boolean `isPrivate: false`
-    //   - legacy int `isPrivate: 0` (your League.toJson writes 1/0)
-    //   - newer `privacy: 'public'`
+    // Secure-by-default:
+    // - If privacy info is missing/unknown, the league is treated as private.
+    //
+    // Supports:
+    // - legacy boolean `isPrivate: false`
+    // - legacy int `isPrivate: 0` (your League.toJson writes 1/0)
+    // - optional string `privacy: 'public'`
     function isPublicLeague(leagueId) {
       let d = leagueDoc(leagueId).data;
 
       return
-        // Legacy: explicit boolean "isPrivate: false"
         ((d.isPrivate is bool) && (d.isPrivate == false))
         ||
-        // Legacy: explicit int "isPrivate: 0"
         ((d.isPrivate is int) && (d.isPrivate == 0))
         ||
-        // Preferred: string-based privacy
         ((d.privacy is string) && (
           d.privacy == 'public'
           || d.privacy == 'PUBLIC'
@@ -50,38 +48,65 @@ service cloud.firestore {
     match /users/{userId} {
       // Needed for:
       // - showing your own profile everywhere
-      // - admin lookup by userId to auto-resolve teamName
+      // - admin lookup by uid / shareId to auto-resolve teamName
       allow read: if signedIn();
 
+      // Create profile (one-time after first login).
+      //
+      // shareId is optional for backward compatibility with any older clients,
+      // but if provided it must match the expected format.
       allow create: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.userId == userId
-        // Require the core profile fields on creation
         && request.resource.data.keys().hasAll([
           'userId',
           'teamName',
           'authProvider',
           'createdAt',
           'updatedAt'
-        ]);
+        ])
+        && (
+          !('shareId' in request.resource.data)
+          || (
+            (request.resource.data.shareId is string)
+            && request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$')
+          )
+        );
 
       // Hardened update:
-      // - Users can only change teamName + updatedAt.
-      // - Prevents overwriting immutable fields like userId/authProvider/createdAt.
+      //
+      // Users can:
+      // 1) update teamName (+ updatedAt)
+      // 2) backfill shareId ONCE if it was missing (+ updatedAt)
+      //
+      // This keeps userId/authProvider/createdAt immutable.
       allow update: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.userId == userId
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-          'teamName',
-          'updatedAt'
-        ]);
+        && (
+          // Normal edit
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'teamName',
+            'updatedAt'
+          ])
+          ||
+          // One-time shareId backfill (for old profiles that don't have shareId yet)
+          (
+            resource.data.shareId == null
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'shareId',
+              'updatedAt'
+            ])
+            && (request.resource.data.shareId is string)
+            && request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$')
+          )
+        );
 
       allow delete: if false;
     }
 
     match /leagues/{leagueId} {
-      // Secure-by-default:
-      // - If no privacy info exists, treat league as private (owner/member only).
+      // Secure-by-default: if privacy missing/unknown -> private (owner/member only).
       allow get: if isOwner(leagueId) || isMember(leagueId) || isPublicLeague(leagueId);
 
       // Allows .where('memberIds', 'array-contains', uid) queries

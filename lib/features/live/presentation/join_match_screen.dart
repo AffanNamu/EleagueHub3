@@ -1,467 +1,290 @@
-
 import 'package:flutter/material.dart';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:go_router/go_router.dart';
 
-
-
 import '../../../core/widgets/glass.dart';
-
 import '../../../core/widgets/glass_scaffold.dart';
 
-
-
 class JoinMatchScreen extends ConsumerStatefulWidget {
-
   const JoinMatchScreen({super.key});
 
-
-
   @override
-
   ConsumerState<JoinMatchScreen> createState() => _JoinMatchScreenState();
-
 }
 
-
-
 class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
-
   final _matchIdCtrl = TextEditingController();
-
   final _homeCtrl = TextEditingController();
-
   final _awayCtrl = TextEditingController();
-
-
 
   String? _error;
 
-
-
   @override
-
   void dispose() {
-
     _matchIdCtrl.dispose();
-
     _homeCtrl.dispose();
-
     _awayCtrl.dispose();
-
     super.dispose();
-
   }
 
-
-
   void _pushLiveView({
-
     required bool isHost,
-
-    String? side, // 'home' | 'away' | 'unknown'
-
+    required String side, // 'home' | 'away' | 'unknown'
   }) {
-
     final matchId = _matchIdCtrl.text.trim();
-
     final homeName = _homeCtrl.text.trim();
-
     final awayName = _awayCtrl.text.trim();
 
-
-
     if (matchId.isEmpty) {
-
       setState(() => _error = 'Match ID is required');
-
       return;
-
     }
-
-
 
     setState(() => _error = null);
 
-
-
     context.push(
-
       '/live/view/$matchId',
-
       extra: <String, dynamic>{
-
         'isHost': isHost,
-
         if (homeName.isNotEmpty) 'homeName': homeName,
-
         if (awayName.isNotEmpty) 'awayName': awayName,
-
-        if (side != null && side.trim().isNotEmpty) 'side': side.trim(),
-
+        'side': side.trim().isEmpty ? 'unknown' : side.trim(),
       },
-
     );
-
   }
-
-
 
   @override
-
   Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final isWide = media.size.width > 600;
 
-    final isWide = MediaQuery.of(context).size.width > 600;
-
-
+    // IMPORTANT for small devices:
+    // When keyboard is open, we add bottom padding so fields/buttons can be scrolled into view.
+    final bottomInset = media.viewInsets.bottom;
+    final bottomPadding = 16.0 + bottomInset;
 
     return GlassScaffold(
-
       appBar: AppBar(
-
-        title: const Text('Join Live Match (Online)'),
-
+        title: const Text('Join Live Match'),
         backgroundColor: Colors.transparent,
-
         elevation: 0,
-
       ),
-
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
-
         child: Center(
-
           child: ConstrainedBox(
-
-            constraints: BoxConstraints(
-
-              maxWidth: isWide ? 720 : 540,
-
+            constraints: BoxConstraints(maxWidth: isWide ? 720 : 520),
+            child: ListView(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              children: [
+                _buildHeaderCard(),
+                const SizedBox(height: 14),
+                _buildFormCard(context),
+                const SizedBox(height: 14),
+                _buildActionsCard(isWide: isWide),
+              ],
             ),
-
-            child: Padding(
-
-              padding: const EdgeInsets.all(16),
-
-              child: Column(
-
-                children: [
-
-                  Glass(
-
-                    borderRadius: 24,
-
-                    padding: const EdgeInsets.all(16),
-
-                    child: Row(
-
-                      crossAxisAlignment: CrossAxisAlignment.start,
-
-                      children: [
-
-                        Container(
-
-                          width: 44,
-
-                          height: 44,
-
-                          decoration: BoxDecoration(
-
-                            shape: BoxShape.circle,
-
-                            color: Colors.cyanAccent.withOpacity(0.18),
-
-                          ),
-
-                          child: const Icon(
-
-                            Icons.public,
-
-                            color: Colors.cyanAccent,
-
-                          ),
-
-                        ),
-
-                        const SizedBox(width: 12),
-
-                        const Expanded(
-
-                          child: Column(
-
-                            crossAxisAlignment: CrossAxisAlignment.start,
-
-                            children: [
-
-                              Text(
-
-                                'Online Live Video',
-
-                                style: TextStyle(
-
-                                  color: Colors.white,
-
-                                  fontSize: 16,
-
-                                  fontWeight: FontWeight.w800,
-
-                                ),
-
-                              ),
-
-                              SizedBox(height: 4),
-
-                              Text(
-
-                                'Join using Match ID. This is ONLINE (no Wi‑Fi discovery / no IP / no port).',
-
-                                style: TextStyle(
-
-                                  color: Colors.white60,
-
-                                  fontSize: 12,
-
-                                  height: 1.4,
-
-                                ),
-
-                              ),
-
-                            ],
-
-                          ),
-
-                        ),
-
-                      ],
-
-                    ),
-
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  Glass(
-
-                    borderRadius: 20,
-
-                    padding: const EdgeInsets.all(12),
-
-                    child: Column(
-
-                      children: [
-
-                        TextField(
-
-                          controller: _matchIdCtrl,
-
-                          decoration: const InputDecoration(
-
-                            labelText: 'Match ID',
-
-                            hintText: 'e.g. 9f2c1a',
-
-                          ),
-
-                        ),
-
-                        const SizedBox(height: 10),
-
-                        Row(
-
-                          children: [
-
-                            Expanded(
-
-                              child: TextField(
-
-                                controller: _homeCtrl,
-
-                                decoration: const InputDecoration(
-
-                                  labelText: 'Home name (optional)',
-
-                                ),
-
-                              ),
-
-                            ),
-
-                            const SizedBox(width: 10),
-
-                            Expanded(
-
-                              child: TextField(
-
-                                controller: _awayCtrl,
-
-                                decoration: const InputDecoration(
-
-                                  labelText: 'Away name (optional)',
-
-                                ),
-
-                              ),
-
-                            ),
-
-                          ],
-
-                        ),
-
-                        if (_error != null) ...[
-
-                          const SizedBox(height: 10),
-
-                          Align(
-
-                            alignment: Alignment.centerLeft,
-
-                            child: Text(
-
-                              _error!,
-
-                              style: const TextStyle(
-
-                                color: Colors.redAccent,
-
-                                fontSize: 12,
-
-                              ),
-
-                            ),
-
-                          ),
-
-                        ],
-
-                        const SizedBox(height: 14),
-
-                        Row(
-
-                          children: [
-
-                            Expanded(
-
-                              child: FilledButton.icon(
-
-                                onPressed: () => _pushLiveView(
-
-                                  isHost: false,
-
-                                  side: 'unknown',
-
-                                ),
-
-                                icon: const Icon(Icons.play_arrow),
-
-                                label: const Text('Join as Viewer'),
-
-                              ),
-
-                            ),
-
-                          ],
-
-                        ),
-
-                        const SizedBox(height: 10),
-
-                        Row(
-
-                          children: [
-
-                            Expanded(
-
-                              child: OutlinedButton.icon(
-
-                                onPressed: () => _pushLiveView(
-
-                                  isHost: true,
-
-                                  side: 'home',
-
-                                ),
-
-                                icon: const Icon(Icons.sports_esports),
-
-                                label: const Text('Host as HOME'),
-
-                              ),
-
-                            ),
-
-                            const SizedBox(width: 10),
-
-                            Expanded(
-
-                              child: OutlinedButton.icon(
-
-                                onPressed: () => _pushLiveView(
-
-                                  isHost: true,
-
-                                  side: 'away',
-
-                                ),
-
-                                icon: const Icon(Icons.sports_esports),
-
-                                label: const Text('Host as AWAY'),
-
-                              ),
-
-                            ),
-
-                          ],
-
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        const Text(
-
-                          'Tip: for a match with two streamers, one hosts as HOME and the other hosts as AWAY using the same Match ID.',
-
-                          textAlign: TextAlign.center,
-
-                          style: TextStyle(
-
-                            color: Colors.white38,
-
-                            fontSize: 11,
-
-                            height: 1.4,
-
-                          ),
-
-                        ),
-
-                      ],
-
-                    ),
-
-                  ),
-
-                  const Spacer(),
-
-                ],
-
-              ),
-
-            ),
-
           ),
-
         ),
-
       ),
-
     );
-
   }
 
-}
+  Widget _buildHeaderCard() {
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.cyanAccent.withOpacity(0.18),
+            ),
+            child: const Icon(Icons.public, color: Colors.cyanAccent),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Online Live Video',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Join using Match ID. This is ONLINE (no Wi‑Fi discovery / no IP / no port).',
+                  style: TextStyle(
+                    color: Colors.white60,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildFormCard(BuildContext context) {
+    final isCompact = MediaQuery.of(context).size.width < 520;
+
+    return Glass(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          TextField(
+            controller: _matchIdCtrl,
+            textInputAction: TextInputAction.next,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Match ID',
+              hintText: 'e.g. 9f2c1a',
+              prefixIcon: const Icon(Icons.tag, color: Colors.white70),
+              errorText: _error,
+            ),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+          ),
+          const SizedBox(height: 10),
+          if (isCompact) ...[
+            TextField(
+              controller: _homeCtrl,
+              textInputAction: TextInputAction.next,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Home name (optional)',
+                prefixIcon: Icon(Icons.home, color: Colors.white70),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _awayCtrl,
+              textInputAction: TextInputAction.done,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Away name (optional)',
+                prefixIcon: Icon(Icons.flight_takeoff, color: Colors.white70),
+              ),
+            ),
+          ] else ...[
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _homeCtrl,
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Home name (optional)',
+                      prefixIcon: Icon(Icons.home, color: Colors.white70),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _awayCtrl,
+                    textInputAction: TextInputAction.done,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Away name (optional)',
+                      prefixIcon: Icon(Icons.flight_takeoff, color: Colors.white70),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 10),
+          const Text(
+            'Tip: Both players can host using the same Match ID.\n'
+            'One hosts as HOME and the other hosts as AWAY.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white38,
+              fontSize: 11,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionsCard({required bool isWide}) {
+    final matchId = _matchIdCtrl.text.trim();
+    final disabled = matchId.isEmpty;
+
+    return Glass(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: disabled ? null : () => _pushLiveView(isHost: false, side: 'unknown'),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Join as Viewer'),
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (isWide) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: disabled ? null : () => _pushLiveView(isHost: true, side: 'home'),
+                    icon: const Icon(Icons.sports_esports),
+                    label: const Text('Host as HOME'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: disabled ? null : () => _pushLiveView(isHost: true, side: 'away'),
+                    icon: const Icon(Icons.sports_esports),
+                    label: const Text('Host as AWAY'),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            // Small phones: stack buttons so they never get cramped/truncated.
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: disabled ? null : () => _pushLiveView(isHost: true, side: 'home'),
+                icon: const Icon(Icons.sports_esports),
+                label: const Text('Host as HOME'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: disabled ? null : () => _pushLiveView(isHost: true, side: 'away'),
+                icon: const Icon(Icons.sports_esports),
+                label: const Text('Host as AWAY'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}

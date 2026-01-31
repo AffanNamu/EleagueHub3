@@ -41,7 +41,12 @@ class ProfileScreen extends ConsumerWidget {
               stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
               builder: (context, snap) {
                 final profile = snap.data;
-                final teamName = profile?.teamName.isNotEmpty == true ? profile!.teamName : (user?.displayName ?? 'My Team');
+
+                final teamName = (profile != null && profile.teamName.trim().isNotEmpty)
+                    ? profile.teamName.trim()
+                    : (user?.displayName ?? 'My Team');
+
+                final shortUserId = (profile != null) ? profile.effectiveShareId : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
 
                 return Row(
                   children: [
@@ -74,37 +79,45 @@ class ProfileScreen extends ConsumerWidget {
                                     ? null
                                     : () => _editTeamName(
                                           context,
-                                          userId: uid,
+                                          userId: uid, // internal immutable uid
                                           current: profile?.teamName ?? '',
                                         ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 6),
                           Row(
                             children: [
                               Expanded(
                                 child: Text(
-                                  uid.isEmpty ? 'Not signed in' : 'userId: $uid',
+                                  uid.isEmpty ? 'Not signed in' : 'UserId: $shortUserId',
                                   style: t.bodySmall?.copyWith(color: Colors.white70),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               IconButton(
-                                tooltip: 'Copy userId',
+                                tooltip: 'Copy UserId',
                                 icon: const Icon(Icons.copy, color: Colors.white54, size: 18),
                                 onPressed: uid.isEmpty
                                     ? null
                                     : () async {
-                                        await Clipboard.setData(ClipboardData(text: uid));
+                                        await Clipboard.setData(ClipboardData(text: shortUserId));
                                         if (!context.mounted) return;
                                         ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('userId copied')),
+                                          const SnackBar(content: Text('UserId copied')),
                                         );
                                       },
                               ),
                             ],
                           ),
+                          if (uid.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Internal uid (for debugging only): ${uid.length > 10 ? '${uid.substring(0, 10)}…' : uid}',
+                              style: t.bodySmall?.copyWith(color: Colors.white38, fontSize: 10),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ],
                       ),
                     ),
