@@ -115,7 +115,7 @@ class ProfileScreen extends ConsumerWidget {
                                     ? null
                                     : () {
                                         HapticFeedback.selectionClick();
-                                        return _editTeamName(
+                                        _editTeamName(
                                           context,
                                           userId: uid, // internal immutable uid
                                           current: profile?.teamName ?? '',
