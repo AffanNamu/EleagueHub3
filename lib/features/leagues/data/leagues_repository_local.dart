@@ -414,7 +414,47 @@ class LocalLeaguesRepository {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     final all = await _getAllMemberships();
+
+    // Deduplicate any existing memberships for this league/user (prevents duplicate tiles).
+    bool deduped = false;
+    final duplicates = all.where((m) => m.leagueId == leagueId && m.userId == userId).toList();
+    if (duplicates.length > 1) {
+      deduped = true;
+
+      final base = duplicates.first;
+      final best = duplicates.reduce((a, b) => a.updatedAtMs >= b.updatedAtMs ? a : b);
+      final bestVersion = duplicates.map((m) => m.version).reduce((a, b) => a > b ? a : b);
+      final role = duplicates.any((m) => m.role == LeagueRole.organizer) ? LeagueRole.organizer : best.role;
+
+      final consolidated = Membership(
+        id: base.id, // keep earliest id stable
+        leagueId: leagueId,
+        userId: userId,
+        teamId: best.teamId,
+        role: role,
+        updatedAtMs: best.updatedAtMs,
+        version: bestVersion,
+      );
+
+      all.removeWhere((m) => m.leagueId == leagueId && m.userId == userId);
+      all.add(consolidated);
+    }
+
     final idx = all.indexWhere((m) => m.leagueId == leagueId && m.userId == userId);
+
+    // If membership already exists and teamId already correct, do nothing (no extra queue spam).
+    if (idx >= 0) {
+      final existing = all[idx];
+      if (existing.teamId == teamId) {
+        if (deduped) {
+          await _prefs.setStringList(
+            kMembershipsKey,
+            all.map((m) => jsonEncode(m.toRemoteMap())).toList(),
+          );
+        }
+        return;
+      }
+    }
 
     late final Membership updated;
     late final String action;
@@ -655,13 +695,10 @@ class LocalLeaguesRepository {
 
   Future<void> _upsertMembershipLocalByLeagueUserNoQueue(Membership membership) async {
     final all = await _getAllMemberships();
-    final idx = all.indexWhere((m) => m.leagueId == membership.leagueId && m.userId == membership.userId);
 
-    if (idx >= 0) {
-      all[idx] = membership;
-    } else {
-      all.add(membership);
-    }
+    // Ensure no duplicates for this league/user.
+    all.removeWhere((m) => m.leagueId == membership.leagueId && m.userId == membership.userId);
+    all.add(membership);
 
     await _prefs.setStringList(
       kMembershipsKey,

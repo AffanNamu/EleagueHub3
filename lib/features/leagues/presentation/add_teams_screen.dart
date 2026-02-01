@@ -14,6 +14,7 @@ import '../domain/algorithms/swiss_pairing.dart';
 import '../logic/fixture_generator.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
+import '../models/membership.dart';
 import '../models/team.dart';
 import 'widgets/roster_csv_importer.dart';
 
@@ -137,11 +138,59 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   Future<void> _loadExistingTeams() async {
     final league = await _localRepo.getLeagueById(widget.leagueId);
     final teams = await _localRepo.getTeams(widget.leagueId);
+
+    // Auto-show joined participants (memberships) in this screen too,
+    // so they count toward fixture unlock without manually adding them.
+    final allMemberships = await _localRepo.listMemberships();
+    final memberUserIds = allMemberships
+        .where((m) => m.leagueId == widget.leagueId && m.role == LeagueRole.member)
+        .map((m) => m.userId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    final existingIds = teams.map((t) => t.id).toSet();
+    final tempIds = _tempTeams.map((t) => (t['userId'] ?? '').trim()).where((id) => id.isNotEmpty).toSet();
+
+    final autoTemp = <Map<String, String>>[];
+    final defaultGroup = _isGroupLeague ? _selectedGroup : 'League Pool';
+
+    for (final uid in memberUserIds) {
+      if (existingIds.contains(uid)) continue;
+      if (tempIds.contains(uid)) continue;
+
+      String name = (_teamNameCacheByUserId[uid] ?? '').trim();
+      if (name.isEmpty) {
+        try {
+          final p = await _profiles.fetchByUserId(uid);
+          final resolved = (p?.teamName ?? '').trim();
+          if (resolved.isNotEmpty) {
+            name = resolved;
+            _teamNameCacheByUserId[uid] = resolved;
+          }
+        } catch (_) {
+          // Offline / permission / transient error: ignore and fallback.
+        }
+      }
+
+      if (name.isEmpty) name = uid;
+
+      autoTemp.add({
+        'userId': uid,
+        'teamName': name,
+        'group': defaultGroup,
+      });
+    }
+
     if (!mounted) return;
 
     setState(() {
       _league = league;
       _existingTeams = teams;
+
+      // Add auto-joined users as "New" entries (deduped).
+      _tempTeams.addAll(autoTemp);
+
       _isLoading = false;
 
       if (_isGroupLeague) {
@@ -1063,8 +1112,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white70,
                 side: const BorderSide(color: Colors.white24),
-                minimumSize: const Size.fromHeight(46),
-              ),
+                minimumSize: const Size.fromHeight(46)),
             ),
           ),
         ],
