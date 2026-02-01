@@ -1,15 +1,26 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
 
+import '../../../../core/locale/app_localizations.dart';
+import '../../../../core/locale/locale_controller.dart';
+
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final currentCode = Localizations.localeOf(context).languageCode;
+    final languageLabel =
+        LocaleController.supportedLanguageCodes.contains(currentCode) ? l10n.languageName(currentCode) : l10n.languageName('en');
+
     return Scaffold(
-      backgroundColor: const Color(0xFF4FC3F7), // Consistent light blue theme
+      backgroundColor: const Color(0xFF4FC3F7),
       appBar: AppBar(
-        title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          l10n.settingsTitle,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -17,28 +28,38 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            _buildProfileSection(),
+            _buildProfileSection(context),
             const SizedBox(height: 24),
-            _buildSettingsGroup("App Preferences", [
-              _SettingItem(Icons.notifications_none, "Notifications", "Alerts & Sounds"),
-              _SettingItem(Icons.dark_mode_outlined, "Appearance", "Glassmorphism Mode"),
-              _SettingItem(Icons.language, "Language", "English"),
+            _buildSettingsGroup(context, l10n.settingsGroupAppPreferences, [
+              _SettingItem(Icons.notifications_none, l10n.settingsItemNotifications, l10n.settingsItemNotificationsSubtitle),
+              _SettingItem(Icons.dark_mode_outlined, l10n.settingsItemAppearance, l10n.settingsItemAppearanceSubtitle),
+              _SettingItem(Icons.language, l10n.settingsItemLanguage, languageLabel),
             ]),
             const SizedBox(height: 24),
-            _buildSettingsGroup("Account & Security", [
-              _SettingItem(Icons.lock_outline, "Privacy", "Manage your data"),
-              _SettingItem(Icons.sync, "Cloud Sync", "Last synced: 2m ago"),
-              _SettingItem(Icons.delete_forever, "Delete Account", "Irreversible action", isDestructive: true),
+            _buildSettingsGroup(context, l10n.settingsGroupAccountSecurity, [
+              _SettingItem(Icons.lock_outline, l10n.settingsItemPrivacy, l10n.settingsItemPrivacySubtitle),
+              _SettingItem(Icons.sync, l10n.settingsItemCloudSync, l10n.settingsItemCloudSyncSubtitle),
+              _SettingItem(
+                Icons.delete_forever,
+                l10n.settingsItemDeleteAccount,
+                l10n.settingsItemDeleteAccountSubtitle,
+                isDestructive: true,
+              ),
             ]),
             const SizedBox(height: 40),
-            const Text("eSportlyic v1.0.0-PRO", style: TextStyle(color: Colors.white24, fontSize: 12)),
+            Text(
+              l10n.settingsFooterVersion,
+              style: const TextStyle(color: Colors.white24, fontSize: 12),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildProfileSection() {
+  Widget _buildProfileSection(BuildContext context) {
+    final l10n = context.l10n;
+
     return _buildGlassBox(
       child: Row(
         children: [
@@ -52,11 +73,17 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
-          const Column(
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text("League Manager", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-              Text("pro_organizer@email.com", style: TextStyle(color: Colors.white70, fontSize: 13)),
+              Text(
+                l10n.settingsProfileName,
+                style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                l10n.settingsProfileEmail,
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
             ],
           ),
           const Spacer(),
@@ -66,13 +93,18 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSettingsGroup(String title, List<_SettingItem> items) {
+  Widget _buildSettingsGroup(BuildContext context, String title, List<_SettingItem> items) {
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 8, bottom: 8),
-          child: Text(title.toUpperCase(), style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+          padding: const EdgeInsetsDirectional.only(start: 8, bottom: 8),
+          child: Text(
+            title,
+            style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+          ),
         ),
         _buildGlassBox(
           padding: EdgeInsets.zero,
@@ -83,12 +115,21 @@ class SettingsScreen extends StatelessWidget {
                 children: [
                   ListTile(
                     leading: Icon(item.icon, color: item.isDestructive ? Colors.redAccent : Colors.white70),
-                    title: Text(item.title, style: TextStyle(color: item.isDestructive ? Colors.redAccent : Colors.white, fontWeight: FontWeight.w500)),
+                    title: Text(
+                      item.title,
+                      style: TextStyle(color: item.isDestructive ? Colors.redAccent : Colors.white, fontWeight: FontWeight.w500),
+                    ),
                     subtitle: Text(item.subtitle, style: const TextStyle(color: Colors.white38, fontSize: 12)),
                     trailing: const Icon(Icons.chevron_right, color: Colors.white24, size: 20),
                     onTap: () {},
                   ),
-                  if (!isLast) Divider(color: Colors.white.withOpacity(0.05), height: 1, indent: 50),
+                  if (!isLast)
+                    Divider(
+                      color: Colors.white.withOpacity(0.05),
+                      height: 1,
+                      indent: isRtl ? 0 : 50,
+                      endIndent: isRtl ? 50 : 0,
+                    ),
                 ],
               );
             }).toList(),

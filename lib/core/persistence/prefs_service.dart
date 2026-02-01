@@ -11,6 +11,7 @@ class PreferencesService {
 
   static const _kThemeMode = 'theme_mode';
   static const _kLocaleCode = 'locale_code';
+  static const _kLocaleManualOverride = 'locale_manual_override';
 
   /// Logged in user id key (Firebase Auth uid).
   static const String kCurrentUserIdKey = 'current_user_id';
@@ -68,6 +69,15 @@ class PreferencesService {
   String? getLocaleCode() => _sp.getString(_kLocaleCode);
   Future<void> setLocaleCode(String code) async {
     await _sp.setString(_kLocaleCode, code);
+  }
+
+  bool getLocaleManualOverride() => _sp.getBool(_kLocaleManualOverride) ?? false;
+  Future<void> setLocaleManualOverride(bool value) async {
+    await _sp.setBool(_kLocaleManualOverride, value);
+  }
+
+  Future<void> clearLocaleManualOverride() async {
+    await _sp.remove(_kLocaleManualOverride);
   }
 
   /// Notification persistence (global app-level)

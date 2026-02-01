@@ -9,8 +9,6 @@ class EleagueHubApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // We still watch the theme so this widget rebuilds correctly
-    // when theme changes (important for MediaQuery & descendants)
     ref.watch(themeControllerProvider);
 
     final mq = MediaQuery.of(context);

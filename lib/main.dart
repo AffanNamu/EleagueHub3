@@ -14,6 +14,7 @@ import 'core/services/connectivity_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/locale/locale_controller.dart';
+import 'core/locale/app_localizations.dart';
 import 'core/widgets/offline_banner.dart';
 
 Future<void> main() async {
@@ -64,28 +65,32 @@ class AppRoot extends ConsumerWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'eSportlyic',
+      onGenerateTitle: (context) => context.l10n.appName,
       themeMode: themeMode,
       theme: AppTheme.skyTheme(),
       darkTheme: AppTheme.navyTheme(),
       locale: localeState.locale,
       supportedLocales: LocaleController.supportedLocales,
       localizationsDelegates: const [
+        AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
       builder: (context, child) {
-        return Stack(
-          children: [
-            PermissionWrapper(child: child ?? const SizedBox.shrink()),
-            ValueListenableBuilder<bool>(
-              valueListenable: ConnectivityService.instance.isConnected,
-              builder: (context, online, _) {
-                return online ? const SizedBox.shrink() : const OfflineBanner();
-              },
-            ),
-          ],
+        return Directionality(
+          textDirection: localeState.direction,
+          child: Stack(
+            children: [
+              PermissionWrapper(child: child ?? const SizedBox.shrink()),
+              ValueListenableBuilder<bool>(
+                valueListenable: ConnectivityService.instance.isConnected,
+                builder: (context, online, _) {
+                  return online ? const SizedBox.shrink() : const OfflineBanner();
+                },
+              ),
+            ],
+          ),
         );
       },
       home: const EleagueHubApp(),

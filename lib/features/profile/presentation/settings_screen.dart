@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/locale/locale_controller.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/services/notification_service.dart';
@@ -12,12 +13,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  ConsumerState<SettingsScreen> createState() =>
-      _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState
-    extends ConsumerState<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _loading = true;
   bool _enabled = true;
   bool _marketing = false;
@@ -56,16 +55,17 @@ class _SettingsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final themeState = ref.watch(themeControllerProvider);
     final localeState = ref.watch(localeControllerProvider);
     final textTheme = Theme.of(context).textTheme;
 
     final currentLangCode = localeState.locale.languageCode;
-    final langNames = LocaleController.languageNames;
+    final supportedCodes = LocaleController.supportedLanguageCodes;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: Text(l10n.settingsTitle),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -75,64 +75,48 @@ class _SettingsScreenState
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 640),
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(
-                16,
-                12,
-                16,
-                16,
-              ),
+              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 16),
               children: [
-                // THEME CARD
                 Glass(
                   borderRadius: 24,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Theme',
-                          style: textTheme.titleMedium
-                              ?.copyWith(
+                          l10n.themeTitle,
+                          style: textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: Colors.white,
                           ),
                         ),
                         const SizedBox(height: 8),
                         SegmentedButton<ThemeMode>(
-                          segments: const [
+                          segments: [
                             ButtonSegment(
                               value: ThemeMode.system,
-                              label: Text('System'),
+                              label: Text(l10n.themeSystem),
                             ),
                             ButtonSegment(
                               value: ThemeMode.light,
-                              label: Text('Sky Blue'),
+                              label: Text(l10n.themeLight),
                             ),
                             ButtonSegment(
                               value: ThemeMode.dark,
-                              label: Text('Deep Navy'),
+                              label: Text(l10n.themeDark),
                             ),
                           ],
                           selected: {themeState.mode},
-                          onSelectionChanged:
-                              (selectedModes) async {
-                            final mode =
-                                selectedModes.first;
-                            await ref
-                                .read(
-                                  themeControllerProvider
-                                      .notifier,
-                                )
-                                .setThemeMode(mode);
+                          onSelectionChanged: (selectedModes) async {
+                            final mode = selectedModes.first;
+                            await ref.read(themeControllerProvider.notifier).setThemeMode(mode);
                           },
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          'Auto-detects system brightness on first launch. Your choice persists.',
-                          style: textTheme.bodySmall
-                              ?.copyWith(
+                          l10n.themeHint,
+                          style: textTheme.bodySmall?.copyWith(
                             color: Colors.white70,
                           ),
                         ),
@@ -141,74 +125,59 @@ class _SettingsScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
-
-                // LANGUAGE CARD
                 Glass(
                   borderRadius: 24,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Language',
-                          style: textTheme.titleMedium
-                              ?.copyWith(
+                          l10n.languageTitle,
+                          style: textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: Colors.white,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Auto-detected from your device on first launch. You can change it manually here.',
-                          style: textTheme.bodySmall
-                              ?.copyWith(
+                          l10n.languageHint,
+                          style: textTheme.bodySmall?.copyWith(
                             color: Colors.white70,
                           ),
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonHideUnderline(
                           child: Container(
-                            padding:
-                                const EdgeInsets.symmetric(
+                            padding: const EdgeInsetsDirectional.symmetric(
                               horizontal: 12,
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.white
-                                  .withOpacity(0.06),
-                              borderRadius:
-                                  BorderRadius.circular(14),
+                              color: Colors.white.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: Colors.white24,
                               ),
                             ),
                             child: DropdownButton<String>(
-                              value: currentLangCode,
-                              dropdownColor:
-                                  const Color(0xFF000428),
+                              value: supportedCodes.contains(currentLangCode) ? currentLangCode : 'en',
+                              dropdownColor: const Color(0xFF000428),
                               style: const TextStyle(
                                 color: Colors.cyanAccent,
                               ),
                               isExpanded: true,
-                              items: langNames.entries
+                              items: supportedCodes
                                   .map(
-                                    (e) =>
-                                        DropdownMenuItem<String>(
-                                      value: e.key,
-                                      child: Text(e.value),
+                                    (code) => DropdownMenuItem<String>(
+                                      value: code,
+                                      child: Text(l10n.languageName(code)),
                                     ),
                                   )
-                                  .toList(),
+                                  .toList(growable: false),
                               onChanged: (code) async {
                                 if (code == null) return;
-                                await ref
-                                    .read(
-                                      localeControllerProvider
-                                          .notifier,
-                                    )
-                                    .setLocale(code);
+                                await ref.read(localeControllerProvider.notifier).setLocale(code);
                               },
                             ),
                           ),
@@ -218,20 +187,16 @@ class _SettingsScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
-
-                // NOTIFICATIONS CARD
                 Glass(
                   borderRadius: 24,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Notifications',
-                          style: textTheme.titleMedium
-                              ?.copyWith(
+                          l10n.notificationsTitle,
+                          style: textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: Colors.white,
                           ),
@@ -244,32 +209,28 @@ class _SettingsScreenState
                           )
                         else ...[
                           SwitchListTile.adaptive(
-                            contentPadding:
-                                EdgeInsets.zero,
-                            activeColor:
-                                Colors.cyanAccent,
-                            title: const Text(
-                              'Enabled',
-                              style: TextStyle(
+                            contentPadding: EdgeInsets.zero,
+                            activeColor: Colors.cyanAccent,
+                            title: Text(
+                              l10n.notificationsEnabledTitle,
+                              style: const TextStyle(
                                 color: Colors.white,
                               ),
                             ),
-                            subtitle: const Text(
-                              'Turn all notifications on or off',
-                              style: TextStyle(
+                            subtitle: Text(
+                              l10n.notificationsEnabledSubtitle,
+                              style: const TextStyle(
                                 color: Colors.white60,
                                 fontSize: 12,
                               ),
                             ),
                             value: _enabled,
                             onChanged: (v) async {
-                              setState(
-                                  () => _enabled = v);
+                              setState(() => _enabled = v);
                               await _saveNotifications();
 
                               if (v) {
-                                await NotificationService()
-                                    .showTestNotification();
+                                await NotificationService().showTestNotification();
                               }
                             },
                           ),
@@ -277,19 +238,17 @@ class _SettingsScreenState
                             color: Colors.white10,
                           ),
                           SwitchListTile.adaptive(
-                            contentPadding:
-                                EdgeInsets.zero,
-                            activeColor:
-                                Colors.cyanAccent,
-                            title: const Text(
-                              'Match reminders',
-                              style: TextStyle(
+                            contentPadding: EdgeInsets.zero,
+                            activeColor: Colors.cyanAccent,
+                            title: Text(
+                              l10n.notificationsMatchRemindersTitle,
+                              style: const TextStyle(
                                 color: Colors.white,
                               ),
                             ),
-                            subtitle: const Text(
-                              'Remind me before my matches',
-                              style: TextStyle(
+                            subtitle: Text(
+                              l10n.notificationsMatchRemindersSubtitle,
+                              style: const TextStyle(
                                 color: Colors.white60,
                                 fontSize: 12,
                               ),
@@ -298,26 +257,22 @@ class _SettingsScreenState
                             onChanged: !_enabled
                                 ? null
                                 : (v) async {
-                                    setState(() =>
-                                        _matchReminders =
-                                            v);
+                                    setState(() => _matchReminders = v);
                                     await _saveNotifications();
                                   },
                           ),
                           SwitchListTile.adaptive(
-                            contentPadding:
-                                EdgeInsets.zero,
-                            activeColor:
-                                Colors.cyanAccent,
-                            title: const Text(
-                              'Marketing',
-                              style: TextStyle(
+                            contentPadding: EdgeInsets.zero,
+                            activeColor: Colors.cyanAccent,
+                            title: Text(
+                              l10n.notificationsMarketingTitle,
+                              style: const TextStyle(
                                 color: Colors.white,
                               ),
                             ),
-                            subtitle: const Text(
-                              'Tips, news and occasional promotions',
-                              style: TextStyle(
+                            subtitle: Text(
+                              l10n.notificationsMarketingSubtitle,
+                              style: const TextStyle(
                                 color: Colors.white60,
                                 fontSize: 12,
                               ),
@@ -326,9 +281,7 @@ class _SettingsScreenState
                             onChanged: !_enabled
                                 ? null
                                 : (v) async {
-                                    setState(() =>
-                                        _marketing =
-                                            v);
+                                    setState(() => _marketing = v);
                                     await _saveNotifications();
                                   },
                           ),
@@ -338,58 +291,49 @@ class _SettingsScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
-
-                // LIVE OVERLAY BUBBLE CARD
                 Glass(
                   borderRadius: 24,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Live overlay bubble',
-                          style: textTheme.titleMedium
-                              ?.copyWith(
+                          l10n.liveOverlayTitle,
+                          style: textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: Colors.white,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Show a floating live audio icon on top of other apps (Android only).',
-                          style: textTheme.bodySmall
-                              ?.copyWith(
+                          l10n.liveOverlayHint,
+                          style: textTheme.bodySmall?.copyWith(
                             color: Colors.white70,
                           ),
                         ),
                         const SizedBox(height: 8),
                         SwitchListTile.adaptive(
-                          contentPadding:
-                              EdgeInsets.zero,
+                          contentPadding: EdgeInsets.zero,
                           activeColor: Colors.cyanAccent,
-                          title: const Text(
-                            'Floating audio icon',
-                            style: TextStyle(
+                          title: Text(
+                            l10n.liveOverlaySwitchTitle,
+                            style: const TextStyle(
                               color: Colors.white,
                             ),
                           ),
-                          subtitle: const Text(
-                            'Turn off if you don’t want the icon while gaming or watching.',
-                            style: TextStyle(
+                          subtitle: Text(
+                            l10n.liveOverlaySwitchSubtitle,
+                            style: const TextStyle(
                               color: Colors.white60,
                               fontSize: 12,
                             ),
                           ),
                           value: _overlayEnabled,
                           onChanged: (v) async {
-                            setState(
-                                () => _overlayEnabled = v);
-                            final prefs =
-                                ref.read(prefsServiceProvider);
-                            await prefs
-                                .setLiveOverlayEnabled(v);
+                            setState(() => _overlayEnabled = v);
+                            final prefs = ref.read(prefsServiceProvider);
+                            await prefs.setLiveOverlayEnabled(v);
                           },
                         ),
                       ],
@@ -397,36 +341,31 @@ class _SettingsScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
-
-                // APP INFO CARD
                 Glass(
                   borderRadius: 24,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'App info',
-                          style: textTheme.titleMedium
-                              ?.copyWith(
+                          l10n.appInfoTitle,
+                          style: textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: Colors.white,
                           ),
                         ),
                         const SizedBox(height: 8),
-                        const Text(
-                          'EleagueHub • MVP skeleton',
-                          style: TextStyle(
+                        Text(
+                          l10n.appInfoLine1,
+                          style: const TextStyle(
                             color: Colors.white,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'No backend connected. Offline mock data.',
-                          style: textTheme.bodySmall
-                              ?.copyWith(
+                          l10n.appInfoLine2,
+                          style: textTheme.bodySmall?.copyWith(
                             color: Colors.white70,
                           ),
                         ),
