@@ -7,14 +7,13 @@ import '../../domain/standings/standings.dart';
 ///
 /// - Horizontally scrollable for narrow screens.
 /// - Vertically scrollable when there are many teams.
-/// - Sortable by tapping column headers (can be disabled via [allowSorting]).
+/// - Sortable by tapping column headers.
 /// - Allows optional custom row coloring via [rowColorBuilder].
 class StandingsTable extends StatefulWidget {
   const StandingsTable({
     super.key,
     required this.rows,
     this.rowColorBuilder,
-    this.allowSorting = true,
   });
 
   /// Raw, unsorted list of standing rows.
@@ -36,14 +35,6 @@ class StandingsTable extends StatefulWidget {
     int total,
   )? rowColorBuilder;
 
-  /// Whether the table allows user sorting by tapping column headers.
-  ///
-  /// When false:
-  /// - Row order is preserved as provided in [rows]
-  /// - Column headers are not tappable
-  /// - No sort indicators are shown
-  final bool allowSorting;
-
   @override
   State<StandingsTable> createState() => _StandingsTableState();
 }
@@ -58,9 +49,7 @@ class _StandingsTableState extends State<StandingsTable> {
 
   /// Returns a sorted copy of the incoming rows based on the current sort state.
   List<StandingsRow> get _sorted {
-    final rows = List<StandingsRow>.from(widget.rows);
-
-    if (!widget.allowSorting) return rows;
+    final rows = [...widget.rows];
 
     rows.sort((a, b) {
       int v;
@@ -123,8 +112,8 @@ class _StandingsTableState extends State<StandingsTable> {
               child: SingleChildScrollView(
                 scrollDirection: Axis.vertical,
                 child: DataTable(
-                  sortAscending: widget.allowSorting ? _asc : true,
-                  sortColumnIndex: widget.allowSorting ? _sortCol : null,
+                  sortAscending: _asc,
+                  sortColumnIndex: _sortCol,
                   columnSpacing: 18,
                   columns: [
                     _col('Team', 0),
@@ -157,14 +146,12 @@ class _StandingsTableState extends State<StandingsTable> {
         label,
         style: const TextStyle(fontWeight: FontWeight.w800),
       ),
-      onSort: widget.allowSorting
-          ? (colIndex, ascending) {
-              setState(() {
-                _sortCol = colIndex;
-                _asc = ascending;
-              });
-            }
-          : null,
+      onSort: (colIndex, ascending) {
+        setState(() {
+          _sortCol = colIndex;
+          _asc = ascending;
+        });
+      },
     );
   }
 
