@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,12 +10,16 @@ import '../../../core/services/notification_service.dart';
 import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../auth/data/user_profile_repository.dart';
 import '../data/league_announcements_local.dart';
 import '../data/league_spaces_local.dart';
 import '../data/leagues_repository_local.dart';
 import '../models/league.dart';
 import '../models/league_announcement.dart';
+import '../models/league_format.dart';
 import '../models/league_space.dart';
+import '../models/team.dart';
+import '../utils/current_user.dart';
 import 'add_teams_screen.dart';
 import 'league_participants_screen.dart';
 import 'utils/roster_csv_exporter.dart';
@@ -44,7 +50,26 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   bool _isSyncing = false;
   bool _exportingRoster = false;
 
+  bool _showAddMeAsParticipant = false;
+  bool _addingMeAsParticipant = false;
+
   final Uuid _uuid = const Uuid();
+
+  static const List<String> _groupNames = <String>[
+    'Group A',
+    'Group B',
+    'Group C',
+    'Group D',
+    'Group E',
+    'Group F',
+    'Group G',
+    'Group H',
+  ];
+
+  String _pickRandomGroupName() {
+    final rnd = Random.secure();
+    return _groupNames[rnd.nextInt(_groupNames.length)];
+  }
 
   @override
   void initState() {
@@ -63,12 +88,125 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   Future<void> _loadLeague() async {
     final league = await _localRepo.getLeagueById(widget.leagueId);
     final space = await _spaceRepo.getSpace(widget.leagueId);
+
+    bool showAddMe = false;
+
+    try {
+      final currentUserId = await CurrentUser.getUserId();
+      final isOrganizer = league != null && league.organizerUserId == currentUserId;
+
+      if (isOrganizer) {
+        final teams = await _localRepo.getTeams(widget.leagueId);
+        final alreadyParticipant = teams.any((t) => t.id == currentUserId);
+        showAddMe = !alreadyParticipant;
+      }
+    } catch (_) {
+      // If identity can't be resolved, keep hidden.
+      showAddMe = false;
+    }
+
     if (!mounted) return;
     setState(() {
       _league = league;
       _space = space;
+      _showAddMeAsParticipant = showAddMe;
       _isLeagueLoading = false;
     });
+  }
+
+  Future<void> _addMeAsParticipant() async {
+    final league = _league;
+    if (league == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('League info not loaded yet.')),
+      );
+      return;
+    }
+
+    if (_addingMeAsParticipant) return;
+
+    setState(() => _addingMeAsParticipant = true);
+
+    try {
+      final userId = await CurrentUser.getUserId();
+
+      // Visible only for organizer, but enforce here as well.
+      if (league.organizerUserId != userId) {
+        throw StateError('Only the league organizer can use this action.');
+      }
+
+      final existingTeams = await _localRepo.getTeams(league.id);
+      final alreadyHasTeam = existingTeams.any((t) => t.id == userId);
+      if (alreadyHasTeam) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You are already added as a participant (team exists).'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      final profile = await UserProfileRepository().fetchByUserId(userId);
+      final teamName = profile?.teamName.trim() ?? '';
+      if (teamName.isEmpty) {
+        throw StateError('Your profile team name is missing. Please update your profile first.');
+      }
+
+      // Match the creation behavior:
+      // If the league is a Group League, put the creator in a random group (A–H).
+      final String? groupId = league.format == LeagueFormat.uclGroup ? _pickRandomGroupName() : null;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final team = Team(
+        id: userId, // IMPORTANT: userId is the ONLY internal identifier
+        leagueId: league.id,
+        name: teamName, // ALWAYS from profile
+        groupId: groupId,
+        updatedAtMs: now,
+        version: 1,
+      );
+
+      // Add team exactly like the admin flow does when saving:
+      // - append to existing list
+      // - call saveTeams (replace for league)
+      await _localRepo.saveTeams(league.id, <Team>[...existingTeams, team]);
+
+      // Link membership.teamId so "My Matches" works silently.
+      // This preserves the organizer role, so organizer + participant is supported.
+      await _localRepo.assignTeamToUserInLeague(
+        leagueId: league.id,
+        userId: userId,
+        teamId: userId,
+      );
+
+      if (!mounted) return;
+
+      await _loadLeague();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            groupId == null
+                ? 'You have been added as a participant.'
+                : 'You have been added as a participant in $groupId.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to add you as participant: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _addingMeAsParticipant = false);
+    }
   }
 
   Future<void> _exportRosterCsv() async {
@@ -301,6 +439,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           'Add teams manually or view joined participants',
           onTap: _showParticipantsOptionsSheet,
         ),
+        if (_showAddMeAsParticipant)
+          _buildSettingsTile(
+            context,
+            Icons.person_add_alt_1,
+            _addingMeAsParticipant ? 'Adding you…' : 'Add me as participant',
+            'Create your team from your profile team name (no duplicates).',
+            onTap: _addingMeAsParticipant ? null : _addMeAsParticipant,
+          ),
         _buildSettingsTile(
           context,
           Icons.file_download_outlined,

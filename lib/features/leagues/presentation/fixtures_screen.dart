@@ -1,16 +1,16 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
 import '../data/leagues_repository_local.dart';
-import '../models/fixture_match.dart';
-import '../models/enums.dart';
-import '../models/league_format.dart';
 import '../domain/algorithms/swiss_pairing.dart';
+import '../models/enums.dart';
+import '../models/fixture_match.dart';
+import '../models/league_format.dart';
 
 class FixturesScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -59,9 +59,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
     // Restore last selected group (only matters for UCL Group format; we apply after loading groups)
     final savedGroupRaw = _prefs.getString(_lastGroupKey(widget.leagueId));
-    _selectedGroup = (savedGroupRaw == null || savedGroupRaw.trim().isEmpty)
-        ? null
-        : savedGroupRaw.trim();
+    _selectedGroup = (savedGroupRaw == null || savedGroupRaw.trim().isEmpty) ? null : savedGroupRaw.trim();
 
     _loadInitialData();
   }
@@ -136,11 +134,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       }
 
       final filteredList = filteredForRounds.toList();
-      final maxRound = filteredList.isEmpty
-          ? 1
-          : filteredList
-              .map((m) => m.roundNumber)
-              .reduce((a, b) => a > b ? a : b);
+      final maxRound = filteredList.isEmpty ? 1 : filteredList.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
 
       // Clamp round if user had a round larger than the group allows
       var roundToUse = _selectedRound;
@@ -232,9 +226,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       int currentMaxRound = 0;
       if (existingMatches.isNotEmpty) {
-        currentMaxRound = existingMatches
-            .map((m) => m.roundNumber)
-            .reduce((a, b) => a > b ? a : b);
+        currentMaxRound = existingMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
       }
 
       int nextRound;
@@ -363,8 +355,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
                       return Column(
                         children: [
-                          if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty)
-                            _buildGroupSelector(),
+                          if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
                           if (totalRounds > 0) _buildRoundSelector(totalRounds),
                           const Padding(
                             padding: EdgeInsets.symmetric(horizontal: 16),
@@ -525,75 +516,78 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final awayName = _teamNames[match.awayTeamId] ?? 'TBD';
     final groupLabel = match.groupId?.trim().isNotEmpty == true ? match.groupId!.trim() : null;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Glass(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_format == LeagueFormat.uclGroup && groupLabel != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    groupLabel,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
+    return GestureDetector(
+      onTap: () => context.push('/leagues/${widget.leagueId}/matches/${match.id}'),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: Glass(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_format == LeagueFormat.uclGroup && groupLabel != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      groupLabel,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      homeName,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    width: 80,
+                    alignment: Alignment.center,
+                    child: (match.status == MatchStatus.completed || match.status == MatchStatus.played)
+                        ? Text(
+                            '${match.homeScore} - ${match.awayScore}',
+                            style: const TextStyle(
+                              color: Colors.cyanAccent,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          )
+                        : const Text(
+                            'VS',
+                            style: TextStyle(
+                              color: Colors.white24,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      awayName,
+                      textAlign: TextAlign.left,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    homeName,
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Container(
-                  width: 80,
-                  alignment: Alignment.center,
-                  child: (match.status == MatchStatus.completed || match.status == MatchStatus.played)
-                      ? Text(
-                          '${match.homeScore} - ${match.awayScore}',
-                          style: const TextStyle(
-                            color: Colors.cyanAccent,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          ),
-                        )
-                      : const Text(
-                          'VS',
-                          style: TextStyle(
-                            color: Colors.white24,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                ),
-                Expanded(
-                  child: Text(
-                    awayName,
-                    textAlign: TextAlign.left,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

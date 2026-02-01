@@ -9,6 +9,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../auth/data/user_profile_repository.dart';
 import '../models/league_space.dart';
 import '../services/livekit_service.dart';
 
@@ -26,6 +27,7 @@ class LeagueSpaceRoomScreen extends StatefulWidget {
 
 class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   final _firestore = FirebaseFirestore.instance;
+  final UserProfileRepository _profiles = UserProfileRepository();
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _spaceSub;
   LeagueSpace? _space;
@@ -58,21 +60,21 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _speakerMutedByHost = false;
   String _myRequestStatus = ''; // '', 'pending', 'approved', 'denied'
 
+  // ---- Display name cache (profile.teamName) ----
+  final Map<String, String> _displayNameByUserId = <String, String>{};
+  final Set<String> _displayNameLoading = <String>{};
+
   DocumentReference<Map<String, dynamic>> get _spaceDoc => _firestore
       .collection('leagues')
       .doc(widget.leagueId)
       .collection('space')
       .doc('current');
 
-  CollectionReference<Map<String, dynamic>> get _requestsCol =>
-      _spaceDoc.collection('requests');
-  CollectionReference<Map<String, dynamic>> get _speakersCol =>
-      _spaceDoc.collection('speakers');
+  CollectionReference<Map<String, dynamic>> get _requestsCol => _spaceDoc.collection('requests');
+  CollectionReference<Map<String, dynamic>> get _speakersCol => _spaceDoc.collection('speakers');
 
-  DocumentReference<Map<String, dynamic>> get _myRequestDoc =>
-      _requestsCol.doc(_uid);
-  DocumentReference<Map<String, dynamic>> get _mySpeakerDoc =>
-      _speakersCol.doc(_uid);
+  DocumentReference<Map<String, dynamic>> get _myRequestDoc => _requestsCol.doc(_uid);
+  DocumentReference<Map<String, dynamic>> get _mySpeakerDoc => _speakersCol.doc(_uid);
 
   @override
   void initState() {
@@ -80,11 +82,58 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     _init();
   }
 
+  String _shortUid(String userId) {
+    final s = userId.trim();
+    if (s.length <= 10) return s;
+    return '${s.substring(0, 6)}…${s.substring(s.length - 4)}';
+  }
+
+  String _displayName(String userId) {
+    final cached = _displayNameByUserId[userId];
+    if (cached != null && cached.trim().isNotEmpty) {
+      if (userId == _uid) return '${cached.trim()} (You)';
+      return cached.trim();
+    }
+    // Fallback to a shortened uid to reduce "numbers and strings" feeling.
+    if (userId == _uid) return '${_shortUid(userId)} (You)';
+    return _shortUid(userId);
+  }
+
+  void _ensureDisplayNameLoaded(String userId) {
+    final uid = userId.trim();
+    if (uid.isEmpty) return;
+    if (_displayNameByUserId.containsKey(uid)) return;
+    if (_displayNameLoading.contains(uid)) return;
+
+    _displayNameLoading.add(uid);
+
+    unawaited(() async {
+      try {
+        final profile = await _profiles.fetchByUserId(uid);
+        final name = profile?.teamName.trim() ?? '';
+        if (!mounted) return;
+
+        setState(() {
+          if (name.isNotEmpty) {
+            _displayNameByUserId[uid] = name;
+          }
+        });
+      } catch (_) {
+        // ignore lookup errors (offline/permissions/etc). We keep fallback uid display.
+      } finally {
+        _displayNameLoading.remove(uid);
+      }
+    }());
+  }
+
   Future<void> _init() async {
     await SyncTrigger.trySync();
 
     final prefs = await PreferencesService.create();
     _uid = prefs.getCurrentUserId() ?? '';
+
+    // Start resolving "You" display name early.
+    _ensureDisplayNameLoaded(_uid);
 
     // IMPORTANT:
     // Await the mic permission request before any auto-connect/prime happens.
@@ -106,6 +155,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       try {
         final data = snap.data() ?? <String, dynamic>{};
         final space = LeagueSpace.fromJson(data);
+
+        // Resolve host display name for nicer UI.
+        _ensureDisplayNameLoaded(space.hostUserId);
 
         setState(() {
           _space = space;
@@ -229,13 +281,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     _myRequestSub?.cancel();
     _myRequestSub = null;
 
-    _disconnectAudio();
+    unawaited(_disconnectAudio());
     super.dispose();
   }
 
   bool get _isLive => _space?.isLive == true;
-  bool get _isHost =>
-      _space != null && _uid.isNotEmpty && _space!.hostUserId == _uid;
+  bool get _isHost => _space != null && _uid.isNotEmpty && _space!.hostUserId == _uid;
 
   Future<void> _maybeStartAudioPlayback(Room room) async {
     // Best-effort: some platforms require explicit audio start.
@@ -353,8 +404,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   Future<void> _syncMicWithSpaceState() async {
     if (!_connected || _room == null) return;
 
-    final shouldBeUnmuted =
-        _isHost || (_isSpeakerApproved && !_speakerMutedByHost);
+    final shouldBeUnmuted = _isHost || (_isSpeakerApproved && !_speakerMutedByHost);
 
     // If mic wasn't primed at join, we refuse to enable later (that would publish on approval).
     if (!_micPrimed) {
@@ -486,7 +536,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }, SetOptions(merge: true));
 
     await batch.commit();
-    _toast('Approved $userId');
+    _toast('Approved ${_displayName(userId)}');
   }
 
   Future<void> _denyRequest(String userId) async {
@@ -502,19 +552,19 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     // ensure not speaker
     await _speakersCol.doc(userId).delete().catchError((_) {});
-    _toast('Denied $userId');
+    _toast('Denied ${_displayName(userId)}');
   }
 
   Future<void> _removeSpeaker(String userId) async {
     if (!_isHost) return;
     await _speakersCol.doc(userId).delete();
-    _toast('Removed speaker $userId');
+    _toast('Removed speaker ${_displayName(userId)}');
   }
 
   Future<void> _toggleMuteSpeaker(String userId, bool muted) async {
     if (!_isHost) return;
     await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true));
-    _toast(muted ? 'Muted $userId' : 'Unmuted $userId');
+    _toast(muted ? 'Muted ${_displayName(userId)}' : 'Unmuted ${_displayName(userId)}');
   }
 
   void _toast(String msg) {
@@ -552,8 +602,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               child: Glass(
                 padding: const EdgeInsets.all(16),
                 child: _loading
-                    ? const Center(
-                        child: CircularProgressIndicator(color: Colors.cyanAccent))
+                    ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
                     : _error.isNotEmpty
                         ? Center(
                             child: Text(
@@ -581,6 +630,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   Widget _buildRoom(BuildContext context) {
     final space = _space!;
+    _ensureDisplayNameLoaded(space.hostUserId);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -594,10 +645,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             Expanded(
               child: Text(
                 space.title ?? 'League Space',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -606,13 +654,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(999),
-                color: _isLive
-                    ? Colors.redAccent.withOpacity(0.20)
-                    : Colors.white10,
+                color: _isLive ? Colors.redAccent.withOpacity(0.20) : Colors.white10,
                 border: Border.all(
-                    color: _isLive
-                        ? Colors.redAccent.withOpacity(0.6)
-                        : Colors.white24),
+                  color: _isLive ? Colors.redAccent.withOpacity(0.6) : Colors.white24,
+                ),
               ),
               child: Text(
                 _isLive ? 'LIVE' : 'ENDED',
@@ -626,8 +671,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ],
         ),
         const SizedBox(height: 10),
-        Text('Host: ${space.hostUserId}',
-            style: const TextStyle(color: Colors.white60, fontSize: 12)),
+        Text(
+          'Host: ${_displayName(space.hostUserId)}',
+          style: const TextStyle(color: Colors.white60, fontSize: 12),
+        ),
         const SizedBox(height: 16),
         Glass(
           borderRadius: 16,
@@ -654,9 +701,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                 height: 16,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : Icon(_connected
-                                ? Icons.call_end
-                                : Icons.headset_mic),
+                            : Icon(_connected ? Icons.call_end : Icons.headset_mic),
                         label: Text(_connected ? 'Leave Audio' : 'Join Audio'),
                       ),
                     ),
@@ -676,9 +721,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                       ? (_isHost
                           ? 'Connected as host'
                           : (_isSpeakerApproved
-                              ? (_speakerMutedByHost
-                                  ? 'Connected as speaker (muted by host)'
-                                  : 'Connected as speaker')
+                              ? (_speakerMutedByHost ? 'Connected as speaker (muted by host)' : 'Connected as speaker')
                               : 'Connected as listener (mic muted)'))
                       : 'Not connected to audio',
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
@@ -689,26 +732,18 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     children: [
                       Expanded(
                         child: FilledButton.icon(
-                          onPressed: (_isLive &&
-                                  !_isSpeakerApproved &&
-                                  _myRequestStatus != 'pending')
-                              ? _requestToSpeak
-                              : null,
+                          onPressed: (_isLive && !_isSpeakerApproved && _myRequestStatus != 'pending') ? _requestToSpeak : null,
                           icon: const Icon(Icons.record_voice_over),
                           label: Text(
                             _isSpeakerApproved
                                 ? 'You are a speaker'
-                                : (_myRequestStatus == 'pending'
-                                    ? 'Request Pending'
-                                    : 'Request to Speak'),
+                                : (_myRequestStatus == 'pending' ? 'Request Pending' : 'Request to Speak'),
                           ),
                         ),
                       ),
                       const SizedBox(width: 10),
                       OutlinedButton(
-                        onPressed: (_myRequestStatus == 'pending')
-                            ? _withdrawRequest
-                            : null,
+                        onPressed: (_myRequestStatus == 'pending') ? _withdrawRequest : null,
                         child: const Text('Cancel'),
                       ),
                     ],
@@ -733,17 +768,18 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('Host Panel',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Host Panel',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 10),
-                  const Text('Requests',
-                      style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const Text(
+                    'Requests',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
                   const SizedBox(height: 6),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: _requestsCol
-                        .where('status', isEqualTo: 'pending')
-                        .snapshots(),
+                    stream: _requestsCol.where('status', isEqualTo: 'pending').snapshots(),
                     builder: (context, snap) {
                       if (snap.hasError) {
                         return Text(
@@ -752,15 +788,18 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                         );
                       }
                       if (!snap.hasData) return const SizedBox.shrink();
+
                       final docs = snap.data!.docs;
                       if (docs.isEmpty) {
-                        return const Text('No pending requests.',
-                            style: TextStyle(color: Colors.white38));
+                        return const Text('No pending requests.', style: TextStyle(color: Colors.white38));
                       }
+
                       return Column(
                         children: docs.map((doc) {
                           final d = doc.data();
                           final userId = (d['userId'] ?? doc.id).toString();
+                          _ensureDisplayNameLoaded(userId);
+
                           return Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             decoration: BoxDecoration(
@@ -770,11 +809,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                             ),
                             child: ListTile(
                               dense: true,
-                              title: Text(userId,
-                                  style: const TextStyle(color: Colors.white)),
-                              subtitle: const Text('wants to speak',
-                                  style: TextStyle(
-                                      color: Colors.white54, fontSize: 12)),
+                              title: Text(
+                                _displayName(userId),
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              subtitle: Text(
+                                'uid: ${_shortUid(userId)} • wants to speak',
+                                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                              ),
                               trailing: Wrap(
                                 spacing: 8,
                                 children: [
@@ -807,13 +849,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  const Text('Speakers',
-                      style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const Text(
+                    'Speakers',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
                   const SizedBox(height: 6),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: _speakersCol
-                        .orderBy('approvedAtMs', descending: false)
-                        .snapshots(),
+                    stream: _speakersCol.orderBy('approvedAtMs', descending: false).snapshots(),
                     builder: (context, snap) {
                       if (snap.hasError) {
                         return Text(
@@ -822,16 +864,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                         );
                       }
                       if (!snap.hasData) return const SizedBox.shrink();
+
                       final docs = snap.data!.docs;
                       if (docs.isEmpty) {
-                        return const Text('No speakers yet.',
-                            style: TextStyle(color: Colors.white38));
+                        return const Text('No speakers yet.', style: TextStyle(color: Colors.white38));
                       }
+
                       return Column(
                         children: docs.map((doc) {
                           final d = doc.data();
                           final userId = (d['userId'] ?? doc.id).toString();
                           final muted = d['muted'] == true;
+
+                          _ensureDisplayNameLoaded(userId);
+
                           return Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             decoration: BoxDecoration(
@@ -841,15 +887,16 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                             ),
                             child: ListTile(
                               dense: true,
-                              title: Text(userId,
-                                  style: const TextStyle(color: Colors.white)),
+                              title: Text(
+                                _displayName(userId),
+                                style: const TextStyle(color: Colors.white),
+                              ),
                               subtitle: Text(
-                                muted ? 'Muted' : 'Unmuted',
+                                'uid: ${_shortUid(userId)} • ${muted ? 'Muted' : 'Unmuted'}',
                                 style: TextStyle(
-                                    color: muted
-                                        ? Colors.orangeAccent
-                                        : Colors.white54,
-                                    fontSize: 12),
+                                  color: muted ? Colors.orangeAccent : Colors.white54,
+                                  fontSize: 12,
+                                ),
                               ),
                               trailing: Wrap(
                                 spacing: 8,

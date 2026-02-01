@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,12 +10,14 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
+import '../../auth/data/user_profile_repository.dart';
 import '../data/leagues_repository_local.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import '../models/team.dart';
 import '../utils/current_user.dart';
 
 enum LeagueCreationType {
@@ -45,6 +49,28 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   bool _submitting = false;
   League? _createdLeague;
+
+  /// During creation:
+  /// - Default OFF
+  /// - If ON, creator gets a Team (id == userId) using profile.teamName,
+  ///   and their Membership.teamId is linked without asking for any team name.
+  bool _creatorWillParticipate = false;
+
+  static const List<String> _groupNames = <String>[
+    'Group A',
+    'Group B',
+    'Group C',
+    'Group D',
+    'Group E',
+    'Group F',
+    'Group G',
+    'Group H',
+  ];
+
+  String _pickRandomGroupName() {
+    final rnd = Random.secure();
+    return _groupNames[rnd.nextInt(_groupNames.length)];
+  }
 
   @override
   void dispose() {
@@ -798,6 +824,29 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           _creationRequiresPayment ? (_paymentCompleted ? 'Paid' : 'Required') : 'Free',
           valueColor: _creationRequiresPayment ? (_paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent) : Colors.cyanAccent,
         ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            color: Colors.white.withOpacity(0.04),
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+          ),
+          child: SwitchListTile.adaptive(
+            value: _creatorWillParticipate,
+            onChanged: _submitting ? null : (v) => setState(() => _creatorWillParticipate = v),
+            activeColor: Colors.cyanAccent,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'I will participate in this league',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+            ),
+            subtitle: Text(
+              'If enabled, we will create your team automatically using your profile team name.',
+              style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 12, height: 1.25),
+            ),
+          ),
+        ),
         const SizedBox(height: 14),
         Text(
           'By creating, you will automatically become League Admin and League Organizer.',
@@ -1038,6 +1087,18 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       // Firebase Auth uid (immutable userId)
       final organizerUserId = await CurrentUser.getUserId();
 
+      // If creator wants to participate, resolve the teamName from their profile.
+      // We never ask for a team name here.
+      String? creatorTeamName;
+      if (_creatorWillParticipate) {
+        final profile = await UserProfileRepository().fetchByUserId(organizerUserId);
+        final name = profile?.teamName.trim() ?? '';
+        if (name.isEmpty) {
+          throw StateError('Your profile team name is missing. Please update your profile first.');
+        }
+        creatorTeamName = name;
+      }
+
       final leagueId = _uuid.v4();
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -1066,6 +1127,34 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         league: league,
         organizerUserId: organizerUserId,
       );
+
+      // OPTIONAL creator participation:
+      if (_creatorWillParticipate && creatorTeamName != null) {
+        final existingTeams = await repo.getTeams(stored.id);
+
+        final alreadyHasTeam = existingTeams.any((t) => t.id == organizerUserId);
+        if (!alreadyHasTeam) {
+          final String? groupId = stored.format == LeagueFormat.uclGroup ? _pickRandomGroupName() : null;
+
+          final team = Team(
+            id: organizerUserId,
+            leagueId: stored.id,
+            name: creatorTeamName,
+            groupId: groupId,
+            updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+            version: 1,
+          );
+
+          await repo.saveTeams(stored.id, <Team>[...existingTeams, team]);
+        }
+
+        // Link membership.teamId while preserving organizer role.
+        await repo.assignTeamToUserInLeague(
+          leagueId: stored.id,
+          userId: organizerUserId,
+          teamId: organizerUserId,
+        );
+      }
 
       if (!mounted) return;
       setState(() {

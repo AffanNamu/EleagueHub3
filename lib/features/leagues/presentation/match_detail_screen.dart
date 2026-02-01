@@ -78,7 +78,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         _teamsById = {for (final t in teams) t.id: t};
       });
     } catch (_) {
-      // fallback
+      // fallback (keep prior state)
     }
   }
 
@@ -147,20 +147,22 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     const port = 8765;
 
     setState(() => _busy = true);
-    setState(() => _busy = false);
-
-    context.push(
-      '/live/view/$_liveMatchId',
-      extra: {
-        'isHost': true,
-        'port': port,
-        'homeName': _homeName,
-        'awayName': _awayName,
-        'homeScore': _homeScore,
-        'awayScore': _awayScore,
-        'side': (side == null) ? 'unknown' : liveHostSideToWire(side),
-      },
-    );
+    try {
+      await context.push(
+        '/live/view/$_liveMatchId',
+        extra: {
+          'isHost': true,
+          'port': port,
+          'homeName': _homeName,
+          'awayName': _awayName,
+          'homeScore': _homeScore,
+          'awayScore': _awayScore,
+          'side': (side == null) ? 'unknown' : liveHostSideToWire(side),
+        },
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
