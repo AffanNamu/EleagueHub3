@@ -7,13 +7,14 @@ import '../../domain/standings/standings.dart';
 ///
 /// - Horizontally scrollable for narrow screens.
 /// - Vertically scrollable when there are many teams.
-/// - Sortable by tapping column headers.
+/// - Sortable by tapping column headers (can be disabled via [allowSorting]).
 /// - Allows optional custom row coloring via [rowColorBuilder].
 class StandingsTable extends StatefulWidget {
   const StandingsTable({
     super.key,
     required this.rows,
     this.rowColorBuilder,
+    this.allowSorting = true,
   });
 
   /// Raw, unsorted list of standing rows.
@@ -35,6 +36,9 @@ class StandingsTable extends StatefulWidget {
     int total,
   )? rowColorBuilder;
 
+  /// When false, preserves the incoming [rows] order and disables header sorting.
+  final bool allowSorting;
+
   @override
   State<StandingsTable> createState() => _StandingsTableState();
 }
@@ -49,7 +53,9 @@ class _StandingsTableState extends State<StandingsTable> {
 
   /// Returns a sorted copy of the incoming rows based on the current sort state.
   List<StandingsRow> get _sorted {
-    final rows = [...widget.rows];
+    final rows = List<StandingsRow>.from(widget.rows);
+
+    if (!widget.allowSorting) return rows;
 
     rows.sort((a, b) {
       int v;
@@ -79,7 +85,6 @@ class _StandingsTableState extends State<StandingsTable> {
         default:
           v = a.pts.compareTo(b.pts);
       }
-      // Flip sort order depending on [_asc].
       return _asc ? v : -v;
     });
 
@@ -90,20 +95,15 @@ class _StandingsTableState extends State<StandingsTable> {
   Widget build(BuildContext context) {
     final rows = _sorted;
     final screenHeight = MediaQuery.of(context).size.height;
-    // The table area will use at most 60% of the screen height.
     final maxTableHeight = screenHeight * 0.6;
 
     return Glass(
-      // Glass.borderRadius is a double, so pass a radius, not a BorderRadius.
       borderRadius: 20,
       child: LayoutBuilder(
         builder: (context, constraints) {
           return ConstrainedBox(
             constraints: BoxConstraints(
-              // Let the table be at least as wide as the available width,
-              // so it looks good on tablets too.
               minWidth: constraints.maxWidth,
-              // Limit the height so vertical scrolling becomes possible.
               maxHeight: maxTableHeight,
             ),
             child: SingleChildScrollView(
@@ -112,8 +112,8 @@ class _StandingsTableState extends State<StandingsTable> {
               child: SingleChildScrollView(
                 scrollDirection: Axis.vertical,
                 child: DataTable(
-                  sortAscending: _asc,
-                  sortColumnIndex: _sortCol,
+                  sortAscending: widget.allowSorting ? _asc : true,
+                  sortColumnIndex: widget.allowSorting ? _sortCol : null,
                   columnSpacing: 18,
                   columns: [
                     _col('Team', 0),
@@ -138,7 +138,6 @@ class _StandingsTableState extends State<StandingsTable> {
     );
   }
 
-  /// Helper to create a sortable [DataColumn].
   DataColumn _col(String label, int index, {bool numeric = false}) {
     return DataColumn(
       numeric: numeric,
@@ -146,16 +145,17 @@ class _StandingsTableState extends State<StandingsTable> {
         label,
         style: const TextStyle(fontWeight: FontWeight.w800),
       ),
-      onSort: (colIndex, ascending) {
-        setState(() {
-          _sortCol = colIndex;
-          _asc = ascending;
-        });
-      },
+      onSort: widget.allowSorting
+          ? (colIndex, ascending) {
+              setState(() {
+                _sortCol = colIndex;
+                _asc = ascending;
+              });
+            }
+          : null,
     );
   }
 
-  /// Build a single DataRow for the standings table.
   DataRow _row(
     BuildContext context,
     int i,
@@ -167,9 +167,6 @@ class _StandingsTableState extends State<StandingsTable> {
     if (widget.rowColorBuilder != null) {
       zoneColor = widget.rowColorBuilder!(context, i, r, total);
     } else {
-      // Default coloring:
-      // - Top 2: green (champions zone)
-      // - Next 2: primary tint (e.g. European qualifiers)
       final primary = Theme.of(context).colorScheme.primary;
       zoneColor = i < 2
           ? Colors.green.withOpacity(0.12)
@@ -179,11 +176,9 @@ class _StandingsTableState extends State<StandingsTable> {
     }
 
     return DataRow(
-      // In Flutter 3.24, WidgetStatePropertyAll works here.
       color: zoneColor != null ? WidgetStatePropertyAll(zoneColor) : null,
       cells: [
         DataCell(
-          // Show position before the team name for clarity.
           Text(
             '${i + 1}. ${r.teamName}',
             style: const TextStyle(fontWeight: FontWeight.w700),
