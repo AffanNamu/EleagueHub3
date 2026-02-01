@@ -101,7 +101,6 @@ class TeamStats {
     );
   }
 
-  /// Serialize if needed for caching or remote analytics
   Map<String, dynamic> toMap() => {
         'teamId': teamId,
         'leagueId': leagueId,

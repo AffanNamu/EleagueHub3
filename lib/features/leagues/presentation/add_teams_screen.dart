@@ -10,9 +10,9 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../data/leagues_repository_local.dart';
-import '../domain/algorithms/round_robin.dart';
 import '../domain/algorithms/swiss_pairing.dart';
-import '../models/fixture_match.dart';
+import '../logic/fixture_generator.dart';
+import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/team.dart';
 import 'widgets/roster_csv_importer.dart';
@@ -35,6 +35,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   late LocalLeaguesRepository _localRepo;
   final UserProfileRepository _profiles = UserProfileRepository();
 
+  League? _league;
+
   /// Temp entries are uid-driven (internal Firebase uid):
   /// { userId, teamName, group }
   final List<Map<String, String>> _tempTeams = [];
@@ -45,7 +47,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   bool get _isGroupLeague => widget.format == LeagueFormat.uclGroup;
 
   String _selectedGroup = 'Group A';
-  final List<String> _groups = const [
+
+  final List<String> _groupsAll = const [
     'Group A',
     'Group B',
     'Group C',
@@ -58,17 +61,52 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   String? _bulkError;
 
-  /// Cache of fetched profiles for fast preview (keyed by internal Firebase uid).
   final Map<String, String> _teamNameCacheByUserId = {};
+
+  int get _savedCount => _existingTeams.length;
+  int get _newCount => _tempTeams.length;
+  int get _totalCount => _savedCount + _newCount;
 
   int get _maxTeamsForFormat {
     switch (widget.format) {
       case LeagueFormat.classic:
-        return 20;
+        return (_league?.maxTeams ?? 20).clamp(2, 40);
       case LeagueFormat.uclGroup:
+        return 32;
       case LeagueFormat.uclSwiss:
         return 36;
     }
+  }
+
+  bool get _requiredCountReached {
+    final n = _totalCount;
+    switch (widget.format) {
+      case LeagueFormat.uclGroup:
+        return n == 16 || n == 32;
+      case LeagueFormat.uclSwiss:
+        return n == 18 || n == 36;
+      case LeagueFormat.classic:
+      default:
+        return n >= 2;
+    }
+  }
+
+  /// Group UI list:
+  /// - If any existing/new team already uses groups E–H, show all groups.
+  /// - Else: show A–D until totalCount > 16, then show A–H (supports both 16 and 32 builds).
+  List<String> get _activeGroups {
+    if (!_isGroupLeague) return const <String>[];
+
+    final used = <String>{
+      for (final t in _existingTeams) (t.groupId ?? '').trim(),
+      for (final t in _tempTeams) (t['group'] ?? '').trim(),
+    };
+    used.removeWhere((e) => e.isEmpty);
+
+    final usesExtended = used.any((g) => g == 'Group E' || g == 'Group F' || g == 'Group G' || g == 'Group H');
+    if (usesExtended) return _groupsAll;
+
+    return (_totalCount > 16) ? _groupsAll : _groupsAll.take(4).toList();
   }
 
   @override
@@ -78,12 +116,40 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     _loadExistingTeams();
   }
 
+  void _snack(String msg, {Color bg = const Color(0xFF101522), Color fg = Colors.white}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        backgroundColor: bg,
+        content: Text(msg, style: TextStyle(color: fg, fontWeight: FontWeight.w600)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _snackOk(String msg) => _snack(msg, bg: Colors.cyanAccent.withOpacity(0.18), fg: Colors.cyanAccent);
+  void _snackWarn(String msg) => _snack(msg, bg: Colors.orangeAccent.withOpacity(0.14), fg: Colors.orangeAccent);
+  void _snackErr(String msg) => _snack(msg, bg: Colors.redAccent.withOpacity(0.14), fg: Colors.redAccent);
+
   Future<void> _loadExistingTeams() async {
+    final league = await _localRepo.getLeagueById(widget.leagueId);
     final teams = await _localRepo.getTeams(widget.leagueId);
     if (!mounted) return;
+
     setState(() {
+      _league = league;
       _existingTeams = teams;
       _isLoading = false;
+
+      if (_isGroupLeague) {
+        final active = _activeGroups;
+        if (!active.contains(_selectedGroup)) {
+          _selectedGroup = active.isNotEmpty ? active.first : 'Group A';
+        }
+      }
     });
   }
 
@@ -96,7 +162,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final input = userIdOrShareId.trim();
     if (input.isEmpty) return null;
 
-    // If they pasted a real uid and we already cached the team name, skip network.
     final cached = _teamNameCacheByUserId[input];
     if (cached != null && cached.trim().isNotEmpty) {
       return _ResolvedTeam(userId: input, teamName: cached.trim());
@@ -129,19 +194,15 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     final alreadySaved = _existingTeams.any((t) => t.id == resolved.userId);
     if (alreadySaved) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('This user is already added to this league.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snackWarn('This user is already added to this league.');
       return;
     }
 
     final String groupToUse;
     if (_isGroupLeague) {
-      groupToUse = (groupOverride != null && groupOverride.trim().isNotEmpty) ? groupOverride.trim() : _selectedGroup;
+      final active = _activeGroups;
+      final desired = (groupOverride != null && groupOverride.trim().isNotEmpty) ? groupOverride.trim() : _selectedGroup;
+      groupToUse = active.contains(desired) ? desired : (active.isNotEmpty ? active.first : 'Group A');
     } else {
       groupToUse = 'League Pool';
     }
@@ -150,16 +211,17 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     setState(() {
       _bulkError = null;
       _tempTeams.add({
-        // IMPORTANT: Always store internal Firebase uid (not the short share id).
         'userId': resolved.userId,
         'teamName': resolved.teamName,
         'group': groupToUse,
       });
 
-      // Auto-advance group assignment only when admin didn't override the group explicitly.
       if (_isGroupLeague && (groupOverride == null || groupOverride.trim().isEmpty)) {
-        final next = (_groups.indexOf(_selectedGroup) + 1) % _groups.length;
-        _selectedGroup = _groups[next];
+        final active = _activeGroups;
+        if (active.isNotEmpty) {
+          final next = (active.indexOf(_selectedGroup) + 1) % active.length;
+          _selectedGroup = active[next];
+        }
       }
     });
   }
@@ -168,7 +230,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     await showRosterCsvImportFlow(
       context: context,
       isGroupLeague: _isGroupLeague,
-      allowedGroups: _groups,
+      allowedGroups: _activeGroups,
       resolveProfile: (userIdOrShareId) async {
         final r = await _resolveTeamFromUserIdOrShareId(userIdOrShareId);
         if (r == null) return null;
@@ -285,27 +347,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             resolveNow(setModalState);
                           });
                         },
-                      ),
-                      const SizedBox(height: 12),
-                      Glass(
-                        borderRadius: 16,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.info_outline, color: Colors.white70, size: 18),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  _isGroupLeague
-                                      ? 'Tip: Use the short UserId (starts with eS). Group assignment rotates automatically.'
-                                      : 'Tip: Use the short UserId (starts with eS). Team name is loaded automatically.',
-                                  style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.25),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
                       const SizedBox(height: 12),
                       if (resolved != null)
@@ -596,9 +637,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                           children: [
                                             CircleAvatar(
                                               radius: 14,
-                                              backgroundColor: isOk
-                                                  ? Colors.cyanAccent.withOpacity(0.18)
-                                                  : Colors.white.withOpacity(0.08),
+                                              backgroundColor: isOk ? Colors.cyanAccent.withOpacity(0.18) : Colors.white.withOpacity(0.08),
                                               child: Icon(
                                                 isOk ? Icons.check : Icons.close,
                                                 size: 16,
@@ -618,10 +657,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                                   const SizedBox(height: 2),
                                                   Text(
                                                     isOk ? r.resolved!.teamName : 'No profile found',
-                                                    style: TextStyle(
-                                                      color: isOk ? Colors.white70 : Colors.white38,
-                                                      fontSize: 11,
-                                                    ),
+                                                    style: TextStyle(color: isOk ? Colors.white70 : Colors.white38, fontSize: 11),
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
                                                 ],
@@ -678,15 +714,31 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     controller.dispose();
   }
 
-  Future<void> _generateAndSave() async {
-    if (_tempTeams.isEmpty && _existingTeams.isEmpty) {
-      if (mounted) context.go('/leagues/${widget.leagueId}');
-      return;
+  bool _groupStructureValidFor(int totalTeams, List<Team> teams) {
+    if (totalTeams != 16 && totalTeams != 32) return false;
+
+    final expectedGroups = totalTeams ~/ 4;
+    final allowedGroups = (expectedGroups == 4) ? _groupsAll.take(4).toSet() : _groupsAll.take(8).toSet();
+
+    final counts = <String, int>{};
+    for (final t in teams) {
+      final gid = (t.groupId ?? '').trim();
+      if (gid.isEmpty) return false;
+      if (!allowedGroups.contains(gid)) return false;
+      counts[gid] = (counts[gid] ?? 0) + 1;
     }
 
+    if (counts.length != expectedGroups) return false;
+    for (final c in counts.values) {
+      if (c != 4) return false;
+    }
+    return true;
+  }
+
+  /// SAVE button: persists teams only, never generates fixtures.
+  Future<void> _saveTeamsOnly({bool silent = false}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Teams are created from userId => teamName (profile), so admin never types team names.
     final newTeams = _tempTeams.map<Team>((t) {
       final groupName = t['group']!;
       final String? groupId = _isGroupLeague ? groupName : null;
@@ -708,7 +760,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     await _localRepo.saveTeams(widget.leagueId, allTeams);
 
-    // Link membership.teamId to the team (teamId == userId) so "My Matches" can work silently.
     for (final t in newTeams) {
       await _localRepo.assignTeamToUserInLeague(
         leagueId: widget.leagueId,
@@ -717,87 +768,119 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       );
     }
 
+    if (!mounted) return;
+
+    setState(() {
+      _existingTeams = allTeams;
+      _tempTeams.clear();
+      _bulkError = null;
+    });
+
+    if (!silent) {
+      _snackOk('Teams saved.');
+      if (!_requiredCountReached) {
+        if (widget.format == LeagueFormat.uclGroup) {
+          _snackWarn('Fixtures unlock at 16 or 32 teams.');
+        } else if (widget.format == LeagueFormat.uclSwiss) {
+          _snackWarn('Fixtures unlock at 18 or 36 teams.');
+        } else {
+          _snackWarn('Fixtures unlock at 2+ teams.');
+        }
+      }
+    }
+  }
+
+  /// GENERATE button: generates fixtures ONLY when required team count is reached.
+  /// It always saves teams first (silent), to ensure fixtures match persisted roster.
+  Future<void> _generateFixturesOnly() async {
+    await _saveTeamsOnly(silent: true);
+
+    final total = _existingTeams.length;
+
+    if (!_requiredCountReached) {
+      if (widget.format == LeagueFormat.uclGroup) {
+        _snackErr('Cannot generate fixtures: UCL Group requires exactly 16 or 32 teams. Current: $total.');
+      } else if (widget.format == LeagueFormat.uclSwiss) {
+        _snackErr('Cannot generate fixtures: Swiss requires exactly 18 or 36 teams. Current: $total.');
+      } else {
+        _snackErr('Cannot generate fixtures: Classic requires at least 2 teams. Current: $total.');
+      }
+      return;
+    }
+
     final existingFixtures = await _localRepo.getMatches(widget.leagueId);
-    List<FixtureMatch> generatedFixtures = [];
 
-    if (existingFixtures.isEmpty) {
-      if (widget.format == LeagueFormat.classic) {
-        final teamIds = allTeams.map((t) => t.id).toList();
-        generatedFixtures = RoundRobinGenerator.generate(
-          leagueId: widget.leagueId,
-          teamIds: teamIds,
-          doubleRoundRobin: true,
-          startRoundNumber: 1,
-        );
-      } else if (_isGroupLeague) {
-        for (final groupName in _groups) {
-          final groupTeams = allTeams.where((t) => t.groupId == groupName).map((t) => t.id).toList();
-          if (groupTeams.isNotEmpty) {
-            generatedFixtures.addAll(
-              RoundRobinGenerator.generate(
-                leagueId: widget.leagueId,
-                teamIds: groupTeams,
-                doubleRoundRobin: true,
-                groupId: groupName,
-                startRoundNumber: 1,
-              ),
-            );
-          }
-        }
-      } else if (widget.format == LeagueFormat.uclSwiss) {
-        generatedFixtures = SwissPairingEngine.generateInitialRound(
-          leagueId: widget.leagueId,
-          teams: allTeams,
-          roundNumber: 1,
-        );
-      }
-    } else {
-      // Re-generation
-      if (widget.format == LeagueFormat.classic) {
-        final teamIds = allTeams.map((t) => t.id).toList();
-        generatedFixtures = RoundRobinGenerator.generate(
-          leagueId: widget.leagueId,
-          teamIds: teamIds,
-          doubleRoundRobin: true,
-          startRoundNumber: 1,
-        );
-      } else if (_isGroupLeague) {
-        for (final groupName in _groups) {
-          final groupTeams = allTeams.where((t) => t.groupId == groupName).map((t) => t.id).toList();
-          if (groupTeams.isNotEmpty) {
-            generatedFixtures.addAll(
-              RoundRobinGenerator.generate(
-                leagueId: widget.leagueId,
-                teamIds: groupTeams,
-                doubleRoundRobin: true,
-                groupId: groupName,
-                startRoundNumber: 1,
-              ),
-            );
-          }
-        }
-
-        if (generatedFixtures.isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Group fixtures regenerated. Previous results were reset.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      } else if (widget.format == LeagueFormat.uclSwiss) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Adding teams after fixtures exist is not supported for Swiss leagues.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+    // Swiss: never allow generating league fixtures if any already exist.
+    if (widget.format == LeagueFormat.uclSwiss && existingFixtures.isNotEmpty) {
+      _snackErr('Swiss fixtures already exist. Generate later rounds from the Swiss round generator.');
+      return;
     }
 
-    if (generatedFixtures.isNotEmpty) {
-      await _localRepo.replaceMatches(widget.leagueId, generatedFixtures);
+    // Classic/Group: if fixtures exist, confirm regeneration (resets results).
+    if (existingFixtures.isNotEmpty && widget.format != LeagueFormat.uclSwiss) {
+      final ok = await showDialog<bool>(
+            context: context,
+            barrierDismissible: true,
+            builder: (ctx) {
+              return AlertDialog(
+                backgroundColor: const Color(0xFF000428),
+                title: const Text('Regenerate fixtures?', style: TextStyle(color: Colors.white)),
+                content: const Text(
+                  'Fixtures already exist. Regenerating will reset all match results.\n\nContinue?',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Regenerate')),
+                ],
+              );
+            },
+          ) ??
+          false;
+
+      if (!ok) return;
     }
+
+    final doubleRR = _league?.settings.doubleRoundRobin ?? true;
+    final swissRounds = _league?.settings.swissRounds ?? 8;
+
+    List<dynamic> generated = [];
+
+    if (widget.format == LeagueFormat.classic) {
+      generated = FixtureGenerator.generateClassicLeagueFixtures(
+        leagueId: widget.leagueId,
+        teams: _existingTeams,
+        doubleRoundRobin: doubleRR,
+      );
+    } else if (widget.format == LeagueFormat.uclGroup) {
+      if (!_groupStructureValidFor(total, _existingTeams)) {
+        _snackErr('Invalid group structure. For $total teams you must have groups of 4 with correct group names.');
+        return;
+      }
+
+      generated = FixtureGenerator.generateUclGroupStage(
+        leagueId: widget.leagueId,
+        teams: _existingTeams,
+        doubleRoundRobin: doubleRR,
+        groupSize: 4,
+      );
+    } else if (widget.format == LeagueFormat.uclSwiss) {
+      // First Swiss round only.
+      generated = SwissPairingEngine.generateInitialRound(
+        leagueId: widget.leagueId,
+        teams: _existingTeams,
+        roundNumber: 1,
+        totalRounds: swissRounds,
+      );
+    }
+
+    if (generated.isEmpty) {
+      _snackErr('Failed to generate fixtures.');
+      return;
+    }
+
+    await _localRepo.replaceMatches(widget.leagueId, generated.cast());
+    _snackOk('Fixtures generated (${generated.length} matches).');
 
     if (mounted) {
       context.go('/leagues/${widget.leagueId}');
@@ -821,9 +904,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: showTwoPane ? 980 : 620),
             child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Colors.cyanAccent),
-                  )
+                ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
                 : Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -855,17 +936,15 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   children: [
                                     const Text(
                                       'Add players (by UserId)',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      _isGroupLeague
-                                          ? 'Use the short UserId (starts with eS). We will auto-load the team name from the user profile and place teams into groups.'
-                                          : 'Use the short UserId (starts with eS). We will auto-load the team name from the user profile.',
+                                      widget.format == LeagueFormat.uclGroup
+                                          ? 'Save anytime. Fixtures unlock at exactly 16 or 32 teams.'
+                                          : widget.format == LeagueFormat.uclSwiss
+                                              ? 'Save anytime. Fixtures unlock at exactly 18 or 36 teams.'
+                                              : 'Save anytime. Fixtures unlock at 2+ teams.',
                                       style: const TextStyle(color: Colors.white70, fontSize: 11),
                                     ),
                                   ],
@@ -922,14 +1001,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               children: [
                 Icon(Icons.person_add_alt_1, size: 18, color: Colors.cyanAccent),
                 SizedBox(width: 8),
-                Text(
-                  'Add players',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                Text('Add players', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
               ],
             ),
           ),
@@ -942,10 +1014,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 const SizedBox(width: 8),
                 _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
                 const Spacer(),
-                Text(
-                  '$totalCount / $_maxTeamsForFormat',
-                  style: const TextStyle(color: Colors.white70, fontSize: 11),
-                ),
+                Text('$totalCount / $_maxTeamsForFormat', style: const TextStyle(color: Colors.white70, fontSize: 11)),
               ],
             ),
           ),
@@ -998,31 +1067,19 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          Glass(
-            borderRadius: 18,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  const Icon(Icons.lock_outline, size: 18, color: Colors.white70),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Admin enters only UserId. Team name is loaded from the user profile automatically.',
-                      style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 11, height: 1.25),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
   Widget _buildGroupSelector() {
+    final groups = _activeGroups;
+    if (groups.isEmpty) return const SizedBox.shrink();
+
+    if (!groups.contains(_selectedGroup)) {
+      _selectedGroup = groups.first;
+    }
+
     return Glass(
       borderRadius: 20,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1030,16 +1087,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         children: [
           const Icon(Icons.grid_view, size: 18, color: Colors.cyanAccent),
           const SizedBox(width: 8),
-          const Text(
-            'Current group',
-            style: TextStyle(color: Colors.white70, fontSize: 12),
-          ),
+          const Text('Current group', style: TextStyle(color: Colors.white70, fontSize: 12)),
           const SizedBox(width: 12),
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: _groups.map((g) {
+                children: groups.map((g) {
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
@@ -1047,9 +1101,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       selected: _selectedGroup == g,
                       selectedColor: Colors.cyanAccent.withOpacity(0.25),
                       backgroundColor: Colors.white10,
-                      labelStyle: TextStyle(
-                        color: _selectedGroup == g ? Colors.cyanAccent : Colors.white70,
-                      ),
+                      labelStyle: TextStyle(color: _selectedGroup == g ? Colors.cyanAccent : Colors.white70),
                       onSelected: (selected) {
                         if (!selected) return;
                         setState(() => _selectedGroup = g);
@@ -1081,14 +1133,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               children: [
                 Icon(Icons.groups, size: 18, color: Colors.cyanAccent),
                 SizedBox(width: 8),
-                Text(
-                  'Review teams',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                Text('Review teams', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
               ],
             ),
           ),
@@ -1101,10 +1146,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 const SizedBox(width: 8),
                 _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
                 const Spacer(),
-                Text(
-                  '$totalCount / $_maxTeamsForFormat',
-                  style: const TextStyle(color: Colors.white70, fontSize: 11),
-                ),
+                Text('$totalCount / $_maxTeamsForFormat', style: const TextStyle(color: Colors.white70, fontSize: 11)),
               ],
             ),
           ),
@@ -1158,13 +1200,44 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: FilledButton.icon(
-              onPressed: _generateAndSave,
-              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-              icon: const Icon(Icons.auto_mode),
-              label: const Text('Save & generate fixtures'),
+            child: Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _saveTeamsOnly,
+                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                    icon: const Icon(Icons.save),
+                    label: const Text('Save teams'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _requiredCountReached ? _generateFixturesOnly : null,
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.cyanAccent),
+                      foregroundColor: Colors.cyanAccent,
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text('Generate fixtures'),
+                  ),
+                ),
+              ],
             ),
           ),
+          if (!_requiredCountReached)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                widget.format == LeagueFormat.uclGroup
+                    ? 'Fixtures unlock at 16 or 32 teams.'
+                    : widget.format == LeagueFormat.uclSwiss
+                        ? 'Fixtures unlock at 18 or 36 teams.'
+                        : 'Fixtures unlock at 2+ teams.',
+                style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+            ),
         ],
       ),
     );
@@ -1173,6 +1246,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   void _editExistingTeam(int index) {
     final team = _existingTeams[index];
     String selectedGroup = team.groupId ?? _selectedGroup;
+
+    final activeGroups = _activeGroups;
+    if (_isGroupLeague && activeGroups.isNotEmpty && !activeGroups.contains(selectedGroup)) {
+      selectedGroup = activeGroups.first;
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1194,54 +1272,32 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         return Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text(
-                              'Team details',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            const Text('Team details', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 10),
                             Align(
                               alignment: Alignment.centerLeft,
-                              child: Text(
-                                'Team name',
-                                style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
-                              ),
+                              child: Text('Team name', style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12)),
                             ),
                             const SizedBox(height: 4),
                             Align(
                               alignment: Alignment.centerLeft,
-                              child: Text(
-                                team.name,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-                              ),
+                              child: Text(team.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                             ),
                             const SizedBox(height: 8),
                             Align(
                               alignment: Alignment.centerLeft,
-                              child: Text(
-                                'uid (internal)',
-                                style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
-                              ),
+                              child: Text('uid (internal)', style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12)),
                             ),
                             const SizedBox(height: 4),
                             Align(
                               alignment: Alignment.centerLeft,
-                              child: Text(
-                                team.id,
-                                style: const TextStyle(color: Colors.white70, fontSize: 12),
-                              ),
+                              child: Text(team.id, style: const TextStyle(color: Colors.white70, fontSize: 12)),
                             ),
                             if (_isGroupLeague) ...[
                               const SizedBox(height: 10),
                               const Align(
                                 alignment: Alignment.centerLeft,
-                                child: Text(
-                                  'Group',
-                                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                                ),
+                                child: Text('Group', style: TextStyle(color: Colors.white70, fontSize: 12)),
                               ),
                               DropdownButtonHideUnderline(
                                 child: DropdownButton<String>(
@@ -1249,7 +1305,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   dropdownColor: const Color(0xFF000428),
                                   style: const TextStyle(color: Colors.cyanAccent),
                                   isExpanded: true,
-                                  items: _groups.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                                  items: _groupsAll.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
                                   onChanged: (v) {
                                     if (v == null) return;
                                     setModalState(() => selectedGroup = v);
@@ -1278,7 +1334,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       });
                                       Navigator.of(ctx).pop();
                                     },
-                                    child: const Text('Save'),
+                                    child: const Text('Save changes'),
                                   ),
                                 ),
                               ],
@@ -1334,53 +1390,27 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 CircleAvatar(
                   radius: 14,
                   backgroundColor: isNew ? Colors.cyanAccent.withOpacity(0.18) : Colors.white12,
-                  child: Text(
-                    '${index + 1}',
-                    style: const TextStyle(
-                      color: Colors.cyanAccent,
-                      fontSize: 12,
-                    ),
-                  ),
+                  child: Text('${index + 1}', style: const TextStyle(color: Colors.cyanAccent, fontSize: 12)),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      Text(name, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 2),
-                      Text(
-                        label,
-                        style: const TextStyle(color: Colors.white54, fontSize: 10),
-                      ),
+                      Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
                     ],
                   ),
                 ),
-                if (!isNew && onTap != null)
-                  const Icon(
-                    Icons.edit,
-                    color: Colors.white54,
-                    size: 16,
-                  ),
+                if (!isNew && onTap != null) const Icon(Icons.edit, color: Colors.white54, size: 16),
                 if (isNew && onRemove != null)
                   InkWell(
                     onTap: onRemove,
                     borderRadius: BorderRadius.circular(999),
                     child: const Padding(
                       padding: EdgeInsets.all(6),
-                      child: Icon(
-                        Icons.close,
-                        color: Colors.white54,
-                        size: 16,
-                      ),
+                      child: Icon(Icons.close, color: Colors.white54, size: 16),
                     ),
                   ),
               ],
@@ -1393,7 +1423,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 }
 
 class _ResolvedTeam {
-  final String userId; // internal Firebase uid
+  final String userId;
   final String teamName;
 
   const _ResolvedTeam({
@@ -1435,11 +1465,7 @@ class _MiniChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-        ),
+        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
       ),
     );
   }

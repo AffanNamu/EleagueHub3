@@ -3,7 +3,7 @@ class Team {
   final String leagueId;
   final String name;
 
-  /// For UCL Group: the group name this team belongs to (e.g. "Group A").
+  /// For UCL Group: the group name/id this team belongs to (e.g. "Group A").
   /// For classic and Swiss formats: usually null.
   final String? groupId;
 
@@ -20,8 +20,7 @@ class Team {
   });
 
   Map<String, dynamic> toJson() => toRemoteMap();
-  factory Team.fromJson(Map<String, dynamic> json) =>
-      fromRemoteMap(json);
+  factory Team.fromJson(Map<String, dynamic> json) => fromRemoteMap(json);
 
   Map<String, dynamic> toRemoteMap() => {
         'id': id,
@@ -64,9 +63,7 @@ class Team {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Team &&
-          runtimeType == other.runtimeType &&
-          id == other.id;
+      other is Team && runtimeType == other.runtimeType && id == other.id;
 
   @override
   int get hashCode => id.hashCode;

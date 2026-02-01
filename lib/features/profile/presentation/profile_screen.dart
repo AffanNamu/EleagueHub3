@@ -31,14 +31,32 @@ class ProfileScreen extends ConsumerWidget {
 
     return GlassScaffold(
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
-          const SizedBox(height: 60),
+          const SizedBox(height: 56),
+
+          Text(
+            'Profile',
+            style: t.headlineSmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Manage your team name, theme and account.',
+            style: t.bodySmall?.copyWith(color: Colors.white70),
+          ),
+          const SizedBox(height: 16),
 
           /// USER CARD
           Glass(
+            padding: const EdgeInsets.all(14),
             child: StreamBuilder<UserProfile?>(
-              stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
+              stream: uid.isEmpty
+                  ? const Stream<UserProfile?>.empty()
+                  : repo.watchByUserId(uid),
               builder: (context, snap) {
                 final profile = snap.data;
 
@@ -46,14 +64,28 @@ class ProfileScreen extends ConsumerWidget {
                     ? profile.teamName.trim()
                     : (user?.displayName ?? 'My Team');
 
-                final shortUserId = (profile != null) ? profile.effectiveShareId : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
+                final shortUserId = (profile != null)
+                    ? profile.effectiveShareId
+                    : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
 
                 return Row(
                   children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.8),
-                      child: const Icon(Icons.person, color: Colors.white, size: 28),
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Theme.of(context).colorScheme.primary.withOpacity(0.35),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: CircleAvatar(
+                        radius: 28,
+                        backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.85),
+                        child: const Icon(Icons.person, color: Colors.white, size: 28),
+                      ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -63,13 +95,17 @@ class ProfileScreen extends ConsumerWidget {
                           Row(
                             children: [
                               Expanded(
-                                child: Text(
-                                  teamName,
-                                  style: t.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    color: Colors.white,
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Text(
+                                    teamName,
+                                    key: ValueKey(teamName),
+                                    style: t.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.white,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               IconButton(
@@ -77,11 +113,14 @@ class ProfileScreen extends ConsumerWidget {
                                 icon: const Icon(Icons.edit, color: Colors.white70, size: 18),
                                 onPressed: uid.isEmpty
                                     ? null
-                                    : () => _editTeamName(
+                                    : () {
+                                        HapticFeedback.selectionClick();
+                                        return _editTeamName(
                                           context,
                                           userId: uid, // internal immutable uid
                                           current: profile?.teamName ?? '',
-                                        ),
+                                        );
+                                      },
                               ),
                             ],
                           ),
@@ -101,6 +140,7 @@ class ProfileScreen extends ConsumerWidget {
                                 onPressed: uid.isEmpty
                                     ? null
                                     : () async {
+                                        HapticFeedback.lightImpact();
                                         await Clipboard.setData(ClipboardData(text: shortUserId));
                                         if (!context.mounted) return;
                                         ScaffoldMessenger.of(context).showSnackBar(
@@ -124,17 +164,26 @@ class ProfileScreen extends ConsumerWidget {
 
                     /// THEME TOGGLE
                     IconButton(
+                      tooltip: 'Toggle theme',
                       icon: Icon(
                         themeState.mode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode,
                         color: Colors.cyanAccent,
                       ),
-                      onPressed: () => ref.read(themeControllerProvider.notifier).toggleTheme(),
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        ref.read(themeControllerProvider.notifier).toggleTheme();
+                      },
                     ),
 
-                    /// LOGOUT
+                    /// LOGOUT (WITH GLASS WARNING)
                     IconButton(
+                      tooltip: 'Logout',
                       icon: const Icon(Icons.logout, color: Colors.white70),
                       onPressed: () async {
+                        final ok = await _confirmLogout(context);
+                        if (!ok) return;
+
+                        // --- DO NOT CHANGE LOGIC BELOW ---
                         final prefs = ref.read(prefsServiceProvider);
                         await AuthService().signOut();
                         await prefs.clearCurrentUserId();
@@ -148,33 +197,32 @@ class ProfileScreen extends ConsumerWidget {
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
 
           /// LEAGUE MODE SWITCHER (APP STANDARD)
           const LeagueSwitcher(),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
 
           /// STATS
           const SectionHeader('League Overview'),
-
           const SizedBox(height: 12),
 
           Glass(
+            padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                const Expanded(
-                  child: _Stat(label: 'Active', value: '2'),
-                ),
+                const Expanded(child: _Stat(label: 'Active', value: '2')),
                 const SizedBox(width: 12),
-                const Expanded(
-                  child: _Stat(label: 'Teams', value: '16'),
-                ),
+                const Expanded(child: _Stat(label: 'Teams', value: '16')),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _Stat(
                     label: 'Format',
-                    value: currentLeague.name.toUpperCase().replaceAll('CLASSIC', 'CL').replaceAll('SWISS', 'SW'),
+                    value: currentLeague.name
+                        .toUpperCase()
+                        .replaceAll('CLASSIC', 'CL')
+                        .replaceAll('SWISS', 'SW'),
                   ),
                 ),
               ],
@@ -185,6 +233,101 @@ class ProfileScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Glass-styled confirmation dialog (same behavior as AlertDialog, but matches your UI).
+  Future<bool> _confirmLogout(BuildContext context) async {
+    final t = Theme.of(context).textTheme;
+
+    final res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          child: Glass(
+            padding: const EdgeInsets.all(16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.amber.withOpacity(0.35)),
+                        ),
+                        child: const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Logout?',
+                          style: t.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Are you sure you want to log out from this device?',
+                      style: t.bodyMedium?.copyWith(color: Colors.white70, height: 1.35),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: BorderSide(color: Colors.white.withOpacity(0.18)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFE53935),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: const Text('Logout'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    return res ?? false;
   }
 
   Future<void> _editTeamName(

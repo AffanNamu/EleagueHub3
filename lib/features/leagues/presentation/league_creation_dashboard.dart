@@ -50,6 +50,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   bool _submitting = false;
   League? _createdLeague;
 
+  /// NEW: enforce supported team counts at creation time:
+  /// - UCL Group: 16 or 32
+  /// - UCL Swiss: 18 or 36
+  /// - Classic: fixed at 20 (as your prior default)
+  int? _selectedMaxTeams;
+
   /// During creation:
   /// - Default OFF
   /// - If ON, creator gets a Team (id == userId) using profile.teamName,
@@ -67,9 +73,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     'Group H',
   ];
 
-  String _pickRandomGroupName() {
+  String _pickRandomGroupNameForMaxTeams(int maxTeams) {
     final rnd = Random.secure();
-    return _groupNames[rnd.nextInt(_groupNames.length)];
+    // Groups of 4. 16 => A–D, 32 => A–H.
+    final groupCount = (maxTeams ~/ 4).clamp(1, 8);
+    final names = _groupNames.take(groupCount).toList();
+    return names[rnd.nextInt(names.length)];
   }
 
   @override
@@ -97,11 +106,28 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     return _format == LeagueFormat.uclGroup || _format == LeagueFormat.uclSwiss;
   }
 
+  List<int> get _allowedMaxTeams {
+    switch (_format) {
+      case LeagueFormat.uclGroup:
+        return const [16, 32];
+      case LeagueFormat.uclSwiss:
+        return const [18, 36];
+      case LeagueFormat.classic:
+      default:
+        return const [20];
+    }
+  }
+
   int get _maxTeams {
+    final selected = _selectedMaxTeams;
+    if (selected != null) return selected;
+
+    // Default selections per format
     switch (_format) {
       case LeagueFormat.classic:
         return 20;
       case LeagueFormat.uclGroup:
+        return 32;
       case LeagueFormat.uclSwiss:
         return 36;
     }
@@ -133,6 +159,27 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       case LeagueCreationType.classic:
         return Icons.table_chart;
     }
+  }
+
+  void _setType(LeagueCreationType t) {
+    setState(() {
+      _type = t;
+
+      // Reset payment when switching to classic
+      if (t == LeagueCreationType.classic) {
+        _payment = null;
+      }
+
+      // Default allowed maxTeams for the type
+      final fmt = _format;
+      if (fmt == LeagueFormat.uclGroup) {
+        _selectedMaxTeams = 32;
+      } else if (fmt == LeagueFormat.uclSwiss) {
+        _selectedMaxTeams = 36;
+      } else {
+        _selectedMaxTeams = 20;
+      }
+    });
   }
 
   @override
@@ -307,10 +354,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Summary',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-          ),
+          const Text('Summary', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
           const SizedBox(height: 12),
           _summaryRow(Icons.auto_awesome, 'Type', _typeLabel),
           _summaryRow(Icons.label, 'Name', _name.text.trim().isEmpty ? 'Not set' : _name.text.trim()),
@@ -347,16 +391,10 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           const SizedBox(width: 10),
           SizedBox(
             width: 90,
-            child: Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, fontSize: 12),
-            ),
+            child: Text(label, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, fontSize: 12)),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.w700, height: 1.25),
-            ),
+            child: Text(value, style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.w700, height: 1.25)),
           ),
         ],
       ),
@@ -375,22 +413,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'League Creation',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18),
-        ),
+        const Text('League Creation', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
         const SizedBox(height: 10),
         Row(
           children: [
             for (int i = 0; i < steps.length; i++) ...[
-              Expanded(
-                child: _stepPill(
-                  title: steps[i].title,
-                  icon: steps[i].icon,
-                  index: i,
-                  current: _step,
-                ),
-              ),
+              Expanded(child: _stepPill(title: steps[i].title, icon: steps[i].icon, index: i, current: _step)),
               if (i != steps.length - 1) const SizedBox(width: 10),
             ],
           ],
@@ -497,23 +525,55 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _typeCard(
           type: LeagueCreationType.series,
           title: 'Series League',
-          subtitle: 'UCL-style Swiss model.\n36 teams. Best for big competitions.',
+          subtitle: 'UCL-style Swiss model.\nSupported sizes: 18 or 36 teams.',
           icon: Icons.auto_graph,
         ),
         const SizedBox(height: 10),
         _typeCard(
           type: LeagueCreationType.group,
           title: 'Group League',
-          subtitle: 'UCL-style groups.\nGroup-based qualification.',
+          subtitle: 'UCL-style groups of 4.\nSupported sizes: 16 or 32 teams.',
           icon: Icons.grid_view,
         ),
         const SizedBox(height: 10),
         _typeCard(
           type: LeagueCreationType.classic,
           title: 'Classic League',
-          subtitle: 'League table format.\nRound-robin standings.',
+          subtitle: 'League table format.\nFlexible team counts.',
           icon: Icons.table_chart,
         ),
+        const SizedBox(height: 14),
+
+        // NEW: Choose max team size for fixed-size formats
+        if (_type != null && _allowedMaxTeams.length > 1) ...[
+          _sectionTitle('Competition size', Icons.groups),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final n in _allowedMaxTeams)
+                ChoiceChip(
+                  label: Text('$n Teams', style: const TextStyle(fontWeight: FontWeight.w800)),
+                  selected: _maxTeams == n,
+                  selectedColor: Colors.cyanAccent.withOpacity(0.25),
+                  backgroundColor: Colors.white10,
+                  labelStyle: TextStyle(color: _maxTeams == n ? Colors.cyanAccent : Colors.white70),
+                  onSelected: (v) {
+                    if (!v) return;
+                    setState(() => _selectedMaxTeams = n);
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _format == LeagueFormat.uclGroup
+                ? 'Groups will be ${_maxTeams ~/ 4} × 4 teams.'
+                : 'Swiss league phase will be a single table of $_maxTeams teams.',
+            style: const TextStyle(color: Colors.white54, fontSize: 11),
+          ),
+        ],
       ],
     );
   }
@@ -527,12 +587,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final selected = _type == type;
 
     return InkWell(
-      onTap: () => setState(() {
-        _type = type;
-        if (type == LeagueCreationType.classic) {
-          _payment = null;
-        }
-      }),
+      onTap: () => _setType(type),
       borderRadius: BorderRadius.circular(20),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -562,15 +617,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
-                  ),
+                  Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14)),
                   const SizedBox(height: 6),
-                  Text(
-                    subtitle,
-                    style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.25, fontSize: 12),
-                  ),
+                  Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.25, fontSize: 12)),
                 ],
               ),
             ),
@@ -583,11 +632,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               ),
               child: Text(
                 selected ? 'SELECTED' : 'SELECT',
-                style: TextStyle(
-                  color: selected ? Colors.black : Colors.white70,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 11,
-                ),
+                style: TextStyle(color: selected ? Colors.black : Colors.white70, fontWeight: FontWeight.w900, fontSize: 11),
               ),
             ),
           ],
@@ -674,7 +719,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _privacyTile(
           value: LeaguePrivacy.private,
           title: 'Private League',
-          subtitle: 'Invite-only. Join via code or link (future-compatible).',
+          subtitle: 'Invite-only. Join via code.',
         ),
       ],
     );
@@ -695,16 +740,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           color: selected ? Colors.cyanAccent.withOpacity(0.14) : Colors.white.withOpacity(0.04),
-          border: Border.all(
-            color: selected ? Colors.cyanAccent.withOpacity(0.70) : Colors.white.withOpacity(0.10),
-          ),
+          border: Border.all(color: selected ? Colors.cyanAccent.withOpacity(0.70) : Colors.white.withOpacity(0.10)),
         ),
         child: Row(
           children: [
-            Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? Colors.cyanAccent : Colors.white54,
-            ),
+            Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off, color: selected ? Colors.cyanAccent : Colors.white54),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -712,10 +752,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                 children: [
                   Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 6),
-                  Text(
-                    subtitle,
-                    style: TextStyle(color: Colors.white.withOpacity(0.65), height: 1.25, fontSize: 12),
-                  ),
+                  Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.65), height: 1.25, fontSize: 12)),
                 ],
               ),
             ),
@@ -744,8 +781,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     }
 
     final statusTitle = _paymentCompleted ? 'Payment completed' : 'Payment required';
-    final statusSubtitle =
-        _paymentCompleted ? 'Receipt: ${_payment?.receiptId ?? ''}' : 'You must pay app charges before creating this league.';
+    final statusSubtitle = _paymentCompleted
+        ? 'Receipt: ${_payment?.receiptId ?? ''}'
+        : 'You must pay app charges before creating this league.';
     final statusIcon = _paymentCompleted ? Icons.verified : Icons.lock_outline;
     final accent = _paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent;
 
@@ -755,12 +793,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       children: [
         _sectionTitle('Payment', Icons.payments_outlined),
         const SizedBox(height: 10),
-        _infoBanner(
-          icon: statusIcon,
-          title: statusTitle,
-          subtitle: statusSubtitle,
-          accent: accent,
-        ),
+        _infoBanner(icon: statusIcon, title: statusTitle, subtitle: statusSubtitle, accent: accent),
         const SizedBox(height: 14),
         FilledButton(
           onPressed: _submitting
@@ -775,26 +808,18 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
                   if (result != null && result.success) {
                     setState(() => _payment = result);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Payment successful')),
-                    );
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment successful')));
                     return;
                   }
 
                   if (result == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Payment cancelled')),
-                    );
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment cancelled')));
                     return;
                   }
 
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(result.errorMessage ?? 'Payment failed')),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result.errorMessage ?? 'Payment failed')));
                 },
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
+          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
           child: Text(_paymentCompleted ? 'PAYMENT DONE (VIEW RECEIPT)' : 'PAY NOW'),
         ),
       ],
@@ -810,11 +835,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       children: [
         _sectionTitle('Confirm', Icons.check_circle_outline),
         const SizedBox(height: 10),
-        _infoBanner(
-          icon: _typeIcon,
-          title: _typeLabel,
-          subtitle: _name.text.trim().isEmpty ? 'League name not set' : _name.text.trim(),
-        ),
+        _infoBanner(icon: _typeIcon, title: _typeLabel, subtitle: _name.text.trim().isEmpty ? 'League name not set' : _name.text.trim()),
         const SizedBox(height: 10),
         _confirmRow(Icons.lock, 'Privacy', _privacy == LeaguePrivacy.private ? 'Private' : 'Public'),
         _confirmRow(Icons.groups, 'Max teams', '$_maxTeams'),
@@ -837,14 +858,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             onChanged: _submitting ? null : (v) => setState(() => _creatorWillParticipate = v),
             activeColor: Colors.cyanAccent,
             contentPadding: EdgeInsets.zero,
-            title: const Text(
-              'I will participate in this league',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
-            ),
-            subtitle: Text(
-              'If enabled, we will create your team automatically using your profile team name.',
-              style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 12, height: 1.25),
-            ),
+            title: const Text('I will participate in this league', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+            subtitle: Text('If enabled, we will create your team automatically using your profile team name.', style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 12, height: 1.25)),
           ),
         ),
         const SizedBox(height: 14),
@@ -862,18 +877,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             foregroundColor: canCreate ? Colors.black : Colors.white54,
           ),
           child: _submitting
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Text(
-                  'CREATE LEAGUE',
-                  style: TextStyle(fontWeight: FontWeight.w900),
-                ),
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('CREATE LEAGUE', style: TextStyle(fontWeight: FontWeight.w900)),
         ),
       ],
     );
@@ -886,16 +891,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         children: [
           Icon(icon, size: 18, color: Colors.cyanAccent),
           const SizedBox(width: 10),
-          Text(
-            '$label: ',
-            style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.w800),
-            ),
-          ),
+          Text('$label: ', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800)),
+          Expanded(child: Text(value, style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.w800))),
         ],
       ),
     );
@@ -915,10 +912,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           child: Icon(icon, size: 18, color: Colors.cyanAccent),
         ),
         const SizedBox(width: 10),
-        Text(
-          text,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-        ),
+        Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
       ],
     );
   }
@@ -949,10 +943,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               children: [
                 Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.25, fontSize: 12),
-                ),
+                Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.25, fontSize: 12)),
               ],
             ),
           ),
@@ -963,7 +954,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _buildFooterActions(BuildContext context) {
     final isLast = _step == 4;
-
     final canGoBack = !_submitting;
     final canGoNext = !_submitting;
 
@@ -998,19 +988,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                 ? null
                 : () async {
                     if (isLast) {
-                      if (_createdLeague == null) {
-                        context.pop();
-                      }
+                      if (_createdLeague == null) context.pop();
                       return;
                     }
                     final ok = await _validateAndAdvance(context);
-                    if (ok) {
-                      setState(() => _step++);
-                    }
+                    if (ok) setState(() => _step++);
                   },
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
+            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
             child: Text(nextLabel, style: const TextStyle(fontWeight: FontWeight.w900)),
           ),
         ),
@@ -1021,9 +1005,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   Future<bool> _validateAndAdvance(BuildContext context) async {
     if (_step == 0) {
       if (_type == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a league type')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a league type')));
         return false;
       }
       return true;
@@ -1031,23 +1013,15 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     if (_step == 1) {
       if (_name.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('League name is required')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('League name is required')));
         return false;
       }
       return true;
     }
 
-    if (_step == 2) {
-      return true;
-    }
-
     if (_step == 3) {
       if (_creationRequiresPayment && !_paymentCompleted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Complete payment to continue')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Complete payment to continue')));
         return false;
       }
       return true;
@@ -1058,23 +1032,23 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Future<void> _create(BuildContext context) async {
     if (_type == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a league type')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a league type')));
       return;
     }
 
     if (_name.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('League name is required')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('League name is required')));
       return;
     }
 
     if (_creationRequiresPayment && !_paymentCompleted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Payment must be completed before creating the league')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment must be completed before creating the league')));
+      return;
+    }
+
+    // Enforce allowed maxTeams for fixed-size formats
+    if (!_allowedMaxTeams.contains(_maxTeams)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid team count for selected format.')));
       return;
     }
 
@@ -1084,11 +1058,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       final prefs = ref.read(prefsServiceProvider);
       final repo = LocalLeaguesRepository(prefs);
 
-      // Firebase Auth uid (immutable userId)
       final organizerUserId = await CurrentUser.getUserId();
 
-      // If creator wants to participate, resolve the teamName from their profile.
-      // We never ask for a team name here.
       String? creatorTeamName;
       if (_creatorWillParticipate) {
         final profile = await UserProfileRepository().fetchByUserId(organizerUserId);
@@ -1102,9 +1073,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       final leagueId = _uuid.v4();
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      final settings = LeagueSettings.defaultsFor(_format).copyWith(
-        lastPulledAtMs: 0,
-      );
+      final settings = LeagueSettings.defaultsFor(_format).copyWith(lastPulledAtMs: 0);
 
       final league = League(
         id: leagueId,
@@ -1128,13 +1097,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         organizerUserId: organizerUserId,
       );
 
-      // OPTIONAL creator participation:
       if (_creatorWillParticipate && creatorTeamName != null) {
         final existingTeams = await repo.getTeams(stored.id);
 
         final alreadyHasTeam = existingTeams.any((t) => t.id == organizerUserId);
         if (!alreadyHasTeam) {
-          final String? groupId = stored.format == LeagueFormat.uclGroup ? _pickRandomGroupName() : null;
+          final String? groupId =
+              stored.format == LeagueFormat.uclGroup ? _pickRandomGroupNameForMaxTeams(stored.maxTeams) : null;
 
           final team = Team(
             id: organizerUserId,
@@ -1148,7 +1117,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           await repo.saveTeams(stored.id, <Team>[...existingTeams, team]);
         }
 
-        // Link membership.teamId while preserving organizer role.
         await repo.assignTeamToUserInLeague(
           leagueId: stored.id,
           userId: organizerUserId,
@@ -1164,9 +1132,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create league: $e')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to create league: $e')));
     }
   }
 }

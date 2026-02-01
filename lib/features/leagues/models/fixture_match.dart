@@ -29,8 +29,11 @@ class FixtureMatch {
     required this.version,
   });
 
-  // This solves the compiler error in the Mock Repo and elsewhere
-  bool get isPlayed => status == MatchStatus.completed || status == MatchStatus.played;
+  /// Considered "played" ONLY when status indicates completion AND both scores exist.
+  bool get isPlayed =>
+      (status == MatchStatus.completed || status == MatchStatus.played) &&
+      homeScore != null &&
+      awayScore != null;
 
   FixtureMatch copyWith({
     int? homeScore,

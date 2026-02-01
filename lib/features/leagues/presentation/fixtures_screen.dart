@@ -41,6 +41,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   bool _isGeneratingNextRound = false;
 
+  // Organizer guard: only organiser can generate Swiss rounds from this screen.
+  bool _isOrganizer = false;
+
   static String _lastRoundKey(String leagueId) => 'ui_last_round_$leagueId';
   static String _lastGroupKey(String leagueId) => 'ui_last_group_$leagueId';
 
@@ -50,14 +53,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     _prefs = ref.read(prefsServiceProvider);
     _repo = LocalLeaguesRepository(_prefs);
 
-    // Restore last viewed round (shared with LeagueDetailScreen)
     final savedRoundRaw = _prefs.getString(_lastRoundKey(widget.leagueId));
     final savedRound = int.tryParse((savedRoundRaw ?? '').trim());
     if (savedRound != null && savedRound >= 1) {
       _selectedRound = savedRound;
     }
 
-    // Restore last selected group (only matters for UCL Group format; we apply after loading groups)
     final savedGroupRaw = _prefs.getString(_lastGroupKey(widget.leagueId));
     _selectedGroup = (savedGroupRaw == null || savedGroupRaw.trim().isEmpty) ? null : savedGroupRaw.trim();
 
@@ -69,7 +70,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   void _persistGroup(String? group) {
-    // null/"All" stored as empty string
     _prefs.setString(_lastGroupKey(widget.leagueId), group ?? '');
   }
 
@@ -81,21 +81,29 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   void _setGroup(String? group) {
     setState(() {
       _selectedGroup = group;
-      _selectedRound = 1; // reset round on filter change
+      _selectedRound = 1;
     });
     _persistGroup(group);
     _persistRound(1);
   }
 
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        content: Text(msg),
+      ),
+    );
+  }
+
   Future<void> _loadInitialData() async {
     try {
-      final leagueFuture = _repo.getLeagueById(widget.leagueId);
-      final teamsFuture = _repo.getTeams(widget.leagueId);
-      final matchesFuture = _repo.getMatches(widget.leagueId);
-
-      final league = await leagueFuture;
-      final teams = await teamsFuture;
-      final allMatches = await matchesFuture;
+      final league = await _repo.getLeagueById(widget.leagueId);
+      final teams = await _repo.getTeams(widget.leagueId);
+      final allMatches = await _repo.getMatches(widget.leagueId);
 
       final format = league?.format ?? LeagueFormat.classic;
 
@@ -112,9 +120,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
           ..sort();
       }
 
-      // Validate restored group:
-      // - Only keep it if format is uclGroup AND it exists in groups.
-      // - Else fallback to "All" (null).
+      // Validate restored group
       String? validatedGroup;
       if (format == LeagueFormat.uclGroup) {
         final g = _selectedGroup;
@@ -127,19 +133,23 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         validatedGroup = null;
       }
 
-      // Compute max round under the selected group filter (important!)
+      // Compute max round under the selected group filter
       Iterable<FixtureMatch> filteredForRounds = allMatches;
       if (format == LeagueFormat.uclGroup && validatedGroup != null) {
         filteredForRounds = filteredForRounds.where((m) => m.groupId == validatedGroup);
       }
 
       final filteredList = filteredForRounds.toList();
-      final maxRound = filteredList.isEmpty ? 1 : filteredList.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+      final maxRound = filteredList.isEmpty
+          ? 1
+          : filteredList.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
 
-      // Clamp round if user had a round larger than the group allows
       var roundToUse = _selectedRound;
       if (roundToUse > maxRound) roundToUse = maxRound;
       if (roundToUse < 1) roundToUse = 1;
+
+      final currentUserId = _prefs.getCurrentUserId() ?? '';
+      final isOrganizer = (league != null && league.organizerUserId == currentUserId);
 
       if (!mounted) return;
       setState(() {
@@ -148,10 +158,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         _groups = groups;
         _selectedGroup = validatedGroup;
         _selectedRound = roundToUse;
+        _isOrganizer = isOrganizer;
         _isLoading = false;
       });
 
-      // Persist any normalization we did (clamp/group invalid)
       _persistGroup(_selectedGroup);
       _persistRound(_selectedRound);
     } catch (e) {
@@ -170,7 +180,16 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
     filtered = filtered.where((m) => m.roundNumber == _selectedRound);
 
-    return filtered.toList();
+    final list = filtered.toList();
+
+    // Deterministic order for UI
+    list.sort((a, b) {
+      final r = a.sortIndex.compareTo(b.sortIndex);
+      if (r != 0) return r;
+      return a.id.compareTo(b.id);
+    });
+
+    return list;
   }
 
   Future<int> _getTotalRounds() async {
@@ -189,36 +208,34 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   /// Generate the next Swiss round (or Round 1 if none exist yet) for UCL Swiss leagues.
+  ///
+  /// Enforced:
+  /// - Only organiser can generate rounds from here
+  /// - Team count must be exactly 18 or 36
+  /// - Next round cannot be generated until ALL matches in the current round are played
   Future<void> _generateNextSwissRound() async {
     if (_isGeneratingNextRound || _format != LeagueFormat.uclSwiss) return;
+
+    if (!_isOrganizer) {
+      _snack('Only the organiser can generate Swiss rounds.');
+      return;
+    }
 
     setState(() => _isGeneratingNextRound = true);
     try {
       final league = await _repo.getLeagueById(widget.leagueId);
       if (league == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('League not found'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
+        _snack('League not found');
         return;
       }
 
       final maxRounds = league.settings.swissRounds;
 
       final teams = await _repo.getTeams(widget.leagueId);
-      if (teams.length < 2) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Not enough teams to generate Swiss pairings.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
+
+      final n = teams.length;
+      if (!(n == 18 || n == 36)) {
+        _snack('Swiss league phase supports only 18 or 36 teams. Current: $n.');
         return;
       }
 
@@ -227,6 +244,16 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       int currentMaxRound = 0;
       if (existingMatches.isNotEmpty) {
         currentMaxRound = existingMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+      }
+
+      // Sequential completion guard
+      if (currentMaxRound > 0) {
+        final currentRoundMatches = existingMatches.where((m) => m.roundNumber == currentMaxRound).toList();
+        final anyUnplayed = currentRoundMatches.any((m) => !m.isPlayed);
+        if (anyUnplayed) {
+          _snack('Complete all matches in Round $currentMaxRound before generating the next round.');
+          return;
+        }
       }
 
       int nextRound;
@@ -238,38 +265,33 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
           leagueId: widget.leagueId,
           teams: teams,
           roundNumber: nextRound,
+          totalRounds: league.settings.swissRounds,
         );
       } else {
         if (currentMaxRound >= maxRounds) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('All $maxRounds Swiss rounds have already been generated.'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
+          _snack('All $maxRounds Swiss rounds have already been generated.');
           return;
         }
 
         nextRound = currentMaxRound + 1;
+
+        final alreadyExists = existingMatches.any((m) => m.roundNumber == nextRound);
+        if (alreadyExists) {
+          _snack('Round $nextRound already exists.');
+          return;
+        }
+
         newFixtures = SwissPairingEngine.generateNextRound(
           leagueId: widget.leagueId,
           teams: teams,
           existingMatches: existingMatches,
           nextRoundNumber: nextRound,
+          totalRounds: league.settings.swissRounds,
         );
       }
 
       if (newFixtures.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No Swiss pairings could be generated.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
+        _snack('No valid Swiss pairings could be generated (check for existing rematches or constraints).');
         return;
       }
 
@@ -277,30 +299,17 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       if (!mounted) return;
 
-      // Persist this as the round user is currently viewing
       _setRound(nextRound);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Swiss round $nextRound generated'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('Swiss round $nextRound generated');
 
       await _loadInitialData();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to generate Swiss round: $e'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _snack('Failed to generate Swiss round: $e');
       }
     } finally {
-      if (mounted) {
-        setState(() => _isGeneratingNextRound = false);
-      }
+      if (mounted) setState(() => _isGeneratingNextRound = false);
     }
   }
 
@@ -315,7 +324,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         elevation: 0,
         backgroundColor: Colors.transparent,
         actions: [
-          if (_format == LeagueFormat.uclSwiss)
+          if (_format == LeagueFormat.uclSwiss && _isOrganizer)
             IconButton(
               onPressed: _isGeneratingNextRound ? null : _generateNextSwissRound,
               tooltip: 'Generate next Swiss round',
@@ -323,10 +332,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.cyanAccent,
-                      ),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
                     )
                   : const Icon(Icons.auto_mode),
             ),
@@ -334,9 +340,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       ),
       body: SafeArea(
         child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: Colors.cyanAccent),
-              )
+            ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
             : Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: isTablet ? 800 : 600),
@@ -345,7 +349,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     builder: (context, snapshot) {
                       final totalRounds = snapshot.data ?? 0;
 
-                      // Clamp selected round if filter changed
                       if (totalRounds > 0 && _selectedRound > totalRounds) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (!mounted) return;
@@ -372,8 +375,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     );
   }
 
-  /// Horizontal chips for "All" and each group (Group A, Group B, ...).
-  /// _selectedGroup == null means "All groups".
   Widget _buildGroupSelector() {
     final bool allSelected = _selectedGroup == null;
 
@@ -392,9 +393,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               decoration: BoxDecoration(
                 color: allSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: allSelected ? Colors.cyanAccent : Colors.white10,
-                ),
+                border: Border.all(color: allSelected ? Colors.cyanAccent : Colors.white10),
               ),
               alignment: Alignment.center,
               child: Text(
@@ -419,9 +418,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     decoration: BoxDecoration(
                       color: isSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: isSelected ? Colors.cyanAccent : Colors.white10,
-                      ),
+                      border: Border.all(color: isSelected ? Colors.cyanAccent : Colors.white10),
                     ),
                     alignment: Alignment.center,
                     child: Text(
@@ -461,9 +458,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               decoration: BoxDecoration(
                 color: isSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isSelected ? Colors.cyanAccent : Colors.white10,
-                ),
+                border: Border.all(color: isSelected ? Colors.cyanAccent : Colors.white10),
               ),
               alignment: Alignment.center,
               child: Text(
@@ -486,19 +481,14 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       future: _getMatches(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.cyanAccent),
-          );
+          return const Center(child: CircularProgressIndicator(color: Colors.cyanAccent));
         }
 
         final matches = snapshot.data ?? [];
 
         if (matches.isEmpty) {
           return const Center(
-            child: Text(
-              'No matches generated yet',
-              style: TextStyle(color: Colors.white38),
-            ),
+            child: Text('No matches generated yet', style: TextStyle(color: Colors.white38)),
           );
         }
 
@@ -516,6 +506,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final awayName = _teamNames[match.awayTeamId] ?? 'TBD';
     final groupLabel = match.groupId?.trim().isNotEmpty == true ? match.groupId!.trim() : null;
 
+    final isFinished = match.status == MatchStatus.completed || match.status == MatchStatus.played;
+    final hasScore = match.homeScore != null && match.awayScore != null;
+
     return GestureDetector(
       onTap: () => context.push('/leagues/${widget.leagueId}/matches/${match.id}'),
       child: Container(
@@ -532,11 +525,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       groupLabel,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ),
@@ -546,41 +535,25 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     child: Text(
                       homeName,
                       textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Container(
                     width: 80,
                     alignment: Alignment.center,
-                    child: (match.status == MatchStatus.completed || match.status == MatchStatus.played)
+                    child: (isFinished && hasScore)
                         ? Text(
                             '${match.homeScore} - ${match.awayScore}',
-                            style: const TextStyle(
-                              color: Colors.cyanAccent,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
+                            style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 18),
                           )
-                        : const Text(
-                            'VS',
-                            style: TextStyle(
-                              color: Colors.white24,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
+                        : const Text('VS', style: TextStyle(color: Colors.white24, fontWeight: FontWeight.w900)),
                   ),
                   Expanded(
                     child: Text(
                       awayName,
                       textAlign: TextAlign.left,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),

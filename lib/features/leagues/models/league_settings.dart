@@ -3,8 +3,13 @@ import 'league_format.dart';
 
 class LeagueSettings {
   final bool doubleRoundRobin;
+
+  /// UCL Group only (supported: groups of 4)
   final int groupSize;
+
+  /// UCL Swiss only (supported: 8 matches per team)
   final int swissRounds;
+
   final int lastPulledAtMs;
 
   const LeagueSettings({
@@ -14,25 +19,39 @@ class LeagueSettings {
     required this.lastPulledAtMs,
   });
 
-  /// Your production defaults logic
+  /// Defaults per format.
+  ///
+  /// NOTE: Your competition rules enforced elsewhere require:
+  /// - UCL Group: groupSize = 4
+  /// - UCL Swiss: swissRounds = 8 (8 opponents)
   factory LeagueSettings.defaultsFor(LeagueFormat format) {
-    return const LeagueSettings(
-      doubleRoundRobin: true,
-      groupSize: 4,
-      swissRounds: 8,
-      lastPulledAtMs: 0,
-    );
+    switch (format) {
+      case LeagueFormat.classic:
+        return const LeagueSettings(
+          doubleRoundRobin: true,
+          groupSize: 4,
+          swissRounds: 8,
+          lastPulledAtMs: 0,
+        );
+      case LeagueFormat.uclGroup:
+        return const LeagueSettings(
+          doubleRoundRobin: true,
+          groupSize: 4,
+          swissRounds: 8,
+          lastPulledAtMs: 0,
+        );
+      case LeagueFormat.uclSwiss:
+        return const LeagueSettings(
+          doubleRoundRobin: true,
+          groupSize: 4,
+          swissRounds: 8,
+          lastPulledAtMs: 0,
+        );
+    }
   }
 
   /// Alias to fix the repository error while keeping your logic
-  factory LeagueSettings.defaultSettings() {
-    return const LeagueSettings(
-      doubleRoundRobin: true,
-      groupSize: 4,
-      swissRounds: 8,
-      lastPulledAtMs: 0,
-    );
-  }
+  factory LeagueSettings.defaultSettings() => LeagueSettings.defaultsFor(LeagueFormat.classic);
 
   LeagueSettings copyWith({
     bool? doubleRoundRobin,

@@ -7,9 +7,9 @@ class StandingsRow {
   final String teamName;
 
   final int mp; // Matches Played
-  final int w;  // Wins
-  final int d;  // Draws
-  final int l;  // Losses
+  final int w; // Wins
+  final int d; // Draws
+  final int l; // Losses
   final int gf; // Goals For
   final int ga; // Goals Against
 
@@ -30,7 +30,6 @@ class StandingsRow {
   /// Automatically calculates total Points (3 for win, 1 for draw).
   int get pts => w * 3 + d;
 
-  /// Creates a copy of the row with updated stats after a match is recorded.
   StandingsRow copyWith({
     int? mp,
     int? w,
@@ -51,8 +50,10 @@ class StandingsRow {
     );
   }
 
-  /// Initial state for a team before any matches are played.
-  static StandingsRow empty({required String teamId, required String teamName}) {
+  static StandingsRow empty({
+    required String teamId,
+    required String teamName,
+  }) {
     return StandingsRow(
       teamId: teamId,
       teamName: teamName,

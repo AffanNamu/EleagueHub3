@@ -2,9 +2,9 @@ import 'package:collection/collection.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../models/fixture_match.dart';
-import '../../models/enums.dart'; // Added missing import
+import '../../models/enums.dart';
 
-/// The logic engine for generating league schedules in eSportlyic.
+/// The logic engine for generating league schedules.
 class RoundRobinGenerator {
   static List<FixtureMatch> generate({
     required String leagueId,
@@ -17,7 +17,7 @@ class RoundRobinGenerator {
     final uuid = const Uuid();
 
     final ids = [...teamIds];
-    ids.sort(); 
+    ids.sort();
 
     String? bye;
     if (ids.length.isOdd) {
@@ -78,7 +78,7 @@ class RoundRobinGenerator {
         leagueId: leagueId,
         groupId: groupId,
         roundNumber: m.roundNumber + rounds,
-        homeTeamId: m.awayTeamId, 
+        homeTeamId: m.awayTeamId,
         awayTeamId: m.homeTeamId,
         homeScore: null,
         awayScore: null,

@@ -81,17 +81,42 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     super.dispose();
   }
 
-  // Simple snack helper (no floating behavior)
-  void _toast(String msg) {
+  // Improved snack helper (floating + clearer severity)
+  void _toast(
+    String msg, {
+    Color bg = const Color(0xFF101522),
+    Color fg = Colors.white,
+    IconData? icon,
+  }) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: bg,
+        margin: const EdgeInsets.all(12),
+        content: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, color: fg, size: 18),
+              const SizedBox(width: 10),
+            ],
+            Expanded(
+              child: Text(
+                msg,
+                style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
+
+  void _toastOk(String msg) => _toast(msg, bg: Colors.cyanAccent.withOpacity(0.18), fg: Colors.cyanAccent, icon: Icons.check_circle_outline);
+  void _toastWarn(String msg) => _toast(msg, bg: Colors.orangeAccent.withOpacity(0.14), fg: Colors.orangeAccent, icon: Icons.warning_amber_rounded);
+  void _toastErr(String msg) => _toast(msg, bg: Colors.redAccent.withOpacity(0.14), fg: Colors.redAccent, icon: Icons.error_outline);
 
   Future<void> _persistRound(int round) async {
     _lastViewedRound = round;
@@ -209,7 +234,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     return filtered.take(limit).toList();
   }
 
-  // League Space handlers (now: start/end + sync + open room route)
+  // League Space handlers
   Future<void> _onStartSpace(League league, String currentUserId) async {
     try {
       await _spaceRepo.startSpace(
@@ -222,9 +247,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
       if (!mounted) return;
       setState(() {});
-      _toast('League Space started');
+      _toastOk('League Space started');
     } catch (e) {
-      _toast('Failed to start space: $e');
+      _toastErr('Failed to start space: $e');
     }
   }
 
@@ -236,15 +261,13 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
       if (!mounted) return;
       setState(() {});
-      _toast('League Space ended');
+      _toastOk('League Space ended');
     } catch (e) {
-      _toast('Failed to end space: $e');
+      _toastErr('Failed to end space: $e');
     }
   }
 
   void _onOpenSpace(League league) {
-    // You will create this screen next (voice room + reactions)
-    // Route suggestion: /leagues/:id/space
     context.push('/leagues/${league.id}/space');
   }
 
@@ -264,7 +287,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             onPressed: () async {
               await SyncTrigger.trySync();
               if (mounted) setState(() {});
-              _toast('Synced');
+              _toastOk('Synced');
             },
             icon: const Icon(Icons.sync),
           ),
@@ -515,7 +538,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final hasKnockouts = knockouts.isNotEmpty;
     final spaceLive = space?.isLive == true;
 
-    void showNeedKnockoutsSnack() => _toast('Generate the knockout bracket first.');
+    void showNeedKnockoutsSnack() => _toastWarn('Generate the knockout bracket first.');
 
     return Glass(
       padding: const EdgeInsets.all(20),
@@ -671,7 +694,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 border: Border.all(color: Colors.white10),
               ),
               child: const Text(
-                'View-only: You are a participant in this league.',
+                'View-only: You are not an organiser of this league.',
                 style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
                 textAlign: TextAlign.center,
               ),
@@ -923,42 +946,50 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   Future<void> _generateSwissKnockouts(BuildContext context, League league, List<Team> teams, List<FixtureMatch> fixtures) async {
     if (league.format != LeagueFormat.uclSwiss) {
-      _toast('This action is only for Swiss leagues.');
+      _toastWarn('This action is only for Swiss leagues.');
+      return;
+    }
+
+    // Enforce Swiss league-phase team count: 18 or 36
+    if (!(teams.length == 18 || teams.length == 36)) {
+      _toastErr('Swiss format supports only 18 or 36 teams. Current: ${teams.length}.');
       return;
     }
 
     final existing = await _repo.getKnockoutMatches(league.id);
     if (existing.isNotEmpty) {
-      _toast('Knockout bracket already generated.');
+      _toastWarn('Knockout bracket already generated.');
       return;
     }
 
     final swissMatches = fixtures.where((m) => m.groupId == null).toList();
     if (swissMatches.isEmpty) {
-      _toast('No Swiss league matches found.');
-      return;
-    }
-
-    final roundsSet = swissMatches.map((m) => m.roundNumber).toSet();
-    if (roundsSet.isEmpty) {
-      _toast('No Swiss rounds found.');
+      _toastErr('No Swiss league matches found.');
       return;
     }
 
     final requiredRounds = league.settings.swissRounds;
 
+    // Verify rounds 1..requiredRounds exist and are fully played.
+    final roundsSet = swissMatches.map((m) => m.roundNumber).toSet();
     final hasAllRounds = List.generate(requiredRounds, (i) => i + 1).every((r) => roundsSet.contains(r));
-    final anyUnplayedInRequired = swissMatches.where((m) => m.roundNumber <= requiredRounds).any((m) => !m.isPlayed);
-
-    if (!hasAllRounds || anyUnplayedInRequired) {
-      _toast('You must finish all $requiredRounds Swiss rounds before generating knockouts.');
+    if (!hasAllRounds) {
+      _toastWarn('Generate all $requiredRounds Swiss rounds before generating knockouts.');
       return;
     }
 
+    final anyUnplayedInRequired = swissMatches.where((m) => m.roundNumber <= requiredRounds).any((m) => !m.isPlayed);
+    if (anyUnplayedInRequired) {
+      _toastWarn('You must finish all $requiredRounds Swiss rounds before generating knockouts.');
+      return;
+    }
+
+    // Standings derived from all teams + all Swiss matches.
     final swissStandings = StandingsCalculator.calculate(teams: teams, matches: swissMatches);
 
-    if (swissStandings.length < 16) {
-      _toast('At least 16 teams are required to generate Swiss knockouts.');
+    // Enforce that standings represent the correct league-phase size.
+    if (swissStandings.length != teams.length) {
+      _toastErr('Standings/team count mismatch. Cannot seed knockouts safely.');
       return;
     }
 
@@ -968,41 +999,56 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     );
 
     if (koMatches.isEmpty) {
-      _toast('Failed to seed knockout bracket from Swiss standings.');
+      _toastErr('Failed to seed knockout bracket from Swiss standings.');
       return;
     }
 
     await _repo.saveKnockoutMatches(league.id, koMatches);
     await SyncTrigger.trySync();
 
-    _toast('Knockout bracket generated (Play-off + Round of 16).');
+    final label = (teams.length == 36)
+        ? 'Knockout bracket generated (2-legged Play-off + Round of 16).'
+        : 'Knockout bracket generated (2-legged Play-off + Quarter Finals).';
+
+    _toastOk(label);
     if (mounted) setState(() {});
   }
 
   Future<void> _generateGroupKnockouts(BuildContext context, League league) async {
     if (league.format != LeagueFormat.uclGroup) {
-      _toast('This action is only for UCL Group leagues.');
+      _toastWarn('This action is only for UCL Group leagues.');
       return;
     }
 
     final existing = await _repo.getKnockoutMatches(league.id);
     if (existing.isNotEmpty) {
-      _toast('Knockout bracket already generated.');
+      _toastWarn('Knockout bracket already generated.');
       return;
     }
 
     final teams = await _repo.getTeams(league.id);
     final matches = await _repo.getMatches(league.id);
 
+    // Enforce UCL group team count: 16 or 32
+    if (!(teams.length == 16 || teams.length == 32)) {
+      _toastErr('UCL Group supports only 16 or 32 teams. Current: ${teams.length}.');
+      return;
+    }
+
+    // Enforce group size 4 expectation for UCL (your model requirement).
+    if (league.settings.groupSize != 4) {
+      _toastWarn('UCL Group format expects group size 4. Current groupSize: ${league.settings.groupSize}.');
+    }
+
     final groupMatches = matches.where((m) => m.groupId != null).toList();
     if (groupMatches.isEmpty) {
-      _toast('No group matches found. Generate group fixtures first.');
+      _toastErr('No group matches found. Generate group fixtures first.');
       return;
     }
 
     final anyUnplayedGroup = groupMatches.any((m) => !m.isPlayed);
     if (anyUnplayedGroup) {
-      _toast('You must finish all group matches before generating the knockout bracket.');
+      _toastWarn('You must finish all group matches before generating the knockout bracket.');
       return;
     }
 
@@ -1011,7 +1057,15 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         .whereType<String>()
         .map((g) => g.trim())
         .where((g) => g.isNotEmpty)
-        .toSet();
+        .toSet()
+        .toList()
+      ..sort();
+
+    final expectedGroupCount = teams.length ~/ 4;
+    if (groupIds.length != expectedGroupCount) {
+      _toastErr('Invalid group structure. Expected $expectedGroupCount groups of 4 for ${teams.length} teams. Found ${groupIds.length} groups.');
+      return;
+    }
 
     final groupStandings = <String, List<StandingsRow>>{};
 
@@ -1026,14 +1080,21 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       }
 
       final groupTeams = teams.where((t) => teamIds.contains(t.id)).toList();
-      if (groupTeams.isEmpty) continue;
+      if (groupTeams.length != 4) {
+        _toastErr('Group $groupId does not contain exactly 4 teams. Found ${groupTeams.length}.');
+        return;
+      }
 
       final rows = StandingsCalculator.calculate(teams: groupTeams, matches: gm);
+      if (rows.length != 4) {
+        _toastErr('Group standings invalid for $groupId.');
+        return;
+      }
       groupStandings[groupId] = rows;
     }
 
-    if (groupStandings.isEmpty) {
-      _toast('No group standings available to seed knockouts.');
+    if (groupStandings.length != expectedGroupCount) {
+      _toastErr('Group standings incomplete. Expected $expectedGroupCount groups.');
       return;
     }
 
@@ -1043,14 +1104,18 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     );
 
     if (koMatches.isEmpty) {
-      _toast('Failed to seed knockout bracket from group standings.');
+      _toastErr('Failed to seed knockout bracket from group standings.');
       return;
     }
 
     await _repo.saveKnockoutMatches(league.id, koMatches);
     await SyncTrigger.trySync();
 
-    _toast('Knockout bracket generated from group standings.');
+    final label = (teams.length == 32)
+        ? 'Knockout bracket generated (Round of 16).'
+        : 'Knockout bracket generated (Quarter Finals).';
+
+    _toastOk(label);
     if (mounted) setState(() {});
   }
 }

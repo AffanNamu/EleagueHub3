@@ -66,9 +66,38 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     'Group H',
   ];
 
-  String _pickRandomGroupName() {
+  List<String> _allowedGroupsForUclGroup(League league) {
+    // Enforce your supported sizes:
+    // - 16 teams => 4 groups (A–D)
+    // - 32 teams => 8 groups (A–H)
+    final max = league.maxTeams;
+    if (max == 16) return _groupNames.take(4).toList();
+    return _groupNames.take(8).toList();
+  }
+
+  String? _pickGroupWithSpace({
+    required List<Team> teams,
+    required List<String> allowedGroups,
+  }) {
+    final counts = <String, int>{for (final g in allowedGroups) g: 0};
+    for (final t in teams) {
+      final g = (t.groupId ?? '').trim();
+      if (counts.containsKey(g)) {
+        counts[g] = (counts[g] ?? 0) + 1;
+      }
+    }
+
+    // Choose a group with <4 teams (to preserve group size 4).
+    final available = counts.entries.where((e) => e.value < 4).toList();
+    if (available.isEmpty) return null;
+
+    // Pick the smallest count; random tie-break.
+    available.sort((a, b) => a.value.compareTo(b.value));
+    final min = available.first.value;
+    final minGroups = available.where((e) => e.value == min).map((e) => e.key).toList();
+
     final rnd = Random.secure();
-    return _groupNames[rnd.nextInt(_groupNames.length)];
+    return minGroups[rnd.nextInt(minGroups.length)];
   }
 
   @override
@@ -101,7 +130,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         showAddMe = !alreadyParticipant;
       }
     } catch (_) {
-      // If identity can't be resolved, keep hidden.
       showAddMe = false;
     }
 
@@ -130,9 +158,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     try {
       final userId = await CurrentUser.getUserId();
 
-      // Visible only for organizer, but enforce here as well.
+      // Enforce organiser-only
       if (league.organizerUserId != userId) {
         throw StateError('Only the league organizer can use this action.');
+      }
+
+      // Enforce supported team counts via maxTeams for fixed-size formats
+      if (league.format == LeagueFormat.uclGroup && !(league.maxTeams == 16 || league.maxTeams == 32)) {
+        throw StateError('UCL Group leagues must have maxTeams set to 16 or 32.');
+      }
+      if (league.format == LeagueFormat.uclSwiss && !(league.maxTeams == 18 || league.maxTeams == 36)) {
+        throw StateError('Swiss leagues must have maxTeams set to 18 or 36.');
       }
 
       final existingTeams = await _localRepo.getTeams(league.id);
@@ -148,34 +184,43 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         return;
       }
 
+      // Prevent exceeding maxTeams (roster capacity)
+      if (existingTeams.length >= league.maxTeams) {
+        throw StateError('League is full (${league.maxTeams} teams).');
+      }
+
       final profile = await UserProfileRepository().fetchByUserId(userId);
       final teamName = profile?.teamName.trim() ?? '';
       if (teamName.isEmpty) {
         throw StateError('Your profile team name is missing. Please update your profile first.');
       }
 
-      // Match the creation behavior:
-      // If the league is a Group League, put the creator in a random group (A–H).
-      final String? groupId = league.format == LeagueFormat.uclGroup ? _pickRandomGroupName() : null;
+      // Assign group if needed, ensuring group sizes remain 4.
+      String? groupId;
+      if (league.format == LeagueFormat.uclGroup) {
+        final allowedGroups = _allowedGroupsForUclGroup(league);
+        final picked = _pickGroupWithSpace(teams: existingTeams, allowedGroups: allowedGroups);
+        if (picked == null) {
+          throw StateError('All groups are full. Cannot add another team.');
+        }
+        groupId = picked;
+      } else {
+        groupId = null;
+      }
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final team = Team(
-        id: userId, // IMPORTANT: userId is the ONLY internal identifier
+        id: userId,
         leagueId: league.id,
-        name: teamName, // ALWAYS from profile
+        name: teamName,
         groupId: groupId,
         updatedAtMs: now,
         version: 1,
       );
 
-      // Add team exactly like the admin flow does when saving:
-      // - append to existing list
-      // - call saveTeams (replace for league)
       await _localRepo.saveTeams(league.id, <Team>[...existingTeams, team]);
 
-      // Link membership.teamId so "My Matches" works silently.
-      // This preserves the organizer role, so organizer + participant is supported.
       await _localRepo.assignTeamToUserInLeague(
         leagueId: league.id,
         userId: userId,
@@ -189,9 +234,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            groupId == null
-                ? 'You have been added as a participant.'
-                : 'You have been added as a participant in $groupId.',
+            groupId == null ? 'You have been added as a participant.' : 'You have been added as a participant in $groupId.',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -251,7 +294,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         throw StateError('No signed-in user id (FirebaseAuth). Please restart app.');
       }
 
-      // Only owner should start (UI should already hide for non-owner, but safe check)
       if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
         throw StateError('Only the league organizer can start a space.');
       }
@@ -262,7 +304,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         title: '${_league!.name} Space',
       );
 
-      // Try push immediately
       await SyncTrigger.trySync();
 
       if (!mounted) return;
@@ -301,7 +342,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       final updated = await _spaceRepo.endSpace(_league!.id);
 
-      // Try push immediately
       await SyncTrigger.trySync();
 
       if (!mounted) return;
@@ -325,7 +365,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _onOpenSpace() {
-    // TODO: Navigate to real voice room screen
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Opening League Space (voice room UI not implemented yet).'),
@@ -388,17 +427,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 children: [
                   Text(
                     widget.hasPendingChanges ? 'Offline Changes' : 'Fully Synced',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                   Text(
                     widget.hasPendingChanges ? 'Local edits will sync when online.' : 'No pending local changes.',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                 ],
               ),
@@ -531,24 +564,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              icon,
-              color: isDestructive ? Colors.redAccent : Colors.white,
-            ),
-            title: Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            subtitle: Text(
-              subtitle,
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
-              ),
-            ),
+            leading: Icon(icon, color: isDestructive ? Colors.redAccent : Colors.white),
+            title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: Text(subtitle, style: const TextStyle(color: Colors.white60, fontSize: 12)),
             trailing: const Icon(Icons.chevron_right, color: Colors.white30),
             onTap: onTap,
           ),
@@ -588,11 +606,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               padding: EdgeInsets.symmetric(vertical: 12),
                               child: Text(
                                 'Live & Voice Settings',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ),
                             const Divider(color: Colors.white10),
@@ -601,30 +615,21 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               onChanged: (v) => setModalState(() => chatEnabled = v),
                               activeColor: Colors.cyanAccent,
                               title: const Text('Viewer text chat', style: TextStyle(color: Colors.white)),
-                              subtitle: const Text(
-                                'Allow viewers to type messages',
-                                style: TextStyle(color: Colors.white60, fontSize: 12),
-                              ),
+                              subtitle: const Text('Allow viewers to type messages', style: TextStyle(color: Colors.white60, fontSize: 12)),
                             ),
                             SwitchListTile.adaptive(
                               value: voiceEnabled,
                               onChanged: (v) => setModalState(() => voiceEnabled = v),
                               activeColor: Colors.cyanAccent,
                               title: const Text('Viewer audio', style: TextStyle(color: Colors.white)),
-                              subtitle: const Text(
-                                'Allow viewers to hear the stream',
-                                style: TextStyle(color: Colors.white60, fontSize: 12),
-                              ),
+                              subtitle: const Text('Allow viewers to hear the stream', style: TextStyle(color: Colors.white60, fontSize: 12)),
                             ),
                             SwitchListTile.adaptive(
                               value: reactionsEnabled,
                               onChanged: (v) => setModalState(() => reactionsEnabled = v),
                               activeColor: Colors.cyanAccent,
                               title: const Text('Viewer reactions', style: TextStyle(color: Colors.white)),
-                              subtitle: const Text(
-                                'Allow quick reactions (GG, Wow, Clutch)',
-                                style: TextStyle(color: Colors.white60, fontSize: 12),
-                              ),
+                              subtitle: const Text('Allow quick reactions (GG, Wow, Clutch)', style: TextStyle(color: Colors.white60, fontSize: 12)),
                             ),
                             Align(
                               alignment: Alignment.centerRight,
@@ -681,14 +686,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          'League Space (Voice Room)',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        const Text('League Space (Voice Room)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 6),
                         Text(
                           spaceLive
@@ -789,34 +787,21 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          'Send announcement',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
+                        const Text('Send announcement', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
-                        const Text(
-                          'This message will appear in the league details screen for all participants.',
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
-                          textAlign: TextAlign.center,
-                        ),
+                        const Text('This message will appear in the league details screen for all participants.', style: TextStyle(color: Colors.white70, fontSize: 11), textAlign: TextAlign.center),
                         const SizedBox(height: 12),
                         TextField(
                           controller: titleController,
                           style: const TextStyle(color: Colors.white),
-                          decoration: const InputDecoration(
-                            labelText: 'Title (optional)',
-                            labelStyle: TextStyle(color: Colors.white70),
-                          ),
+                          decoration: const InputDecoration(labelText: 'Title (optional)', labelStyle: TextStyle(color: Colors.white70)),
                         ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: messageController,
                           style: const TextStyle(color: Colors.white),
                           maxLines: 3,
-                          decoration: const InputDecoration(
-                            labelText: 'Message',
-                            labelStyle: TextStyle(color: Colors.white70),
-                          ),
+                          decoration: const InputDecoration(labelText: 'Message', labelStyle: TextStyle(color: Colors.white70)),
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -858,9 +843,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                                   if (!mounted) return;
                                   Navigator.of(ctx).pop();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Announcement sent.')),
-                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Announcement sent.')));
                                 },
                                 child: const Text('Send'),
                               ),
@@ -899,25 +882,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                       children: [
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Text(
-                            'Manage Teams & Participants',
-                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
+                          child: Text('Manage Teams & Participants', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                         ),
                         const Divider(color: Colors.white10),
                         ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: Colors.cyanAccent,
-                            child: Icon(Icons.group, color: Colors.black),
-                          ),
-                          title: const Text(
-                            'Teams (Add / Edit)',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: const Text(
-                            'Manually add or review teams',
-                            style: TextStyle(color: Colors.white38, fontSize: 12),
-                          ),
+                          leading: const CircleAvatar(backgroundColor: Colors.cyanAccent, child: Icon(Icons.group, color: Colors.black)),
+                          title: const Text('Teams (Add / Edit)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                          subtitle: const Text('Manually add or review teams', style: TextStyle(color: Colors.white38, fontSize: 12)),
                           onTap: () {
                             Navigator.of(ctx).pop();
                             _openAddTeams();
@@ -925,25 +896,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         ),
                         const SizedBox(height: 8),
                         ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: Colors.white.withOpacity(0.1),
-                            child: const Icon(Icons.people, color: Colors.white),
-                          ),
-                          title: const Text(
-                            'Joined Participants',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: const Text(
-                            'View users who joined via code / QR',
-                            style: TextStyle(color: Colors.white38, fontSize: 12),
-                          ),
+                          leading: CircleAvatar(backgroundColor: Colors.white.withOpacity(0.1), child: const Icon(Icons.people, color: Colors.white)),
+                          title: const Text('Joined Participants', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                          subtitle: const Text('View users who joined via code / QR', style: TextStyle(color: Colors.white38, fontSize: 12)),
                           onTap: () {
                             Navigator.of(ctx).pop();
                             Navigator.push(
                               context,
-                              MaterialPageRoute(
-                                builder: (_) => LeagueParticipantsScreen(leagueId: widget.leagueId),
-                              ),
+                              MaterialPageRoute(builder: (_) => LeagueParticipantsScreen(leagueId: widget.leagueId)),
                             );
                           },
                         ),
@@ -962,9 +922,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   void _openAddTeams() {
     if (_league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('League info not loaded yet. Please try again.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('League info not loaded yet. Please try again.')));
       return;
     }
 
@@ -980,11 +938,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _showRulesSheet() {
-    // Keep your existing rules editor implementation (unchanged).
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Rules editor: unchanged (already implemented in your project).'),
-      ),
+      const SnackBar(content: Text('Rules editor: unchanged (already implemented in your project).')),
     );
   }
 
@@ -994,10 +949,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: const Color(0xFF0A1D37),
-          title: const Text(
-            'Delete League?',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
+          title: const Text('Delete League?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           content: const Text(
             'This will permanently remove this league and all of its local data. This action cannot be undone.',
             style: TextStyle(color: Colors.white70),
@@ -1017,9 +969,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                 GoRouter.of(context).go('/leagues');
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('League deleted.')),
-                );
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('League deleted.')));
               },
               child: const Text('Delete'),
             ),

@@ -1,36 +1,162 @@
-import 'dart:math';
-
 import '../../models/enums.dart';
 import '../../models/knockout_match.dart';
-import '../../models/fixture_match.dart';
 import '../standings/standings.dart';
 
 class TournamentController {
-  /// Group-based UCL seeding:
+  static String _shortCode(String roundName) {
+    switch (roundName) {
+      case 'Play-off':
+        return 'PO';
+      case 'Round of 16':
+        return 'R16';
+      case 'Quarter Finals':
+        return 'QF';
+      case 'Semi Finals':
+        return 'SF';
+      case 'Final':
+        return 'F';
+      case '3rd Place':
+        return '3P';
+      default:
+        return 'KO';
+    }
+  }
+
+  static String _nextRoundName(String current) {
+    switch (current) {
+      case 'Round of 16':
+        return 'Quarter Finals';
+      case 'Quarter Finals':
+        return 'Semi Finals';
+      case 'Semi Finals':
+        return 'Final';
+      default:
+        return '';
+    }
+  }
+
+  /// Builds a KO tree skeleton from a specified start round (R16/QF/SF/Final).
+  /// Wires nextMatchId from each match to the next round match.
+  /// Adds a "3rd Place" match only if Semi Finals exist.
+  static List<KnockoutMatch> _buildKnockoutTree({
+    required String leagueId,
+    required String startRoundName,
+    required int startRoundMatchCount,
+    required String idPrefix,
+    required int nowMs,
+  }) {
+    String id(String prefix, int index) => '$leagueId-$idPrefix-$prefix-${nowMs}_$index';
+
+    final rounds = <String, List<KnockoutMatch>>{};
+
+    int matchCount = startRoundMatchCount;
+    String roundName = startRoundName;
+
+    while (true) {
+      final list = <KnockoutMatch>[];
+      for (var i = 0; i < matchCount; i++) {
+        list.add(
+          KnockoutMatch(
+            id: id(_shortCode(roundName), i + 1),
+            leagueId: leagueId,
+            roundName: roundName,
+            homeTeamId: null,
+            awayTeamId: null,
+            homeScore: null,
+            awayScore: null,
+            status: MatchStatus.scheduled,
+            tiebreakWinnerTeamId: null,
+            nextMatchId: null,
+            loserGoesToMatchId: null,
+            isSecondLeg: false,
+          ),
+        );
+      }
+      rounds[roundName] = list;
+
+      if (matchCount == 1) break; // Final created
+
+      matchCount = matchCount ~/ 2;
+      roundName = _nextRoundName(roundName);
+      if (roundName.isEmpty) break;
+    }
+
+    // Ordered round names from start to Final.
+    final orderedRoundNames = <String>[];
+    if (startRoundName == 'Round of 16') {
+      orderedRoundNames.addAll(['Round of 16', 'Quarter Finals', 'Semi Finals', 'Final']);
+    } else if (startRoundName == 'Quarter Finals') {
+      orderedRoundNames.addAll(['Quarter Finals', 'Semi Finals', 'Final']);
+    } else if (startRoundName == 'Semi Finals') {
+      orderedRoundNames.addAll(['Semi Finals', 'Final']);
+    } else if (startRoundName == 'Final') {
+      orderedRoundNames.addAll(['Final']);
+    }
+
+    // Wire nextMatchId between rounds.
+    for (var i = 0; i + 1 < orderedRoundNames.length; i++) {
+      final from = rounds[orderedRoundNames[i]] ?? const <KnockoutMatch>[];
+      final to = rounds[orderedRoundNames[i + 1]] ?? const <KnockoutMatch>[];
+
+      if (to.isEmpty) continue;
+
+      for (var j = 0; j < from.length; j++) {
+        final nextIndex = j ~/ 2;
+        if (nextIndex >= to.length) continue;
+        from[j] = from[j].copyWith(nextMatchId: to[nextIndex].id);
+      }
+
+      rounds[orderedRoundNames[i]] = from;
+    }
+
+    // Create 3rd place if semis exist.
+    KnockoutMatch? thirdPlace;
+    if (rounds.containsKey('Semi Finals')) {
+      thirdPlace = KnockoutMatch(
+        id: id('3P', 1),
+        leagueId: leagueId,
+        roundName: '3rd Place',
+        homeTeamId: null,
+        awayTeamId: null,
+        homeScore: null,
+        awayScore: null,
+        status: MatchStatus.scheduled,
+        tiebreakWinnerTeamId: null,
+        nextMatchId: null,
+        loserGoesToMatchId: null,
+        isSecondLeg: false,
+      );
+
+      // Wire semis loser destination.
+      final semis = rounds['Semi Finals']!;
+      rounds['Semi Finals'] = [
+        semis[0].copyWith(loserGoesToMatchId: thirdPlace.id),
+        if (semis.length > 1) semis[1].copyWith(loserGoesToMatchId: thirdPlace.id),
+      ];
+    }
+
+    // Flatten output in display order.
+    final out = <KnockoutMatch>[];
+    for (final rn in orderedRoundNames) {
+      out.addAll(rounds[rn] ?? const <KnockoutMatch>[]);
+    }
+    if (thirdPlace != null) out.add(thirdPlace);
+
+    return out;
+  }
+
+  static String _pairKey(String a, String b) =>
+      (a.compareTo(b) < 0) ? '$a|$b' : '$b|$a';
+
+  /// UCL GROUP MODEL:
+  /// - Allowed total teams: 16 or 32
+  /// - Structure: groups of 4
+  ///   - 16 teams => 4 groups of 4 => top 2 => 8 qualifiers => Quarter Finals start
+  ///   - 32 teams => 8 groups of 4 => top 2 => 16 qualifiers => Round of 16 start
   ///
-  /// Input: groupStandings[groupId] = List<StandingsRow> sorted best→worst.
-  ///
-  /// - For each group, we take:
-  ///   - Winner  (index 0)
-  ///   - Runner-up (index 1)
-  ///
-  /// - From all groups (sorted by groupId), we build:
-  ///   - Winners list: [A1, B1, C1, ...]
-  ///   - Runners list: [A2, B2, C2, ...]
-  ///
-  /// - Round of 16 pairings (for pairs of groups):
-  ///   - A1 vs B2
-  ///   - B1 vs A2
-  ///   - C1 vs D2
-  ///   - D1 vs C2
-  ///   - ...
-  ///
-  /// Then we build the tree:
-  ///   - 8 Round of 16 matches
-  ///   - 4 Quarter Finals
-  ///   - 2 Semi Finals
-  ///   - 1 Final
-  ///   - 1 Third Place
+  /// This method enforces:
+  /// - number of groups must be 4 or 8
+  /// - each group standings list must have exactly 4 teams
   static List<KnockoutMatch> seedKnockoutsFromGroups({
     required String leagueId,
     required Map<String, List<StandingsRow>> groupStandings,
@@ -38,386 +164,121 @@ class TournamentController {
     if (groupStandings.isEmpty) return [];
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    String _id(String prefix, int index) =>
-        '$leagueId-$prefix-${now}_$index';
 
-    // Sort groups by name (e.g. "Group A", "Group B", ...)
-    final groupKeys = groupStandings.keys.toList()..sort();
+    final keys = groupStandings.keys.toList()..sort();
+    final groupCount = keys.length;
 
-    // Collect winners and runners-up
-    final winners = <StandingsRow>[];
-    final runners = <StandingsRow>[];
+    if (groupCount != 4 && groupCount != 8) return [];
 
-    for (final g in groupKeys) {
-      final rows = groupStandings[g] ?? [];
-      if (rows.isEmpty) continue;
-      winners.add(rows[0]);
-      if (rows.length > 1) runners.add(rows[1]);
+    // Enforce each group has exactly 4 teams ranked.
+    for (final k in keys) {
+      final rows = groupStandings[k] ?? const <StandingsRow>[];
+      if (rows.length != 4) return [];
+      // Need at least 2 to qualify.
+      if (rows.length < 2) return [];
     }
 
-    if (winners.isEmpty || runners.isEmpty) {
-      return [];
-    }
+    final winners = <StandingsRow>[for (final k in keys) groupStandings[k]![0]];
+    final runners = <StandingsRow>[for (final k in keys) groupStandings[k]![1]];
 
-    // --- Create Round of 16 matches ---
-    final r16Matches = <KnockoutMatch>[];
+    final startRoundName = (groupCount == 8) ? 'Round of 16' : 'Quarter Finals';
+    final startMatchCount = (groupCount == 8) ? 8 : 4;
 
-    // Pair groups in twos: (A,B), (C,D), ...
-    int r16Index = 0;
-    for (var i = 0; i + 1 < winners.length && i + 1 < runners.length; i += 2) {
-      if (r16Index >= 8) break;
+    final tree = _buildKnockoutTree(
+      leagueId: leagueId,
+      startRoundName: startRoundName,
+      startRoundMatchCount: startMatchCount,
+      idPrefix: 'GRP',
+      nowMs: now,
+    );
 
+    final startRound = tree.where((m) => m.roundName == startRoundName).toList();
+    if (startRound.length != startMatchCount) return [];
+
+    // Pair groups in twos: (A,B), (C,D), ...:
+    // A1 vs B2, B1 vs A2, etc.
+    final seeded = <KnockoutMatch>[];
+    var idx = 0;
+    for (var i = 0; i + 1 < winners.length; i += 2) {
       final g1Winner = winners[i];
       final g2Winner = winners[i + 1];
-
       final g1Runner = runners[i];
       final g2Runner = runners[i + 1];
 
-      // Match 1: g1Winner vs g2Runner
-      r16Matches.add(
-        KnockoutMatch(
-          id: _id('R16', r16Index + 1),
-          leagueId: leagueId,
-          roundName: 'Round of 16',
-          homeTeamId: g1Winner.teamId,
-          awayTeamId: g2Runner.teamId,
-          homeScore: null,
-          awayScore: null,
-          status: MatchStatus.scheduled,
-          nextMatchId: null,
-          loserGoesToMatchId: null,
-          isSecondLeg: false,
-        ),
-      );
-      r16Index++;
-      if (r16Index >= 8) break;
-
-      // Match 2: g2Winner vs g1Runner
-      r16Matches.add(
-        KnockoutMatch(
-          id: _id('R16', r16Index + 1),
-          leagueId: leagueId,
-          roundName: 'Round of 16',
-          homeTeamId: g2Winner.teamId,
-          awayTeamId: g1Runner.teamId,
-          homeScore: null,
-          awayScore: null,
-          status: MatchStatus.scheduled,
-          nextMatchId: null,
-          loserGoesToMatchId: null,
-          isSecondLeg: false,
-        ),
-      );
-      r16Index++;
+      seeded.add(startRound[idx++].copyWith(homeTeamId: g1Winner.teamId, awayTeamId: g2Runner.teamId));
+      seeded.add(startRound[idx++].copyWith(homeTeamId: g2Winner.teamId, awayTeamId: g1Runner.teamId));
     }
 
-    // Pad to 8 matches if fewer were created.
-    while (r16Matches.length < 8) {
-      final i = r16Matches.length;
-      r16Matches.add(
-        KnockoutMatch(
-          id: _id('R16', i + 1),
-          leagueId: leagueId,
-          roundName: 'Round of 16',
-          homeTeamId: null,
-          awayTeamId: null,
-          homeScore: null,
-          awayScore: null,
-          status: MatchStatus.scheduled,
-          nextMatchId: null,
-          loserGoesToMatchId: null,
-          isSecondLeg: false,
-        ),
-      );
-    }
-
-    // Build QF, SF, Final, 3rd Place exactly like Swiss.
-    final qfMatches = <KnockoutMatch>[];
-    for (var i = 0; i < 4; i++) {
-      qfMatches.add(
-        KnockoutMatch(
-          id: _id('QF', i + 1),
-          leagueId: leagueId,
-          roundName: 'Quarter Finals',
-          homeTeamId: null,
-          awayTeamId: null,
-          homeScore: null,
-          awayScore: null,
-          status: MatchStatus.scheduled,
-          nextMatchId: null,
-          loserGoesToMatchId: null,
-          isSecondLeg: false,
-        ),
-      );
-    }
-
-    final sfMatches = <KnockoutMatch>[];
-    for (var i = 0; i < 2; i++) {
-      sfMatches.add(
-        KnockoutMatch(
-          id: _id('SF', i + 1),
-          leagueId: leagueId,
-          roundName: 'Semi Finals',
-          homeTeamId: null,
-          awayTeamId: null,
-          homeScore: null,
-          awayScore: null,
-          status: MatchStatus.scheduled,
-          nextMatchId: null,
-          loserGoesToMatchId: null,
-          isSecondLeg: false,
-        ),
-      );
-    }
-
-    final finalMatch = KnockoutMatch(
-      id: _id('F', 1),
-      leagueId: leagueId,
-      roundName: 'Final',
-      homeTeamId: null,
-      awayTeamId: null,
-      homeScore: null,
-      awayScore: null,
-      status: MatchStatus.scheduled,
-      nextMatchId: null,
-      loserGoesToMatchId: null,
-      isSecondLeg: false,
-    );
-
-    final thirdPlace = KnockoutMatch(
-      id: _id('3P', 1),
-      leagueId: leagueId,
-      roundName: '3rd Place',
-      homeTeamId: null,
-      awayTeamId: null,
-      homeScore: null,
-      awayScore: null,
-      status: MatchStatus.scheduled,
-      nextMatchId: null,
-      loserGoesToMatchId: null,
-      isSecondLeg: false,
-    );
-
-    // Wire R16 -> QF (same pattern as Swiss)
-    void wireR16ToQF(int r16Index, int qfIndex) {
-      final m = r16Matches[r16Index];
-      r16Matches[r16Index] =
-          m.copyWith(nextMatchId: qfMatches[qfIndex].id);
-    }
-
-    wireR16ToQF(0, 0);
-    wireR16ToQF(1, 0);
-    wireR16ToQF(2, 1);
-    wireR16ToQF(3, 1);
-    wireR16ToQF(4, 2);
-    wireR16ToQF(5, 2);
-    wireR16ToQF(6, 3);
-    wireR16ToQF(7, 3);
-
-    // Wire QF -> SF
-    void wireQFToSF(int qfIndex, int sfIndex) {
-      final m = qfMatches[qfIndex];
-      qfMatches[qfIndex] =
-          m.copyWith(nextMatchId: sfMatches[sfIndex].id);
-    }
-
-    wireQFToSF(0, 0);
-    wireQFToSF(1, 0);
-    wireQFToSF(2, 1);
-    wireQFToSF(3, 1);
-
-    // Wire SF -> Final
-    for (var i = 0; i < sfMatches.length; i++) {
-      final m = sfMatches[i];
-      sfMatches[i] = m.copyWith(nextMatchId: finalMatch.id);
-    }
-    // SF losers go to 3rd place via processMatchResult.
-
-    return [
-      ...r16Matches,
-      ...qfMatches,
-      ...sfMatches,
-      finalMatch,
-      thirdPlace,
-    ];
+    final seededById = {for (final m in seeded) m.id: m};
+    return tree.map((m) => seededById[m.id] ?? m).toList();
   }
 
-  /// Swiss-specific seeding:
+  /// UCL SWISS MODEL:
+  /// - Allowed total teams: 18 or 36
+  /// - League phase standings must include exactly that many teams.
+  /// - Play-off is two-legged (aggregate over 2 legs).
   ///
-  /// - Top 1–8: go directly to Round of 16 (automatic qualifiers).
-  /// - 9–24: go into a Play-off round (16 teams, 8 matches).
-  /// - Winners of Play-off matches advance into the remaining 8 R16 slots.
+  /// For 36 teams (UEFA-style):
+  /// - Top 8 -> Round of 16 (home slots)
+  /// - 9–24 -> Play-off (16 teams => 8 ties => 16 matches / 2 legs)
+  /// - 25–36 eliminated
   ///
-  /// This seeds:
-  /// - 8 Play-off matches
-  /// - 8 Round of 16 matches
-  /// - 4 Quarter Finals
-  /// - 2 Semi Finals
-  /// - 1 Final
-  /// - 1 Third Place
+  /// For 18 teams (compact variant):
+  /// - Top 4 -> Quarter Finals (home slots)
+  /// - 5–12 -> Play-off (8 teams => 4 ties => 8 matches / 2 legs)
+  /// - 13–18 eliminated
   static List<KnockoutMatch> seedSwissKnockouts({
     required String leagueId,
     required List<StandingsRow> swissStandings,
   }) {
-    if (swissStandings.length < 16) {
-      // Need at least 16 teams to have a meaningful Play-off + full KO tree.
-      return [];
-    }
+    final n = swissStandings.length;
+
+    if (n != 36 && n != 18) return [];
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    String _id(String prefix, int index) =>
-        '$leagueId-$prefix-${now}_$index';
+    String id(String prefix, int index) => '$leagueId-SWISS-$prefix-${now}_$index';
 
-    // 1–8: auto qualifiers
-    final autoQualifiers = swissStandings.take(8).toList();
+    if (n == 36) {
+      final autoQualifiers = swissStandings.take(8).toList(); // 1–8
+      final playoffSeeds = swissStandings.skip(8).take(16).toList(); // 9–24
+      if (playoffSeeds.length != 16) return [];
 
-    // 9–24: playoff pool (cap at 16)
-    final playoffSeeds =
-        swissStandings.skip(8).take(16).toList();
-
-    // --- Create Round of 16 skeleton: 8 matches ---
-    final r16Matches = <KnockoutMatch>[];
-    for (var i = 0; i < 8; i++) {
-      final homeTeamId =
-          i < autoQualifiers.length ? autoQualifiers[i].teamId : null;
-
-      r16Matches.add(
-        KnockoutMatch(
-          id: _id('R16', i + 1),
-          leagueId: leagueId,
-          roundName: 'Round of 16',
-          homeTeamId: homeTeamId,
-          awayTeamId: null,
-          homeScore: null,
-          awayScore: null,
-          status: MatchStatus.scheduled,
-          nextMatchId: null,
-          loserGoesToMatchId: null,
-          isSecondLeg: false,
-        ),
+      final tree = _buildKnockoutTree(
+        leagueId: leagueId,
+        startRoundName: 'Round of 16',
+        startRoundMatchCount: 8,
+        idPrefix: 'SWISS',
+        nowMs: now,
       );
-    }
 
-    // --- Create QF, SF, Final, 3rd Place (same as groups) ---
-    final qfMatches = <KnockoutMatch>[];
-    for (var i = 0; i < 4; i++) {
-      qfMatches.add(
-        KnockoutMatch(
-          id: _id('QF', i + 1),
-          leagueId: leagueId,
-          roundName: 'Quarter Finals',
-          homeTeamId: null,
-          awayTeamId: null,
-          homeScore: null,
-          awayScore: null,
-          status: MatchStatus.scheduled,
-          nextMatchId: null,
-          loserGoesToMatchId: null,
-          isSecondLeg: false,
-        ),
-      );
-    }
+      final r16 = tree.where((m) => m.roundName == 'Round of 16').toList();
+      if (r16.length != 8) return [];
 
-    final sfMatches = <KnockoutMatch>[];
-    for (var i = 0; i < 2; i++) {
-      sfMatches.add(
-        KnockoutMatch(
-          id: _id('SF', i + 1),
-          leagueId: leagueId,
-          roundName: 'Semi Finals',
-          homeTeamId: null,
-          awayTeamId: null,
-          homeScore: null,
-          awayScore: null,
-          status: MatchStatus.scheduled,
-          nextMatchId: null,
-          loserGoesToMatchId: null,
-          isSecondLeg: false,
-        ),
-      );
-    }
+      // Seed Top 8 as home teams.
+      final seededR16 = <KnockoutMatch>[];
+      for (var i = 0; i < 8; i++) {
+        seededR16.add(
+          r16[i].copyWith(
+            homeTeamId: autoQualifiers[i].teamId,
+            awayTeamId: null, // filled by playoff winners
+          ),
+        );
+      }
 
-    final finalMatch = KnockoutMatch(
-      id: _id('F', 1),
-      leagueId: leagueId,
-      roundName: 'Final',
-      homeTeamId: null,
-      awayTeamId: null,
-      homeScore: null,
-      awayScore: null,
-      status: MatchStatus.scheduled,
-      nextMatchId: null,
-      loserGoesToMatchId: null,
-      isSecondLeg: false,
-    );
-
-    final thirdPlace = KnockoutMatch(
-      id: _id('3P', 1),
-      leagueId: leagueId,
-      roundName: '3rd Place',
-      homeTeamId: null,
-      awayTeamId: null,
-      homeScore: null,
-      awayScore: null,
-      status: MatchStatus.scheduled,
-      nextMatchId: null,
-      loserGoesToMatchId: null,
-      isSecondLeg: false,
-    );
-
-    // Wire R16 -> QF
-    void wireR16ToQF(int r16Index, int qfIndex) {
-      final m = r16Matches[r16Index];
-      r16Matches[r16Index] =
-          m.copyWith(nextMatchId: qfMatches[qfIndex].id);
-    }
-
-    wireR16ToQF(0, 0);
-    wireR16ToQF(1, 0);
-    wireR16ToQF(2, 1);
-    wireR16ToQF(3, 1);
-    wireR16ToQF(4, 2);
-    wireR16ToQF(5, 2);
-    wireR16ToQF(6, 3);
-    wireR16ToQF(7, 3);
-
-    // Wire QF -> SF
-    void wireQFToSF(int qfIndex, int sfIndex) {
-      final m = qfMatches[qfIndex];
-      qfMatches[qfIndex] =
-          m.copyWith(nextMatchId: sfMatches[sfIndex].id);
-    }
-
-    wireQFToSF(0, 0);
-    wireQFToSF(1, 0);
-    wireQFToSF(2, 1);
-    wireQFToSF(3, 1);
-
-    // Wire SF -> Final
-    for (var i = 0; i < sfMatches.length; i++) {
-      final m = sfMatches[i];
-      sfMatches[i] = m.copyWith(nextMatchId: finalMatch.id);
-    }
-
-    // --- Create Play-off matches: pair 9 vs 24, 10 vs 23, ... ---
-    final playoffMatches = <KnockoutMatch>[];
-
-    if (playoffSeeds.length >= 2) {
+      // Create 8 two-legged ties: 9 vs 24, 10 vs 23, ... 16 vs 17
+      final playoffMatches = <KnockoutMatch>[];
       int start = 0;
       int end = playoffSeeds.length - 1;
-      int pairIndex = 0;
 
-      while (start < end && pairIndex < 8) {
-        final a = playoffSeeds[start];
-        final b = playoffSeeds[end];
+      for (var tieIndex = 0; tieIndex < 8; tieIndex++) {
+        final a = playoffSeeds[start++]; // higher seed in PO pool
+        final b = playoffSeeds[end--]; // lower seed
+        final r16Index = 7 - tieIndex;
 
-        // Map pairIndex to an R16 slot (reverse order).
-        final r16Index =
-            max(0, 7 - pairIndex).clamp(0, r16Matches.length - 1);
-
+        // Leg 1
         playoffMatches.add(
           KnockoutMatch(
-            id: _id('PO', pairIndex + 1),
+            id: id('PO1', tieIndex + 1),
             leagueId: leagueId,
             roundName: 'Play-off',
             homeTeamId: a.teamId,
@@ -425,36 +286,197 @@ class TournamentController {
             homeScore: null,
             awayScore: null,
             status: MatchStatus.scheduled,
-            nextMatchId: r16Matches[r16Index].id,
+            tiebreakWinnerTeamId: null,
+            nextMatchId: seededR16[r16Index].id,
             loserGoesToMatchId: null,
             isSecondLeg: false,
           ),
         );
 
-        pairIndex++;
-        start++;
-        end--;
+        // Leg 2 (reverse)
+        playoffMatches.add(
+          KnockoutMatch(
+            id: id('PO2', tieIndex + 1),
+            leagueId: leagueId,
+            roundName: 'Play-off',
+            homeTeamId: b.teamId,
+            awayTeamId: a.teamId,
+            homeScore: null,
+            awayScore: null,
+            status: MatchStatus.scheduled,
+            tiebreakWinnerTeamId: null,
+            nextMatchId: seededR16[r16Index].id,
+            loserGoesToMatchId: null,
+            isSecondLeg: true,
+          ),
+        );
       }
+
+      final seededById = {for (final m in seededR16) m.id: m};
+      final updatedTree = tree.map((m) => seededById[m.id] ?? m).toList();
+
+      return [
+        ...playoffMatches,
+        ...updatedTree,
+      ];
     }
+
+    // n == 18
+    final autoQualifiers = swissStandings.take(4).toList(); // 1–4
+    final playoffSeeds = swissStandings.skip(4).take(8).toList(); // 5–12
+    if (playoffSeeds.length != 8) return [];
+
+    final tree = _buildKnockoutTree(
+      leagueId: leagueId,
+      startRoundName: 'Quarter Finals',
+      startRoundMatchCount: 4,
+      idPrefix: 'SWISS',
+      nowMs: now,
+    );
+
+    final qf = tree.where((m) => m.roundName == 'Quarter Finals').toList();
+    if (qf.length != 4) return [];
+
+    // Seed Top 4 as home teams in QF.
+    final seededQF = <KnockoutMatch>[];
+    for (var i = 0; i < 4; i++) {
+      seededQF.add(
+        qf[i].copyWith(
+          homeTeamId: autoQualifiers[i].teamId,
+          awayTeamId: null, // filled by playoff winners
+        ),
+      );
+    }
+
+    // Create 4 two-legged ties: 5 vs 12, 6 vs 11, 7 vs 10, 8 vs 9
+    final playoffMatches = <KnockoutMatch>[];
+    int start = 0;
+    int end = playoffSeeds.length - 1;
+
+    for (var tieIndex = 0; tieIndex < 4; tieIndex++) {
+      final a = playoffSeeds[start++];
+      final b = playoffSeeds[end--];
+      final qfIndex = 3 - tieIndex;
+
+      playoffMatches.add(
+        KnockoutMatch(
+          id: id('PO1', tieIndex + 1),
+          leagueId: leagueId,
+          roundName: 'Play-off',
+          homeTeamId: a.teamId,
+          awayTeamId: b.teamId,
+          homeScore: null,
+          awayScore: null,
+          status: MatchStatus.scheduled,
+          tiebreakWinnerTeamId: null,
+          nextMatchId: seededQF[qfIndex].id,
+          loserGoesToMatchId: null,
+          isSecondLeg: false,
+        ),
+      );
+
+      playoffMatches.add(
+        KnockoutMatch(
+          id: id('PO2', tieIndex + 1),
+          leagueId: leagueId,
+          roundName: 'Play-off',
+          homeTeamId: b.teamId,
+          awayTeamId: a.teamId,
+          homeScore: null,
+          awayScore: null,
+          status: MatchStatus.scheduled,
+          tiebreakWinnerTeamId: null,
+          nextMatchId: seededQF[qfIndex].id,
+          loserGoesToMatchId: null,
+          isSecondLeg: true,
+        ),
+      );
+    }
+
+    final seededById = {for (final m in seededQF) m.id: m};
+    final updatedTree = tree.map((m) => seededById[m.id] ?? m).toList();
 
     return [
       ...playoffMatches,
-      ...r16Matches,
-      ...qfMatches,
-      ...sfMatches,
-      finalMatch,
-      thirdPlace,
+      ...updatedTree,
     ];
   }
 
-  /// The "Automatic Advancement" engine.
-  /// Called every time a score is confirmed.
+  /// Automatic advancement after a KO match is confirmed.
+  ///
+  /// Special rule:
+  /// - For two-legged "Play-off" ties, advancement happens ONLY when the
+  ///   second leg is completed, using aggregate score across both legs.
+  /// - If aggregate is tied after leg 2, completedMatch.tiebreakWinnerTeamId is required.
   static List<KnockoutMatch> processMatchResult({
     required KnockoutMatch completedMatch,
     required List<KnockoutMatch> allMatches,
   }) {
-    if (completedMatch.status != MatchStatus.completed) return allMatches;
+    if (!completedMatch.isFinished) return allMatches;
 
+    // Two-legged Play-off aggregate handling
+    if (completedMatch.roundName == 'Play-off') {
+      if (!completedMatch.isSecondLeg) return allMatches;
+
+      final hId = completedMatch.homeTeamId;
+      final aId = completedMatch.awayTeamId;
+      if (hId == null || aId == null) return allMatches;
+
+      final nextId = completedMatch.nextMatchId;
+      if (nextId == null) return allMatches;
+
+      final tieKey = _pairKey(hId, aId);
+
+      KnockoutMatch? firstLeg;
+      for (final m in allMatches) {
+        if (m.roundName != 'Play-off') continue;
+        if (m.isSecondLeg) continue;
+        if (m.nextMatchId != nextId) continue;
+        if (m.homeTeamId == null || m.awayTeamId == null) continue;
+        if (_pairKey(m.homeTeamId!, m.awayTeamId!) != tieKey) continue;
+        firstLeg = m;
+        break;
+      }
+
+      if (firstLeg == null) return allMatches;
+      if (!firstLeg.isFinished) return allMatches;
+
+      final totals = <String, int>{hId: 0, aId: 0};
+
+      void add(KnockoutMatch m) {
+        final home = m.homeTeamId!;
+        final away = m.awayTeamId!;
+        totals[home] = (totals[home] ?? 0) + m.homeScore!;
+        totals[away] = (totals[away] ?? 0) + m.awayScore!;
+      }
+
+      add(firstLeg);
+      add(completedMatch);
+
+      final hTot = totals[hId] ?? 0;
+      final aTot = totals[aId] ?? 0;
+
+      String? winner;
+      if (hTot > aTot) {
+        winner = hId;
+      } else if (aTot > hTot) {
+        winner = aId;
+      } else {
+        winner = completedMatch.tiebreakWinnerTeamId; // penalties on leg 2
+      }
+
+      if (winner == null) return allMatches;
+
+      return allMatches.map((m) {
+        if (m.id != nextId) return m;
+
+        if (m.homeTeamId == null) return m.copyWith(homeTeamId: winner);
+        if (m.awayTeamId == null) return m.copyWith(awayTeamId: winner);
+        return m;
+      }).toList();
+    }
+
+    // Standard single-match advancement for R16/QF/SF/Final/3P
     final winnerId = completedMatch.winnerTeamId;
     if (winnerId == null) return allMatches;
 
@@ -465,8 +487,7 @@ class TournamentController {
     return allMatches.map((m) {
       var updated = m;
 
-      // 1. Logic for Winners: advance to next match slot
-      if (m.id == completedMatch.nextMatchId) {
+      if (completedMatch.nextMatchId != null && m.id == completedMatch.nextMatchId) {
         if (m.homeTeamId == null) {
           updated = m.copyWith(homeTeamId: winnerId);
         } else if (m.awayTeamId == null) {
@@ -474,9 +495,9 @@ class TournamentController {
         }
       }
 
-      // 2. Logic for SF Losers (Move to 3rd Place Match)
-      if (completedMatch.roundName == "Semi Finals" &&
-          m.roundName == "3rd Place") {
+      if (loserId != null &&
+          completedMatch.roundName == 'Semi Finals' &&
+          m.roundName == '3rd Place') {
         if (m.homeTeamId == null) {
           updated = m.copyWith(homeTeamId: loserId);
         } else if (m.awayTeamId == null) {

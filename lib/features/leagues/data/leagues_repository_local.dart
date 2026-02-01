@@ -211,9 +211,6 @@ class LocalLeaguesRepository {
       final doc = query.docs.first;
       final leagueId = doc.id;
 
-      // IMPORTANT:
-      // We always add the userId to memberIds so they have access to the league doc
-      // (including "viewer-only" mode for private leagues).
       await firestore.collection('leagues').doc(leagueId).set(
         {
           'memberIds': FieldValue.arrayUnion([userId]),
@@ -222,7 +219,6 @@ class LocalLeaguesRepository {
         SetOptions(merge: true),
       );
 
-      // Pull league doc (now that memberIds includes the user, private get rules will pass)
       final fresh = await firestore.collection('leagues').doc(leagueId).get();
       final data = (fresh.data() ?? <String, dynamic>{});
       data['id'] = leagueId;
@@ -230,10 +226,6 @@ class LocalLeaguesRepository {
       final league = League.fromRemoteMap(data);
       await _upsertLeagueLocalNoQueue(league);
 
-      // --- Membership resolution (important for "admin already added you") ---
-      //
-      // If admin already added the user, a membership record should exist in cloud.
-      // We fetch it and store it locally so the player immediately sees "My Matches".
       final remoteMembership = await _fetchRemoteMembershipForUser(
         firestore: firestore,
         leagueId: leagueId,
@@ -245,15 +237,11 @@ class LocalLeaguesRepository {
       final existingMembership = remoteMembership ?? localExisting;
 
       if (existingMembership != null) {
-        // Store/refresh locally (no queue) using leagueId+userId uniqueness.
         await _upsertMembershipLocalByLeagueUserNoQueue(existingMembership);
         return league;
       }
 
-      // No existing membership. Decide whether to create one.
       if (mode == LeagueJoinMode.participant) {
-        // Enforce "league full" as: teamsCount + orphanMembershipCount >= league.maxTeams
-        // If full -> do NOT create membership (user becomes viewer-only).
         bool allowParticipantMembership = true;
         try {
           final registered = await _fetchRemoteRegisteredCount(
@@ -264,7 +252,6 @@ class LocalLeaguesRepository {
             allowParticipantMembership = false;
           }
         } catch (_) {
-          // Best-effort: if we can't compute counts, keep prior behavior and allow membership.
           allowParticipantMembership = true;
         }
 
@@ -280,7 +267,6 @@ class LocalLeaguesRepository {
           );
           await _upsertMembershipLocalByLeagueUserNoQueue(membership);
 
-          // Queue membership doc to cloud
           await _queue.enqueue(
             id: _uuid.v4(),
             entityType: 'membership',
@@ -292,16 +278,13 @@ class LocalLeaguesRepository {
         }
       }
 
-      // Viewer-only: no membership created.
       return league;
     } on FirebaseException catch (e) {
-      // Only fallback to offline placeholder on network-type errors.
       final isNetwork = e.code == 'unavailable' || e.code == 'deadline-exceeded';
       if (!isNetwork) {
         throw StateError('Join failed: ${e.message ?? e.code}');
       }
 
-      // Offline fallback
       final generatedLeagueId = _uuid.v4();
       final placeholder = placeholderBuilder(generatedLeagueId).copyWith(
         code: code,
@@ -310,7 +293,6 @@ class LocalLeaguesRepository {
 
       await _upsertLeagueLocalNoQueue(placeholder);
 
-      // Queue join for later (always), so the user is added to memberIds in the real league when online.
       await _queue.enqueue(
         id: _uuid.v4(),
         entityType: 'league_join',
@@ -323,7 +305,6 @@ class LocalLeaguesRepository {
         },
       );
 
-      // PARTICIPANT mode: create membership locally and queue it.
       if (mode == LeagueJoinMode.participant) {
         final membership = Membership(
           id: _uuid.v4(),
@@ -369,17 +350,13 @@ class LocalLeaguesRepository {
       final doc = snap.docs.first;
       final data = doc.data();
 
-      // Ensure required keys exist for local model parsing.
       final map = <String, dynamic>{...data};
 
-      // Membership model expects `id` field inside map.
       map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
 
-      // Ensure leagueId/userId exist in the payload.
       map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
       map['userId'] = (map['userId'] as String?) ?? userId;
 
-      // Defaults for safety
       map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
       map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
       map['version'] = (map['version'] as num?)?.toInt() ?? 1;
@@ -390,10 +367,6 @@ class LocalLeaguesRepository {
     }
   }
 
-  /// Remote participant count approximation (matches your local UI logic):
-  /// registered = (teams count) + (orphan members where role==member and teamId is null/empty)
-  ///
-  /// NOTE: This is best-effort and depends on those subcollections existing in Firestore.
   Future<int> _fetchRemoteRegisteredCount({
     required FirebaseFirestore firestore,
     required String leagueId,
@@ -433,10 +406,6 @@ class LocalLeaguesRepository {
     return null;
   }
 
-  /// Backend-driven team assignment:
-  /// - Admin supplies ONLY userId (Firebase uid)
-  /// - Team id can be the same as userId for a stable link
-  /// This updates/creates membership so "My Matches" can work without asking for team names.
   Future<void> assignTeamToUserInLeague({
     required String leagueId,
     required String userId,
@@ -593,9 +562,44 @@ class LocalLeaguesRepository {
   // Knockout matches
   // ------------------------------------------------------
 
+  // FIX: return matches in a stable, bracket-friendly order (especially for 2-legged play-offs).
   Future<List<KnockoutMatch>> getKnockoutMatches(String leagueId) async {
     final all = await _getAllKnockoutMatches();
-    return all.where((m) => m.leagueId == leagueId).toList();
+    final list = all.where((m) => m.leagueId == leagueId).toList();
+
+    const roundOrder = <String>[
+      'Play-off',
+      'Round of 16',
+      'Quarter Finals',
+      'Semi Finals',
+      'Final',
+      '3rd Place',
+    ];
+
+    list.sort((a, b) {
+      final ai = roundOrder.indexOf(a.roundName);
+      final bi = roundOrder.indexOf(b.roundName);
+      if (ai != bi) {
+        if (ai == -1) return 1;
+        if (bi == -1) return -1;
+        return ai.compareTo(bi);
+      }
+
+      if (a.roundName == 'Play-off' && b.roundName == 'Play-off') {
+        final an = (a.nextMatchId ?? '');
+        final bn = (b.nextMatchId ?? '');
+        final c1 = an.compareTo(bn);
+        if (c1 != 0) return c1;
+
+        // Leg 1 first
+        final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
+        if (c2 != 0) return c2;
+      }
+
+      return a.id.compareTo(b.id);
+    });
+
+    return list;
   }
 
   Future<void> saveKnockoutMatches(String leagueId, List<KnockoutMatch> matches) async {
@@ -649,8 +653,6 @@ class LocalLeaguesRepository {
     }).toList();
   }
 
-  /// Ensures uniqueness by (leagueId + userId).
-  /// This prevents duplicate memberships when a user joins multiple times or was already added by admin.
   Future<void> _upsertMembershipLocalByLeagueUserNoQueue(Membership membership) async {
     final all = await _getAllMemberships();
     final idx = all.indexWhere((m) => m.leagueId == membership.leagueId && m.userId == membership.userId);

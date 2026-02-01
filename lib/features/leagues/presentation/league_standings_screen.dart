@@ -29,7 +29,6 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
   void initState() {
     super.initState();
 
-    // Auto-sync when opening standings (participant will pull latest matches)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _syncAndRefresh();
     });
@@ -41,7 +40,6 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
 
     await SyncTrigger.trySync();
 
-    // Recompute providers from local storage after pull
     ref.invalidate(leagueProvider(widget.id));
     ref.invalidate(leagueStandingsProvider(widget.id));
     ref.invalidate(leagueGroupedStandingsProvider(widget.id));
@@ -101,9 +99,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                           data: (league) {
                             switch (league.format) {
                               case LeagueFormat.uclGroup:
-                                final groupedAsync = ref.watch(
-                                  leagueGroupedStandingsProvider(widget.id),
-                                );
+                                final groupedAsync = ref.watch(leagueGroupedStandingsProvider(widget.id));
                                 return groupedAsync.when(
                                   loading: () => const Center(
                                     child: CircularProgressIndicator(color: Colors.cyanAccent),
@@ -129,16 +125,38 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
 
                                     final groupKeys = groupMap.keys.toList()..sort();
 
+                                    final invalidGroupCount = !(groupKeys.length == 4 || groupKeys.length == 8);
+                                    final invalidGroupSizes = groupKeys.any((g) => (groupMap[g]?.length ?? 0) != 4);
+
                                     return ListView.builder(
                                       padding: const EdgeInsets.only(bottom: 8),
-                                      itemCount: groupKeys.length,
+                                      itemCount: groupKeys.length + ((invalidGroupCount || invalidGroupSizes) ? 1 : 0),
                                       itemBuilder: (context, index) {
-                                        final groupId = groupKeys[index];
+                                        // Warning header if invalid counts/sizes
+                                        if ((invalidGroupCount || invalidGroupSizes) && index == 0) {
+                                          return Padding(
+                                            padding: const EdgeInsets.only(bottom: 12),
+                                            child: Text(
+                                              'Expected UCL Group to be either 16 teams (4 groups of 4) or 32 teams (8 groups of 4).\n'
+                                              'Current: ${groupKeys.length} groups.',
+                                              style: const TextStyle(
+                                                color: Colors.orangeAccent,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          );
+                                        }
+
+                                        final adjIndex = (invalidGroupCount || invalidGroupSizes) ? index - 1 : index;
+
+                                        final groupId = groupKeys[adjIndex];
                                         final rows = groupMap[groupId] ?? const <StandingsRow>[];
 
                                         return Padding(
                                           padding: EdgeInsets.only(
-                                            bottom: index == groupKeys.length - 1 ? 0 : 16,
+                                            bottom: adjIndex == groupKeys.length - 1 ? 0 : 16,
                                           ),
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -191,17 +209,18 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                         final playoffColor = Theme.of(context).colorScheme.primary.withOpacity(0.10);
                                         final eliminatedColor = Colors.red.withOpacity(0.08);
 
+                                        final n = rows.length;
+                                        final allowed = (n == 18 || n == 36);
+
+                                        // Define zones based on allowed team count.
+                                        final int autoCut = (n == 36) ? 8 : (n == 18 ? 4 : 0);
+                                        final int playoffCut = (n == 36) ? 24 : (n == 18 ? 12 : 0);
+
                                         if (rows.isEmpty) {
                                           return Column(
                                             crossAxisAlignment: CrossAxisAlignment.stretch,
                                             children: [
                                               Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                                              const SizedBox(height: 8),
-                                              _swissLegend(
-                                                autoColor: autoColor,
-                                                playoffColor: playoffColor,
-                                                eliminatedColor: eliminatedColor,
-                                              ),
                                               const SizedBox(height: 12),
                                               const Expanded(
                                                 child: Center(
@@ -222,19 +241,39 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                           children: [
                                             Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
                                             const SizedBox(height: 8),
-                                            _swissLegend(
-                                              autoColor: autoColor,
-                                              playoffColor: playoffColor,
-                                              eliminatedColor: eliminatedColor,
-                                            ),
-                                            const SizedBox(height: 8),
+
+                                            if (!allowed) ...[
+                                              Text(
+                                                'This Swiss format supports only 18 or 36 teams.\nCurrent teams: $n.',
+                                                style: const TextStyle(
+                                                  color: Colors.orangeAccent,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                              const SizedBox(height: 8),
+                                            ] else ...[
+                                              _swissLegendDynamic(
+                                                teamCount: n,
+                                                autoColor: autoColor,
+                                                playoffColor: playoffColor,
+                                                eliminatedColor: eliminatedColor,
+                                              ),
+                                              const SizedBox(height: 8),
+                                            ],
+
                                             Expanded(
                                               child: StandingsTable(
                                                 rows: rows,
+                                                // Keep qualification coloring consistent with the ranking order
+                                                // returned by the standings provider.
+                                                allowSorting: false,
                                                 rowColorBuilder: (ctx, index, row, totalRows) {
+                                                  if (!allowed) return Colors.transparent;
                                                   final rank = index + 1;
-                                                  if (rank <= 8) return autoColor;
-                                                  if (rank <= 24) return playoffColor;
+                                                  if (rank <= autoCut) return autoColor;
+                                                  if (rank <= playoffCut) return playoffColor;
                                                   return eliminatedColor;
                                                 },
                                               ),
@@ -297,7 +336,8 @@ Future<int> _getSwissCurrentRound(WidgetRef ref, String leagueId) async {
   return allMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
 }
 
-Widget _swissLegend({
+Widget _swissLegendDynamic({
+  required int teamCount,
   required Color autoColor,
   required Color playoffColor,
   required Color eliminatedColor,
@@ -314,19 +354,38 @@ Widget _swissLegend({
 
   const labelStyle = TextStyle(color: Colors.white54, fontSize: 11);
 
+  if (teamCount == 36) {
+    return Row(
+      children: [
+        dot(autoColor),
+        const SizedBox(width: 6),
+        const Text('Top 8: Round of 16', style: labelStyle),
+        const SizedBox(width: 12),
+        dot(playoffColor),
+        const SizedBox(width: 6),
+        const Text('9–24: Play-off', style: labelStyle),
+        const SizedBox(width: 12),
+        dot(eliminatedColor),
+        const SizedBox(width: 6),
+        const Text('25–36: Eliminated', style: labelStyle),
+      ],
+    );
+  }
+
+  // teamCount == 18
   return Row(
     children: [
       dot(autoColor),
       const SizedBox(width: 6),
-      const Text('Top 8: Round of 16', style: labelStyle),
+      const Text('Top 4: Quarter Finals', style: labelStyle),
       const SizedBox(width: 12),
       dot(playoffColor),
       const SizedBox(width: 6),
-      const Text('9–24: Play-off', style: labelStyle),
+      const Text('5–12: Play-off', style: labelStyle),
       const SizedBox(width: 12),
       dot(eliminatedColor),
       const SizedBox(width: 6),
-      const Text('25+: Eliminated', style: labelStyle),
+      const Text('13–18: Eliminated', style: labelStyle),
     ],
   );
 }
