@@ -13,10 +13,10 @@ import '../data/league_spaces_local.dart';
 import '../data/leagues_repository_local.dart';
 import '../models/league.dart';
 import '../models/league_announcement.dart';
-import '../models/league_format.dart';
 import '../models/league_space.dart';
 import 'add_teams_screen.dart';
 import 'league_participants_screen.dart';
+import 'utils/roster_csv_exporter.dart';
 
 class LeagueAdminScreen extends ConsumerStatefulWidget {
   final bool hasPendingChanges;
@@ -42,6 +42,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   bool _isLeagueLoading = true;
   bool _isSyncing = false;
+  bool _exportingRoster = false;
 
   final Uuid _uuid = const Uuid();
 
@@ -68,6 +69,33 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       _space = space;
       _isLeagueLoading = false;
     });
+  }
+
+  Future<void> _exportRosterCsv() async {
+    final league = _league;
+    if (league == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('League info not loaded yet.')),
+      );
+      return;
+    }
+
+    if (_exportingRoster) return;
+
+    setState(() => _exportingRoster = true);
+    try {
+      await RosterCsvExporter.shareRosterCsv(
+        repo: _localRepo,
+        league: league,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _exportingRoster = false);
+    }
   }
 
   Future<void> _startSpace() async {
@@ -272,6 +300,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           'Manage Teams & Participants',
           'Add teams manually or view joined participants',
           onTap: _showParticipantsOptionsSheet,
+        ),
+        _buildSettingsTile(
+          context,
+          Icons.file_download_outlined,
+          _exportingRoster ? 'Exporting roster…' : 'Export roster CSV',
+          'Download/share an importable roster file (use it later in Add Teams → Import CSV).',
+          onTap: _exportingRoster ? null : _exportRosterCsv,
         ),
         _buildSettingsTile(
           context,
@@ -800,7 +835,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   void _showRulesSheet() {
     // Keep your existing rules editor implementation (unchanged).
-    // This file focuses on space/announcement/sync fixes.
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Rules editor: unchanged (already implemented in your project).'),

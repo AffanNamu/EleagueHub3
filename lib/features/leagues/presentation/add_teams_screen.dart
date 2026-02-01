@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ui';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -17,1513 +15,1162 @@ import '../domain/algorithms/swiss_pairing.dart';
 import '../models/fixture_match.dart';
 import '../models/league_format.dart';
 import '../models/team.dart';
+import 'widgets/roster_csv_importer.dart';
 
 class AddTeamsScreen extends ConsumerStatefulWidget {
-final String leagueId;
-final LeagueFormat format;
+  final String leagueId;
+  final LeagueFormat format;
 
-const AddTeamsScreen({
-super.key,
-required this.leagueId,
-required this.format,
-});
+  const AddTeamsScreen({
+    super.key,
+    required this.leagueId,
+    required this.format,
+  });
 
-@override
-ConsumerState<AddTeamsScreen> createState() => _AddTeamsScreenState();
+  @override
+  ConsumerState<AddTeamsScreen> createState() => _AddTeamsScreenState();
 }
 
 class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
-late LocalLeaguesRepository _localRepo;
-final UserProfileRepository _profiles = UserProfileRepository();
-/// Temp entries are uid-driven (internal Firebase uid):
-/// { userId, teamName, group }
-final List<Map<String, String>> _tempTeams = [];
+  late LocalLeaguesRepository _localRepo;
+  final UserProfileRepository _profiles = UserProfileRepository();
 
-List<Team> _existingTeams = [];
-bool _isLoading = true;
+  /// Temp entries are uid-driven (internal Firebase uid):
+  /// { userId, teamName, group }
+  final List<Map<String, String>> _tempTeams = [];
 
-String _selectedGroup = 'Group A';
-final List<String> _groups = const [
-'Group A',
-'Group B',
-'Group C',
-'Group D',
-'Group E',
-'Group F',
-'Group G',
-'Group H',
-];
+  List<Team> _existingTeams = [];
+  bool _isLoading = true;
 
-String? _bulkError;
-/// Cache of fetched profiles for fast preview (keyed by internal Firebase uid).
-final Map<String, String> _teamNameCacheByUserId = {};
+  bool get _isGroupLeague => widget.format == LeagueFormat.uclGroup;
 
-int get _maxTeamsForFormat {
-switch (widget.format) {
-case LeagueFormat.classic:
-return 20;
-case LeagueFormat.uclGroup:
-case LeagueFormat.uclSwiss:
-return 36;
-}
-}
+  String _selectedGroup = 'Group A';
+  final List<String> _groups = const [
+    'Group A',
+    'Group B',
+    'Group C',
+    'Group D',
+    'Group E',
+    'Group F',
+    'Group G',
+    'Group H',
+  ];
 
-bool get _isGroupLeague => widget.format == LeagueFormat.uclGroup;
+  String? _bulkError;
 
-@override
-void initState() {
-super.initState();
-_localRepo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
-_loadExistingTeams();
-}
-Future<void> _loadExistingTeams() async {
-final teams = await _localRepo.getTeams(widget.leagueId);
-if (!mounted) return;
-setState(() {
-_existingTeams = teams;
-_isLoading = false;
-});
-}
+  /// Cache of fetched profiles for fast preview (keyed by internal Firebase uid).
+  final Map<String, String> _teamNameCacheByUserId = {};
 
-String _groupLabelForTeam(Team t) {
-if (_isGroupLeague) return t.groupId ?? 'Unassigned';
-return 'League Pool';
-}
-
-String? _normalizeGroup(String? raw) {
-if (!_isGroupLeague) return null;
-final g = (raw ?? '').trim();
-if (g.isEmpty) return null;
-if (_groups.contains(g)) return g;
-// Allow shorthand like "A" or "GroupA"
-final upper = g.toUpperCase().replaceAll(' ', '');
-if (upper.length == 1 && RegExp(r'^[A-H]$').hasMatch(upper)) return 'Group $upper';
-if (upper.startsWith('GROUP') && upper.length == 6) {
-  final letter = upper.substring(5);
-  if (RegExp(r'^[A-H]$').hasMatch(letter)) return 'Group $letter';
-}
-
-return null;
-}
-
-Future<_ResolvedTeam?> _resolveTeamFromUserIdOrShareId(String userIdOrShareId) async {
-final input = userIdOrShareId.trim();
-if (input.isEmpty) return null;
-// If they pasted a real uid and we already cached the team name, skip network.
-final cached = _teamNameCacheByUserId[input];
-if (cached != null && cached.trim().isNotEmpty) {
-  return _ResolvedTeam(userId: input, teamName: cached.trim());
-}
-
-final profile = await _profiles.fetchByUserIdOrShareId(input);
-if (profile == null) return null;
-
-final resolvedUserId = profile.userId.trim();
-final teamName = profile.teamName.trim();
-if (resolvedUserId.isEmpty || teamName.isEmpty) return null;
-
-_teamNameCacheByUserId[resolvedUserId] = teamName;
-return _ResolvedTeam(userId: resolvedUserId, teamName: teamName);
-}
-Future<void> _addResolvedTeam(
-_ResolvedTeam resolved, {
-String? groupOverride,
-}) async {
-final totalCurrent = _existingTeams.length + _tempTeams.length;
-if (totalCurrent >= _maxTeamsForFormat) {
-if (!mounted) return;
-setState(() => _bulkError = 'Maximum $_maxTeamsForFormat teams allowed for this format.');
-return;
-}
-final alreadyInPreview = _tempTeams.any((t) => (t['userId'] ?? '') == resolved.userId);
-if (alreadyInPreview) return;
-
-final alreadySaved = _existingTeams.any((t) => t.id == resolved.userId);
-if (alreadySaved) {
-  if (!mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('This user is already added to this league.'),
-      behavior: SnackBarBehavior.floating,
-    ),
-  );
-  return;
-}
-
-String groupValue = 'League Pool';
-if (_isGroupLeague) {
-  final normalized = _normalizeGroup(groupOverride);
-  groupValue = normalized ?? _selectedGroup;
-}
-
-if (!mounted) return;
-setState(() {
-  _bulkError = null;
-  _tempTeams.add({
-    // IMPORTANT: Always store internal Firebase uid (not the short share id).
-    'userId': resolved.userId,
-    'teamName': resolved.teamName,
-    'group': groupValue,
-  });
-
-  // If group not explicitly provided, auto-advance group assignment when adding.
-  if (_isGroupLeague && _normalizeGroup(groupOverride) == null) {
-    final next = (_groups.indexOf(_selectedGroup) + 1) % _groups.length;
-    _selectedGroup = _groups[next];
-  }
-});
-}
-Future<void> _showAddSingleDialog() async {
-final controller = TextEditingController();
-Timer? debounce;
-bool resolving = false;
-_ResolvedTeam? resolved;
-String? error;
-
-Future<void> resolveNow(StateSetter setModalState) async {
-  final raw = controller.text.trim();
-  if (raw.isEmpty) {
-    setModalState(() {
-      resolved = null;
-      error = null;
-      resolving = false;
-    });
-    return;
+  int get _maxTeamsForFormat {
+    switch (widget.format) {
+      case LeagueFormat.classic:
+        return 20;
+      case LeagueFormat.uclGroup:
+      case LeagueFormat.uclSwiss:
+        return 36;
+    }
   }
 
-  setModalState(() {
-    resolving = true;
-    error = null;
-  });
+  @override
+  void initState() {
+    super.initState();
+    _localRepo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+    _loadExistingTeams();
+  }
 
-  try {
-    final r = await _resolveTeamFromUserIdOrShareId(raw);
+  Future<void> _loadExistingTeams() async {
+    final teams = await _localRepo.getTeams(widget.leagueId);
     if (!mounted) return;
+    setState(() {
+      _existingTeams = teams;
+      _isLoading = false;
+    });
+  }
 
-    if (r == null) {
-      setModalState(() {
-        resolved = null;
-        resolving = false;
-        error = 'No profile found for this UserId. Ask the player to login once and share their UserId (eSxxxxxx).';
-      });
+  String _groupLabelForTeam(Team t) {
+    if (_isGroupLeague) return t.groupId ?? 'Unassigned';
+    return 'League Pool';
+  }
+
+  Future<_ResolvedTeam?> _resolveTeamFromUserIdOrShareId(String userIdOrShareId) async {
+    final input = userIdOrShareId.trim();
+    if (input.isEmpty) return null;
+
+    // If they pasted a real uid and we already cached the team name, skip network.
+    final cached = _teamNameCacheByUserId[input];
+    if (cached != null && cached.trim().isNotEmpty) {
+      return _ResolvedTeam(userId: input, teamName: cached.trim());
+    }
+
+    final profile = await _profiles.fetchByUserIdOrShareId(input);
+    if (profile == null) return null;
+
+    final resolvedUserId = profile.userId.trim();
+    final teamName = profile.teamName.trim();
+    if (resolvedUserId.isEmpty || teamName.isEmpty) return null;
+
+    _teamNameCacheByUserId[resolvedUserId] = teamName;
+    return _ResolvedTeam(userId: resolvedUserId, teamName: teamName);
+  }
+
+  Future<void> _addResolvedTeam(
+    _ResolvedTeam resolved, {
+    String? groupOverride,
+  }) async {
+    final totalCurrent = _existingTeams.length + _tempTeams.length;
+    if (totalCurrent >= _maxTeamsForFormat) {
+      if (!mounted) return;
+      setState(() => _bulkError = 'Maximum $_maxTeamsForFormat teams allowed for this format.');
       return;
     }
 
-    setModalState(() {
-      resolved = r;
-      resolving = false;
-      error = null;
-    });
-  } catch (e) {
-    if (!mounted) return;
-    setModalState(() {
-      resolved = null;
-      resolving = false;
-      error = 'Lookup failed: $e';
-    });
-  }
-}
+    final alreadyInPreview = _tempTeams.any((t) => (t['userId'] ?? '') == resolved.userId);
+    if (alreadyInPreview) return;
 
-try {
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: true,
-    builder: (ctx) {
-      return AlertDialog(
-        backgroundColor: const Color(0xFF0A1D37),
-        title: const Text(
-          'Add player by UserId',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+    final alreadySaved = _existingTeams.any((t) => t.id == resolved.userId);
+    if (alreadySaved) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This user is already added to this league.'),
+          behavior: SnackBarBehavior.floating,
         ),
-        content: StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return SizedBox(
-              width: 520,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'eS44e35f  (or Firebase uid)',
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      prefixIcon: const Icon(Icons.badge, color: Colors.white70),
-                      suffixIcon: resolving
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
-                              ),
-                            )
-                          : IconButton(
-                              tooltip: 'Lookup',
-                              onPressed: () => resolveNow(setModalState),
-                              icon: const Icon(Icons.search, color: Colors.cyanAccent),
-                            ),
-                    ),
-                    onChanged: (_) {
-                      debounce?.cancel();
-                      debounce = Timer(const Duration(milliseconds: 350), () {
-                        if (!ctx.mounted) return;
-                        resolveNow(setModalState);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Glass(
-                    borderRadius: 16,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.info_outline, color: Colors.white70, size: 18),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _isGroupLeague
-                                  ? 'Tip: Use the short UserId (starts with eS). Group assignment rotates automatically.'
-                                  : 'Tip: Use the short UserId (starts with eS). Team name is loaded automatically.',
-                              style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.25),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (resolved != null)
-                    Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.cyanAccent.withOpacity(0.10),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.cyanAccent.withOpacity(0.25)),
-                      ),
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Resolved profile',
-                            style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900, fontSize: 12),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            resolved!.teamName,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'uid: ${resolved!.userId}',
-                            style: const TextStyle(color: Colors.white54, fontSize: 11),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (_isGroupLeague) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                const Icon(Icons.grid_view, size: 16, color: Colors.white60),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Will be placed in: $_selectedGroup',
-                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  if (error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      error!,
-                      style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700, fontSize: 12),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ],
-              ),
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
-          ),
-          FilledButton.icon(
-            onPressed: () async {
-              if (resolved == null) return;
-              await _addResolvedTeam(resolved!);
-              if (ctx.mounted) Navigator.of(ctx).pop();
-            },
-            icon: const Icon(Icons.person_add),
-            label: const Text('Add'),
-          ),
-        ],
       );
-    },
-  );
-} finally {
-  debounce?.cancel();
-  controller.dispose();
-}
-}
-Future<void> _showPasteListSheet() async {
-final controller = TextEditingController();
-bool validating = false;
-String? error;
+      return;
+    }
 
-List<_BulkRow> rows = [];
-
-List<String> parseLines(String raw) {
-  return raw
-      .split(RegExp(r'[,\n]'))
-      .map((e) => e.trim())
-      .where((e) => e.isNotEmpty)
-      .toList();
-}
-
-Future<void> validateNow(StateSetter setModalState) async {
-  final inputs = parseLines(controller.text);
-  if (inputs.isEmpty) {
-    setModalState(() {
-      rows = [];
-      error = 'Paste at least one UserId.';
-    });
-    return;
-  }
-
-  setModalState(() {
-    validating = true;
-    error = null;
-    rows = inputs.map((i) => _BulkRow(input: i, group: null, resolved: null, status: _BulkStatus.pending)).toList();
-  });
-
-  try {
-    final futures = inputs.map((input) async {
-      final r = await _resolveTeamFromUserIdOrShareId(input);
-      return MapEntry(input, r);
-    }).toList();
-
-    final results = await Future.wait(futures);
+    final String groupToUse;
+    if (_isGroupLeague) {
+      groupToUse = (groupOverride != null && groupOverride.trim().isNotEmpty) ? groupOverride.trim() : _selectedGroup;
+    } else {
+      groupToUse = 'League Pool';
+    }
 
     if (!mounted) return;
+    setState(() {
+      _bulkError = null;
+      _tempTeams.add({
+        // IMPORTANT: Always store internal Firebase uid (not the short share id).
+        'userId': resolved.userId,
+        'teamName': resolved.teamName,
+        'group': groupToUse,
+      });
 
-    final updated = <_BulkRow>[];
-    for (final entry in results) {
-      final r = entry.value;
-      if (r == null) {
-        updated.add(_BulkRow(input: entry.key, group: null, resolved: null, status: _BulkStatus.notFound));
-      } else {
-        updated.add(_BulkRow(input: entry.key, group: null, resolved: r, status: _BulkStatus.ok));
+      // Auto-advance group assignment only when admin didn't override the group explicitly.
+      if (_isGroupLeague && (groupOverride == null || groupOverride.trim().isEmpty)) {
+        final next = (_groups.indexOf(_selectedGroup) + 1) % _groups.length;
+        _selectedGroup = _groups[next];
+      }
+    });
+  }
+
+  Future<void> _importRosterFromCsv() async {
+    await showRosterCsvImportFlow(
+      context: context,
+      isGroupLeague: _isGroupLeague,
+      allowedGroups: _groups,
+      resolveProfile: (userIdOrShareId) async {
+        final r = await _resolveTeamFromUserIdOrShareId(userIdOrShareId);
+        if (r == null) return null;
+        return ResolvedRosterProfile(userId: r.userId, teamName: r.teamName);
+      },
+      onAddResolved: (resolved, {groupOverride}) async {
+        await _addResolvedTeam(
+          _ResolvedTeam(userId: resolved.userId, teamName: resolved.teamName),
+          groupOverride: groupOverride,
+        );
+      },
+      currentTeamCount: _existingTeams.length + _tempTeams.length,
+      maxTeams: _maxTeamsForFormat,
+    );
+  }
+
+  Future<void> _showAddSingleDialog() async {
+    final controller = TextEditingController();
+    Timer? debounce;
+
+    bool resolving = false;
+    _ResolvedTeam? resolved;
+    String? error;
+
+    Future<void> resolveNow(StateSetter setModalState) async {
+      final raw = controller.text.trim();
+      if (raw.isEmpty) {
+        setModalState(() {
+          resolved = null;
+          error = null;
+          resolving = false;
+        });
+        return;
+      }
+
+      setModalState(() {
+        resolving = true;
+        error = null;
+      });
+
+      try {
+        final r = await _resolveTeamFromUserIdOrShareId(raw);
+        if (!mounted) return;
+
+        if (r == null) {
+          setModalState(() {
+            resolved = null;
+            resolving = false;
+            error = 'No profile found for this UserId. Ask the player to login once and share their UserId (eSxxxxxx).';
+          });
+          return;
+        }
+
+        setModalState(() {
+          resolved = r;
+          resolving = false;
+          error = null;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setModalState(() {
+          resolved = null;
+          resolving = false;
+          error = 'Lookup failed: $e';
+        });
       }
     }
 
-    setModalState(() {
-      rows = updated;
-      validating = false;
-      error = null;
-    });
-  } catch (e) {
-    if (!mounted) return;
-    setModalState(() {
-      validating = false;
-      error = 'Validation failed: $e';
-    });
-  }
-}
-
-Future<void> addValidAndClose(BuildContext ctx) async {
-  final valid = rows.where((r) => r.status == _BulkStatus.ok && r.resolved != null).toList();
-  if (valid.isEmpty) return;
-
-  for (final r in valid) {
-    await _addResolvedTeam(r.resolved!, groupOverride: r.group);
-  }
-  if (ctx.mounted) Navigator.of(ctx).pop();
-}
-
-await showModalBottomSheet<void>(
-  context: context,
-  backgroundColor: Colors.transparent,
-  isScrollControlled: true,
-  builder: (ctx) {
-    final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
-
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720),
-            child: Glass(
-              borderRadius: 28,
-              child: StatefulBuilder(
-                builder: (ctx, setModalState) {
-                  final okCount = rows.where((r) => r.status == _BulkStatus.ok).length;
-                  final notFoundCount = rows.where((r) => r.status == _BulkStatus.notFound).length;
-
-                  return Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Paste UserIds',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Paste one per line (or comma-separated). Use short UserId (eSxxxxxx) or Firebase uid.',
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.25),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(color: Colors.white24),
-                              ),
-                              child: TextField(
-                                controller: controller,
-                                maxLines: 6,
-                                style: const TextStyle(color: Colors.white),
-                                decoration: const InputDecoration(
-                                  hintText: 'eS44e35f\neS91a2b3\nuid_3',
-                                  hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0A1D37),
+            title: const Text(
+              'Add player by UserId',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            content: StatefulBuilder(
+              builder: (ctx, setModalState) {
+                return SizedBox(
+                  width: 520,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: controller,
+                        autofocus: true,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'eS44e35f  (or Firebase uid)',
+                          hintStyle: const TextStyle(color: Colors.white38),
+                          prefixIcon: const Icon(Icons.badge, color: Colors.white70),
+                          suffixIcon: resolving
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                                  ),
+                                )
+                              : IconButton(
+                                  tooltip: 'Lookup',
+                                  onPressed: () => resolveNow(setModalState),
+                                  icon: const Icon(Icons.search, color: Colors.cyanAccent),
                                 ),
-                              ),
-                            ),
-                          ),
                         ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: validating
-                                    ? null
-                                    : () {
-                                        setModalState(() {
-                                          controller.clear();
-                                          rows = [];
-                                          error = null;
-                                        });
-                                      },
-                                icon: const Icon(Icons.clear_all, size: 18),
-                                label: const Text('Clear'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white70,
-                                  side: const BorderSide(color: Colors.white24),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: validating ? null : () => validateNow(setModalState),
-                                icon: validating
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                      )
-                                    : const Icon(Icons.verified),
-                                label: const Text('Validate'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (rows.isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Row(
+                        onChanged: (_) {
+                          debounce?.cancel();
+                          debounce = Timer(const Duration(milliseconds: 350), () {
+                            if (!ctx.mounted) return;
+                            resolveNow(setModalState);
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Glass(
+                        borderRadius: 16,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
                             children: [
-                              _MiniChip(label: 'OK: $okCount', color: Colors.cyanAccent.withOpacity(0.22)),
-                              const SizedBox(width: 8),
-                              _MiniChip(label: 'Not found: $notFoundCount', color: Colors.redAccent.withOpacity(0.18)),
-                              const Spacer(),
-                              Text(
-                                '${_existingTeams.length + _tempTeams.length} / $_maxTeamsForFormat',
-                                style: const TextStyle(color: Colors.white70, fontSize: 11),
+                              const Icon(Icons.info_outline, color: Colors.white70, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _isGroupLeague
+                                      ? 'Tip: Use the short UserId (starts with eS). Group assignment rotates automatically.'
+                                      : 'Tip: Use the short UserId (starts with eS). Team name is loaded automatically.',
+                                  style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.25),
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxHeight: 260),
-                            child: ListView.separated(
-                              shrinkWrap: true,
-                              itemCount: rows.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 6),
-                              itemBuilder: (context, index) {
-                                final r = rows[index];
-                                final isOk = r.status == _BulkStatus.ok && r.resolved != null;
-
-                                return Glass(
-                                  borderRadius: 16,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                    child: Row(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 14,
-                                          backgroundColor: isOk
-                                              ? Colors.cyanAccent.withOpacity(0.18)
-                                              : Colors.white.withOpacity(0.08),
-                                          child: Icon(
-                                            isOk ? Icons.check : Icons.close,
-                                            size: 16,
-                                            color: isOk ? Colors.cyanAccent : Colors.white54,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                r.input,
-                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                isOk ? r.resolved!.teamName : 'No profile found',
-                                                style: TextStyle(
-                                                  color: isOk ? Colors.white70 : Colors.white38,
-                                                  fontSize: 11,
-                                                ),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        if (_isGroupLeague)
-                                          Padding(
-                                            padding: const EdgeInsets.only(left: 8),
-                                            child: Text(
-                                              (r.group == null || r.group!.isEmpty) ? '—' : r.group!,
-                                              style: const TextStyle(color: Colors.white54, fontSize: 11),
-                                            ),
-                                          ),
-                                      ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (resolved != null)
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.cyanAccent.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.cyanAccent.withOpacity(0.25)),
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Resolved profile',
+                                style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900, fontSize: 12),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                resolved!.teamName,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'uid: ${resolved!.userId}',
+                                style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (_isGroupLeague) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.grid_view, size: 16, color: Colors.white60),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Will be placed in: $_selectedGroup',
+                                      style: const TextStyle(color: Colors.white70, fontSize: 12),
                                     ),
-                                  ),
-                                );
-                              },
-                            ),
+                                  ],
+                                ),
+                              ],
+                            ],
                           ),
-                        ],
-                        if (error != null) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            error!,
-                            style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('Close', style: TextStyle(color: Colors.white70)),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: validating ? null : () => addValidAndClose(ctx),
-                                icon: const Icon(Icons.playlist_add_check),
-                                label: Text('Add valid${rows.isEmpty ? '' : ' ($okCount)'}'),
-                              ),
-                            ),
-                          ],
+                        ),
+                      if (error != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          error!,
+                          style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700, fontSize: 12),
+                          textAlign: TextAlign.center,
                         ),
                       ],
-                    ),
-                  );
-                },
-              ),
+                    ],
+                  ),
+                );
+              },
             ),
-          ),
-        ),
-      ),
-    );
-  },
-);
-
-controller.dispose();
-}
-// ----------------------------
-// CSV import (file picker)
-// ----------------------------
-
-Future<void> _importRosterCsv() async {
-try {
-final res = await FilePicker.platform.pickFiles(
-type: FileType.custom,
-allowedExtensions: const ['csv'],
-withData: true,
-);
-  if (res == null || res.files.isEmpty) return;
-
-  final file = res.files.first;
-  final bytes = file.bytes;
-  if (bytes == null || bytes.isEmpty) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Could not read file. Please pick a different CSV.')),
-    );
-    return;
-  }
-
-  String text;
-  try {
-    text = utf8.decode(bytes);
-  } catch (_) {
-    text = latin1.decode(bytes);
-  }
-
-  final rows = _parseRosterCsv(text);
-  if (rows.isEmpty) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('No rows found in CSV.')),
-    );
-    return;
-  }
-
-  await _showImportPreviewSheet(
-    sourceLabel: file.name,
-    imported: rows,
-  );
-} catch (e) {
-  if (!mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text('CSV import failed: $e')),
-  );
-}
-}
-List<_BulkRow> _parseRosterCsv(String csvText) {
-final lines = const LineSplitter().convert(csvText);
-final cleaned = lines.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
-if (cleaned.isEmpty) return [];
-final first = _splitCsvLine(cleaned.first).map((e) => e.trim()).toList();
-bool hasHeader = false;
-
-int idIdx = 0;
-int? groupIdx;
-
-if (first.isNotEmpty) {
-  final lowered = first.map((e) => e.toLowerCase()).toList();
-  final idCandidates = <String>{
-    'userid',
-    'user_id',
-    'useridorshareid',
-    'user_id_or_share_id',
-    'useridorshare',
-    'shareid',
-    'share_id',
-  };
-  final groupCandidates = <String>{'group', 'groupid', 'group_id'};
-
-  final foundId = lowered.indexWhere((c) => idCandidates.contains(c.replaceAll(' ', '')));
-  if (foundId >= 0) {
-    hasHeader = true;
-    idIdx = foundId;
-  }
-
-  final foundGroup = lowered.indexWhere((c) => groupCandidates.contains(c.replaceAll(' ', '')));
-  if (foundGroup >= 0) {
-    hasHeader = true;
-    groupIdx = foundGroup;
-  }
-}
-
-final dataLines = hasHeader ? cleaned.skip(1).toList() : cleaned;
-
-final out = <_BulkRow>[];
-for (final line in dataLines) {
-  final cols = _splitCsvLine(line);
-  if (cols.isEmpty) continue;
-
-  final id = (idIdx < cols.length) ? cols[idIdx].trim() : '';
-  if (id.isEmpty) continue;
-
-  String? group;
-  if (_isGroupLeague && groupIdx != null && groupIdx < cols.length) {
-    group = _normalizeGroup(cols[groupIdx]);
-  }
-
-  out.add(_BulkRow(
-    input: id,
-    group: group,
-    resolved: null,
-    status: _BulkStatus.pending,
-  ));
-}
-
-return out;
-}
-List<String> _splitCsvLine(String line) {
-// Minimal CSV parsing with support for quoted fields.
-// Good enough for ids/groups (no complex embedded newlines).
-final out = <String>[];
-final buf = StringBuffer();
-bool inQuotes = false;
-for (int i = 0; i < line.length; i++) {
-  final ch = line[i];
-
-  if (ch == '"') {
-    // double quotes inside quoted string -> escaped quote
-    if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
-      buf.write('"');
-      i++;
-      continue;
-    }
-    inQuotes = !inQuotes;
-    continue;
-  }
-
-  if (ch == ',' && !inQuotes) {
-    out.add(buf.toString());
-    buf.clear();
-    continue;
-  }
-
-  buf.write(ch);
-}
-
-out.add(buf.toString());
-return out;
-}
-Future<void> _showImportPreviewSheet({
-required String sourceLabel,
-required List<_BulkRow> imported,
-}) async {
-bool validating = false;
-String? error;
-List<_BulkRow> rows = imported;
-Future<void> validateNow(StateSetter setModalState) async {
-  if (rows.isEmpty) return;
-
-  setModalState(() {
-    validating = true;
-    error = null;
-    rows = rows.map((r) => r.copyWith(status: _BulkStatus.pending, resolved: null)).toList();
-  });
-
-  try {
-    final futures = rows.map((r) async {
-      final resolved = await _resolveTeamFromUserIdOrShareId(r.input);
-      return r.copyWith(
-        resolved: resolved,
-        status: resolved == null ? _BulkStatus.notFound : _BulkStatus.ok,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+              ),
+              FilledButton.icon(
+                onPressed: () async {
+                  if (resolved == null) return;
+                  await _addResolvedTeam(resolved!);
+                  if (ctx.mounted) Navigator.of(ctx).pop();
+                },
+                icon: const Icon(Icons.person_add),
+                label: const Text('Add'),
+              ),
+            ],
+          );
+        },
       );
-    }).toList();
-
-    final updated = await Future.wait(futures);
-
-    if (!mounted) return;
-    setModalState(() {
-      rows = updated;
-      validating = false;
-      error = null;
-    });
-  } catch (e) {
-    if (!mounted) return;
-    setModalState(() {
-      validating = false;
-      error = 'Validation failed: $e';
-    });
-  }
-}
-
-Future<void> addValidAndClose(BuildContext ctx) async {
-  final valid = rows.where((r) => r.status == _BulkStatus.ok && r.resolved != null).toList();
-  if (valid.isEmpty) return;
-
-  for (final r in valid) {
-    await _addResolvedTeam(r.resolved!, groupOverride: r.group);
+    } finally {
+      debounce?.cancel();
+      controller.dispose();
+    }
   }
 
-  if (ctx.mounted) Navigator.of(ctx).pop();
-}
+  Future<void> _showPasteListSheet() async {
+    final controller = TextEditingController();
 
-await showModalBottomSheet<void>(
-  context: context,
-  backgroundColor: Colors.transparent,
-  isScrollControlled: true,
-  builder: (ctx) {
-    final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+    bool validating = false;
+    String? error;
 
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Glass(
-              borderRadius: 28,
-              child: StatefulBuilder(
-                builder: (ctx, setModalState) {
-                  final okCount = rows.where((r) => r.status == _BulkStatus.ok).length;
-                  final notFoundCount = rows.where((r) => r.status == _BulkStatus.notFound).length;
+    List<_BulkRow> rows = [];
 
-                  return Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Import roster from CSV',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'File: $sourceLabel',
-                          style: const TextStyle(color: Colors.white70, fontSize: 11),
-                          textAlign: TextAlign.center,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
+    List<String> parseLines(String raw) {
+      return raw
+          .split(RegExp(r'[,\n]'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
+    Future<void> validateNow(StateSetter setModalState) async {
+      final inputs = parseLines(controller.text);
+      if (inputs.isEmpty) {
+        setModalState(() {
+          rows = [];
+          error = 'Paste at least one UserId.';
+        });
+        return;
+      }
+
+      setModalState(() {
+        validating = true;
+        error = null;
+        rows = inputs.map((i) => _BulkRow(input: i, resolved: null, status: _BulkStatus.pending)).toList();
+      });
+
+      try {
+        final futures = inputs.map((input) async {
+          final r = await _resolveTeamFromUserIdOrShareId(input);
+          return MapEntry(input, r);
+        }).toList();
+
+        final results = await Future.wait(futures);
+
+        if (!mounted) return;
+
+        final updated = <_BulkRow>[];
+        for (final entry in results) {
+          final r = entry.value;
+          if (r == null) {
+            updated.add(_BulkRow(input: entry.key, resolved: null, status: _BulkStatus.notFound));
+          } else {
+            updated.add(_BulkRow(input: entry.key, resolved: r, status: _BulkStatus.ok));
+          }
+        }
+
+        setModalState(() {
+          rows = updated;
+          validating = false;
+          error = null;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setModalState(() {
+          validating = false;
+          error = 'Validation failed: $e';
+        });
+      }
+    }
+
+    Future<void> addValidAndClose(BuildContext ctx) async {
+      final valid = rows.where((r) => r.status == _BulkStatus.ok && r.resolved != null).map((r) => r.resolved!).toList();
+      if (valid.isEmpty) return;
+
+      for (final r in valid) {
+        await _addResolvedTeam(r);
+      }
+      if (ctx.mounted) Navigator.of(ctx).pop();
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Glass(
+                  borderRadius: 28,
+                  child: StatefulBuilder(
+                    builder: (ctx, setModalState) {
+                      final okCount = rows.where((r) => r.status == _BulkStatus.ok).length;
+                      final notFoundCount = rows.where((r) => r.status == _BulkStatus.notFound).length;
+
+                      return Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            _MiniChip(label: 'Rows: ${rows.length}', color: Colors.white24),
-                            const SizedBox(width: 8),
-                            _MiniChip(label: 'OK: $okCount', color: Colors.cyanAccent.withOpacity(0.22)),
-                            const SizedBox(width: 8),
-                            _MiniChip(label: 'Not found: $notFoundCount', color: Colors.redAccent.withOpacity(0.18)),
-                            const Spacer(),
-                            Text(
-                              '${_existingTeams.length + _tempTeams.length} / $_maxTeamsForFormat',
-                              style: const TextStyle(color: Colors.white70, fontSize: 11),
+                            const Text(
+                              'Paste UserIds',
+                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: validating ? null : () => validateNow(setModalState),
-                                icon: validating
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                      )
-                                    : const Icon(Icons.verified),
-                                label: const Text('Validate'),
-                              ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Paste one per line (or comma-separated). Use short UserId (eSxxxxxx) or Firebase uid.',
+                              style: TextStyle(color: Colors.white70, fontSize: 11),
+                              textAlign: TextAlign.center,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                icon: const Icon(Icons.close),
-                                label: const Text('Close'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white70,
-                                  side: const BorderSide(color: Colors.white24),
+                            const SizedBox(height: 12),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.25),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(color: Colors.white24),
+                                  ),
+                                  child: TextField(
+                                    controller: controller,
+                                    maxLines: 6,
+                                    style: const TextStyle(color: Colors.white),
+                                    decoration: const InputDecoration(
+                                      hintText: 'eS44e35f\neS91a2b3\nuid_3',
+                                      hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
+                                      border: InputBorder.none,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 320),
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: rows.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 6),
-                            itemBuilder: (context, index) {
-                              final r = rows[index];
-                              final isOk = r.status == _BulkStatus.ok && r.resolved != null;
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: validating
+                                        ? null
+                                        : () {
+                                            setModalState(() {
+                                              controller.clear();
+                                              rows = [];
+                                              error = null;
+                                            });
+                                          },
+                                    icon: const Icon(Icons.clear_all, size: 18),
+                                    label: const Text('Clear'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white70,
+                                      side: const BorderSide(color: Colors.white24),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: validating ? null : () => validateNow(setModalState),
+                                    icon: validating
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                          )
+                                        : const Icon(Icons.verified),
+                                    label: const Text('Validate'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (rows.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  _MiniChip(label: 'OK: $okCount', color: Colors.cyanAccent.withOpacity(0.22)),
+                                  const SizedBox(width: 8),
+                                  _MiniChip(label: 'Not found: $notFoundCount', color: Colors.redAccent.withOpacity(0.18)),
+                                  const Spacer(),
+                                  Text(
+                                    '${_existingTeams.length + _tempTeams.length} / $_maxTeamsForFormat',
+                                    style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 260),
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: rows.length,
+                                  separatorBuilder: (_, __) => const SizedBox(height: 6),
+                                  itemBuilder: (context, index) {
+                                    final r = rows[index];
+                                    final isOk = r.status == _BulkStatus.ok && r.resolved != null;
 
-                              final subtitle = isOk ? r.resolved!.teamName : 'No profile found';
-
-                              return Glass(
-                                borderRadius: 16,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  child: Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 14,
-                                        backgroundColor: isOk
-                                            ? Colors.cyanAccent.withOpacity(0.18)
-                                            : Colors.white.withOpacity(0.08),
-                                        child: Icon(
-                                          isOk ? Icons.check : (r.status == _BulkStatus.pending ? Icons.hourglass_empty : Icons.close),
-                                          size: 16,
-                                          color: isOk ? Colors.cyanAccent : Colors.white54,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                    return Glass(
+                                      borderRadius: 16,
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                        child: Row(
                                           children: [
-                                            Text(
-                                              r.input,
-                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              subtitle,
-                                              style: TextStyle(
-                                                color: isOk ? Colors.white70 : Colors.white38,
-                                                fontSize: 11,
+                                            CircleAvatar(
+                                              radius: 14,
+                                              backgroundColor: isOk
+                                                  ? Colors.cyanAccent.withOpacity(0.18)
+                                                  : Colors.white.withOpacity(0.08),
+                                              child: Icon(
+                                                isOk ? Icons.check : Icons.close,
+                                                size: 16,
+                                                color: isOk ? Colors.cyanAccent : Colors.white54,
                                               ),
-                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    r.input,
+                                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    isOk ? r.resolved!.teamName : 'No profile found',
+                                                    style: TextStyle(
+                                                      color: isOk ? Colors.white70 : Colors.white38,
+                                                      fontSize: 11,
+                                                    ),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ],
+                                              ),
                                             ),
                                           ],
                                         ),
                                       ),
-                                      if (_isGroupLeague)
-                                        Padding(
-                                          padding: const EdgeInsets.only(left: 8),
-                                          child: Text(
-                                            (r.group == null || r.group!.isEmpty) ? '—' : r.group!,
-                                            style: const TextStyle(color: Colors.white54, fontSize: 11),
-                                          ),
-                                        ),
-                                    ],
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                            if (error != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                error!,
+                                style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(),
+                                    child: const Text('Close', style: TextStyle(color: Colors.white70)),
                                   ),
                                 ),
-                              );
-                            },
-                          ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: validating ? null : () => addValidAndClose(ctx),
+                                    icon: const Icon(Icons.playlist_add_check),
+                                    label: Text('Add valid${rows.isEmpty ? '' : ' ($okCount)'}'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                        if (error != null) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            error!,
-                            style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: validating ? null : () => addValidAndClose(ctx),
-                            icon: const Icon(Icons.playlist_add_check),
-                            label: Text('Add valid${rows.isEmpty ? '' : ' ($okCount)'} to preview'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
-  },
-);
-}
-Future<void> _generateAndSave() async {
-if (_tempTeams.isEmpty && _existingTeams.isEmpty) {
-if (mounted) context.go('/leagues/${widget.leagueId}');
-return;
-}
-final now = DateTime.now().millisecondsSinceEpoch;
 
-// Teams are created from userId => teamName (profile), so admin never types team names.
-final newTeams = _tempTeams.map<Team>((t) {
-  final groupName = t['group'] ?? '';
-  final String? groupId = _isGroupLeague ? groupName : null;
+    controller.dispose();
+  }
 
-  final userId = t['userId']!;
-  final teamName = t['teamName']!;
+  Future<void> _generateAndSave() async {
+    if (_tempTeams.isEmpty && _existingTeams.isEmpty) {
+      if (mounted) context.go('/leagues/${widget.leagueId}');
+      return;
+    }
 
-  return Team(
-    id: userId,
-    leagueId: widget.leagueId,
-    name: teamName,
-    groupId: groupId,
-    updatedAtMs: now,
-    version: 1,
-  );
-}).toList();
+    final now = DateTime.now().millisecondsSinceEpoch;
 
-final allTeams = <Team>[..._existingTeams, ...newTeams];
+    // Teams are created from userId => teamName (profile), so admin never types team names.
+    final newTeams = _tempTeams.map<Team>((t) {
+      final groupName = t['group']!;
+      final String? groupId = _isGroupLeague ? groupName : null;
 
-await _localRepo.saveTeams(widget.leagueId, allTeams);
+      final userId = t['userId']!;
+      final teamName = t['teamName']!;
 
-// Link membership.teamId to the team (teamId == userId) so "My Matches" can work silently.
-for (final t in newTeams) {
-  await _localRepo.assignTeamToUserInLeague(
-    leagueId: widget.leagueId,
-    userId: t.id,
-    teamId: t.id,
-  );
-}
+      return Team(
+        id: userId,
+        leagueId: widget.leagueId,
+        name: teamName,
+        groupId: groupId,
+        updatedAtMs: now,
+        version: 1,
+      );
+    }).toList();
 
-final existingFixtures = await _localRepo.getMatches(widget.leagueId);
-List<FixtureMatch> generatedFixtures = [];
+    final allTeams = <Team>[..._existingTeams, ...newTeams];
 
-if (existingFixtures.isEmpty) {
-  if (widget.format == LeagueFormat.classic) {
-    final teamIds = allTeams.map((t) => t.id).toList();
-    generatedFixtures = RoundRobinGenerator.generate(
-      leagueId: widget.leagueId,
-      teamIds: teamIds,
-      doubleRoundRobin: true,
-      startRoundNumber: 1,
-    );
-  } else if (widget.format == LeagueFormat.uclGroup) {
-    for (final groupName in _groups) {
-      final groupTeams = allTeams.where((t) => t.groupId == groupName).map((t) => t.id).toList();
-      if (groupTeams.isNotEmpty) {
-        generatedFixtures.addAll(
-          RoundRobinGenerator.generate(
-            leagueId: widget.leagueId,
-            teamIds: groupTeams,
-            doubleRoundRobin: true,
-            groupId: groupName,
-            startRoundNumber: 1,
-          ),
+    await _localRepo.saveTeams(widget.leagueId, allTeams);
+
+    // Link membership.teamId to the team (teamId == userId) so "My Matches" can work silently.
+    for (final t in newTeams) {
+      await _localRepo.assignTeamToUserInLeague(
+        leagueId: widget.leagueId,
+        userId: t.id,
+        teamId: t.id,
+      );
+    }
+
+    final existingFixtures = await _localRepo.getMatches(widget.leagueId);
+    List<FixtureMatch> generatedFixtures = [];
+
+    if (existingFixtures.isEmpty) {
+      if (widget.format == LeagueFormat.classic) {
+        final teamIds = allTeams.map((t) => t.id).toList();
+        generatedFixtures = RoundRobinGenerator.generate(
+          leagueId: widget.leagueId,
+          teamIds: teamIds,
+          doubleRoundRobin: true,
+          startRoundNumber: 1,
+        );
+      } else if (_isGroupLeague) {
+        for (final groupName in _groups) {
+          final groupTeams = allTeams.where((t) => t.groupId == groupName).map((t) => t.id).toList();
+          if (groupTeams.isNotEmpty) {
+            generatedFixtures.addAll(
+              RoundRobinGenerator.generate(
+                leagueId: widget.leagueId,
+                teamIds: groupTeams,
+                doubleRoundRobin: true,
+                groupId: groupName,
+                startRoundNumber: 1,
+              ),
+            );
+          }
+        }
+      } else if (widget.format == LeagueFormat.uclSwiss) {
+        generatedFixtures = SwissPairingEngine.generateInitialRound(
+          leagueId: widget.leagueId,
+          teams: allTeams,
+          roundNumber: 1,
         );
       }
-    }
-  } else if (widget.format == LeagueFormat.uclSwiss) {
-    generatedFixtures = SwissPairingEngine.generateInitialRound(
-      leagueId: widget.leagueId,
-      teams: allTeams,
-      roundNumber: 1,
-    );
-  }
-} else {
-  // Re-generation
-  if (widget.format == LeagueFormat.classic) {
-    final teamIds = allTeams.map((t) => t.id).toList();
-    generatedFixtures = RoundRobinGenerator.generate(
-      leagueId: widget.leagueId,
-      teamIds: teamIds,
-      doubleRoundRobin: true,
-      startRoundNumber: 1,
-    );
-  } else if (widget.format == LeagueFormat.uclGroup) {
-    for (final groupName in _groups) {
-      final groupTeams = allTeams.where((t) => t.groupId == groupName).map((t) => t.id).toList();
-      if (groupTeams.isNotEmpty) {
-        generatedFixtures.addAll(
-          RoundRobinGenerator.generate(
-            leagueId: widget.leagueId,
-            teamIds: groupTeams,
-            doubleRoundRobin: true,
-            groupId: groupName,
-            startRoundNumber: 1,
+    } else {
+      // Re-generation
+      if (widget.format == LeagueFormat.classic) {
+        final teamIds = allTeams.map((t) => t.id).toList();
+        generatedFixtures = RoundRobinGenerator.generate(
+          leagueId: widget.leagueId,
+          teamIds: teamIds,
+          doubleRoundRobin: true,
+          startRoundNumber: 1,
+        );
+      } else if (_isGroupLeague) {
+        for (final groupName in _groups) {
+          final groupTeams = allTeams.where((t) => t.groupId == groupName).map((t) => t.id).toList();
+          if (groupTeams.isNotEmpty) {
+            generatedFixtures.addAll(
+              RoundRobinGenerator.generate(
+                leagueId: widget.leagueId,
+                teamIds: groupTeams,
+                doubleRoundRobin: true,
+                groupId: groupName,
+                startRoundNumber: 1,
+              ),
+            );
+          }
+        }
+
+        if (generatedFixtures.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Group fixtures regenerated. Previous results were reset.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } else if (widget.format == LeagueFormat.uclSwiss) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Adding teams after fixtures exist is not supported for Swiss leagues.'),
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
     }
 
     if (generatedFixtures.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Group fixtures regenerated. Previous results were reset.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      await _localRepo.replaceMatches(widget.leagueId, generatedFixtures);
     }
-  } else if (widget.format == LeagueFormat.uclSwiss) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Adding teams after fixtures exist is not supported for Swiss leagues.'),
-        behavior: SnackBarBehavior.floating,
+
+    if (mounted) {
+      context.go('/leagues/${widget.leagueId}');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final showTwoPane = width >= 900;
+
+    return GlassScaffold(
+      appBar: AppBar(
+        title: Text('Add Teams · ${widget.format.displayName}'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      resizeToAvoidBottomInset: true,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: showTwoPane ? 980 : 620),
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.cyanAccent),
+                  )
+                : Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Glass(
+                          borderRadius: 24,
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.cyanAccent.withOpacity(0.8),
+                                      Colors.blueAccent.withOpacity(0.8),
+                                    ],
+                                  ),
+                                ),
+                                child: const Icon(Icons.sports_soccer, color: Colors.black),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Add players (by UserId)',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _isGroupLeague
+                                          ? 'Use the short UserId (starts with eS). We will auto-load the team name from the user profile and place teams into groups.'
+                                          : 'Use the short UserId (starts with eS). We will auto-load the team name from the user profile.',
+                                      style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_isGroupLeague) ...[
+                          const SizedBox(height: 10),
+                          _buildGroupSelector(),
+                        ],
+                        const SizedBox(height: 12),
+                        Expanded(
+                          child: showTwoPane
+                              ? Row(
+                                  children: [
+                                    Expanded(flex: 3, child: _buildAddPanel()),
+                                    const SizedBox(width: 12),
+                                    Expanded(flex: 4, child: _buildPreviewPanel()),
+                                  ],
+                                )
+                              : Column(
+                                  children: [
+                                    _buildAddPanel(),
+                                    const SizedBox(height: 12),
+                                    Expanded(child: _buildPreviewPanel()),
+                                  ],
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ),
       ),
     );
   }
-}
 
-if (generatedFixtures.isNotEmpty) {
-  await _localRepo.replaceMatches(widget.leagueId, generatedFixtures);
-}
+  Widget _buildAddPanel() {
+    final existingCount = _existingTeams.length;
+    final newCount = _tempTeams.length;
+    final totalCount = existingCount + newCount;
 
-if (mounted) {
-  context.go('/leagues/${widget.leagueId}');
-}
-}
-return GlassScaffold(
-  appBar: AppBar(
-    title: Text('Add Teams · ${widget.format.displayName}'),
-    backgroundColor: Colors.transparent,
-    elevation: 0,
-  ),
-  resizeToAvoidBottomInset: true,
-  body: SafeArea(
-    child: Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: showTwoPane ? 980 : 620),
-        child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: Colors.cyanAccent),
-              )
-            : Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Glass(
-                      borderRadius: 24,
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.cyanAccent.withOpacity(0.8),
-                                  Colors.blueAccent.withOpacity(0.8),
-                                ],
-                              ),
-                            ),
-                            child: const Icon(Icons.sports_soccer, color: Colors.black),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Add players (by UserId)',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _isGroupLeague
-                                      ? 'Use the short UserId (starts with eS). We auto-load the team name and place teams into groups. You can also import a roster CSV.'
-                                      : 'Use the short UserId (starts with eS). We auto-load the team name from the user profile. You can also import a roster CSV.',
-                                  style: const TextStyle(color: Colors.white70, fontSize: 11),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
+            child: Row(
+              children: [
+                Icon(Icons.person_add_alt_1, size: 18, color: Colors.cyanAccent),
+                SizedBox(width: 8),
+                Text(
+                  'Add players',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                _MiniChip(label: 'Saved: $existingCount', color: Colors.white24),
+                const SizedBox(width: 8),
+                _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
+                const Spacer(),
+                Text(
+                  '$totalCount / $_maxTeamsForFormat',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          if (_bulkError != null) ...[
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                _bulkError!,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.w700),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _showAddSingleDialog,
+              icon: const Icon(Icons.person_add),
+              label: const Text('Add one player'),
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _showPasteListSheet,
+              icon: const Icon(Icons.playlist_add),
+              label: const Text('Paste a list'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white70,
+                side: const BorderSide(color: Colors.white24),
+                minimumSize: const Size.fromHeight(46),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _importRosterFromCsv,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Import CSV roster'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white70,
+                side: const BorderSide(color: Colors.white24),
+                minimumSize: const Size.fromHeight(46),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Glass(
+            borderRadius: 18,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.lock_outline, size: 18, color: Colors.white70),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Admin enters only UserId. Team name is loaded from the user profile automatically.',
+                      style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 11, height: 1.25),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupSelector() {
+    return Glass(
+      borderRadius: 20,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.grid_view, size: 18, color: Colors.cyanAccent),
+          const SizedBox(width: 8),
+          const Text(
+            'Current group',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _groups.map((g) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(g, style: const TextStyle(fontSize: 11)),
+                      selected: _selectedGroup == g,
+                      selectedColor: Colors.cyanAccent.withOpacity(0.25),
+                      backgroundColor: Colors.white10,
+                      labelStyle: TextStyle(
+                        color: _selectedGroup == g ? Colors.cyanAccent : Colors.white70,
                       ),
-                    ),
-                    if (_isGroupLeague) ...[
-                      const SizedBox(height: 10),
-                      _buildGroupSelector(),
-                    ],
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: showTwoPane
-                          ? Row(
-                              children: [
-                                Expanded(flex: 3, child: _buildAddPanel()),
-                                const SizedBox(width: 12),
-                                Expanded(flex: 4, child: _buildPreviewPanel()),
-                              ],
-                            )
-                          : Column(
-                              children: [
-                                _buildAddPanel(),
-                                const SizedBox(height: 12),
-                                Expanded(child: _buildPreviewPanel()),
-                              ],
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-      ),
-    ),
-  ),
-);
-}
-Widget _buildAddPanel() {
-final existingCount = _existingTeams.length;
-final newCount = _tempTeams.length;
-final totalCount = existingCount + newCount;
-return Glass(
-  borderRadius: 24,
-  padding: const EdgeInsets.all(12),
-  child: Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      const Padding(
-        padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
-        child: Row(
-          children: [
-            Icon(Icons.person_add_alt_1, size: 18, color: Colors.cyanAccent),
-            SizedBox(width: 8),
-            Text(
-              'Add players',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 8),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
-          children: [
-            _MiniChip(label: 'Saved: $existingCount', color: Colors.white24),
-            const SizedBox(width: 8),
-            _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
-            const Spacer(),
-            Text(
-              '$totalCount / $_maxTeamsForFormat',
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-      if (_bulkError != null) ...[
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            _bulkError!,
-            style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.w700),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ],
-      const SizedBox(height: 12),
-      SizedBox(
-        width: double.infinity,
-        child: FilledButton.icon(
-          onPressed: _showAddSingleDialog,
-          icon: const Icon(Icons.person_add),
-          label: const Text('Add one player'),
-          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-        ),
-      ),
-      const SizedBox(height: 10),
-      SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: _showPasteListSheet,
-          icon: const Icon(Icons.playlist_add),
-          label: const Text('Paste a list'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white70,
-            side: const BorderSide(color: Colors.white24),
-            minimumSize: const Size.fromHeight(46),
-          ),
-        ),
-      ),
-      const SizedBox(height: 10),
-      SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: _importRosterCsv,
-          icon: const Icon(Icons.file_upload),
-          label: const Text('Import roster CSV'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white70,
-            side: const BorderSide(color: Colors.white24),
-            minimumSize: const Size.fromHeight(46),
-          ),
-        ),
-      ),
-      const SizedBox(height: 10),
-      Glass(
-        borderRadius: 18,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              const Icon(Icons.lock_outline, size: 18, color: Colors.white70),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Admin enters only UserId. Team name is loaded from the user profile automatically.',
-                  style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 11, height: 1.25),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ],
-  ),
-);
-}
-Widget _buildGroupSelector() {
-return Glass(
-borderRadius: 20,
-padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-child: Row(
-children: [
-const Icon(Icons.grid_view, size: 18, color: Colors.cyanAccent),
-const SizedBox(width: 8),
-const Text(
-'Current group',
-style: TextStyle(color: Colors.white70, fontSize: 12),
-),
-const SizedBox(width: 12),
-Expanded(
-child: SingleChildScrollView(
-scrollDirection: Axis.horizontal,
-child: Row(
-children: _groups.map((g) {
-return Padding(
-padding: const EdgeInsets.only(right: 8),
-child: ChoiceChip(
-label: Text(g, style: const TextStyle(fontSize: 11)),
-selected: _selectedGroup == g,
-selectedColor: Colors.cyanAccent.withOpacity(0.25),
-backgroundColor: Colors.white10,
-labelStyle: TextStyle(
-color: _selectedGroup == g ? Colors.cyanAccent : Colors.white70,
-),
-onSelected: (selected) {
-if (!selected) return;
-setState(() => _selectedGroup = g);
-},
-),
-);
-}).toList(),
-),
-),
-),
-],
-),
-);
-}
-Widget _buildPreviewPanel() {
-final existingCount = _existingTeams.length;
-final newCount = _tempTeams.length;
-final totalCount = existingCount + newCount;
-return Glass(
-  borderRadius: 24,
-  padding: const EdgeInsets.all(12),
-  child: Column(
-    children: [
-      const Padding(
-        padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
-        child: Row(
-          children: [
-            Icon(Icons.groups, size: 18, color: Colors.cyanAccent),
-            SizedBox(width: 8),
-            Text(
-              'Review teams',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 6),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
-          children: [
-            _MiniChip(label: 'Saved: $existingCount', color: Colors.white24),
-            const SizedBox(width: 8),
-            _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
-            const Spacer(),
-            Text(
-              '$totalCount / $_maxTeamsForFormat',
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 6),
-      Expanded(
-        child: (existingCount + newCount) == 0
-            ? Center(
-                child: Text(
-                  'No teams yet.\nTap “Add one player”, “Paste a list”, or “Import roster CSV”.',
-                  style: TextStyle(color: Colors.white.withOpacity(0.55), height: 1.4),
-                  textAlign: TextAlign.center,
-                ),
-              )
-            : ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                itemCount: existingCount + newCount,
-                itemBuilder: (context, i) {
-                  if (i < existingCount) {
-                    final team = _existingTeams[i];
-                    final groupLabel = _groupLabelForTeam(team);
-                    final label = _isGroupLeague ? 'Saved · $groupLabel' : 'Saved';
-                    return _buildTeamTile(
-                      index: i,
-                      name: team.name,
-                      label: label,
-                      isNew: false,
-                      onTap: () => _editExistingTeam(i),
-                      onRemove: null,
-                    );
-                  } else {
-                    final idx = i - existingCount;
-                    final team = _tempTeams[idx];
-                    final group = team['group'] ?? '';
-                    final label = _isGroupLeague && group.isNotEmpty ? 'New · $group' : 'New';
-                    return _buildTeamTile(
-                      index: i,
-                      name: team['teamName']!,
-                      label: label,
-                      isNew: true,
-                      onTap: null,
-                      onRemove: () {
-                        setState(() {
-                          _tempTeams.removeAt(idx);
-                          _bulkError = null;
-                        });
+                      onSelected: (selected) {
+                        if (!selected) return;
+                        setState(() => _selectedGroup = g);
                       },
-                    );
-                  }
-                },
+                    ),
+                  );
+                }).toList(),
               ),
+            ),
+          ),
+        ],
       ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        child: FilledButton.icon(
-          onPressed: _generateAndSave,
-          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-          icon: const Icon(Icons.auto_mode),
-          label: const Text('Save & generate fixtures'),
-        ),
+    );
+  }
+
+  Widget _buildPreviewPanel() {
+    final existingCount = _existingTeams.length;
+    final newCount = _tempTeams.length;
+    final totalCount = existingCount + newCount;
+
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
+            child: Row(
+              children: [
+                Icon(Icons.groups, size: 18, color: Colors.cyanAccent),
+                SizedBox(width: 8),
+                Text(
+                  'Review teams',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                _MiniChip(label: 'Saved: $existingCount', color: Colors.white24),
+                const SizedBox(width: 8),
+                _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
+                const Spacer(),
+                Text(
+                  '$totalCount / $_maxTeamsForFormat',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: (existingCount + newCount) == 0
+                ? Center(
+                    child: Text(
+                      'No teams yet.\nTap “Add one player”, “Paste a list”, or “Import CSV roster”.',
+                      style: TextStyle(color: Colors.white.withOpacity(0.55), height: 1.4),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    itemCount: existingCount + newCount,
+                    itemBuilder: (context, i) {
+                      if (i < existingCount) {
+                        final team = _existingTeams[i];
+                        final groupLabel = _groupLabelForTeam(team);
+                        final label = _isGroupLeague ? 'Saved · $groupLabel' : 'Saved';
+                        return _buildTeamTile(
+                          index: i,
+                          name: team.name,
+                          label: label,
+                          isNew: false,
+                          onTap: () => _editExistingTeam(i),
+                          onRemove: null,
+                        );
+                      } else {
+                        final idx = i - existingCount;
+                        final team = _tempTeams[idx];
+                        final group = team['group'] ?? '';
+                        final label = group.isEmpty ? 'New' : 'New · $group';
+                        return _buildTeamTile(
+                          index: i,
+                          name: team['teamName']!,
+                          label: label,
+                          isNew: true,
+                          onTap: null,
+                          onRemove: () {
+                            setState(() {
+                              _tempTeams.removeAt(idx);
+                              _bulkError = null;
+                            });
+                          },
+                        );
+                      }
+                    },
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: FilledButton.icon(
+              onPressed: _generateAndSave,
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              icon: const Icon(Icons.auto_mode),
+              label: const Text('Save & generate fixtures'),
+            ),
+          ),
+        ],
       ),
-    ],
-  ),
-);
-}
- void _editExistingTeam(int index) {
+    );
+  }
+
+  void _editExistingTeam(int index) {
     final team = _existingTeams[index];
     String selectedGroup = team.groupId ?? _selectedGroup;
 
@@ -1587,7 +1234,7 @@ return Glass(
                                 style: const TextStyle(color: Colors.white70, fontSize: 12),
                               ),
                             ),
-                            if (widget.format == LeagueFormat.uclGroup) ...[
+                            if (_isGroupLeague) ...[
                               const SizedBox(height: 10),
                               const Align(
                                 alignment: Alignment.centerLeft,
@@ -1625,7 +1272,7 @@ return Glass(
                                     onPressed: () {
                                       setState(() {
                                         _existingTeams[index] = team.copyWith(
-                                          groupId: widget.format == LeagueFormat.uclGroup ? selectedGroup : null,
+                                          groupId: _isGroupLeague ? selectedGroup : null,
                                           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
                                         );
                                       });
