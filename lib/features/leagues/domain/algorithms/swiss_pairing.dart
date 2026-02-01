@@ -2,9 +2,9 @@ import 'dart:math';
 
 import 'package:uuid/uuid.dart';
 
-import '../../models/team.dart';
-import '../../models/fixture_match.dart';
 import '../../models/enums.dart';
+import '../../models/fixture_match.dart';
+import '../../models/team.dart';
 import '../../models/team_stats.dart';
 
 /// Swiss-pairing engine for league phase:
@@ -75,7 +75,7 @@ class SwissPairingEngine {
   /// - homeCount/awayCount: prior schedule counts to keep home/away balanced
   ///
   /// Returns: list of (home, away) pairs or [] if no valid pairing exists.
-  static List<(String home, String away)> _buildPairingBacktracking({
+  static List<({String home, String away})> _buildPairingBacktracking({
     required List<String> teamIds,
     required Map<String, int> rankIndex,
     required Set<String> previousPairs,
@@ -93,7 +93,7 @@ class SwissPairingEngine {
     };
 
     final unpaired = teamIds.toSet();
-    final result = <(String home, String away)>[];
+    final result = <({String home, String away})>[];
 
     int candidateCount(String a) {
       int c = 0;
@@ -137,8 +137,8 @@ class SwissPairingEngine {
     bool mustAway(String teamId) => !canHome(teamId); // already at maxHome
     bool mustHome(String teamId) => !canAway(teamId); // already at maxAway
 
-    List<(String home, String away)> orientations(String a, String b) {
-      final out = <(String home, String away)>[];
+    List<({String home, String away})> orientations(String a, String b) {
+      final out = <({String home, String away})>[];
 
       // Option 1: a home, b away
       if (!mustAway(a) && !mustHome(b) && canHome(a) && canAway(b)) {
@@ -199,7 +199,9 @@ class SwissPairingEngine {
           // apply orientation counts
           homeCount[opt.home] = (homeCount[opt.home] ?? 0) + 1;
           awayCount[opt.away] = (awayCount[opt.away] ?? 0) + 1;
-          result.add((opt.home, opt.away));
+
+          // Keep record type named (home/away)
+          result.add(opt);
 
           if (backtrack()) return true;
 
@@ -219,7 +221,7 @@ class SwissPairingEngine {
     }
 
     final ok = backtrack();
-    return ok ? result : <(String home, String away)>[];
+    return ok ? result : <({String home, String away})>[];
   }
 
   /// Generate Round 1 pairings (deterministic per league).
