@@ -2,9 +2,9 @@ import 'dart:math';
 
 import 'package:uuid/uuid.dart';
 
-import '../../models/team.dart';
-import '../../models/fixture_match.dart';
 import '../../models/enums.dart';
+import '../../models/fixture_match.dart';
+import '../../models/team.dart';
 import '../../models/team_stats.dart';
 
 /// Swiss-pairing engine for league phase:
@@ -37,7 +37,7 @@ class SwissPairingEngine {
   static bool _allowedTeamCount(int n) => n == 18 || n == 36;
 
   static String _pairKey(String a, String b) {
-    return (a.compareTo(b) < 0) ? '$a|$b' : '$b|$a';
+    return (a.compareTo(b) < 0) ? '|' : '|';
   }
 
   static Map<String, int> _homeCounts({
@@ -199,7 +199,7 @@ class SwissPairingEngine {
           // apply orientation counts
           homeCount[opt.home] = (homeCount[opt.home] ?? 0) + 1;
           awayCount[opt.away] = (awayCount[opt.away] ?? 0) + 1;
-          result.add((opt.home, opt.away));
+          result.add(opt);
 
           if (backtrack()) return true;
 
