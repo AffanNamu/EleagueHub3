@@ -1,7 +1,12 @@
+import 'dart:async';
+import 'dart:ui';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'core/app/app.dart';
@@ -21,38 +26,54 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp();
-  final prefs = await PreferencesService.create();
-  SyncQueueService.init(prefs);
 
-  try {
-    await AuthBootstrap.syncCurrentUserToPrefs(prefs);
-  } catch (e) {
-    // ignore: avoid_print
-    print('AuthBootstrap sync failed (non-fatal): $e');
-  }
+  await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(!kDebugMode);
 
-  try {
-    await NotificationService().init();
-  } catch (e) {
-    // ignore: avoid_print
-    print('NotificationService init failed (non-fatal): $e');
-  }
+  FlutterError.onError = (details) {
+    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+  };
 
-  try {
-    await SyncBootstrap.init();
-  } catch (e) {
-    // ignore: avoid_print
-    print('SyncBootstrap init failed (non-fatal): $e');
-  }
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
 
-  runApp(
-    ProviderScope(
-      overrides: [
-        prefsServiceProvider.overrideWithValue(prefs),
-      ],
-      child: const AppRoot(),
-    ),
-  );
+  runZonedGuarded(() async {
+    final prefs = await PreferencesService.create();
+    SyncQueueService.init(prefs);
+
+    try {
+      await AuthBootstrap.syncCurrentUserToPrefs(prefs);
+    } catch (e) {
+      // ignore: avoid_print
+      print('AuthBootstrap sync failed (non-fatal): $e');
+    }
+
+    try {
+      await NotificationService().init();
+    } catch (e) {
+      // ignore: avoid_print
+      print('NotificationService init failed (non-fatal): $e');
+    }
+
+    try {
+      await SyncBootstrap.init();
+    } catch (e) {
+      // ignore: avoid_print
+      print('SyncBootstrap init failed (non-fatal): $e');
+    }
+
+    runApp(
+      ProviderScope(
+        overrides: [
+          prefsServiceProvider.overrideWithValue(prefs),
+        ],
+        child: const AppRoot(),
+      ),
+    );
+  }, (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  });
 }
 
 class AppRoot extends ConsumerWidget {
