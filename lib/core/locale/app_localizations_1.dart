@@ -375,6 +375,107 @@ const Map<String, Map<String, String>> appLocalizationsPart1 = {
     'league_create_error_invalid_team_count': 'Invalid team count for selected format.',
     'league_create_error_profile_team_name_missing': 'Your profile team name is missing. Please update your profile first.',
     'league_create_error_failed_to_create_prefix': 'Failed to create league',
+
+    'league_admin_appbar_title': 'League Settings',
+    'league_admin_league_info_not_loaded_yet': 'League info not loaded yet.',
+    'league_admin_league_info_not_loaded_yet_try_again': 'League info not loaded yet. Please try again.',
+    'league_admin_only_organizer_action': 'Only the league organizer can use this action.',
+    'league_admin_ucl_group_maxteams_error': 'UCL Group leagues must have maxTeams set to 16 or 32.',
+    'league_admin_swiss_maxteams_error': 'Swiss leagues must have maxTeams set to 18 or 36.',
+    'league_admin_already_added_participant_team_exists': 'You are already added as a participant (team exists).',
+    'league_admin_league_full_prefix': 'League is full (',
+    'league_admin_league_full_suffix': ' teams).',
+    'league_admin_profile_team_name_missing': 'Your profile team name is missing. Please update your profile first.',
+    'league_admin_all_groups_full': 'All groups are full. Cannot add another team.',
+    'league_admin_added_participant': 'You have been added as a participant.',
+    'league_admin_added_participant_in_group_prefix': 'You have been added as a participant in',
+    'league_admin_failed_add_participant_prefix': 'Failed to add you as participant:',
+    'league_admin_export_failed_prefix': 'Export failed:',
+    'league_admin_no_signed_in_user_error': 'No signed-in user id (FirebaseAuth). Please restart app.',
+    'league_admin_only_organizer_start_space': 'Only the league organizer can start a space.',
+    'league_admin_only_organizer_end_space': 'Only the league organizer can end a space.',
+    'league_admin_opening_space_not_implemented': 'Opening League Space (voice room UI not implemented yet).',
+
+    'league_admin_offline_changes_title': 'Offline Changes',
+    'league_admin_fully_synced_title': 'Fully Synced',
+    'league_admin_offline_changes_subtitle': 'Local edits will sync when online.',
+    'league_admin_fully_synced_subtitle': 'No pending local changes.',
+    'league_admin_sync_now_tooltip': 'Sync now',
+    'league_admin_sync_complete': 'Sync complete',
+
+    'league_admin_manage_teams_title': 'Manage Teams & Participants',
+    'league_admin_manage_teams_subtitle': 'Add teams manually or view joined participants',
+
+    'league_admin_adding_you': 'Adding you…',
+    'league_admin_add_me_participant': 'Add me as participant',
+    'league_admin_add_me_participant_subtitle': 'Create your team from your profile team name (no duplicates).',
+
+    'league_admin_exporting_roster': 'Exporting roster…',
+    'league_admin_export_roster': 'Export roster CSV',
+    'league_admin_export_roster_subtitle':
+        'Download/share an importable roster file (use it later in Add Teams → Import CSV).',
+
+    'league_admin_view_participants': 'View Participants',
+    'league_admin_view_participants_subtitle': 'See all joined members and their roles',
+
+    'league_admin_live_voice_settings': 'Live & Voice Settings',
+    'league_admin_live_voice_settings_subtitle': 'Viewer chat, voice and reactions',
+
+    'league_admin_league_space_live': 'League Space • LIVE',
+    'league_admin_league_space_voice_room': 'League Space (Voice Room)',
+    'league_admin_league_space_live_subtitle': 'Tap to open or end this live audio room',
+    'league_admin_league_space_voice_room_subtitle': 'Start a live voice room for this league',
+
+    'league_admin_send_announcement': 'Send Announcement',
+    'league_admin_send_announcement_subtitle': 'Write a message for league participants',
+
+    'league_admin_league_rules': 'League Rules',
+    'league_admin_league_rules_subtitle': 'Format, round-robin and group/swiss options',
+
+    'league_admin_sync_now': 'Sync Now',
+    'league_admin_syncing': 'Syncing...',
+    'league_admin_sync_now_subtitle': 'Push local changes and pull latest cloud data',
+
+    'league_admin_delete_league': 'Delete League',
+    'league_admin_delete_league_subtitle': 'This cannot be undone',
+    'league_admin_delete': 'Delete',
+    'league_admin_league_deleted': 'League deleted.',
+
+    'league_admin_viewer_text_chat': 'Viewer text chat',
+    'league_admin_viewer_text_chat_subtitle': 'Allow viewers to type messages',
+    'league_admin_viewer_audio': 'Viewer audio',
+    'league_admin_viewer_audio_subtitle': 'Allow viewers to hear the stream',
+    'league_admin_viewer_reactions': 'Viewer reactions',
+    'league_admin_viewer_reactions_subtitle': 'Allow quick reactions (GG, Wow, Clutch)',
+    'league_admin_live_viewer_settings_updated': 'Live viewer settings updated.',
+
+    'league_admin_league_space_sheet_title': 'League Space (Voice Room)',
+    'league_admin_league_space_running_prefix': 'A live audio space is currently running for',
+    'league_admin_league_space_start_description_prefix': 'Start a live audio room where you can talk with players from',
+    'league_admin_league_space_start_description_suffix': '. Only admins can host.',
+    'league_admin_start_space': 'Start Space',
+    'league_admin_open_space': 'Open Space',
+    'league_admin_end_space': 'End Space',
+
+    'league_admin_send_announcement_sheet_title': 'Send announcement',
+    'league_admin_send_announcement_sheet_subtitle':
+        'This message will appear in the league details screen for all participants.',
+    'league_admin_announcement_title_optional': 'Title (optional)',
+    'league_admin_announcement_message_label': 'Message',
+    'league_admin_announcement_default_title': 'Announcement',
+    'league_admin_announcement_sent': 'Announcement sent.',
+    'league_admin_send': 'Send',
+
+    'league_admin_teams_add_edit_title': 'Teams (Add / Edit)',
+    'league_admin_teams_add_edit_subtitle': 'Manually add or review teams',
+    'league_admin_joined_participants_title': 'Joined Participants',
+    'league_admin_joined_participants_subtitle': 'View users who joined via code / QR',
+
+    'league_admin_rules_editor_unchanged': 'Rules editor: unchanged (already implemented in your project).',
+
+    'league_admin_delete_league_confirm_title': 'Delete League?',
+    'league_admin_delete_league_confirm_message':
+        'This will permanently remove this league and all of its local data. This action cannot be undone.',
   },
   'fr': {
     'app_name': 'eSportlyic',

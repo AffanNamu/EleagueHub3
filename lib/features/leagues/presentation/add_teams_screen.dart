@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -33,6 +34,9 @@ class AddTeamsScreen extends ConsumerStatefulWidget {
 }
 
 class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
+  static const String _leaguePoolGroup = 'League Pool';
+  static const String _unassignedGroup = 'Unassigned';
+
   late LocalLeaguesRepository _localRepo;
   final UserProfileRepository _profiles = UserProfileRepository();
 
@@ -153,7 +157,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final tempIds = _tempTeams.map((t) => (t['userId'] ?? '').trim()).where((id) => id.isNotEmpty).toSet();
 
     final autoTemp = <Map<String, String>>[];
-    final defaultGroup = _isGroupLeague ? _selectedGroup : 'League Pool';
+    final defaultGroup = _isGroupLeague ? _selectedGroup : _leaguePoolGroup;
 
     for (final uid in memberUserIds) {
       if (existingIds.contains(uid)) continue;
@@ -202,9 +206,50 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     });
   }
 
+  String _formatLabel(AppLocalizations l10n) {
+    switch (widget.format) {
+      case LeagueFormat.classic:
+        return l10n.tr('add_teams_format_classic');
+      case LeagueFormat.uclGroup:
+        return l10n.tr('add_teams_format_ucl_group');
+      case LeagueFormat.uclSwiss:
+        return l10n.tr('add_teams_format_ucl_swiss');
+    }
+  }
+
+  String _unlockHint(AppLocalizations l10n) {
+    switch (widget.format) {
+      case LeagueFormat.uclGroup:
+        return l10n.tr('add_teams_unlock_group');
+      case LeagueFormat.uclSwiss:
+        return l10n.tr('add_teams_unlock_swiss');
+      case LeagueFormat.classic:
+      default:
+        return l10n.tr('add_teams_unlock_classic');
+    }
+  }
+
+  String _groupDisplayName(AppLocalizations l10n, String groupId) {
+    final g = groupId.trim();
+    if (g == _leaguePoolGroup) return l10n.tr('add_teams_league_pool');
+    if (g == _unassignedGroup) return l10n.tr('add_teams_unassigned');
+
+    if (g == 'Group A') return l10n.tr('add_teams_group_a');
+    if (g == 'Group B') return l10n.tr('add_teams_group_b');
+    if (g == 'Group C') return l10n.tr('add_teams_group_c');
+    if (g == 'Group D') return l10n.tr('add_teams_group_d');
+    if (g == 'Group E') return l10n.tr('add_teams_group_e');
+    if (g == 'Group F') return l10n.tr('add_teams_group_f');
+    if (g == 'Group G') return l10n.tr('add_teams_group_g');
+    if (g == 'Group H') return l10n.tr('add_teams_group_h');
+
+    return g;
+  }
+
   String _groupLabelForTeam(Team t) {
-    if (_isGroupLeague) return t.groupId ?? 'Unassigned';
-    return 'League Pool';
+    final l10n = context.l10n;
+    if (_isGroupLeague) return _groupDisplayName(l10n, t.groupId ?? _unassignedGroup);
+    return l10n.tr('add_teams_league_pool');
   }
 
   Future<_ResolvedTeam?> _resolveTeamFromUserIdOrShareId(String userIdOrShareId) async {
@@ -231,10 +276,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     _ResolvedTeam resolved, {
     String? groupOverride,
   }) async {
+    final l10n = context.l10n;
+
     final totalCurrent = _existingTeams.length + _tempTeams.length;
     if (totalCurrent >= _maxTeamsForFormat) {
       if (!mounted) return;
-      setState(() => _bulkError = 'Maximum $_maxTeamsForFormat teams allowed for this format.');
+      setState(() => _bulkError = '${l10n.tr('add_teams_max_teams_error_prefix')} $_maxTeamsForFormat ${l10n.tr('add_teams_max_teams_error_suffix')}');
       return;
     }
 
@@ -243,7 +290,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     final alreadySaved = _existingTeams.any((t) => t.id == resolved.userId);
     if (alreadySaved) {
-      _snackWarn('This user is already added to this league.');
+      _snackWarn(l10n.tr('add_teams_user_already_added'));
       return;
     }
 
@@ -253,7 +300,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       final desired = (groupOverride != null && groupOverride.trim().isNotEmpty) ? groupOverride.trim() : _selectedGroup;
       groupToUse = active.contains(desired) ? desired : (active.isNotEmpty ? active.first : 'Group A');
     } else {
-      groupToUse = 'League Pool';
+      groupToUse = _leaguePoolGroup;
     }
 
     if (!mounted) return;
@@ -297,6 +344,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   Future<void> _showAddSingleDialog() async {
+    final l10n = context.l10n;
+
     final controller = TextEditingController();
     Timer? debounce;
 
@@ -328,7 +377,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           setModalState(() {
             resolved = null;
             resolving = false;
-            error = 'No profile found for this UserId. Ask the player to login once and share their UserId (eSxxxxxx).';
+            error = l10n.tr('add_teams_no_profile_found_help');
           });
           return;
         }
@@ -343,7 +392,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         setModalState(() {
           resolved = null;
           resolving = false;
-          error = 'Lookup failed: $e';
+          error = '${l10n.tr('add_teams_lookup_failed_prefix')} $e';
         });
       }
     }
@@ -355,9 +404,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         builder: (ctx) {
           return AlertDialog(
             backgroundColor: const Color(0xFF0A1D37),
-            title: const Text(
-              'Add player by UserId',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            title: Text(
+              l10n.tr('add_teams_add_player_by_userid_title'),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
             content: StatefulBuilder(
               builder: (ctx, setModalState) {
@@ -371,7 +420,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         autofocus: true,
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
-                          hintText: 'eS44e35f  (or Firebase uid)',
+                          hintText: l10n.tr('add_teams_userid_hint'),
                           hintStyle: const TextStyle(color: Colors.white38),
                           prefixIcon: const Icon(Icons.badge, color: Colors.white70),
                           suffixIcon: resolving
@@ -384,7 +433,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   ),
                                 )
                               : IconButton(
-                                  tooltip: 'Lookup',
+                                  tooltip: l10n.tr('add_teams_lookup_tooltip'),
                                   onPressed: () => resolveNow(setModalState),
                                   icon: const Icon(Icons.search, color: Colors.cyanAccent),
                                 ),
@@ -410,9 +459,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Resolved profile',
-                                style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900, fontSize: 12),
+                              Text(
+                                l10n.tr('add_teams_resolved_profile_title'),
+                                style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900, fontSize: 12),
                               ),
                               const SizedBox(height: 6),
                               Text(
@@ -422,7 +471,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'uid: ${resolved!.userId}',
+                                '${l10n.tr('add_teams_uid_prefix')}${resolved!.userId}',
                                 style: const TextStyle(color: Colors.white54, fontSize: 11),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -433,7 +482,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     const Icon(Icons.grid_view, size: 16, color: Colors.white60),
                                     const SizedBox(width: 8),
                                     Text(
-                                      'Will be placed in: $_selectedGroup',
+                                      '${l10n.tr('add_teams_will_be_placed_in_prefix')}${_groupDisplayName(l10n, _selectedGroup)}',
                                       style: const TextStyle(color: Colors.white70, fontSize: 12),
                                     ),
                                   ],
@@ -458,7 +507,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
               ),
               FilledButton.icon(
                 onPressed: () async {
@@ -467,7 +516,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                   if (ctx.mounted) Navigator.of(ctx).pop();
                 },
                 icon: const Icon(Icons.person_add),
-                label: const Text('Add'),
+                label: Text(l10n.tr('common_add')),
               ),
             ],
           );
@@ -480,6 +529,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   Future<void> _showPasteListSheet() async {
+    final l10n = context.l10n;
+
     final controller = TextEditingController();
 
     bool validating = false;
@@ -500,7 +551,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       if (inputs.isEmpty) {
         setModalState(() {
           rows = [];
-          error = 'Paste at least one UserId.';
+          error = l10n.tr('add_teams_paste_at_least_one_userid');
         });
         return;
       }
@@ -540,7 +591,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         if (!mounted) return;
         setModalState(() {
           validating = false;
-          error = 'Validation failed: $e';
+          error = '${l10n.tr('add_teams_validation_failed_prefix')} $e';
         });
       }
     }
@@ -580,14 +631,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text(
-                              'Paste UserIds',
-                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                            Text(
+                              l10n.tr('add_teams_paste_userids_title'),
+                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
                             ),
                             const SizedBox(height: 6),
-                            const Text(
-                              'Paste one per line (or comma-separated). Use short UserId (eSxxxxxx) or Firebase uid.',
-                              style: TextStyle(color: Colors.white70, fontSize: 11),
+                            Text(
+                              l10n.tr('add_teams_paste_userids_subtitle'),
+                              style: const TextStyle(color: Colors.white70, fontSize: 11),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 12),
@@ -605,11 +656,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     controller: controller,
                                     maxLines: 6,
                                     style: const TextStyle(color: Colors.white),
-                                    decoration: const InputDecoration(
-                                      hintText: 'eS44e35f\neS91a2b3\nuid_3',
-                                      hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
+                                    decoration: InputDecoration(
+                                      hintText: l10n.tr('add_teams_paste_hint'),
+                                      hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
                                       border: InputBorder.none,
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                     ),
                                   ),
                                 ),
@@ -630,7 +681,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                             });
                                           },
                                     icon: const Icon(Icons.clear_all, size: 18),
-                                    label: const Text('Clear'),
+                                    label: Text(l10n.tr('add_teams_clear')),
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: Colors.white70,
                                       side: const BorderSide(color: Colors.white24),
@@ -648,7 +699,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                           )
                                         : const Icon(Icons.verified),
-                                    label: const Text('Validate'),
+                                    label: Text(l10n.tr('add_teams_validate')),
                                   ),
                                 ),
                               ],
@@ -657,9 +708,15 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               const SizedBox(height: 10),
                               Row(
                                 children: [
-                                  _MiniChip(label: 'OK: $okCount', color: Colors.cyanAccent.withOpacity(0.22)),
+                                  _MiniChip(
+                                    label: '${l10n.tr('add_teams_bulk_ok_prefix')}$okCount',
+                                    color: Colors.cyanAccent.withOpacity(0.22),
+                                  ),
                                   const SizedBox(width: 8),
-                                  _MiniChip(label: 'Not found: $notFoundCount', color: Colors.redAccent.withOpacity(0.18)),
+                                  _MiniChip(
+                                    label: '${l10n.tr('add_teams_bulk_not_found_prefix')}$notFoundCount',
+                                    color: Colors.redAccent.withOpacity(0.18),
+                                  ),
                                   const Spacer(),
                                   Text(
                                     '${_existingTeams.length + _tempTeams.length} / $_maxTeamsForFormat',
@@ -705,7 +762,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                                   ),
                                                   const SizedBox(height: 2),
                                                   Text(
-                                                    isOk ? r.resolved!.teamName : 'No profile found',
+                                                    isOk ? r.resolved!.teamName : l10n.tr('add_teams_no_profile_found_short'),
                                                     style: TextStyle(color: isOk ? Colors.white70 : Colors.white38, fontSize: 11),
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
@@ -734,7 +791,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 Expanded(
                                   child: TextButton(
                                     onPressed: () => Navigator.of(ctx).pop(),
-                                    child: const Text('Close', style: TextStyle(color: Colors.white70)),
+                                    child: Text(l10n.tr('profile_close_tooltip'), style: const TextStyle(color: Colors.white70)),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -742,7 +799,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   child: FilledButton.icon(
                                     onPressed: validating ? null : () => addValidAndClose(ctx),
                                     icon: const Icon(Icons.playlist_add_check),
-                                    label: Text('Add valid${rows.isEmpty ? '' : ' ($okCount)'}'),
+                                    label: Text(
+                                      rows.isEmpty
+                                          ? l10n.tr('add_teams_add_valid')
+                                          : '${l10n.tr('add_teams_add_valid')} ($okCount)',
+                                    ),
                                   ),
                                 ),
                               ],
@@ -786,6 +847,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   /// SAVE button: persists teams only, never generates fixtures.
   Future<void> _saveTeamsOnly({bool silent = false}) async {
+    final l10n = context.l10n;
     final now = DateTime.now().millisecondsSinceEpoch;
 
     final newTeams = _tempTeams.map<Team>((t) {
@@ -826,15 +888,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     });
 
     if (!silent) {
-      _snackOk('Teams saved.');
+      _snackOk(l10n.tr('add_teams_saved_toast'));
       if (!_requiredCountReached) {
-        if (widget.format == LeagueFormat.uclGroup) {
-          _snackWarn('Fixtures unlock at 16 or 32 teams.');
-        } else if (widget.format == LeagueFormat.uclSwiss) {
-          _snackWarn('Fixtures unlock at 18 or 36 teams.');
-        } else {
-          _snackWarn('Fixtures unlock at 2+ teams.');
-        }
+        _snackWarn(_unlockHint(l10n));
       }
     }
   }
@@ -842,17 +898,19 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   /// GENERATE button: generates fixtures ONLY when required team count is reached.
   /// It always saves teams first (silent), to ensure fixtures match persisted roster.
   Future<void> _generateFixturesOnly() async {
+    final l10n = context.l10n;
+
     await _saveTeamsOnly(silent: true);
 
     final total = _existingTeams.length;
 
     if (!_requiredCountReached) {
       if (widget.format == LeagueFormat.uclGroup) {
-        _snackErr('Cannot generate fixtures: UCL Group requires exactly 16 or 32 teams. Current: $total.');
+        _snackErr('${l10n.tr('add_teams_cannot_generate_group_prefix')} $total.');
       } else if (widget.format == LeagueFormat.uclSwiss) {
-        _snackErr('Cannot generate fixtures: Swiss requires exactly 18 or 36 teams. Current: $total.');
+        _snackErr('${l10n.tr('add_teams_cannot_generate_swiss_prefix')} $total.');
       } else {
-        _snackErr('Cannot generate fixtures: Classic requires at least 2 teams. Current: $total.');
+        _snackErr('${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.');
       }
       return;
     }
@@ -861,7 +919,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     // Swiss: never allow generating league fixtures if any already exist.
     if (widget.format == LeagueFormat.uclSwiss && existingFixtures.isNotEmpty) {
-      _snackErr('Swiss fixtures already exist. Generate later rounds from the Swiss round generator.');
+      _snackErr(l10n.tr('add_teams_swiss_fixtures_already_exist'));
       return;
     }
 
@@ -873,14 +931,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             builder: (ctx) {
               return AlertDialog(
                 backgroundColor: const Color(0xFF000428),
-                title: const Text('Regenerate fixtures?', style: TextStyle(color: Colors.white)),
-                content: const Text(
-                  'Fixtures already exist. Regenerating will reset all match results.\n\nContinue?',
-                  style: TextStyle(color: Colors.white70),
+                title: Text(l10n.tr('add_teams_regenerate_fixtures_title'), style: const TextStyle(color: Colors.white)),
+                content: Text(
+                  l10n.tr('add_teams_regenerate_fixtures_message'),
+                  style: const TextStyle(color: Colors.white70),
                 ),
                 actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Regenerate')),
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.tr('common_cancel'))),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l10n.tr('add_teams_regenerate'))),
                 ],
               );
             },
@@ -903,7 +961,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       );
     } else if (widget.format == LeagueFormat.uclGroup) {
       if (!_groupStructureValidFor(total, _existingTeams)) {
-        _snackErr('Invalid group structure. For $total teams you must have groups of 4 with correct group names.');
+        _snackErr('${l10n.tr('add_teams_invalid_group_structure_prefix')} $total ${l10n.tr('add_teams_invalid_group_structure_suffix')}');
         return;
       }
 
@@ -924,12 +982,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
 
     if (generated.isEmpty) {
-      _snackErr('Failed to generate fixtures.');
+      _snackErr(l10n.tr('add_teams_failed_generate_fixtures'));
       return;
     }
 
     await _localRepo.replaceMatches(widget.leagueId, generated.cast());
-    _snackOk('Fixtures generated (${generated.length} matches).');
+    _snackOk('${l10n.tr('add_teams_fixtures_generated_prefix')}${generated.length}${l10n.tr('add_teams_fixtures_generated_suffix')}');
 
     if (mounted) {
       context.go('/leagues/${widget.leagueId}');
@@ -938,12 +996,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     final width = MediaQuery.of(context).size.width;
     final showTwoPane = width >= 900;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Text('Add Teams · ${widget.format.displayName}'),
+        title: Text('${l10n.tr('add_teams_appbar_title_prefix')} · ${_formatLabel(l10n)}'),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -983,17 +1043,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
-                                      'Add players (by UserId)',
-                                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
+                                    Text(
+                                      l10n.tr('add_teams_header_title'),
+                                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      widget.format == LeagueFormat.uclGroup
-                                          ? 'Save anytime. Fixtures unlock at exactly 16 or 32 teams.'
-                                          : widget.format == LeagueFormat.uclSwiss
-                                              ? 'Save anytime. Fixtures unlock at exactly 18 or 36 teams.'
-                                              : 'Save anytime. Fixtures unlock at 2+ teams.',
+                                      _unlockHint(l10n),
                                       style: const TextStyle(color: Colors.white70, fontSize: 11),
                                     ),
                                   ],
@@ -1034,6 +1090,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   Widget _buildAddPanel() {
+    final l10n = context.l10n;
+
     final existingCount = _existingTeams.length;
     final newCount = _tempTeams.length;
     final totalCount = existingCount + newCount;
@@ -1044,13 +1102,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
             child: Row(
               children: [
-                Icon(Icons.person_add_alt_1, size: 18, color: Colors.cyanAccent),
-                SizedBox(width: 8),
-                Text('Add players', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                const Icon(Icons.person_add_alt_1, size: 18, color: Colors.cyanAccent),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.tr('add_teams_add_players_title'),
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
@@ -1059,9 +1120,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: [
-                _MiniChip(label: 'Saved: $existingCount', color: Colors.white24),
+                _MiniChip(label: '${l10n.tr('add_teams_saved_prefix')}$existingCount', color: Colors.white24),
                 const SizedBox(width: 8),
-                _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
+                _MiniChip(label: '${l10n.tr('add_teams_new_prefix')}$newCount', color: Colors.cyanAccent.withOpacity(0.24)),
                 const Spacer(),
                 Text('$totalCount / $_maxTeamsForFormat', style: const TextStyle(color: Colors.white70, fontSize: 11)),
               ],
@@ -1084,7 +1145,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             child: FilledButton.icon(
               onPressed: _showAddSingleDialog,
               icon: const Icon(Icons.person_add),
-              label: const Text('Add one player'),
+              label: Text(l10n.tr('add_teams_add_one_player')),
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
             ),
           ),
@@ -1094,7 +1155,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             child: OutlinedButton.icon(
               onPressed: _showPasteListSheet,
               icon: const Icon(Icons.playlist_add),
-              label: const Text('Paste a list'),
+              label: Text(l10n.tr('add_teams_paste_list')),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white70,
                 side: const BorderSide(color: Colors.white24),
@@ -1108,11 +1169,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             child: OutlinedButton.icon(
               onPressed: _importRosterFromCsv,
               icon: const Icon(Icons.upload_file),
-              label: const Text('Import CSV roster'),
+              label: Text(l10n.tr('add_teams_import_csv')),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white70,
                 side: const BorderSide(color: Colors.white24),
-                minimumSize: const Size.fromHeight(46)),
+                minimumSize: const Size.fromHeight(46),
+              ),
             ),
           ),
         ],
@@ -1121,6 +1183,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   Widget _buildGroupSelector() {
+    final l10n = context.l10n;
+
     final groups = _activeGroups;
     if (groups.isEmpty) return const SizedBox.shrink();
 
@@ -1135,17 +1199,18 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         children: [
           const Icon(Icons.grid_view, size: 18, color: Colors.cyanAccent),
           const SizedBox(width: 8),
-          const Text('Current group', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          Text(l10n.tr('add_teams_current_group'), style: const TextStyle(color: Colors.white70, fontSize: 12)),
           const SizedBox(width: 12),
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: groups.map((g) {
+                  final label = _groupDisplayName(l10n, g);
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(g, style: const TextStyle(fontSize: 11)),
+                      label: Text(label, style: const TextStyle(fontSize: 11)),
                       selected: _selectedGroup == g,
                       selectedColor: Colors.cyanAccent.withOpacity(0.25),
                       backgroundColor: Colors.white10,
@@ -1166,6 +1231,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   Widget _buildPreviewPanel() {
+    final l10n = context.l10n;
+
     final existingCount = _existingTeams.length;
     final newCount = _tempTeams.length;
     final totalCount = existingCount + newCount;
@@ -1175,13 +1242,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
             child: Row(
               children: [
-                Icon(Icons.groups, size: 18, color: Colors.cyanAccent),
-                SizedBox(width: 8),
-                Text('Review teams', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                const Icon(Icons.groups, size: 18, color: Colors.cyanAccent),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.tr('add_teams_review_teams'),
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
@@ -1190,9 +1260,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: [
-                _MiniChip(label: 'Saved: $existingCount', color: Colors.white24),
+                _MiniChip(label: '${l10n.tr('add_teams_saved_prefix')}$existingCount', color: Colors.white24),
                 const SizedBox(width: 8),
-                _MiniChip(label: 'New: $newCount', color: Colors.cyanAccent.withOpacity(0.24)),
+                _MiniChip(label: '${l10n.tr('add_teams_new_prefix')}$newCount', color: Colors.cyanAccent.withOpacity(0.24)),
                 const Spacer(),
                 Text('$totalCount / $_maxTeamsForFormat', style: const TextStyle(color: Colors.white70, fontSize: 11)),
               ],
@@ -1203,7 +1273,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             child: (existingCount + newCount) == 0
                 ? Center(
                     child: Text(
-                      'No teams yet.\nTap “Add one player”, “Paste a list”, or “Import CSV roster”.',
+                      l10n.tr('add_teams_empty_state'),
                       style: TextStyle(color: Colors.white.withOpacity(0.55), height: 1.4),
                       textAlign: TextAlign.center,
                     ),
@@ -1215,7 +1285,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       if (i < existingCount) {
                         final team = _existingTeams[i];
                         final groupLabel = _groupLabelForTeam(team);
-                        final label = _isGroupLeague ? 'Saved · $groupLabel' : 'Saved';
+                        final label = _isGroupLeague ? '${l10n.tr('add_teams_label_saved')} · $groupLabel' : l10n.tr('add_teams_label_saved');
                         return _buildTeamTile(
                           index: i,
                           name: team.name,
@@ -1228,7 +1298,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         final idx = i - existingCount;
                         final team = _tempTeams[idx];
                         final group = team['group'] ?? '';
-                        final label = group.isEmpty ? 'New' : 'New · $group';
+                        final label = group.isEmpty
+                            ? l10n.tr('add_teams_label_new')
+                            : '${l10n.tr('add_teams_label_new')} · ${_groupDisplayName(l10n, group)}';
                         return _buildTeamTile(
                           index: i,
                           name: team['teamName']!,
@@ -1255,7 +1327,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     onPressed: _saveTeamsOnly,
                     style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
                     icon: const Icon(Icons.save),
-                    label: const Text('Save teams'),
+                    label: Text(l10n.tr('add_teams_save_teams')),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1268,7 +1340,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       minimumSize: const Size.fromHeight(48),
                     ),
                     icon: const Icon(Icons.auto_awesome),
-                    label: const Text('Generate fixtures'),
+                    label: Text(l10n.tr('add_teams_generate_fixtures')),
                   ),
                 ),
               ],
@@ -1278,11 +1350,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Text(
-                widget.format == LeagueFormat.uclGroup
-                    ? 'Fixtures unlock at 16 or 32 teams.'
-                    : widget.format == LeagueFormat.uclSwiss
-                        ? 'Fixtures unlock at 18 or 36 teams.'
-                        : 'Fixtures unlock at 2+ teams.',
+                _unlockHint(l10n),
                 style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
               ),
             ),
@@ -1292,6 +1360,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   void _editExistingTeam(int index) {
+    final l10n = context.l10n;
+
     final team = _existingTeams[index];
     String selectedGroup = team.groupId ?? _selectedGroup;
 
@@ -1320,32 +1390,41 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         return Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('Team details', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                            Text(
+                              l10n.tr('add_teams_team_details_title'),
+                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
                             const SizedBox(height: 10),
                             Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text('Team name', style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12)),
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                l10n.tr('add_teams_team_name_label'),
+                                style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
+                              ),
                             ),
                             const SizedBox(height: 4),
                             Align(
-                              alignment: Alignment.centerLeft,
+                              alignment: AlignmentDirectional.centerStart,
                               child: Text(team.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                             ),
                             const SizedBox(height: 8),
                             Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text('uid (internal)', style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12)),
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                l10n.tr('add_teams_uid_internal_label'),
+                                style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
+                              ),
                             ),
                             const SizedBox(height: 4),
                             Align(
-                              alignment: Alignment.centerLeft,
+                              alignment: AlignmentDirectional.centerStart,
                               child: Text(team.id, style: const TextStyle(color: Colors.white70, fontSize: 12)),
                             ),
                             if (_isGroupLeague) ...[
                               const SizedBox(height: 10),
-                              const Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text('Group', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                              Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: Text(l10n.tr('add_teams_group_label'), style: const TextStyle(color: Colors.white70, fontSize: 12)),
                               ),
                               DropdownButtonHideUnderline(
                                 child: DropdownButton<String>(
@@ -1353,7 +1432,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   dropdownColor: const Color(0xFF000428),
                                   style: const TextStyle(color: Colors.cyanAccent),
                                   isExpanded: true,
-                                  items: _groupsAll.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                                  items: _groupsAll
+                                      .map(
+                                        (g) => DropdownMenuItem(
+                                          value: g,
+                                          child: Text(_groupDisplayName(l10n, g)),
+                                        ),
+                                      )
+                                      .toList(),
                                   onChanged: (v) {
                                     if (v == null) return;
                                     setModalState(() => selectedGroup = v);
@@ -1367,7 +1453,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 Expanded(
                                   child: TextButton(
                                     onPressed: () => Navigator.of(ctx).pop(),
-                                    child: const Text('Close', style: TextStyle(color: Colors.white70)),
+                                    child: Text(l10n.tr('profile_close_tooltip'), style: const TextStyle(color: Colors.white70)),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -1382,14 +1468,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       });
                                       Navigator.of(ctx).pop();
                                     },
-                                    child: const Text('Save changes'),
+                                    child: Text(l10n.tr('add_teams_save_changes')),
                                   ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 8),
                             Align(
-                              alignment: Alignment.centerRight,
+                              alignment: AlignmentDirectional.centerEnd,
                               child: TextButton.icon(
                                 onPressed: () {
                                   setState(() {
@@ -1398,7 +1484,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   Navigator.of(ctx).pop();
                                 },
                                 icon: const Icon(Icons.delete, color: Colors.redAccent, size: 16),
-                                label: const Text('Remove team', style: TextStyle(color: Colors.redAccent)),
+                                label: Text(l10n.tr('add_teams_remove_team'), style: const TextStyle(color: Colors.redAccent)),
                               ),
                             ),
                           ],
@@ -1423,6 +1509,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     required VoidCallback? onTap,
     required VoidCallback? onRemove,
   }) {
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    final numberColor = isNew ? Colors.cyanAccent : (isRtl ? Colors.cyanAccent : Colors.white70);
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Glass(
@@ -1438,14 +1527,18 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 CircleAvatar(
                   radius: 14,
                   backgroundColor: isNew ? Colors.cyanAccent.withOpacity(0.18) : Colors.white12,
-                  child: Text('${index + 1}', style: const TextStyle(color: Colors.cyanAccent, fontSize: 12)),
+                  child: Text('${index + 1}', style: TextStyle(color: numberColor, fontSize: 12)),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
+                      Text(
+                        name,
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       const SizedBox(height: 2),
                       Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
                     ],

@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
@@ -459,7 +459,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       _pill(league.isPrivate ? l10n.tr('league_details_private') : l10n.tr('league_details_public'), Colors.cyanAccent),
       _pill('${league.maxTeams} ${l10n.tr('league_details_teams_max_suffix')}', Colors.orangeAccent),
       _pill(league.region, Colors.purpleAccent),
-      _pill(settings.doubleRoundRobin ? l10n.tr('league_details_double_rr') : l10n.tr('league_details_single_rr'), Colors.lightBlueAccent),
+      _pill(settings.doubleRoundRobin ? l10n.tr('league_details_double_rr') : l10n.tr('league_details_single_rr'),
+          Colors.lightBlueAccent),
     ];
 
     if (league.format == LeagueFormat.uclGroup) {
@@ -1055,13 +1056,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final roundsSet = swissMatches.map((m) => m.roundNumber).toSet();
     final hasAllRounds = List.generate(requiredRounds, (i) => i + 1).every((r) => roundsSet.contains(r));
     if (!hasAllRounds) {
-      _toastWarn('${l10n.tr('league_details_generate_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_generate_all_swiss_rounds_suffix')}');
+      _toastWarn(
+          '${l10n.tr('league_details_generate_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_generate_all_swiss_rounds_suffix')}');
       return;
     }
 
-    final anyUnplayedInRequired = swissMatches.where((m) => m.roundNumber <= requiredRounds).any((m) => !m.isPlayed);
+    final anyUnplayedInRequired =
+        swissMatches.where((m) => m.roundNumber <= requiredRounds).any((m) => !m.isPlayed);
     if (anyUnplayedInRequired) {
-      _toastWarn('${l10n.tr('league_details_finish_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_finish_all_swiss_rounds_suffix')}');
+      _toastWarn(
+          '${l10n.tr('league_details_finish_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_finish_all_swiss_rounds_suffix')}');
       return;
     }
 
@@ -1142,7 +1146,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final expectedGroupCount = teams.length ~/ 4;
     if (groupIds.length != expectedGroupCount) {
-      _toastErr('${l10n.tr('league_details_invalid_group_structure_prefix')} $expectedGroupCount ${l10n.tr('league_details_invalid_group_structure_mid')} ${teams.length} ${l10n.tr('league_details_invalid_group_structure_suffix')} ${groupIds.length}.');
+      _toastErr(
+          '${l10n.tr('league_details_invalid_group_structure_prefix')} $expectedGroupCount ${l10n.tr('league_details_invalid_group_structure_mid')} ${teams.length} ${l10n.tr('league_details_invalid_group_structure_suffix')} ${groupIds.length}.');
       return;
     }
 
@@ -1160,7 +1165,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
       final groupTeams = teams.where((t) => teamIds.contains(t.id)).toList();
       if (groupTeams.length != 4) {
-        _toastErr('${l10n.tr('league_details_group_not_four_prefix')} $groupId ${l10n.tr('league_details_group_not_four_suffix')} ${groupTeams.length}.');
+        _toastErr(
+            '${l10n.tr('league_details_group_not_four_prefix')} $groupId ${l10n.tr('league_details_group_not_four_suffix')} ${groupTeams.length}.');
         return;
       }
 

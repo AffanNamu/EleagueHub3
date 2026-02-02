@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/sync_trigger.dart';
@@ -143,10 +144,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   Future<void> _addMeAsParticipant() async {
+    final l10n = context.l10n;
     final league = _league;
     if (league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('League info not loaded yet.')),
+        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet'))),
       );
       return;
     }
@@ -160,15 +162,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       // Enforce organiser-only
       if (league.organizerUserId != userId) {
-        throw StateError('Only the league organizer can use this action.');
+        throw StateError(l10n.tr('league_admin_only_organizer_action'));
       }
 
       // Enforce supported team counts via maxTeams for fixed-size formats
       if (league.format == LeagueFormat.uclGroup && !(league.maxTeams == 16 || league.maxTeams == 32)) {
-        throw StateError('UCL Group leagues must have maxTeams set to 16 or 32.');
+        throw StateError(l10n.tr('league_admin_ucl_group_maxteams_error'));
       }
       if (league.format == LeagueFormat.uclSwiss && !(league.maxTeams == 18 || league.maxTeams == 36)) {
-        throw StateError('Swiss leagues must have maxTeams set to 18 or 36.');
+        throw StateError(l10n.tr('league_admin_swiss_maxteams_error'));
       }
 
       final existingTeams = await _localRepo.getTeams(league.id);
@@ -176,8 +178,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       if (alreadyHasTeam) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You are already added as a participant (team exists).'),
+          SnackBar(
+            content: Text(l10n.tr('league_admin_already_added_participant_team_exists')),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -186,13 +188,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       // Prevent exceeding maxTeams (roster capacity)
       if (existingTeams.length >= league.maxTeams) {
-        throw StateError('League is full (${league.maxTeams} teams).');
+        throw StateError(
+          '${l10n.tr('league_admin_league_full_prefix')}${league.maxTeams}${l10n.tr('league_admin_league_full_suffix')}',
+        );
       }
 
       final profile = await UserProfileRepository().fetchByUserId(userId);
       final teamName = profile?.teamName.trim() ?? '';
       if (teamName.isEmpty) {
-        throw StateError('Your profile team name is missing. Please update your profile first.');
+        throw StateError(l10n.tr('league_admin_profile_team_name_missing'));
       }
 
       // Assign group if needed, ensuring group sizes remain 4.
@@ -201,7 +205,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final allowedGroups = _allowedGroupsForUclGroup(league);
         final picked = _pickGroupWithSpace(teams: existingTeams, allowedGroups: allowedGroups);
         if (picked == null) {
-          throw StateError('All groups are full. Cannot add another team.');
+          throw StateError(l10n.tr('league_admin_all_groups_full'));
         }
         groupId = picked;
       } else {
@@ -231,11 +235,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       await _loadLeague();
 
+      final msg = groupId == null
+          ? l10n.tr('league_admin_added_participant')
+          : '${l10n.tr('league_admin_added_participant_in_group_prefix')} $groupId.';
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            groupId == null ? 'You have been added as a participant.' : 'You have been added as a participant in $groupId.',
-          ),
+          content: Text(msg),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -243,7 +249,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to add you as participant: $e'),
+          content: Text('${l10n.tr('league_admin_failed_add_participant_prefix')} $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -253,10 +259,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   Future<void> _exportRosterCsv() async {
+    final l10n = context.l10n;
     final league = _league;
     if (league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('League info not loaded yet.')),
+        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet'))),
       );
       return;
     }
@@ -272,7 +279,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export failed: $e')),
+        SnackBar(content: Text('${l10n.tr('league_admin_export_failed_prefix')} $e')),
       );
     } finally {
       if (mounted) setState(() => _exportingRoster = false);
@@ -280,9 +287,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   Future<void> _startSpace() async {
+    final l10n = context.l10n;
+
     if (_league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('League info not loaded yet.')),
+        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet'))),
       );
       return;
     }
@@ -291,17 +300,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       final prefs = ref.read(prefsServiceProvider);
       final currentUserId = prefs.getCurrentUserId();
       if (currentUserId == null || currentUserId.isEmpty) {
-        throw StateError('No signed-in user id (FirebaseAuth). Please restart app.');
+        throw StateError(l10n.tr('league_admin_no_signed_in_user_error'));
       }
 
       if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
-        throw StateError('Only the league organizer can start a space.');
+        throw StateError(l10n.tr('league_admin_only_organizer_start_space'));
       }
 
       final space = await _spaceRepo.startSpace(
         leagueId: _league!.id,
         hostUserId: currentUserId,
-        title: '${_league!.name} Space',
+        title: '${_league!.name} ${l10n.tr('league_details_space_title_suffix')}',
       );
 
       await SyncTrigger.trySync();
@@ -310,8 +319,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       setState(() => _space = space);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('League Space started.'),
+        SnackBar(
+          content: Text(l10n.tr('league_details_space_started')),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -319,7 +328,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to start space: $e'),
+          content: Text('${l10n.tr('league_details_failed_to_start_space')}: $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -327,17 +336,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   Future<void> _endSpace() async {
+    final l10n = context.l10n;
+
     if (_league == null) return;
 
     try {
       final prefs = ref.read(prefsServiceProvider);
       final currentUserId = prefs.getCurrentUserId();
       if (currentUserId == null || currentUserId.isEmpty) {
-        throw StateError('No signed-in user id (FirebaseAuth). Please restart app.');
+        throw StateError(l10n.tr('league_admin_no_signed_in_user_error'));
       }
 
       if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
-        throw StateError('Only the league organizer can end a space.');
+        throw StateError(l10n.tr('league_admin_only_organizer_end_space'));
       }
 
       final updated = await _spaceRepo.endSpace(_league!.id);
@@ -348,8 +359,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       setState(() => _space = updated);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('League Space ended.'),
+        SnackBar(
+          content: Text(l10n.tr('league_details_space_ended')),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -357,7 +368,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to end space: $e'),
+          content: Text('${l10n.tr('league_details_failed_to_end_space')}: $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -365,9 +376,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _onOpenSpace() {
+    final l10n = context.l10n;
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Opening League Space (voice room UI not implemented yet).'),
+      SnackBar(
+        content: Text(l10n.tr('league_admin_opening_space_not_implemented')),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -375,9 +388,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('League Settings'),
+        title: Text(l10n.tr('league_admin_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -409,6 +424,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   Widget _buildInfoCard() {
+    final l10n = context.l10n;
+
     return Glass(
       borderRadius: 24,
       child: Padding(
@@ -426,18 +443,22 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.hasPendingChanges ? 'Offline Changes' : 'Fully Synced',
+                    widget.hasPendingChanges
+                        ? l10n.tr('league_admin_offline_changes_title')
+                        : l10n.tr('league_admin_fully_synced_title'),
                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    widget.hasPendingChanges ? 'Local edits will sync when online.' : 'No pending local changes.',
+                    widget.hasPendingChanges
+                        ? l10n.tr('league_admin_offline_changes_subtitle')
+                        : l10n.tr('league_admin_fully_synced_subtitle'),
                     style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                 ],
               ),
             ),
             IconButton(
-              tooltip: 'Sync now',
+              tooltip: l10n.tr('league_admin_sync_now_tooltip'),
               onPressed: () async {
                 await SyncTrigger.trySync();
                 await _loadLeague();
@@ -451,16 +472,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   Future<void> _syncParticipants() async {
+    final l10n = context.l10n;
+
     setState(() => _isSyncing = true);
     await SyncTrigger.trySync();
     if (!mounted) return;
     setState(() => _isSyncing = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sync complete')),
+      SnackBar(content: Text(l10n.tr('league_admin_sync_complete'))),
     );
   }
 
   Widget _buildSettingsList(BuildContext context) {
+    final l10n = context.l10n;
     final spaceLive = _space?.isLive == true;
 
     return ListView(
@@ -468,30 +492,30 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         _buildSettingsTile(
           context,
           Icons.group_add,
-          'Manage Teams & Participants',
-          'Add teams manually or view joined participants',
+          l10n.tr('league_admin_manage_teams_title'),
+          l10n.tr('league_admin_manage_teams_subtitle'),
           onTap: _showParticipantsOptionsSheet,
         ),
         if (_showAddMeAsParticipant)
           _buildSettingsTile(
             context,
             Icons.person_add_alt_1,
-            _addingMeAsParticipant ? 'Adding you…' : 'Add me as participant',
-            'Create your team from your profile team name (no duplicates).',
+            _addingMeAsParticipant ? l10n.tr('league_admin_adding_you') : l10n.tr('league_admin_add_me_participant'),
+            l10n.tr('league_admin_add_me_participant_subtitle'),
             onTap: _addingMeAsParticipant ? null : _addMeAsParticipant,
           ),
         _buildSettingsTile(
           context,
           Icons.file_download_outlined,
-          _exportingRoster ? 'Exporting roster…' : 'Export roster CSV',
-          'Download/share an importable roster file (use it later in Add Teams → Import CSV).',
+          _exportingRoster ? l10n.tr('league_admin_exporting_roster') : l10n.tr('league_admin_export_roster'),
+          l10n.tr('league_admin_export_roster_subtitle'),
           onTap: _exportingRoster ? null : _exportRosterCsv,
         ),
         _buildSettingsTile(
           context,
           Icons.people_outline,
-          'View Participants',
-          'See all joined members and their roles',
+          l10n.tr('league_admin_view_participants'),
+          l10n.tr('league_admin_view_participants_subtitle'),
           onTap: () {
             Navigator.push(
               context,
@@ -504,43 +528,43 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         _buildSettingsTile(
           context,
           Icons.mic,
-          'Live & Voice Settings',
-          'Viewer chat, voice and reactions',
+          l10n.tr('league_admin_live_voice_settings'),
+          l10n.tr('league_admin_live_voice_settings_subtitle'),
           onTap: _showLiveSettingsSheet,
         ),
         _buildSettingsTile(
           context,
           Icons.spatial_audio_off,
-          spaceLive ? 'League Space • LIVE' : 'League Space (Voice Room)',
-          spaceLive ? 'Tap to open or end this live audio room' : 'Start a live voice room for this league',
+          spaceLive ? l10n.tr('league_admin_league_space_live') : l10n.tr('league_admin_league_space_voice_room'),
+          spaceLive ? l10n.tr('league_admin_league_space_live_subtitle') : l10n.tr('league_admin_league_space_voice_room_subtitle'),
           onTap: _showLeagueSpaceAdminSheet,
         ),
         _buildSettingsTile(
           context,
           Icons.notifications_active,
-          'Send Announcement',
-          'Write a message for league participants',
+          l10n.tr('league_admin_send_announcement'),
+          l10n.tr('league_admin_send_announcement_subtitle'),
           onTap: _showSendAnnouncementSheet,
         ),
         _buildSettingsTile(
           context,
           Icons.rule,
-          'League Rules',
-          'Format, round-robin and group/swiss options',
+          l10n.tr('league_admin_league_rules'),
+          l10n.tr('league_admin_league_rules_subtitle'),
           onTap: _showRulesSheet,
         ),
         _buildSettingsTile(
           context,
           Icons.sync,
-          'Sync Now',
-          _isSyncing ? 'Syncing...' : 'Push local changes and pull latest cloud data',
+          l10n.tr('league_admin_sync_now'),
+          _isSyncing ? l10n.tr('league_admin_syncing') : l10n.tr('league_admin_sync_now_subtitle'),
           onTap: _isSyncing ? null : _syncParticipants,
         ),
         _buildSettingsTile(
           context,
           Icons.delete_forever,
-          'Delete League',
-          'This cannot be undone',
+          l10n.tr('league_admin_delete_league'),
+          l10n.tr('league_admin_delete_league_subtitle'),
           isDestructive: true,
           onTap: _confirmDeleteLeague,
         ),
@@ -556,6 +580,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     bool isDestructive = false,
     VoidCallback? onTap,
   }) {
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    final chevronIcon = isRtl ? Icons.chevron_left : Icons.chevron_right;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Glass(
@@ -567,7 +594,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             leading: Icon(icon, color: isDestructive ? Colors.redAccent : Colors.white),
             title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
             subtitle: Text(subtitle, style: const TextStyle(color: Colors.white60, fontSize: 12)),
-            trailing: const Icon(Icons.chevron_right, color: Colors.white30),
+            trailing: Icon(chevronIcon, color: Colors.white30),
             onTap: onTap,
           ),
         ),
@@ -576,6 +603,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _showLiveSettingsSheet() {
+    final l10n = context.l10n;
     final prefs = ref.read(prefsServiceProvider);
 
     bool chatEnabled = prefs.liveViewerChatEnabled();
@@ -602,11 +630,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 12),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               child: Text(
-                                'Live & Voice Settings',
-                                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                                l10n.tr('league_admin_live_voice_settings'),
+                                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ),
                             const Divider(color: Colors.white10),
@@ -614,22 +642,31 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               value: chatEnabled,
                               onChanged: (v) => setModalState(() => chatEnabled = v),
                               activeColor: Colors.cyanAccent,
-                              title: const Text('Viewer text chat', style: TextStyle(color: Colors.white)),
-                              subtitle: const Text('Allow viewers to type messages', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                              title: Text(l10n.tr('league_admin_viewer_text_chat'), style: const TextStyle(color: Colors.white)),
+                              subtitle: Text(
+                                l10n.tr('league_admin_viewer_text_chat_subtitle'),
+                                style: const TextStyle(color: Colors.white60, fontSize: 12),
+                              ),
                             ),
                             SwitchListTile.adaptive(
                               value: voiceEnabled,
                               onChanged: (v) => setModalState(() => voiceEnabled = v),
                               activeColor: Colors.cyanAccent,
-                              title: const Text('Viewer audio', style: TextStyle(color: Colors.white)),
-                              subtitle: const Text('Allow viewers to hear the stream', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                              title: Text(l10n.tr('league_admin_viewer_audio'), style: const TextStyle(color: Colors.white)),
+                              subtitle: Text(
+                                l10n.tr('league_admin_viewer_audio_subtitle'),
+                                style: const TextStyle(color: Colors.white60, fontSize: 12),
+                              ),
                             ),
                             SwitchListTile.adaptive(
                               value: reactionsEnabled,
                               onChanged: (v) => setModalState(() => reactionsEnabled = v),
                               activeColor: Colors.cyanAccent,
-                              title: const Text('Viewer reactions', style: TextStyle(color: Colors.white)),
-                              subtitle: const Text('Allow quick reactions (GG, Wow, Clutch)', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                              title: Text(l10n.tr('league_admin_viewer_reactions'), style: const TextStyle(color: Colors.white)),
+                              subtitle: Text(
+                                l10n.tr('league_admin_viewer_reactions_subtitle'),
+                                style: const TextStyle(color: Colors.white60, fontSize: 12),
+                              ),
                             ),
                             Align(
                               alignment: Alignment.centerRight,
@@ -644,10 +681,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     if (!mounted) return;
                                     Navigator.of(ctx).pop();
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Live viewer settings updated.')),
+                                      SnackBar(content: Text(l10n.tr('league_admin_live_viewer_settings_updated'))),
                                     );
                                   },
-                                  child: const Text('Save'),
+                                  child: Text(l10n.tr('common_save')),
                                 ),
                               ),
                             ),
@@ -666,7 +703,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _showLeagueSpaceAdminSheet() {
-    final leagueName = _league?.name ?? 'this league';
+    final l10n = context.l10n;
+    final leagueName = _league?.name ?? l10n.tr('common_league_placeholder');
     final spaceLive = _space?.isLive == true;
 
     showModalBottomSheet(
@@ -686,12 +724,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('League Space (Voice Room)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text(
+                          l10n.tr('league_admin_league_space_sheet_title'),
+                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
                         const SizedBox(height: 6),
                         Text(
                           spaceLive
-                              ? 'A live audio space is currently running for $leagueName.'
-                              : 'Start a live audio room where you can talk with players from $leagueName. Only admins can host.',
+                              ? '${l10n.tr('league_admin_league_space_running_prefix')} $leagueName.'
+                              : '${l10n.tr('league_admin_league_space_start_description_prefix')} $leagueName${l10n.tr('league_admin_league_space_start_description_suffix')}',
                           style: const TextStyle(color: Colors.white70, fontSize: 12),
                           textAlign: TextAlign.center,
                         ),
@@ -702,7 +743,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               Expanded(
                                 child: TextButton(
                                   onPressed: () => Navigator.of(ctx).pop(),
-                                  child: const Text('Close', style: TextStyle(color: Colors.white70)),
+                                  child: Text(l10n.tr('profile_close_tooltip'), style: const TextStyle(color: Colors.white70)),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -713,7 +754,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     _startSpace();
                                   },
                                   icon: const Icon(Icons.mic),
-                                  label: const Text('Start Space'),
+                                  label: Text(l10n.tr('league_admin_start_space')),
                                 ),
                               ),
                             ],
@@ -728,7 +769,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     _onOpenSpace();
                                   },
                                   icon: const Icon(Icons.headset),
-                                  label: const Text('Open Space'),
+                                  label: Text(l10n.tr('league_admin_open_space')),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -740,7 +781,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     _endSpace();
                                   },
                                   icon: const Icon(Icons.stop_circle_outlined),
-                                  label: const Text('End Space'),
+                                  label: Text(l10n.tr('league_admin_end_space')),
                                 ),
                               ),
                             ],
@@ -759,9 +800,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _showSendAnnouncementSheet() {
+    final l10n = context.l10n;
+
     if (_league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('League info not loaded yet.')),
+        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet'))),
       );
       return;
     }
@@ -787,21 +830,34 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('Send announcement', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text(
+                          l10n.tr('league_admin_send_announcement_sheet_title'),
+                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
                         const SizedBox(height: 4),
-                        const Text('This message will appear in the league details screen for all participants.', style: TextStyle(color: Colors.white70, fontSize: 11), textAlign: TextAlign.center),
+                        Text(
+                          l10n.tr('league_admin_send_announcement_sheet_subtitle'),
+                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                          textAlign: TextAlign.center,
+                        ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: titleController,
                           style: const TextStyle(color: Colors.white),
-                          decoration: const InputDecoration(labelText: 'Title (optional)', labelStyle: TextStyle(color: Colors.white70)),
+                          decoration: InputDecoration(
+                            labelText: l10n.tr('league_admin_announcement_title_optional'),
+                            labelStyle: const TextStyle(color: Colors.white70),
+                          ),
                         ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: messageController,
                           style: const TextStyle(color: Colors.white),
                           maxLines: 3,
-                          decoration: const InputDecoration(labelText: 'Message', labelStyle: TextStyle(color: Colors.white70)),
+                          decoration: InputDecoration(
+                            labelText: l10n.tr('league_admin_announcement_message_label'),
+                            labelStyle: const TextStyle(color: Colors.white70),
+                          ),
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -809,7 +865,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             Expanded(
                               child: TextButton(
                                 onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                                child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -820,7 +876,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   final msg = messageController.text.trim();
                                   if (msg.isEmpty) return;
 
-                                  final title = rawTitle.isEmpty ? 'Announcement' : rawTitle;
+                                  final title = rawTitle.isEmpty ? l10n.tr('league_admin_announcement_default_title') : rawTitle;
                                   final now = DateTime.now().millisecondsSinceEpoch;
 
                                   final ann = LeagueAnnouncement(
@@ -834,7 +890,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   await _annRepo.addAnnouncement(ann);
 
                                   await NotificationService().showLeagueAnnouncementNotification(
-                                    leagueName: _league?.name ?? 'League',
+                                    leagueName: _league?.name ?? l10n.tr('common_league_placeholder'),
                                     title: title,
                                     message: msg,
                                   );
@@ -843,9 +899,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                                   if (!mounted) return;
                                   Navigator.of(ctx).pop();
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Announcement sent.')));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(l10n.tr('league_admin_announcement_sent'))),
+                                  );
                                 },
-                                child: const Text('Send'),
+                                child: Text(l10n.tr('league_admin_send')),
                               ),
                             ),
                           ],
@@ -863,6 +921,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _showParticipantsOptionsSheet() {
+    final l10n = context.l10n;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -880,15 +940,27 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Text('Manage Teams & Participants', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Text(
+                            l10n.tr('league_admin_manage_teams_title'),
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
                         ),
                         const Divider(color: Colors.white10),
                         ListTile(
-                          leading: const CircleAvatar(backgroundColor: Colors.cyanAccent, child: Icon(Icons.group, color: Colors.black)),
-                          title: const Text('Teams (Add / Edit)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                          subtitle: const Text('Manually add or review teams', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                          leading: const CircleAvatar(
+                            backgroundColor: Colors.cyanAccent,
+                            child: Icon(Icons.group, color: Colors.black),
+                          ),
+                          title: Text(
+                            l10n.tr('league_admin_teams_add_edit_title'),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            l10n.tr('league_admin_teams_add_edit_subtitle'),
+                            style: const TextStyle(color: Colors.white38, fontSize: 12),
+                          ),
                           onTap: () {
                             Navigator.of(ctx).pop();
                             _openAddTeams();
@@ -896,9 +968,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         ),
                         const SizedBox(height: 8),
                         ListTile(
-                          leading: CircleAvatar(backgroundColor: Colors.white.withOpacity(0.1), child: const Icon(Icons.people, color: Colors.white)),
-                          title: const Text('Joined Participants', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                          subtitle: const Text('View users who joined via code / QR', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                          leading: CircleAvatar(
+                            backgroundColor: Colors.white.withOpacity(0.1),
+                            child: const Icon(Icons.people, color: Colors.white),
+                          ),
+                          title: Text(
+                            l10n.tr('league_admin_joined_participants_title'),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            l10n.tr('league_admin_joined_participants_subtitle'),
+                            style: const TextStyle(color: Colors.white38, fontSize: 12),
+                          ),
                           onTap: () {
                             Navigator.of(ctx).pop();
                             Navigator.push(
@@ -921,8 +1002,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _openAddTeams() {
+    final l10n = context.l10n;
+
     if (_league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('League info not loaded yet. Please try again.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet_try_again'))),
+      );
       return;
     }
 
@@ -938,26 +1023,33 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   void _showRulesSheet() {
+    final l10n = context.l10n;
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Rules editor: unchanged (already implemented in your project).')),
+      SnackBar(content: Text(l10n.tr('league_admin_rules_editor_unchanged'))),
     );
   }
 
   void _confirmDeleteLeague() {
+    final l10n = context.l10n;
+
     showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: const Color(0xFF0A1D37),
-          title: const Text('Delete League?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: const Text(
-            'This will permanently remove this league and all of its local data. This action cannot be undone.',
-            style: TextStyle(color: Colors.white70),
+          title: Text(
+            l10n.tr('league_admin_delete_league_confirm_title'),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            l10n.tr('league_admin_delete_league_confirm_message'),
+            style: const TextStyle(color: Colors.white70),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+              child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
             ),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -969,9 +1061,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                 GoRouter.of(context).go('/leagues');
 
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('League deleted.')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(l10n.tr('league_admin_league_deleted'))),
+                );
               },
-              child: const Text('Delete'),
+              child: Text(l10n.tr('league_admin_delete')),
             ),
           ],
         );

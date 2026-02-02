@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/config/flutterwave_config.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/league_creation_payment_service.dart';
@@ -25,6 +26,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final provider = ref.watch(leagueCreationPaymentServiceProvider);
 
@@ -33,7 +35,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('League Creation Charges'),
+        title: Text(l10n.tr('league_creation_payment_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -53,9 +55,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                     size: 46,
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Payment Required',
-                    style: TextStyle(
+                  Text(
+                    l10n.tr('league_creation_payment_required_title'),
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
                       fontSize: 18,
@@ -63,7 +65,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Amount: ${pricing.createLeagueAmount} ${pricing.currency}\n\nTo create this Series/Group league, you must pay app charges.\n\nLeague: ${widget.leagueName}\nProvider: ${provider.providerName}',
+                    '${l10n.tr('league_creation_payment_amount_prefix')} ${pricing.createLeagueAmount} ${pricing.currency}\n\n'
+                    '${l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
+                    '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.72),
@@ -76,7 +80,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                       Expanded(
                         child: OutlinedButton(
                           onPressed: _processing ? null : () => context.pop<LeagueCreationPaymentResult?>(null),
-                          child: const Text('Cancel'),
+                          child: Text(l10n.tr('common_cancel')),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -104,7 +108,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: Text(result.errorMessage ?? 'Payment failed'),
+                                        content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
                                         backgroundColor: theme.colorScheme.error,
                                       ),
                                     );
@@ -112,7 +116,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     if (!mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: Text('Payment failed: $e'),
+                                        content: Text('${l10n.tr('league_creation_payment_failed_prefix')} $e'),
                                         backgroundColor: theme.colorScheme.error,
                                       ),
                                     );
@@ -129,7 +133,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text('Pay & Continue'),
+                              : Text(l10n.tr('league_creation_payment_pay_continue')),
                         ),
                       ),
                     ],

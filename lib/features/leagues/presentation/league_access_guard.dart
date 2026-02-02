@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/flutterwave_config.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../data/leagues_repository_local.dart';
@@ -76,6 +77,8 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     if (_loading) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.cyanAccent),
@@ -87,9 +90,10 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       return Center(
         child: Glass(
           padding: const EdgeInsets.all(16),
-          child: const Text(
-            'League not found locally.',
-            style: TextStyle(color: Colors.white),
+          child: Text(
+            l10n.tr('leagues_error_not_found_local_storage'),
+            style: const TextStyle(color: Colors.white),
+            textAlign: TextAlign.center,
           ),
         ),
       );
@@ -121,9 +125,9 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                   size: 44,
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'App Charges Required',
-                  style: TextStyle(
+                Text(
+                  l10n.tr('league_access_charges_required_title'),
+                  style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
                     fontSize: 18,
@@ -131,7 +135,9 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Amount: ${pricing.viewLeagueAmount} ${pricing.currency}\n\nTo view Fixtures and Standings for Series/Group leagues, participants must pay app charges.\n\nLeague: ${league.name}',
+                  '${l10n.tr('league_access_amount_prefix')} ${pricing.viewLeagueAmount} ${pricing.currency}\n\n'
+                  '${l10n.tr('league_access_charges_explanation')}\n\n'
+                  '${l10n.tr('league_access_league_prefix')} ${league.name}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.72),
@@ -141,7 +147,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                 if (_receipt != null) ...[
                   const SizedBox(height: 12),
                   Text(
-                    'Receipt: ${_receipt!.receiptId}',
+                    '${l10n.tr('league_access_receipt_prefix')} ${_receipt!.receiptId}',
                     style: TextStyle(color: Colors.white.withOpacity(0.80)),
                   ),
                 ],
@@ -157,14 +163,14 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                                 height: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
-                            : const Text('Pay Charges'),
+                            : Text(l10n.tr('league_access_pay_charges')),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Classic leagues are free. League creators always have full access.',
+                  l10n.tr('league_access_note_classic_free'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.55),
@@ -181,6 +187,8 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   }
 
   Future<void> _pay(BuildContext context, League league) async {
+    final l10n = context.l10n;
+
     setState(() => _processingPayment = true);
 
     try {
@@ -199,7 +207,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
       if (!result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.errorMessage ?? 'Payment failed')),
+          SnackBar(content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed'))),
         );
         setState(() => _processingPayment = false);
         return;
@@ -223,13 +231,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Charges paid successfully')),
+        SnackBar(content: Text(l10n.tr('league_access_charges_paid_success'))),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _processingPayment = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Payment failed: $e')),
+        SnackBar(content: Text('${l10n.tr('league_access_payment_failed_prefix')} $e')),
       );
     }
   }

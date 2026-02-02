@@ -49,6 +49,11 @@ class LocaleController extends Notifier<LocaleState> {
 
   static List<Locale> get supportedLocales => AppLocalizations.supportedLocales;
 
+  static const Map<String, String> _legacyLanguageCodeMap = <String, String>{
+    'iw': 'he',
+    'in': 'id',
+  };
+
   static const Set<String> _latinAmericaSpanishCountries = <String>{
     'MX',
     'AR',
@@ -93,13 +98,14 @@ class LocaleController extends Notifier<LocaleState> {
   LocaleState build() {
     final prefs = ref.watch(prefsServiceProvider);
 
-    final savedCode = prefs.getLocaleCode();
+    final savedCodeRaw = prefs.getLocaleCode();
     final manualOverride = prefs.getLocaleManualOverride();
 
     String resolvedCode;
 
-    if (manualOverride && savedCode != null && supportedLanguageCodes.contains(savedCode)) {
-      resolvedCode = savedCode;
+    if (manualOverride && savedCodeRaw != null) {
+      final savedCode = _normalizeLanguageCode(savedCodeRaw);
+      resolvedCode = supportedLanguageCodes.contains(savedCode) ? savedCode : 'en';
     } else {
       resolvedCode = _resolveFromDeviceLocale(
         WidgetsBinding.instance.platformDispatcher.locales,
@@ -116,11 +122,16 @@ class LocaleController extends Notifier<LocaleState> {
     );
   }
 
+  String _normalizeLanguageCode(String code) {
+    final trimmed = code.trim().toLowerCase();
+    return _legacyLanguageCodeMap[trimmed] ?? trimmed;
+  }
+
   String _resolveFromDeviceLocale(List<Locale> systemLocales) {
     if (systemLocales.isEmpty) return 'en';
 
     for (final loc in systemLocales) {
-      final lang = loc.languageCode;
+      final lang = _normalizeLanguageCode(loc.languageCode);
       if (supportedLanguageCodes.contains(lang)) return lang;
     }
 
@@ -138,6 +149,8 @@ class LocaleController extends Notifier<LocaleState> {
   }
 
   Future<void> setLocale(String languageCode) async {
+    languageCode = _normalizeLanguageCode(languageCode);
+
     if (!supportedLanguageCodes.contains(languageCode)) {
       languageCode = 'en';
     }

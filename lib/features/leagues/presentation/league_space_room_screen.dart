@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
@@ -64,6 +65,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   final Map<String, String> _displayNameByUserId = <String, String>{};
   final Set<String> _displayNameLoading = <String>{};
 
+  String _youLabel = 'You';
+
   DocumentReference<Map<String, dynamic>> get _spaceDoc => _firestore
       .collection('leagues')
       .doc(widget.leagueId)
@@ -75,6 +78,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   DocumentReference<Map<String, dynamic>> get _myRequestDoc => _requestsCol.doc(_uid);
   DocumentReference<Map<String, dynamic>> get _mySpeakerDoc => _speakersCol.doc(_uid);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _youLabel = context.l10n.tr('common_you');
+  }
 
   @override
   void initState() {
@@ -91,11 +100,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   String _displayName(String userId) {
     final cached = _displayNameByUserId[userId];
     if (cached != null && cached.trim().isNotEmpty) {
-      if (userId == _uid) return '${cached.trim()} (You)';
+      if (userId == _uid) return '${cached.trim()} ($_youLabel)';
       return cached.trim();
     }
     // Fallback to a shortened uid to reduce "numbers and strings" feeling.
-    if (userId == _uid) return '${_shortUid(userId)} (You)';
+    if (userId == _uid) return '${_shortUid(userId)} ($_youLabel)';
     return _shortUid(userId);
   }
 
@@ -127,6 +136,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _init() async {
+    final l10n = context.l10n;
+
     await SyncTrigger.trySync();
 
     final prefs = await PreferencesService.create();
@@ -178,14 +189,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       } catch (e) {
         setState(() {
           _loading = false;
-          _error = 'Failed to parse space: $e';
+          _error = '${l10n.tr('league_space_failed_to_parse_space_prefix')} $e';
         });
       }
     }, onError: (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'Space stream error: $e';
+        _error = '${l10n.tr('league_space_stream_error_prefix')} $e';
       });
     });
   }
@@ -219,6 +230,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   void _ensureSpaceRoleListeners() {
+    final l10n = context.l10n;
+
     if (_uid.isEmpty) return;
     if (_space == null) return;
 
@@ -253,10 +266,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       // It only toggles mute/unmute of the already-published mic track.
       await _syncMicWithSpaceState();
 
-      if (wasApproved != approved && approved) _toast('You are now a speaker.');
-      if (wasApproved != approved && !approved) _toast('You are now a listener.');
-      if (prevMuted != muted && muted) _toast('Host muted you.');
-      if (prevMuted != muted && !muted && approved) _toast('Host unmuted you.');
+      if (wasApproved != approved && approved) _toast(l10n.tr('league_space_toast_now_speaker'));
+      if (wasApproved != approved && !approved) _toast(l10n.tr('league_space_toast_now_listener'));
+      if (prevMuted != muted && muted) _toast(l10n.tr('league_space_toast_host_muted_you'));
+      if (prevMuted != muted && !muted && approved) _toast(l10n.tr('league_space_toast_host_unmuted_you'));
     });
 
     _myRequestSub ??= _myRequestDoc.snapshots().listen((snap) {
@@ -298,6 +311,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _connectAudio() async {
+    final l10n = context.l10n;
+
     if (_joiningAudio || _connected) return;
     if (!_isLive) return;
     if (_uid.isEmpty) return;
@@ -372,7 +387,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (!mounted) return;
       setState(() {
         _joiningAudio = false;
-        _error = 'Audio connect failed: $e';
+        _error = '${l10n.tr('league_space_audio_connect_failed_prefix')} $e';
       });
     }
   }
@@ -402,6 +417,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _syncMicWithSpaceState() async {
+    final l10n = context.l10n;
+
     if (!_connected || _room == null) return;
 
     final shouldBeUnmuted = _isHost || (_isSpeakerApproved && !_speakerMutedByHost);
@@ -409,7 +426,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     // If mic wasn't primed at join, we refuse to enable later (that would publish on approval).
     if (!_micPrimed) {
       if (shouldBeUnmuted) {
-        _toast('Mic not primed (permission denied). Leave/rejoin after granting mic permission.');
+        _toast(l10n.tr('league_space_mic_not_primed_toast'));
       }
       return;
     }
@@ -464,32 +481,36 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _toggleMic() async {
+    final l10n = context.l10n;
+
     if (_room == null) return;
 
     if (!_canToggleMic) {
       if (!_micPrimed) {
-        _toast('Mic unavailable (permission denied on join). Leave/rejoin after granting mic permission.');
+        _toast(l10n.tr('league_space_mic_unavailable_permission_denied'));
       } else if (_isHost) {
-        _toast('Mic unavailable.');
+        _toast(l10n.tr('league_space_mic_unavailable'));
       } else if (_speakerMutedByHost) {
-        _toast('You are muted by the host.');
+        _toast(l10n.tr('league_space_you_are_muted_by_host'));
       } else if (!_isSpeakerApproved) {
-        _toast('Request to speak to enable your mic.');
+        _toast(l10n.tr('league_space_request_to_speak_to_enable_mic'));
       }
       return;
     }
 
     final next = !_micEnabled;
     await _setMicEnabled(next);
-    _toast(next ? 'Mic ON' : 'Mic OFF');
+    _toast(next ? l10n.tr('league_space_mic_on') : l10n.tr('league_space_mic_off'));
   }
 
   Future<void> _requestToSpeak() async {
+    final l10n = context.l10n;
+
     if (_uid.isEmpty) return;
     if (_space == null) return;
     if (_isHost) return;
     if (!_isLive) {
-      _toast('Space is not live.');
+      _toast(l10n.tr('league_space_space_not_live'));
       return;
     }
 
@@ -500,23 +521,27 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         'createdAtMs': DateTime.now().millisecondsSinceEpoch,
         'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
       }, SetOptions(merge: true));
-      _toast('Request sent.');
+      _toast(l10n.tr('league_space_request_sent'));
     } catch (e) {
-      _toast('Request failed: $e');
+      _toast('${l10n.tr('league_space_request_failed_prefix')} $e');
     }
   }
 
   Future<void> _withdrawRequest() async {
+    final l10n = context.l10n;
+
     if (_uid.isEmpty) return;
     try {
       await _myRequestDoc.delete();
-      _toast('Request removed.');
+      _toast(l10n.tr('league_space_request_removed'));
     } catch (e) {
-      _toast('Failed: $e');
+      _toast('${l10n.tr('league_space_failed_prefix')} $e');
     }
   }
 
   Future<void> _approveRequest(String userId) async {
+    final l10n = context.l10n;
+
     if (!_isHost) return;
 
     final batch = _firestore.batch();
@@ -536,10 +561,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }, SetOptions(merge: true));
 
     await batch.commit();
-    _toast('Approved ${_displayName(userId)}');
+    _toast('${l10n.tr('league_space_approved_prefix')}${_displayName(userId)}');
   }
 
   Future<void> _denyRequest(String userId) async {
+    final l10n = context.l10n;
+
     if (!_isHost) return;
 
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -552,19 +579,23 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     // ensure not speaker
     await _speakersCol.doc(userId).delete().catchError((_) {});
-    _toast('Denied ${_displayName(userId)}');
+    _toast('${l10n.tr('league_space_denied_prefix')}${_displayName(userId)}');
   }
 
   Future<void> _removeSpeaker(String userId) async {
+    final l10n = context.l10n;
+
     if (!_isHost) return;
     await _speakersCol.doc(userId).delete();
-    _toast('Removed speaker ${_displayName(userId)}');
+    _toast('${l10n.tr('league_space_removed_speaker_prefix')}${_displayName(userId)}');
   }
 
   Future<void> _toggleMuteSpeaker(String userId, bool muted) async {
+    final l10n = context.l10n;
+
     if (!_isHost) return;
     await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true));
-    _toast(muted ? 'Muted ${_displayName(userId)}' : 'Unmuted ${_displayName(userId)}');
+    _toast(muted ? '${l10n.tr('league_space_muted_prefix')}${_displayName(userId)}' : '${l10n.tr('league_space_unmuted_prefix')}${_displayName(userId)}');
   }
 
   void _toast(String msg) {
@@ -577,17 +608,19 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('League Space'),
+        title: Text(l10n.tr('league_space_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Sync',
+            tooltip: l10n.tr('league_details_sync_tooltip'),
             onPressed: () async {
               await SyncTrigger.trySync();
-              _toast('Synced');
+              _toast(l10n.tr('league_details_synced_toast'));
             },
             icon: const Icon(Icons.sync),
           ),
@@ -612,10 +645,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                             ),
                           )
                         : _space == null
-                            ? const Center(
+                            ? Center(
                                 child: Text(
-                                  'No active space right now.\nAsk the organizer to start one.',
-                                  style: TextStyle(color: Colors.white70),
+                                  l10n.tr('league_space_no_active_space'),
+                                  style: const TextStyle(color: Colors.white70),
                                   textAlign: TextAlign.center,
                                 ),
                               )
@@ -629,6 +662,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Widget _buildRoom(BuildContext context) {
+    final l10n = context.l10n;
+
     final space = _space!;
     _ensureDisplayNameLoaded(space.hostUserId);
 
@@ -644,7 +679,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                space.title ?? 'League Space',
+                space.title ?? l10n.tr('league_space_default_title'),
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -660,7 +695,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 ),
               ),
               child: Text(
-                _isLive ? 'LIVE' : 'ENDED',
+                _isLive ? l10n.tr('league_space_live_badge') : l10n.tr('league_space_ended_badge'),
                 style: TextStyle(
                   color: _isLive ? Colors.redAccent : Colors.white54,
                   fontWeight: FontWeight.bold,
@@ -672,7 +707,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         ),
         const SizedBox(height: 10),
         Text(
-          'Host: ${_displayName(space.hostUserId)}',
+          '${l10n.tr('league_space_host_prefix')}${_displayName(space.hostUserId)}',
           style: const TextStyle(color: Colors.white60, fontSize: 12),
         ),
         const SizedBox(height: 16),
@@ -702,7 +737,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
                             : Icon(_connected ? Icons.call_end : Icons.headset_mic),
-                        label: Text(_connected ? 'Leave Audio' : 'Join Audio'),
+                        label: Text(_connected ? l10n.tr('league_space_leave_audio') : l10n.tr('league_space_join_audio')),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -710,7 +745,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _canToggleMic ? _toggleMic : null,
                         icon: Icon(_micEnabled ? Icons.mic : Icons.mic_off),
-                        label: Text(_micEnabled ? 'Mic ON' : 'Mic OFF'),
+                        label: Text(_micEnabled ? l10n.tr('league_space_mic_on') : l10n.tr('league_space_mic_off')),
                       ),
                     ),
                   ],
@@ -719,11 +754,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 Text(
                   _connected
                       ? (_isHost
-                          ? 'Connected as host'
+                          ? l10n.tr('league_space_connected_as_host')
                           : (_isSpeakerApproved
-                              ? (_speakerMutedByHost ? 'Connected as speaker (muted by host)' : 'Connected as speaker')
-                              : 'Connected as listener (mic muted)'))
-                      : 'Not connected to audio',
+                              ? (_speakerMutedByHost
+                                  ? l10n.tr('league_space_connected_as_speaker_muted_by_host')
+                                  : l10n.tr('league_space_connected_as_speaker'))
+                              : l10n.tr('league_space_connected_as_listener')))
+                      : l10n.tr('league_space_not_connected'),
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
                 ),
                 const SizedBox(height: 10),
@@ -736,23 +773,23 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                           icon: const Icon(Icons.record_voice_over),
                           label: Text(
                             _isSpeakerApproved
-                                ? 'You are a speaker'
-                                : (_myRequestStatus == 'pending' ? 'Request Pending' : 'Request to Speak'),
+                                ? l10n.tr('league_space_you_are_speaker')
+                                : (_myRequestStatus == 'pending' ? l10n.tr('league_space_request_pending') : l10n.tr('league_space_request_to_speak')),
                           ),
                         ),
                       ),
                       const SizedBox(width: 10),
                       OutlinedButton(
                         onPressed: (_myRequestStatus == 'pending') ? _withdrawRequest : null,
-                        child: const Text('Cancel'),
+                        child: Text(l10n.tr('common_cancel')),
                       ),
                     ],
                   ),
                   const SizedBox(height: 6),
                   if (_myRequestStatus == 'denied')
-                    const Text(
-                      'Request denied.',
-                      style: TextStyle(color: Colors.white60, fontSize: 12),
+                    Text(
+                      l10n.tr('league_space_request_denied'),
+                      style: const TextStyle(color: Colors.white60, fontSize: 12),
                     ),
                 ],
               ],
@@ -768,14 +805,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    'Host Panel',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  Text(
+                    l10n.tr('league_space_host_panel_title'),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
-                    'Requests',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  Text(
+                    l10n.tr('league_space_requests_title'),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   const SizedBox(height: 6),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -783,7 +820,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     builder: (context, snap) {
                       if (snap.hasError) {
                         return Text(
-                          'Requests error: ${snap.error}',
+                          '${l10n.tr('league_space_requests_error_prefix')} ${snap.error}',
                           style: const TextStyle(color: Colors.redAccent),
                         );
                       }
@@ -791,7 +828,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
                       final docs = snap.data!.docs;
                       if (docs.isEmpty) {
-                        return const Text('No pending requests.', style: TextStyle(color: Colors.white38));
+                        return Text(l10n.tr('league_space_no_pending_requests'), style: const TextStyle(color: Colors.white38));
                       }
 
                       return Column(
@@ -814,7 +851,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                 style: const TextStyle(color: Colors.white),
                               ),
                               subtitle: Text(
-                                'uid: ${_shortUid(userId)} • wants to speak',
+                                '${l10n.tr('league_space_uid_prefix')}${_shortUid(userId)} ${l10n.tr('league_space_wants_to_speak_suffix')}',
                                 style: const TextStyle(color: Colors.white54, fontSize: 12),
                               ),
                               trailing: Wrap(
@@ -825,20 +862,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                       try {
                                         await _denyRequest(userId);
                                       } catch (e) {
-                                        _toast('Deny failed: $e');
+                                        _toast('${l10n.tr('league_space_deny_failed_prefix')} $e');
                                       }
                                     },
-                                    child: const Text('Deny'),
+                                    child: Text(l10n.tr('league_space_deny')),
                                   ),
                                   FilledButton(
                                     onPressed: () async {
                                       try {
                                         await _approveRequest(userId);
                                       } catch (e) {
-                                        _toast('Approve failed: $e');
+                                        _toast('${l10n.tr('league_space_approve_failed_prefix')} $e');
                                       }
                                     },
-                                    child: const Text('Approve'),
+                                    child: Text(l10n.tr('league_space_approve')),
                                   ),
                                 ],
                               ),
@@ -849,9 +886,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Speakers',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  Text(
+                    l10n.tr('league_space_speakers_title'),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   const SizedBox(height: 6),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -859,7 +896,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     builder: (context, snap) {
                       if (snap.hasError) {
                         return Text(
-                          'Speakers error: ${snap.error}',
+                          '${l10n.tr('league_space_speakers_error_prefix')} ${snap.error}',
                           style: const TextStyle(color: Colors.redAccent),
                         );
                       }
@@ -867,7 +904,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
                       final docs = snap.data!.docs;
                       if (docs.isEmpty) {
-                        return const Text('No speakers yet.', style: TextStyle(color: Colors.white38));
+                        return Text(l10n.tr('league_space_no_speakers_yet'), style: const TextStyle(color: Colors.white38));
                       }
 
                       return Column(
@@ -892,7 +929,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                 style: const TextStyle(color: Colors.white),
                               ),
                               subtitle: Text(
-                                'uid: ${_shortUid(userId)} • ${muted ? 'Muted' : 'Unmuted'}',
+                                '${l10n.tr('league_space_uid_prefix')}${_shortUid(userId)} • ${muted ? l10n.tr('league_space_muted') : l10n.tr('league_space_unmuted')}',
                                 style: TextStyle(
                                   color: muted ? Colors.orangeAccent : Colors.white54,
                                   fontSize: 12,
@@ -906,20 +943,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                       try {
                                         await _toggleMuteSpeaker(userId, !muted);
                                       } catch (e) {
-                                        _toast('Mute failed: $e');
+                                        _toast('${l10n.tr('league_space_mute_failed_prefix')} $e');
                                       }
                                     },
-                                    child: Text(muted ? 'Unmute' : 'Mute'),
+                                    child: Text(muted ? l10n.tr('league_space_unmute') : l10n.tr('league_space_mute')),
                                   ),
                                   OutlinedButton(
                                     onPressed: () async {
                                       try {
                                         await _removeSpeaker(userId);
                                       } catch (e) {
-                                        _toast('Remove failed: $e');
+                                        _toast('${l10n.tr('league_space_remove_failed_prefix')} $e');
                                       }
                                     },
-                                    child: const Text('Remove'),
+                                    child: Text(l10n.tr('league_space_remove')),
                                   ),
                                 ],
                               ),
