@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/app_router.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -36,13 +37,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _submit() async {
+    final l10n = context.l10n;
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     final team = _teamName.text.trim();
     if (team.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Team name is required')),
+        SnackBar(content: Text(l10n.errorTeamNameRequired)),
       );
       return;
     }
@@ -72,7 +75,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to complete onboarding: $e')),
+        SnackBar(content: Text('${l10n.errorFailedOnboardingPrefix}: $e')),
       );
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -81,11 +84,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final t = Theme.of(context).textTheme;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('One-time Setup'),
+        title: Text(l10n.onboardingTitle),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -101,13 +105,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Create your team profile',
+                      l10n.onboardingHeader,
                       style: t.titleLarge?.copyWith(fontWeight: FontWeight.w900, color: Colors.white),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'This happens once on your first login. After this, leagues can be created/joined without asking for team name again.',
+                      l10n.onboardingDescription,
                       style: t.bodySmall?.copyWith(color: Colors.white70, height: 1.35),
                       textAlign: TextAlign.center,
                     ),
@@ -116,7 +120,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       controller: _teamName,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        labelText: 'Team Name (required)',
+                        labelText: l10n.onboardingTeamNameLabel,
                         labelStyle: const TextStyle(color: Colors.white70),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.04),
@@ -135,7 +139,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       controller: _q1,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        labelText: 'Favorite game? (optional)',
+                        labelText: l10n.onboardingFavoriteGameLabel,
                         labelStyle: const TextStyle(color: Colors.white70),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.04),
@@ -154,7 +158,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       controller: _q2,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        labelText: 'Experience level? (optional)',
+                        labelText: l10n.onboardingExperienceLevelLabel,
                         labelStyle: const TextStyle(color: Colors.white70),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.04),
@@ -173,7 +177,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       controller: _q3,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        labelText: 'Region? (optional)',
+                        labelText: l10n.onboardingRegionLabel,
                         labelStyle: const TextStyle(color: Colors.white70),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.04),
@@ -198,7 +202,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 height: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
-                            : const Text('Continue'),
+                            : Text(l10n.onboardingContinue),
                       ),
                     ),
                   ],

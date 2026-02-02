@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/routing/league_mode_provider.dart';
 import '../../../core/theme/theme_controller.dart';
@@ -20,6 +21,7 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final t = Theme.of(context).textTheme;
     final themeState = ref.watch(themeControllerProvider);
     final currentLeague = ref.watch(leagueModeProvider);
@@ -31,12 +33,11 @@ class ProfileScreen extends ConsumerWidget {
 
     return GlassScaffold(
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
         children: [
           const SizedBox(height: 56),
-
           Text(
-            'Profile',
+            l10n.tr('profile_title'),
             style: t.headlineSmall?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w900,
@@ -45,7 +46,7 @@ class ProfileScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Manage your team name, theme and account.',
+            l10n.tr('profile_subtitle'),
             style: t.bodySmall?.copyWith(color: Colors.white70),
           ),
           const SizedBox(height: 16),
@@ -54,15 +55,13 @@ class ProfileScreen extends ConsumerWidget {
           Glass(
             padding: const EdgeInsets.all(14),
             child: StreamBuilder<UserProfile?>(
-              stream: uid.isEmpty
-                  ? const Stream<UserProfile?>.empty()
-                  : repo.watchByUserId(uid),
+              stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
               builder: (context, snap) {
                 final profile = snap.data;
 
                 final teamName = (profile != null && profile.teamName.trim().isNotEmpty)
                     ? profile.teamName.trim()
-                    : (user?.displayName ?? 'My Team');
+                    : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
 
                 final shortUserId = (profile != null)
                     ? profile.effectiveShareId
@@ -109,7 +108,7 @@ class ProfileScreen extends ConsumerWidget {
                                 ),
                               ),
                               IconButton(
-                                tooltip: 'Edit team name',
+                                tooltip: l10n.tr('profile_edit_team_name_tooltip'),
                                 icon: const Icon(Icons.edit, color: Colors.white70, size: 18),
                                 onPressed: uid.isEmpty
                                     ? null
@@ -117,7 +116,7 @@ class ProfileScreen extends ConsumerWidget {
                                         HapticFeedback.selectionClick();
                                         _editTeamName(
                                           context,
-                                          userId: uid, // internal immutable uid
+                                          userId: uid,
                                           current: profile?.teamName ?? '',
                                         );
                                       },
@@ -129,13 +128,13 @@ class ProfileScreen extends ConsumerWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  uid.isEmpty ? 'Not signed in' : 'UserId: $shortUserId',
+                                  uid.isEmpty ? l10n.tr('profile_not_signed_in') : '${l10n.tr('profile_userid_prefix')} $shortUserId',
                                   style: t.bodySmall?.copyWith(color: Colors.white70),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               IconButton(
-                                tooltip: 'Copy UserId',
+                                tooltip: l10n.tr('profile_copy_userid_tooltip'),
                                 icon: const Icon(Icons.copy, color: Colors.white54, size: 18),
                                 onPressed: uid.isEmpty
                                     ? null
@@ -144,7 +143,7 @@ class ProfileScreen extends ConsumerWidget {
                                         await Clipboard.setData(ClipboardData(text: shortUserId));
                                         if (!context.mounted) return;
                                         ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('UserId copied')),
+                                          SnackBar(content: Text(l10n.tr('profile_userid_copied'))),
                                         );
                                       },
                               ),
@@ -153,7 +152,7 @@ class ProfileScreen extends ConsumerWidget {
                           if (uid.isNotEmpty) ...[
                             const SizedBox(height: 2),
                             Text(
-                              'Internal uid (for debugging only): ${uid.length > 10 ? '${uid.substring(0, 10)}…' : uid}',
+                              '${l10n.tr('profile_internal_uid_debug_prefix')} ${uid.length > 10 ? '${uid.substring(0, 10)}…' : uid}',
                               style: t.bodySmall?.copyWith(color: Colors.white38, fontSize: 10),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -164,7 +163,7 @@ class ProfileScreen extends ConsumerWidget {
 
                     /// THEME TOGGLE
                     IconButton(
-                      tooltip: 'Toggle theme',
+                      tooltip: l10n.tr('profile_toggle_theme_tooltip'),
                       icon: Icon(
                         themeState.mode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode,
                         color: Colors.cyanAccent,
@@ -177,7 +176,7 @@ class ProfileScreen extends ConsumerWidget {
 
                     /// LOGOUT (WITH GLASS WARNING)
                     IconButton(
-                      tooltip: 'Logout',
+                      tooltip: l10n.tr('profile_logout_tooltip'),
                       icon: const Icon(Icons.logout, color: Colors.white70),
                       onPressed: () async {
                         final ok = await _confirmLogout(context);
@@ -205,24 +204,21 @@ class ProfileScreen extends ConsumerWidget {
           const SizedBox(height: 22),
 
           /// STATS
-          const SectionHeader('League Overview'),
+          SectionHeader(l10n.tr('profile_section_league_overview')),
           const SizedBox(height: 12),
 
           Glass(
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                const Expanded(child: _Stat(label: 'Active', value: '2')),
+                Expanded(child: _Stat(label: l10n.tr('profile_stat_active'), value: '2')),
                 const SizedBox(width: 12),
-                const Expanded(child: _Stat(label: 'Teams', value: '16')),
+                Expanded(child: _Stat(label: l10n.tr('profile_stat_teams'), value: '16')),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _Stat(
-                    label: 'Format',
-                    value: currentLeague.name
-                        .toUpperCase()
-                        .replaceAll('CLASSIC', 'CL')
-                        .replaceAll('SWISS', 'SW'),
+                    label: l10n.tr('profile_stat_format'),
+                    value: currentLeague.name.toUpperCase().replaceAll('CLASSIC', 'CL').replaceAll('SWISS', 'SW'),
                   ),
                 ),
               ],
@@ -235,8 +231,8 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  /// Glass-styled confirmation dialog (same behavior as AlertDialog, but matches your UI).
   Future<bool> _confirmLogout(BuildContext context) async {
+    final l10n = context.l10n;
     final t = Theme.of(context).textTheme;
 
     final res = await showDialog<bool>(
@@ -269,7 +265,7 @@ class ProfileScreen extends ConsumerWidget {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          'Logout?',
+                          l10n.tr('profile_logout_dialog_title'),
                           style: t.titleLarge?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.w900,
@@ -277,7 +273,7 @@ class ProfileScreen extends ConsumerWidget {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Close',
+                        tooltip: l10n.tr('profile_close_tooltip'),
                         onPressed: () => Navigator.of(ctx).pop(false),
                         icon: const Icon(Icons.close, color: Colors.white70),
                       ),
@@ -285,9 +281,9 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 10),
                   Align(
-                    alignment: Alignment.centerLeft,
+                    alignment: AlignmentDirectional.centerStart,
                     child: Text(
-                      'Are you sure you want to log out from this device?',
+                      l10n.tr('profile_logout_dialog_message'),
                       style: t.bodyMedium?.copyWith(color: Colors.white70, height: 1.35),
                     ),
                   ),
@@ -302,7 +298,7 @@ class ProfileScreen extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(ctx).pop(false),
-                          child: const Text('Cancel'),
+                          child: Text(l10n.tr('common_cancel')),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -314,7 +310,7 @@ class ProfileScreen extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(ctx).pop(true),
-                          child: const Text('Logout'),
+                          child: Text(l10n.tr('profile_logout_button')),
                         ),
                       ),
                     ],
@@ -335,6 +331,8 @@ class ProfileScreen extends ConsumerWidget {
     required String userId,
     required String current,
   }) async {
+    final l10n = context.l10n;
+
     final controller = TextEditingController(text: current);
     final repo = UserProfileRepository();
 
@@ -344,27 +342,30 @@ class ProfileScreen extends ConsumerWidget {
         builder: (ctx) {
           return AlertDialog(
             backgroundColor: const Color(0xFF0A1D37),
-            title: const Text(
-              'Edit Team Name',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            title: Text(
+              l10n.tr('profile_edit_team_dialog_title'),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
             content: TextField(
               controller: controller,
               autofocus: true,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: 'Team name',
-                hintStyle: TextStyle(color: Colors.white38),
+              decoration: InputDecoration(
+                hintText: l10n.tr('profile_team_name_hint'),
+                hintStyle: const TextStyle(color: Colors.white38),
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(null),
-                child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                child: Text(
+                  l10n.tr('common_cancel'),
+                  style: const TextStyle(color: Colors.white70),
+                ),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-                child: const Text('Save'),
+                child: Text(l10n.tr('common_save')),
               ),
             ],
           );
@@ -378,7 +379,7 @@ class ProfileScreen extends ConsumerWidget {
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Team name updated')),
+        SnackBar(content: Text(l10n.tr('profile_team_name_updated'))),
       );
     } finally {
       controller.dispose();

@@ -1,3 +1,4 @@
+import 'package:eleaguehub3/core/locale/app_localizations.dart';
 import 'package:eleaguehub3/core/services/sync_trigger.dart';
 import '../utils/current_user.dart';
 import "package:eleaguehub3/core/app/sync_debug_screen.dart";
@@ -100,7 +101,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
         counts[league.id] = teams.length + orphanMembersCount;
 
-        // Viewer participation badge detection (local membership presence)
         viewerIsParticipant[league.id] = memberships.any(
           (m) =>
               m.leagueId == league.id &&
@@ -117,7 +117,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
         final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
 
         if (!requiresCharges) {
-          viewerPaid[league.id] = true; // classic is always “unlocked”
+          viewerPaid[league.id] = true;
         } else {
           viewerPaid[league.id] = chargesStore.hasPaidCharges(
             userId: effectiveUserId,
@@ -140,6 +140,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   }
 
   Future<void> _payChargesForLeague(BuildContext context, League league) async {
+    final l10n = context.l10n;
+
     if (_payingLeagueId == league.id) return;
 
     final prefs = ref.read(prefsServiceProvider);
@@ -156,7 +158,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
     if (league.organizerUserId == userId) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You are the league creator. Access is already unlocked.')),
+        SnackBar(content: Text(l10n.tr('leagues_creator_unlocked'))),
       );
       return;
     }
@@ -175,22 +177,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: const Color(0xFF0A1D37),
-          title: const Text(
-            'Unlock this league',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          title: Text(
+            l10n.tr('leagues_unlock_dialog_title'),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           content: Text(
-            'Pay charges to unlock Fixtures and Standings for:\n\n${league.name}',
+            '${l10n.tr('leagues_unlock_dialog_content_prefix')}\n\n${league.name}',
             style: const TextStyle(color: Colors.white70, height: 1.35),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+              child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
             ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Pay'),
+              child: Text(l10n.tr('common_pay')),
             ),
           ],
         );
@@ -216,7 +218,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
       if (!result.success) {
         setState(() => _payingLeagueId = null);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.errorMessage ?? 'Payment failed')),
+          SnackBar(content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed'))),
         );
         return;
       }
@@ -239,19 +241,20 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unlocked successfully')),
+        SnackBar(content: Text(l10n.tr('leagues_unlocked_success'))),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _payingLeagueId = null);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Payment failed: $e')),
+        SnackBar(content: Text('${l10n.tr('leagues_payment_failed')}: $e')),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final media = MediaQuery.of(context);
     final screenWidth = media.size.width;
     final isTablet = screenWidth >= 600;
@@ -261,12 +264,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     return GlassScaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        title: const Text('My Leagues'),
+        title: Text(l10n.tr('leagues_my_leagues_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         actions: [
           IconButton(
+            tooltip: l10n.tr('common_debug'),
             icon: const Icon(Icons.bug_report),
             onPressed: () {
               Navigator.of(context).push(
@@ -275,6 +279,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
             },
           ),
           IconButton(
+            tooltip: l10n.tr('common_refresh'),
             icon: const Icon(Icons.refresh),
             onPressed: _refreshLeagues,
           ),
@@ -329,6 +334,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     List<League> leagues,
     bool isTablet,
   ) {
+    final l10n = context.l10n;
+
     final prefs = ref.read(prefsServiceProvider);
     final String currentUserId = prefs.getCurrentUserId() ?? '';
     final String viewerId = _effectiveUserId.isNotEmpty ? _effectiveUserId : currentUserId;
@@ -341,7 +348,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     return GridView.builder(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-      padding: EdgeInsets.fromLTRB(16, 12, 16, bottomPadding),
+      padding: EdgeInsetsDirectional.fromSTEB(16, 12, 16, bottomPadding),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: isTablet ? 2 : 1,
         mainAxisSpacing: 20,
@@ -365,7 +372,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
         final isFull = registered >= league.maxTeams;
 
         final latestAnn = _latestAnnouncements[league.id];
-        final baseSubtitle = '$registered / ${league.maxTeams} teams';
+        final baseSubtitle = '$registered / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}';
         final subtitle = latestAnn != null ? '$baseSubtitle • ${latestAnn.title}' : baseSubtitle;
 
         final payingThis = _payingLeagueId == league.id;
@@ -392,45 +399,39 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                 ),
               ),
             ),
-
-            // OWNER badge
             if (isOwner)
-              Positioned(
+              PositionedDirectional(
                 top: 12,
-                right: 12,
+                end: 12,
                 child: _CardBadge(
-                  label: 'OWNER',
+                  label: l10n.tr('leagues_badge_owner'),
                   icon: Icons.admin_panel_settings,
                   color: Colors.cyanAccent,
                   bg: Colors.cyanAccent.withOpacity(0.20),
                   border: Colors.cyanAccent.withOpacity(0.50),
                 ),
               ),
-
-            // VIEWER badge (not a participant)
             if (viewerIsViewerOnly)
-              Positioned(
+              PositionedDirectional(
                 top: 12,
-                right: 12,
+                end: 12,
                 child: _CardBadge(
-                  label: 'VIEWER',
+                  label: l10n.tr('leagues_badge_viewer'),
                   icon: Icons.visibility,
                   color: Colors.white70,
                   bg: Colors.white.withOpacity(0.10),
                   border: Colors.white.withOpacity(0.22),
                 ),
               ),
-
-            // LEFT badges stack (FULL / LOCKED)
-            Positioned(
+            PositionedDirectional(
               top: 12,
-              left: 12,
+              start: 12,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (isFull)
                     _CardBadge(
-                      label: 'FULL',
+                      label: l10n.tr('leagues_badge_full'),
                       icon: Icons.block,
                       color: Colors.redAccent,
                       bg: Colors.redAccent.withOpacity(0.16),
@@ -439,7 +440,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                   if (isFull && showLockedBadge) const SizedBox(height: 6),
                   if (showLockedBadge)
                     _CardBadge(
-                      label: 'LOCKED',
+                      label: l10n.tr('leagues_badge_locked'),
                       icon: Icons.lock_outline,
                       color: Colors.orangeAccent,
                       bg: Colors.orangeAccent.withOpacity(0.16),
@@ -448,12 +449,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                 ],
               ),
             ),
-
-            // PAY button if locked
             if (showLockedBadge)
-              Positioned(
+              PositionedDirectional(
                 bottom: 14,
-                right: 14,
+                end: 14,
                 child: SizedBox(
                   height: 32,
                   child: FilledButton(
@@ -470,9 +469,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                           )
-                        : const Text(
-                            'PAY',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                        : Text(
+                            l10n.tr('leagues_pay_button'),
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                           ),
                   ),
                 ),
@@ -484,13 +483,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   }
 
   Widget _buildEmptyState(BuildContext context) {
+    final l10n = context.l10n;
+
     final media = MediaQuery.of(context);
     final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
 
     return Center(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding),
+        padding: EdgeInsetsDirectional.fromSTEB(24, 24, 24, bottomPadding),
         child: Glass(
           borderRadius: 32,
           child: Padding(
@@ -511,19 +512,19 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                const Text(
-                  'No Leagues Found',
-                  style: TextStyle(
+                Text(
+                  l10n.tr('leagues_empty_title'),
+                  style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     color: Colors.white,
                     fontSize: 22,
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'Create a new tournament or join one using a code to get started.',
+                Text(
+                  l10n.tr('leagues_empty_subtitle'),
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white60,
                     fontSize: 14,
                     height: 1.5,
@@ -533,7 +534,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                 FilledButton.icon(
                   onPressed: () => _showOptions(context),
                   icon: const Icon(Icons.add),
-                  label: const Text('Get Started'),
+                  label: Text(l10n.tr('leagues_empty_cta')),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.white.withOpacity(0.1),
                     minimumSize: const Size(200, 50),
@@ -548,6 +549,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   }
 
   void _showOptions(BuildContext context) {
+    final l10n = context.l10n;
     final media = MediaQuery.of(context);
 
     showModalBottomSheet(
@@ -570,11 +572,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                         child: Text(
-                          'League Options',
-                          style: TextStyle(
+                          l10n.tr('leagues_options_title'),
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -587,16 +589,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                           backgroundColor: Colors.cyanAccent,
                           child: Icon(Icons.add, color: Colors.black),
                         ),
-                        title: const Text(
-                          'Create New League',
-                          style: TextStyle(
+                        title: Text(
+                          l10n.tr('leagues_options_create_title'),
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        subtitle: const Text(
-                          'Start a fresh tournament',
-                          style: TextStyle(
+                        subtitle: Text(
+                          l10n.tr('leagues_options_create_subtitle'),
+                          style: const TextStyle(
                             color: Colors.white38,
                             fontSize: 12,
                           ),
@@ -616,16 +618,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                             color: Colors.white,
                           ),
                         ),
-                        title: const Text(
-                          'Join via QR',
-                          style: TextStyle(
+                        title: Text(
+                          l10n.tr('leagues_options_join_qr_title'),
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        subtitle: const Text(
-                          'Scan a QR code',
-                          style: TextStyle(
+                        subtitle: Text(
+                          l10n.tr('leagues_options_join_qr_subtitle'),
+                          style: const TextStyle(
                             color: Colors.white38,
                             fontSize: 12,
                           ),
@@ -645,16 +647,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                             color: Colors.white,
                           ),
                         ),
-                        title: const Text(
-                          'Join by ID',
-                          style: TextStyle(
+                        title: Text(
+                          l10n.tr('leagues_options_join_id_title'),
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        subtitle: const Text(
-                          'Enter Join ID code',
-                          style: TextStyle(
+                        subtitle: Text(
+                          l10n.tr('leagues_options_join_id_subtitle'),
+                          style: const TextStyle(
                             color: Colors.white38,
                             fontSize: 12,
                           ),
@@ -678,6 +680,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   }
 
   Future<void> _showJoinByIdSheet(BuildContext context) async {
+    final l10n = context.l10n;
+
     final controller = TextEditingController();
     LeagueJoinMode mode = LeagueJoinMode.participant;
     String? error;
@@ -690,7 +694,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     Future<void> doJoin(StateSetter setModalState) async {
       final code = controller.text.trim().toUpperCase();
       if (code.isEmpty) {
-        setModalState(() => error = 'Join ID is required');
+        setModalState(() => error = l10n.tr('leagues_join_id_required'));
         return;
       }
 
@@ -708,10 +712,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
             final now = DateTime.now().millisecondsSinceEpoch;
             return League(
               id: generatedLeagueId,
-              name: 'Joined League',
+              name: l10n.tr('leagues_joined_league_placeholder_name'),
               format: LeagueFormat.classic,
               privacy: LeaguePrivacy.private,
-              region: 'Global',
+              region: l10n.tr('common_region_global'),
               maxTeams: 20,
               season: '2026',
               organizerUserId: '',
@@ -738,18 +742,18 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
         if (adminAlreadyAdded) {
           message = (mode == LeagueJoinMode.viewer)
-              ? 'You chose Viewer, but you were already added by the organizer (team assigned).'
-              : 'You were already added by the organizer (team assigned).';
+              ? l10n.tr('leagues_join_snackbar_viewer_but_already_added')
+              : l10n.tr('leagues_join_snackbar_already_added');
         } else if (membership != null) {
           message = (mode == LeagueJoinMode.viewer)
-              ? 'You chose Viewer, but you are already registered as a participant in this league.'
-              : 'You are already registered in this league.';
+              ? l10n.tr('leagues_join_snackbar_viewer_but_already_registered')
+              : l10n.tr('leagues_join_snackbar_already_registered');
         } else if (mode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
-          message = 'League is full. You joined as Viewer only.';
+          message = l10n.tr('leagues_join_snackbar_league_full_joined_viewer');
         } else if (mode == LeagueJoinMode.viewer) {
-          message = 'Joined as Viewer only.';
+          message = l10n.tr('leagues_join_snackbar_joined_viewer');
         } else {
-          message = 'Joined as Participant.';
+          message = l10n.tr('leagues_join_snackbar_joined_participant');
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -789,14 +793,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text(
-                                'Join League',
-                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                              Text(
+                                l10n.tr('leagues_join_sheet_title'),
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
                               ),
                               const SizedBox(height: 6),
-                              const Text(
-                                'Enter Join ID, then choose how you want to join.',
-                                style: TextStyle(color: Colors.white70, fontSize: 11),
+                              Text(
+                                l10n.tr('leagues_join_sheet_subtitle'),
+                                style: const TextStyle(color: Colors.white70, fontSize: 11),
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 12),
@@ -806,7 +810,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                                 textCapitalization: TextCapitalization.characters,
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
                                 decoration: InputDecoration(
-                                  hintText: 'e.g. ABC123',
+                                  hintText: l10n.tr('leagues_join_hint'),
                                   hintStyle: const TextStyle(color: Colors.white38),
                                   prefixIcon: const Icon(Icons.key, color: Colors.white70),
                                   errorText: error,
@@ -823,16 +827,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text(
-                                        'Join as',
-                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                                      Text(
+                                        l10n.tr('leagues_join_as_title'),
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
                                       ),
                                       const SizedBox(height: 8),
                                       Row(
                                         children: [
                                           Expanded(
                                             child: ChoiceChip(
-                                              label: const Text('Participant'),
+                                              label: Text(l10n.tr('leagues_join_participant')),
                                               selected: mode == LeagueJoinMode.participant,
                                               onSelected: joining
                                                   ? null
@@ -851,7 +855,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                                           const SizedBox(width: 10),
                                           Expanded(
                                             child: ChoiceChip(
-                                              label: const Text('Viewer only'),
+                                              label: Text(l10n.tr('leagues_join_viewer_only')),
                                               selected: mode == LeagueJoinMode.viewer,
                                               onSelected: joining
                                                   ? null
@@ -872,8 +876,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                                       const SizedBox(height: 10),
                                       Text(
                                         mode == LeagueJoinMode.viewer
-                                            ? 'Viewer-only: you can browse the league but you won’t be counted as a participant.'
-                                            : 'Participant: you will be counted as a participant in this league (if there is space).',
+                                            ? l10n.tr('leagues_join_as_viewer_description')
+                                            : l10n.tr('leagues_join_as_participant_description'),
                                         style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.25),
                                       ),
                                     ],
@@ -886,7 +890,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                                   Expanded(
                                     child: TextButton(
                                       onPressed: joining ? null : () => Navigator.of(ctx).pop(),
-                                      child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                                      child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
@@ -900,7 +904,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
                                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                             )
                                           : const Icon(Icons.login),
-                                      label: Text(joining ? 'Joining…' : 'Join'),
+                                      label: Text(joining ? l10n.tr('common_joining') : l10n.tr('common_join')),
                                     ),
                                   ),
                                 ],

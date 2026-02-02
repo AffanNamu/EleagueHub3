@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
@@ -21,14 +22,6 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _tabTitles = [
-    'Home',
-    'Leagues',
-    'Live',
-    'Marketplace',
-    'Profile',
-  ];
-
   static const _tabs = [
     _HomeTab(),
     LeaguesListScreen(),
@@ -39,8 +32,17 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
+    final tabTitles = [
+      l10n.homeTabHome,
+      l10n.homeTabLeagues,
+      l10n.homeTabLive,
+      l10n.homeTabMarketplace,
+      l10n.homeTabProfile,
+    ];
 
     return Container(
       decoration: BoxDecoration(
@@ -50,12 +52,12 @@ class _HomeShellState extends State<HomeShell> {
         backgroundColor: Colors.transparent,
         extendBody: true,
         appBar: AppBar(
-          title: Text(_tabTitles[_index]),
+          title: Text(tabTitles[_index]),
           backgroundColor: Colors.transparent,
           elevation: 0,
           actions: [
             IconButton(
-              tooltip: 'Settings',
+              tooltip: l10n.homeSettingsTooltip,
               onPressed: () => context.push('/settings'),
               icon: const Icon(Icons.settings_outlined),
             ),
@@ -74,43 +76,41 @@ class _HomeShellState extends State<HomeShell> {
         bottomNavigationBar: SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 12),
             child: Glass(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               borderRadius: 22,
               child: NavigationBar(
                 height: 64,
                 backgroundColor: Colors.transparent,
                 indicatorColor: colorScheme.primary.withOpacity(0.2),
                 selectedIndex: _index,
-                onDestinationSelected: (i) =>
-                    setState(() => _index = i),
-                destinations: const [
+                onDestinationSelected: (i) => setState(() => _index = i),
+                destinations: [
                   NavigationDestination(
-                    icon: Icon(Icons.home_outlined),
-                    selectedIcon: Icon(Icons.home),
-                    label: 'Home',
+                    icon: const Icon(Icons.home_outlined),
+                    selectedIcon: const Icon(Icons.home),
+                    label: l10n.homeTabHome,
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.emoji_events_outlined),
-                    selectedIcon: Icon(Icons.emoji_events),
-                    label: 'Leagues',
+                    icon: const Icon(Icons.emoji_events_outlined),
+                    selectedIcon: const Icon(Icons.emoji_events),
+                    label: l10n.homeTabLeagues,
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.wifi_tethering_outlined),
-                    selectedIcon: Icon(Icons.wifi_tethering),
-                    label: 'Live',
+                    icon: const Icon(Icons.wifi_tethering_outlined),
+                    selectedIcon: const Icon(Icons.wifi_tethering),
+                    label: l10n.homeTabLive,
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.storefront_outlined),
-                    selectedIcon: Icon(Icons.storefront),
-                    label: 'Market',
+                    icon: const Icon(Icons.storefront_outlined),
+                    selectedIcon: const Icon(Icons.storefront),
+                    label: l10n.homeTabMarketplace,
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.person_outline),
-                    selectedIcon: Icon(Icons.person),
-                    label: 'Profile',
+                    icon: const Icon(Icons.person_outline),
+                    selectedIcon: const Icon(Icons.person),
+                    label: l10n.homeTabProfile,
                   ),
                 ],
               ),
@@ -122,48 +122,47 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-/// Static mock announcements for now (offline, no backend).
-/// Later you can load these from prefs, a local DB, or a remote API.
-const List<Announcement> _mockAnnouncements = [
-  Announcement(
-    title: 'Welcome to EleagueHub',
-    message:
-        'Create leagues, add teams, and share fixtures offline.',
-    time: 'Just now',
-  ),
-  Announcement(
-    title: 'Tip: Manage teams',
-    message:
-        'Use League Settings > Manage Teams to add or review participants.',
-    time: 'Today',
-  ),
-  Announcement(
-    title: 'Swiss & Groups',
-    message:
-        'Swiss and UCL Group formats now support auto knockout seeding.',
-    time: 'This week',
-  ),
-];
-
 /// HomeTab: Default landing tab with quick cards & announcements
 class _HomeTab extends StatelessWidget {
   const _HomeTab();
 
+  List<Announcement> _mockAnnouncements(AppLocalizations l10n) {
+    return [
+      Announcement(
+        title: l10n.homeAnnouncement1Title,
+        message: l10n.homeAnnouncement1Message,
+        time: l10n.homeAnnouncement1Time,
+      ),
+      Announcement(
+        title: l10n.homeAnnouncement2Title,
+        message: l10n.homeAnnouncement2Message,
+        time: l10n.homeAnnouncement2Time,
+      ),
+      Announcement(
+        title: l10n.homeAnnouncement3Title,
+        message: l10n.homeAnnouncement3Message,
+        time: l10n.homeAnnouncement3Time,
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final t = Theme.of(context).textTheme;
 
+    final announcements = _mockAnnouncements(l10n);
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 16),
       children: [
-        // Welcome card
         Glass(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Welcome back',
+                l10n.homeWelcomeBack,
                 style: t.titleLarge?.copyWith(
                   fontWeight: FontWeight.w800,
                   color: Colors.white,
@@ -171,7 +170,7 @@ class _HomeTab extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'This is the MVP foundation. Explore Leagues, Live, and Marketplace with mock data.',
+                l10n.homeMvpDescription,
                 style: t.bodyMedium?.copyWith(
                   color: Colors.white70,
                 ),
@@ -180,10 +179,8 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-
-        // Announcements section (mapped from models)
         Text(
-          'Announcements',
+          l10n.homeAnnouncementsTitle,
           style: t.titleMedium?.copyWith(
             fontWeight: FontWeight.w900,
             color: Colors.white,
@@ -194,10 +191,10 @@ class _HomeTab extends StatelessWidget {
           height: 120,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: _mockAnnouncements.length,
+            itemCount: announcements.length,
             separatorBuilder: (_, __) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
-              final a = _mockAnnouncements[index];
+              final a = announcements[index];
               return GlassAnnouncement(
                 title: a.title,
                 message: a.message,
@@ -207,8 +204,6 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-
-        // Quick actions
         Glass(
           padding: const EdgeInsets.all(12),
           child: Row(
@@ -216,18 +211,17 @@ class _HomeTab extends StatelessWidget {
               Expanded(
                 child: _QuickCard(
                   icon: Icons.add_circle_outline,
-                  title: 'Create league',
-                  subtitle: '3-step wizard',
-                  onTap: () =>
-                      context.push('/leagues/create'),
+                  title: l10n.homeQuickCreateLeagueTitle,
+                  subtitle: l10n.homeQuickCreateLeagueSubtitle,
+                  onTap: () => context.push('/leagues/create'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _QuickCard(
                   icon: Icons.confirmation_number_outlined,
-                  title: 'Join live',
-                  subtitle: 'Via match ID',
+                  title: l10n.homeQuickJoinLiveTitle,
+                  subtitle: l10n.homeQuickJoinLiveSubtitle,
                   onTap: () => context.push('/live/join'),
                 ),
               ),
@@ -271,13 +265,11 @@ class _QuickCard extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(
+                    style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
                     ),
@@ -285,8 +277,7 @@ class _QuickCard extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(
+                    style: theme.textTheme.bodySmall?.copyWith(
                       color: Colors.white70,
                     ),
                   ),

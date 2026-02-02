@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -60,12 +61,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _signInEmail() async {
+    final l10n = context.l10n;
+
     final email = _email.text.trim();
     final pass = _password.text;
 
     if (email.isEmpty || pass.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email and password are required')),
+        SnackBar(content: Text(l10n.errorEmailPasswordRequired)),
       );
       return;
     }
@@ -90,25 +93,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _registerEmail() async {
+    final l10n = context.l10n;
+
     final email = _email.text.trim();
     final pass = _password.text;
     final confirm = _confirm.text;
 
     if (email.isEmpty || pass.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email and password are required')),
+        SnackBar(content: Text(l10n.errorEmailPasswordRequired)),
       );
       return;
     }
     if (pass != confirm) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Passwords do not match')),
+        SnackBar(content: Text(l10n.errorPasswordsDoNotMatch)),
       );
       return;
     }
     if (pass.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password must be at least 6 characters')),
+        SnackBar(content: Text(l10n.errorPasswordMinLength)),
       );
       return;
     }
@@ -134,6 +139,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final t = Theme.of(context).textTheme;
 
     return GlassScaffold(
@@ -155,46 +161,46 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'eSportlyic.',
+                      l10n.authLoginBrand,
                       style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _isRegister ? 'Create an account to continue.' : 'Sign in to continue.',
+                      _isRegister ? l10n.authLoginSubtitleRegister : l10n.authLoginSubtitleSignIn,
                       style: t.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 18),
-
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
                         onPressed: _submitting ? null : _signInGoogle,
                         icon: const Icon(Icons.login),
-                        label: const Text('Continue with Google'),
+                        label: Text(l10n.authLoginContinueWithGoogle),
                       ),
                     ),
-
                     const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 10),
-                          child: Text('OR', style: TextStyle(color: Colors.white.withOpacity(0.65))),
+                          child: Text(
+                            l10n.authLoginOr,
+                            style: TextStyle(color: Colors.white.withOpacity(0.65)),
+                          ),
                         ),
                         Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
                       ],
                     ),
                     const SizedBox(height: 12),
-
                     TextField(
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
                       style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        labelStyle: TextStyle(color: Colors.white70),
+                      decoration: InputDecoration(
+                        labelText: l10n.authLoginEmailLabel,
+                        labelStyle: const TextStyle(color: Colors.white70),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -202,9 +208,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       controller: _password,
                       obscureText: true,
                       style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Password',
-                        labelStyle: TextStyle(color: Colors.white70),
+                      decoration: InputDecoration(
+                        labelText: l10n.authLoginPasswordLabel,
+                        labelStyle: const TextStyle(color: Colors.white70),
                       ),
                     ),
                     if (_isRegister) ...[
@@ -213,14 +219,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         controller: _confirm,
                         obscureText: true,
                         style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
-                          labelText: 'Confirm password',
-                          labelStyle: TextStyle(color: Colors.white70),
+                        decoration: InputDecoration(
+                          labelText: l10n.authLoginConfirmPasswordLabel,
+                          labelStyle: const TextStyle(color: Colors.white70),
                         ),
                       ),
                     ],
                     const SizedBox(height: 16),
-
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
@@ -231,10 +236,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 height: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
-                            : Text(_isRegister ? 'Create account' : 'Sign in'),
+                            : Text(_isRegister ? l10n.authLoginCreateAccount : l10n.authLoginSignIn),
                       ),
                     ),
-
                     const SizedBox(height: 10),
                     TextButton(
                       onPressed: _submitting
@@ -243,7 +247,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 _isRegister = !_isRegister;
                               }),
                       child: Text(
-                        _isRegister ? 'Already have an account? Sign in' : 'No account? Create one',
+                        _isRegister ? l10n.authLoginToggleToSignIn : l10n.authLoginToggleToRegister,
                       ),
                     ),
                   ],
