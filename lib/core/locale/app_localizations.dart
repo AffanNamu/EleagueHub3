@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'app_localizations_1.dart';
 import 'app_localizations_2.dart';
 import 'app_localizations_3.dart';
+import 'app_localizations_4.dart';
 
 class AppLocalizations {
   AppLocalizations(this.locale);
@@ -22,25 +23,38 @@ class AppLocalizations {
   static Map<String, Map<String, String>> _buildStrings() {
     final result = <String, Map<String, String>>{};
 
-    void mergePart(Map<String, Map<String, String>> part) {
+    void mergePart(Map<dynamic, dynamic> part) {
       for (final entry in part.entries) {
-        final lang = entry.key;
-        final strings = entry.value;
+        final lang = (entry.key ?? '').toString().trim();
+        if (lang.isEmpty) continue;
 
         final langMap = result.putIfAbsent(lang, () => <String, String>{});
-        langMap.addAll(strings);
+
+        final rawStrings = entry.value;
+        if (rawStrings is Map) {
+          for (final e in rawStrings.entries) {
+            final k = (e.key ?? '').toString().trim();
+            if (k.isEmpty) continue;
+
+            final v = e.value;
+            if (v == null) continue;
+
+            langMap[k] = v.toString();
+          }
+        }
       }
     }
 
     mergePart(appLocalizationsPart1);
     mergePart(appLocalizationsPart2);
     mergePart(appLocalizationsPart3);
+    mergePart(appLocalizationsPart4);
 
-    return Map.unmodifiable(
-      result.map(
-        (lang, strings) => MapEntry(lang, Map.unmodifiable(strings)),
-      ),
-    );
+    final frozen = <String, Map<String, String>>{};
+    for (final entry in result.entries) {
+      frozen[entry.key] = Map.unmodifiable(entry.value);
+    }
+    return Map.unmodifiable(frozen);
   }
 
   static List<String> get supportedLanguageCodes => _strings.keys.toList(growable: false);
@@ -50,8 +64,17 @@ class AppLocalizations {
 
   static AppLocalizations of(BuildContext context) {
     final l10n = Localizations.of<AppLocalizations>(context, AppLocalizations);
-    assert(l10n != null, 'AppLocalizations not found in widget tree');
-    return l10n!;
+    if (l10n != null) return l10n;
+
+    Locale fallbackLocale;
+    try {
+      fallbackLocale = Localizations.maybeLocaleOf(context) ?? const Locale('en');
+    } catch (_) {
+      fallbackLocale = const Locale('en');
+    }
+
+    final code = _strings.containsKey(fallbackLocale.languageCode) ? fallbackLocale.languageCode : 'en';
+    return AppLocalizations(Locale(code));
   }
 
   TextDirection get textDirection =>
