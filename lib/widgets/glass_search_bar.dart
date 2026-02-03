@@ -1,5 +1,8 @@
-import 'package:flutter/material.dart';
 import 'dart:ui';
+
+import 'package:flutter/material.dart';
+
+import '../core/locale/app_localizations.dart';
 
 class GlassSearchBar extends StatelessWidget {
   final TextEditingController? controller;
@@ -13,8 +16,10 @@ class GlassSearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 16, 8),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(15),
         child: BackdropFilter(
@@ -34,7 +39,7 @@ class GlassSearchBar extends StatelessWidget {
               textAlignVertical: TextAlignVertical.center,
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'Search leagues...',
+                hintText: l10n.tr('glass_search_bar_hint'),
                 hintStyle: TextStyle(
                   color: Colors.white.withOpacity(0.5),
                 ),

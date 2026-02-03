@@ -5,6 +5,15 @@ const Map<String, Map<String, String>> appLocalizationsPart4 = {
     'common_yes': 'Yes',
     'common_no': 'No',
     'common_none': '(none)',
+    'common_cancel': 'Cancel',
+    'common_later': 'Later',
+    'common_pay_now': 'Pay now',
+    'common_paste': 'Paste',
+    'common_continue': 'Continue',
+    'common_done': 'Done',
+    'common_open': 'Open',
+    'common_retry': 'Retry',
+    'common_copy': 'Copy',
 
     'add_teams_appbar_title_prefix': 'Add Teams',
     'add_teams_header_title': 'Add players (by UserId)',
@@ -265,6 +274,17 @@ const Map<String, Map<String, String>> appLocalizationsPart4 = {
     'admin_knockout_status_completed': 'Completed',
     'admin_knockout_status_pending': 'Pending',
 
+    'knockout_bracket_appbar_title': 'Knockout Bracket',
+    'knockout_bracket_reload_tooltip': 'Reload',
+    'knockout_bracket_empty_state':
+        'No knockout matches found.\nGenerate the bracket from the league details screen first.',
+    'knockout_bracket_header_title': 'Knockout Bracket',
+    'knockout_bracket_matches_scheduled_suffix': 'matches scheduled',
+    'knockout_bracket_aggregate_prefix': 'Aggregate: ',
+    'knockout_bracket_penalties_prefix': 'Penalties: ',
+    'knockout_bracket_aggregate_tied_penalties_required': 'Aggregate tied — penalties winner required.',
+    'knockout_bracket_draw_winner_required': 'Draw — winner required.',
+
     'admin_score_appbar_title': 'Score Management',
     'admin_score_section_title': 'Update Match Results',
 
@@ -326,5 +346,139 @@ const Map<String, Map<String, String>> appLocalizationsPart4 = {
 
     'fixtures_no_matches_generated_yet': 'No matches generated yet',
     'fixtures_tbd': 'TBD',
+
+    'group_draw_appbar_title': 'UCL Group Draw',
+    'group_draw_only_ucl_group': 'This screen is only for UCL Group leagues.',
+    'group_draw_team_count_help_prefix': 'UCL Group Draw supports only 16 or 32 teams.\nCurrent teams: ',
+    'group_draw_locked_toast': 'Group draw locked: fixtures already generated.',
+    'group_draw_locked_banner': 'Group draw is locked because fixtures already exist.',
+    'group_draw_cannot_change_after_fixtures': 'Cannot change groups after fixtures are generated.',
+    'group_draw_drawing_teams': 'Drawing teams...',
+    'group_draw_resume_draw': 'Resume draw',
+    'group_draw_draw_complete': 'Draw complete',
+    'group_draw_generate_fixtures': 'Generate fixtures',
+    'group_draw_groups_saved_toast': 'Groups saved',
+    'group_draw_failed_save_groups_prefix': 'Failed to save groups: ',
+    'group_draw_failed_generate_group_fixtures_check_groups':
+        'Failed to generate group fixtures. Check group assignments.',
+
+    'standings_appbar_title': 'Standings',
+    'standings_section_title': 'League Standings',
+    'standings_failed_load_league_prefix': 'Failed to load league.',
+    'standings_failed_load_group_standings_prefix': 'Failed to load group standings.',
+    'standings_failed_load_standings_prefix': 'Failed to load standings.',
+    'standings_no_group_results_yet': 'No group results yet.\nStandings will appear after group matches are played.',
+    'standings_ucl_group_structure_warning_prefix':
+        'Expected UCL Group to be either 16 teams (4 groups of 4) or 32 teams (8 groups of 4).\nCurrent: ',
+    'standings_ucl_group_structure_warning_suffix': ' groups.',
+    'standings_no_results_yet': 'No results yet.\nStandings will appear here after matches are played.',
+    'standings_swiss_team_count_warning_prefix':
+        'This Swiss format supports only 18 or 36 teams.\nCurrent teams: ',
+    'standings_swiss_phase_no_rounds_yet_prefix': 'Swiss phase: no rounds yet (max ',
+    'standings_swiss_phase_no_rounds_yet_suffix': ' rounds)',
+    'standings_swiss_phase_round_prefix': 'Swiss phase: Round ',
+    'standings_swiss_phase_round_mid': ' of ',
+    'standings_swiss_legend_top8_r16': 'Top 8: Round of 16',
+    'standings_swiss_legend_9_24_playoff': '9–24: Play-off',
+    'standings_swiss_legend_25_36_eliminated': '25–36: Eliminated',
+    'standings_swiss_legend_top4_quarter_finals': 'Top 4: Quarter Finals',
+    'standings_swiss_legend_5_12_playoff': '5–12: Play-off',
+    'standings_swiss_legend_13_18_eliminated': '13–18: Eliminated',
+
+    'match_detail_appbar_title': 'Match Details',
+    'match_detail_vs': 'vs',
+    'match_detail_live_section_title': 'Live Match (Gamers Mode)',
+    'match_detail_live_section_description':
+        'Stream your screen + front camera. Viewers will see both players cams (top-left/top-right) and one player\'s screen (main).',
+    'match_detail_copy_live_match_id_tooltip': 'Copy Live Match ID',
+    'match_detail_live_id_copied_prefix': 'Live Match ID copied: ',
+    'match_detail_open_host_live': 'Open host live',
+    'match_detail_opening': 'Opening...',
+    'match_detail_tip_text':
+        'Tip: Both players can host using the same Match ID.\nViewers on the same Wi-Fi/hotspot can join via Auto-Discovery.',
+    'match_detail_streaming_as_title': 'You are streaming as:',
+    'match_detail_not_sure_spectator': 'Not sure / Spectator',
+
+    'qr_scanner_permission_error_prefix': 'Permission error: ',
+    'qr_scanner_failed_start_camera_prefix': 'Failed to start camera: ',
+    'qr_scanner_invalid_qr_join_code': 'Invalid QR / Join code.',
+    'qr_scanner_join_failed_prefix': 'Join failed: ',
+    'qr_scanner_payment_failed': 'Payment failed',
+
+    'qr_scanner_join_mode_title': 'Join league as...',
+    'qr_scanner_join_code_prefix': 'Join code: ',
+    'qr_scanner_join_mode_participant_title': 'Participant',
+    'qr_scanner_join_mode_participant_subtitle': 'You will be counted as a participant in this league.',
+    'qr_scanner_join_mode_viewer_title': 'Viewer only',
+    'qr_scanner_join_mode_viewer_subtitle': 'You can browse the league, but you won\'t be counted as a participant.',
+
+    'qr_scanner_joined_league_placeholder_name': 'Joined League',
+
+    'qr_scanner_notice_viewer_but_already_added_team_assigned':
+        'You chose Viewer, but you were already added by the organizer as a participant (team assigned).',
+    'qr_scanner_notice_already_added_team_assigned': 'You were already added by the organizer (team assigned).',
+    'qr_scanner_notice_viewer_but_already_registered_participant':
+        'You chose Viewer, but you are already registered as a participant in this league.',
+    'qr_scanner_notice_already_registered': 'You are already registered in this league.',
+    'qr_scanner_notice_league_full_joined_viewer_only':
+        'League is full. You joined as Viewer only (not counted as a participant).',
+    'qr_scanner_notice_joined_viewer_only': 'You joined as Viewer only (not counted as a participant).',
+
+    'qr_scanner_unlock_dialog_title': 'Unlock Fixtures & Standings',
+    'qr_scanner_unlock_dialog_content_prefix':
+        'This league requires charges to view Fixtures and Standings.\n\nLeague: ',
+    'qr_scanner_unlock_dialog_content_suffix':
+        '\n\nPay now to unlock, or choose Later and pay when you open Fixtures/Standings.',
+
+    'qr_scanner_manual_entry_title': 'Enter Join Code',
+    'qr_scanner_manual_entry_subtitle': 'Paste the Join ID (letters/numbers) from the organizer.',
+    'qr_scanner_join_code_hint': 'e.g. ABC123',
+    'qr_scanner_enter_code_instead': 'Enter code instead',
+    'qr_scanner_enter_code': 'Enter code',
+
+    'qr_scanner_joined_appbar_title': 'League Joined',
+    'qr_scanner_joined_line_viewer': 'You joined as Viewer (not counted as a participant).',
+    'qr_scanner_joined_line_participant': 'You joined as Participant.',
+    'qr_scanner_requires_charges_message': 'This league requires charges to view fixtures & standings.',
+    'qr_scanner_can_open_league_message': 'You can open the league now.',
+    'qr_scanner_unlock_now': 'Unlock now',
+    'qr_scanner_teams_suffix': 'teams',
+
+    'qr_scanner_camera_not_available': 'Camera not available',
+
+    'qr_scanner_torch_on_tooltip': 'Torch on',
+    'qr_scanner_torch_off_tooltip': 'Torch off',
+    'qr_scanner_switch_camera_tooltip': 'Switch camera',
+
+    'qr_scanner_center_qr_instruction': 'Center the QR code within the frame',
+    'qr_scanner_camera_permission_required': 'Camera permission is required',
+
+    'qr_scanner_allow_camera_access_title': 'Allow Camera Access',
+    'qr_scanner_allow_camera_access_description':
+        'To scan league QR codes, enable camera permission.\n\nOr tap ENTER CODE to join manually.',
+    'qr_scanner_open_settings': 'Open settings',
+    'qr_scanner_grant_permission': 'Grant permission',
+
+    'qr_scanner_scan_again': 'Scan again',
+
+    'offline_banner_message': 'OFFLINE MODE: Scores will sync when back online',
+
+    'admin_score_card_update_score': 'Update score',
+    'glass_search_bar_hint': 'Search leagues...',
+    'glass_group_card_empty_slot': '...',
+    'generate_knockout_dialog_title': 'Generate Knockout Bracket',
+    'generate_knockout_dialog_qualified_teams_intro': 'The following teams have qualified based on standings:',
+    'generate_knockout_dialog_warning': 'This will create the knockout matchups. This action cannot be undone.',
+    'generate_knockout_dialog_cancel': 'Cancel',
+    'generate_knockout_dialog_start_knockouts': 'Start knockouts',
+
+    'league_format_classic': 'Classic League',
+    'league_format_ucl_group': 'Group League',
+    'league_format_ucl_swiss': 'Series League',
+
+    'league_flip_card_invite_code_copied': 'Invite code copied',
+    'league_flip_card_tap_to_join_scan_qr': 'Tap to join / scan QR',
+    'league_flip_card_double_tap_to_view_details': 'Double tap to view league details',
+    'league_flip_card_invite_code_label': 'Invite code',
   },
 };

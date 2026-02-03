@@ -3,6 +3,9 @@ enum LeagueFormat {
   uclGroup,
   uclSwiss;
 
+  /// Legacy (English-only) display name.
+  ///
+  /// Prefer using [l10nKey] in UI: `context.l10n.tr(format.l10nKey)`.
   String get displayName {
     switch (this) {
       case LeagueFormat.classic:
@@ -11,6 +14,21 @@ enum LeagueFormat {
         return 'Group League';
       case LeagueFormat.uclSwiss:
         return 'Series League';
+    }
+  }
+
+  /// i18n key for displaying this format in UI.
+  ///
+  /// Usage:
+  /// `final name = context.l10n.tr(league.format.l10nKey);`
+  String get l10nKey {
+    switch (this) {
+      case LeagueFormat.classic:
+        return 'league_format_classic';
+      case LeagueFormat.uclGroup:
+        return 'league_format_ucl_group';
+      case LeagueFormat.uclSwiss:
+        return 'league_format_ucl_swiss';
     }
   }
 }

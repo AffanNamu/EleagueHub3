@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../logic/fixture_generator.dart';
 import '../models/league_format.dart';
 import '../models/team.dart';
@@ -70,7 +71,32 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     return names.take(groupCount).toList();
   }
 
+  String _displayGroupName(String groupId) {
+    final l10n = context.l10n;
+    switch (groupId) {
+      case 'Group A':
+        return l10n.tr('add_teams_group_a');
+      case 'Group B':
+        return l10n.tr('add_teams_group_b');
+      case 'Group C':
+        return l10n.tr('add_teams_group_c');
+      case 'Group D':
+        return l10n.tr('add_teams_group_d');
+      case 'Group E':
+        return l10n.tr('add_teams_group_e');
+      case 'Group F':
+        return l10n.tr('add_teams_group_f');
+      case 'Group G':
+        return l10n.tr('add_teams_group_g');
+      case 'Group H':
+        return l10n.tr('add_teams_group_h');
+      default:
+        return groupId;
+    }
+  }
+
   Future<void> _loadLeagueAndTeams() async {
+    final l10n = context.l10n;
     final repo = ref.read(localLeaguesRepositoryProvider);
 
     final league = await repo.getLeagueById(widget.leagueId);
@@ -82,11 +108,11 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     _allTeams = teams;
 
     if (league == null) {
-      _toastErr('League not found.');
+      _toastErr(l10n.tr('fixtures_league_not_found'));
       return;
     }
     if (league.format != LeagueFormat.uclGroup) {
-      _toastErr('This screen is only for UCL Group leagues.');
+      _toastErr(l10n.tr('group_draw_only_ucl_group'));
       return;
     }
 
@@ -94,7 +120,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     _drawLocked = hasGroupFixtures;
 
     if (!(teams.length == 16 || teams.length == 32)) {
-      _toastErr('UCL Group supports only 16 or 32 teams. Current: ${teams.length}.');
+      _toastErr('${l10n.tr('admin_score_group_team_count_error_prefix')}${teams.length}.');
       setState(() {
         groups.clear();
         remainingTeams.clear();
@@ -130,7 +156,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     });
 
     if (_drawLocked) {
-      _toastWarn('Group draw locked: fixtures already generated.');
+      _toastWarn(l10n.tr('group_draw_locked_toast'));
     }
   }
 
@@ -145,8 +171,10 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       groups.isNotEmpty && groups.values.every((list) => list.length == _groupSize) && remainingTeams.isEmpty;
 
   Future<void> startDraw() async {
+    final l10n = context.l10n;
+
     if (_drawLocked) {
-      _toastWarn('Cannot change groups after fixtures are generated.');
+      _toastWarn(l10n.tr('group_draw_cannot_change_after_fixtures'));
       return;
     }
     if (isDrawing) return;
@@ -175,9 +203,9 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     try {
       final repo = ref.read(localLeaguesRepositoryProvider);
       await repo.saveTeams(widget.leagueId, _allTeams);
-      _toastOk('Groups saved');
+      _toastOk(l10n.tr('group_draw_groups_saved_toast'));
     } catch (e) {
-      _toastErr('Failed to save groups: $e');
+      _toastErr('${l10n.tr('group_draw_failed_save_groups_prefix')}$e');
     }
 
     if (!mounted) return;
@@ -185,14 +213,16 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   }
 
   Future<void> _generateGroupFixtures() async {
+    final l10n = context.l10n;
+
     if (_drawLocked) {
-      _toastWarn('Fixtures already generated.');
+      _toastWarn(l10n.tr('admin_score_group_fixtures_already_exist'));
       return;
     }
     if (_isGeneratingFixtures) return;
 
     if (!_allGroupsFull) {
-      _toastWarn('Finish the group draw first (all groups must have 4 teams).');
+      _toastWarn(l10n.tr('admin_score_complete_group_draw_first'));
       return;
     }
 
@@ -202,14 +232,14 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       final repo = ref.read(localLeaguesRepositoryProvider);
       final league = await repo.getLeagueById(widget.leagueId);
       if (league == null) {
-        _toastErr('League not found.');
+        _toastErr(l10n.tr('fixtures_league_not_found'));
         return;
       }
 
       final existing = await repo.getMatches(widget.leagueId);
       final hasGroupFixtures = existing.any((m) => (m.groupId ?? '').trim().isNotEmpty);
       if (hasGroupFixtures) {
-        _toastWarn('Group fixtures already generated.');
+        _toastWarn(l10n.tr('admin_score_group_fixtures_already_exist'));
         _drawLocked = true;
         return;
       }
@@ -222,15 +252,17 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       );
 
       if (fixtures.isEmpty) {
-        _toastErr('Failed to generate group fixtures. Check group assignments.');
+        _toastErr(l10n.tr('group_draw_failed_generate_group_fixtures_check_groups'));
         return;
       }
 
       await repo.saveMatches(widget.leagueId, fixtures);
-      _toastOk('Group fixtures generated (${fixtures.length} matches).');
+      _toastOk(
+        '${l10n.tr('admin_score_group_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
+      );
       _drawLocked = true;
     } catch (e) {
-      _toastErr('Failed to generate fixtures: $e');
+      _toastErr('${l10n.tr('admin_score_failed_generate_fixtures')}: $e');
     } finally {
       if (mounted) setState(() => _isGeneratingFixtures = false);
     }
@@ -238,18 +270,20 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     if (!(_allTeams.length == 16 || _allTeams.length == 32) || groups.isEmpty) {
       return Scaffold(
         backgroundColor: const Color(0xFF000428),
         appBar: AppBar(
-          title: const Text("UCL Group Draw"),
+          title: Text(l10n.tr('group_draw_appbar_title')),
           backgroundColor: Colors.transparent,
         ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: Text(
-              'UCL Group Draw supports only 16 or 32 teams.\nCurrent teams: ${_allTeams.length}.',
+              '${l10n.tr('group_draw_team_count_help_prefix')}${_allTeams.length}.',
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w700),
             ),
@@ -263,11 +297,11 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF000428),
       appBar: AppBar(
-        title: const Text("UCL Group Draw"),
+        title: Text(l10n.tr('group_draw_appbar_title')),
         backgroundColor: Colors.transparent,
         actions: [
           IconButton(
-            tooltip: 'Reload',
+            tooltip: l10n.tr('admin_knockout_reload_tooltip'),
             onPressed: _loadLeagueAndTeams,
             icon: const Icon(Icons.refresh),
           ),
@@ -276,23 +310,29 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       body: Column(
         children: [
           if (_drawLocked)
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+            Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 0),
               child: Text(
-                'Group draw is locked because fixtures already exist.',
-                style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.w800, fontSize: 12),
+                l10n.tr('group_draw_locked_banner'),
+                style: const TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.w800, fontSize: 12),
                 textAlign: TextAlign.center,
               ),
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 14, 16, 8),
             child: Row(
               children: [
                 Expanded(
                   child: ElevatedButton(
                     onPressed: (_drawLocked || isDrawing) ? null : (remainingTeams.isNotEmpty ? startDraw : null),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.white24),
-                    child: Text(isDrawing ? "Drawing Teams..." : (remainingTeams.isNotEmpty ? "RESUME DRAW" : "DRAW COMPLETE")),
+                    child: Text(
+                      isDrawing
+                          ? l10n.tr('group_draw_drawing_teams')
+                          : (remainingTeams.isNotEmpty
+                              ? l10n.tr('group_draw_resume_draw')
+                              : l10n.tr('group_draw_draw_complete')),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -307,9 +347,9 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
                           )
                         : const Icon(Icons.auto_awesome, color: Colors.cyanAccent),
-                    label: const Text(
-                      "GENERATE FIXTURES",
-                      style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
+                    label: Text(
+                      l10n.tr('group_draw_generate_fixtures').toUpperCase(),
+                      style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
                     ),
                   ),
                 ),
@@ -329,7 +369,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
               itemBuilder: (context, index) {
                 final key = orderedGroupKeys[index];
                 final teamNames = groups[key]!.map((t) => t.name).toList();
-                return GlassGroupCard(title: key, teams: teamNames);
+                return GlassGroupCard(title: _displayGroupName(key), teams: teamNames);
               },
             ),
           ),

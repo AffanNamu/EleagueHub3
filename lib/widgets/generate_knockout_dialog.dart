@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/locale/app_localizations.dart';
+
 /// Returns a bool via Navigator.pop:
 /// - true  => user confirmed "START KNOCKOUTS"
 /// - false => user cancelled (or dismissed)
@@ -10,24 +12,26 @@ class GenerateKnockoutDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     return AlertDialog(
       backgroundColor: const Color(0xFF000428),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white24),
       ),
-      title: const Text(
-        'Generate Knockout Bracket',
-        style: TextStyle(color: Colors.white),
+      title: Text(
+        l10n.tr('generate_knockout_dialog_title'),
+        style: const TextStyle(color: Colors.white),
       ),
       content: SizedBox(
         width: double.maxFinite,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'The following teams have qualified based on standings:',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
+            Text(
+              l10n.tr('generate_knockout_dialog_qualified_teams_intro'),
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
             const SizedBox(height: 15),
             Wrap(
@@ -42,9 +46,9 @@ class GenerateKnockoutDialog extends StatelessWidget {
                   .toList(),
             ),
             const SizedBox(height: 20),
-            const Text(
-              'This will create the knockout matchups. This action cannot be undone.',
-              style: TextStyle(
+            Text(
+              l10n.tr('generate_knockout_dialog_warning'),
+              style: const TextStyle(
                 color: Colors.orangeAccent,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
@@ -56,14 +60,14 @@ class GenerateKnockoutDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('CANCEL'),
+          child: Text(l10n.tr('generate_knockout_dialog_cancel').toUpperCase()),
         ),
         ElevatedButton(
           onPressed: () {
             // Let the caller trigger bracket generation based on the returned result.
             Navigator.pop(context, true);
           },
-          child: const Text('START KNOCKOUTS'),
+          child: Text(l10n.tr('generate_knockout_dialog_start_knockouts').toUpperCase()),
         ),
       ],
     );

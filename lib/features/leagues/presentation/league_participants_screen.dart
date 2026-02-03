@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -73,9 +74,11 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Participants'),
+        title: Text(l10n.tr('league_participants_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -97,6 +100,8 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
   }
 
   Widget _buildBody() {
+    final l10n = context.l10n;
+
     if (_memberships.isEmpty) {
       return Padding(
         padding: const EdgeInsets.all(16),
@@ -106,25 +111,25 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(
+              children: [
+                const Icon(
                   Icons.people_outline,
                   size: 40,
                   color: Colors.cyanAccent,
                 ),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 Text(
-                  'No participants yet',
-                  style: TextStyle(
+                  l10n.tr('league_participants_empty_title'),
+                  style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,
                     fontSize: 16,
                   ),
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Text(
-                  'Participants will appear here after they join via code/QR or are assigned to teams.',
-                  style: TextStyle(
+                  l10n.tr('league_participants_empty_subtitle'),
+                  style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 12,
                   ),
@@ -141,12 +146,12 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
     final members = _memberships.where((m) => m.role == LeagueRole.member).toList();
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 16),
       children: [
         if (organizers.isNotEmpty) ...[
-          const Text(
-            'Organizers',
-            style: TextStyle(
+          Text(
+            l10n.tr('league_participants_organizers_title'),
+            style: const TextStyle(
               color: Colors.white70,
               fontWeight: FontWeight.w700,
               fontSize: 13,
@@ -156,9 +161,9 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
           ...organizers.map(_buildMembershipTile),
           const SizedBox(height: 16),
         ],
-        const Text(
-          'Participants',
-          style: TextStyle(
+        Text(
+          l10n.tr('league_participants_participants_title'),
+          style: const TextStyle(
             color: Colors.white70,
             fontWeight: FontWeight.w700,
             fontSize: 13,
@@ -171,19 +176,20 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
   }
 
   Widget _buildMembershipTile(Membership m) {
+    final l10n = context.l10n;
+
     final assignedLeagueTeamName = (m.teamId != null && m.teamId!.isNotEmpty)
-        ? _teamsById[m.teamId!]?.name ?? 'Team ${m.teamId}'
-        : 'No team';
+        ? (_teamsById[m.teamId!]?.name ?? '${l10n.tr('league_participants_team_prefix')}${m.teamId}')
+        : l10n.tr('league_participants_no_team');
 
     final globalTeamName = _teamNameByUserId[m.userId];
-
     final title = (globalTeamName != null && globalTeamName.trim().isNotEmpty) ? globalTeamName : m.userId;
 
     final isOrganizer = m.role == LeagueRole.organizer;
 
     final subtitle = isOrganizer
-        ? 'Organizer • $assignedLeagueTeamName • userId: ${m.userId}'
-        : '$assignedLeagueTeamName • userId: ${m.userId}';
+        ? '${l10n.tr('league_participants_role_organizer')} • $assignedLeagueTeamName • ${l10n.tr('league_participants_userid_prefix')}${m.userId}'
+        : '$assignedLeagueTeamName • ${l10n.tr('league_participants_userid_prefix')}${m.userId}';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),

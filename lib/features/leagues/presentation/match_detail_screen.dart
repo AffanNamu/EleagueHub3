@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -30,6 +31,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   late final LocalLeaguesRepository _repo;
 
   bool _busy = false;
+
+  // Keep as a stable status code (do not localize this string directly).
+  // If we need localized rendering, we should update StatusBadge to map codes -> l10n.
   String _status = 'Pending';
 
   FixtureMatch? _match;
@@ -37,16 +41,18 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   String get _liveMatchId => widget.matchId;
 
-  String get _homeName {
+  String _homeName(BuildContext context) {
+    final l10n = context.l10n;
     final m = _match;
-    if (m == null) return 'Home';
-    return _teamsById[m.homeTeamId]?.name ?? 'Home';
+    if (m == null) return l10n.tr('admin_score_home_fallback');
+    return _teamsById[m.homeTeamId]?.name ?? l10n.tr('admin_score_home_fallback');
   }
 
-  String get _awayName {
+  String _awayName(BuildContext context) {
+    final l10n = context.l10n;
     final m = _match;
-    if (m == null) return 'Away';
-    return _teamsById[m.awayTeamId]?.name ?? 'Away';
+    if (m == null) return l10n.tr('admin_score_away_fallback');
+    return _teamsById[m.awayTeamId]?.name ?? l10n.tr('admin_score_away_fallback');
   }
 
   int get _homeScore => _match?.homeScore ?? 0;
@@ -83,11 +89,13 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   }
 
   Future<void> _copyLiveId() async {
+    final l10n = context.l10n;
+
     await Clipboard.setData(ClipboardData(text: _liveMatchId));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Live Match ID copied: $_liveMatchId'),
+        content: Text('${l10n.tr('match_detail_live_id_copied_prefix')}$_liveMatchId'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -95,6 +103,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   Future<void> _startLocalLive() async {
     if (_busy) return;
+
+    final l10n = context.l10n;
 
     final side = await showModalBottomSheet<LiveHostSide>(
       context: context,
@@ -108,9 +118,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'You are streaming as:',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                Text(
+                  l10n.tr('match_detail_streaming_as_title'),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -118,14 +128,14 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                     Expanded(
                       child: FilledButton(
                         onPressed: () => Navigator.pop(ctx, LiveHostSide.home),
-                        child: Text(_homeName),
+                        child: Text(_homeName(ctx)),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: FilledButton(
                         onPressed: () => Navigator.pop(ctx, LiveHostSide.away),
-                        child: Text(_awayName),
+                        child: Text(_awayName(ctx)),
                       ),
                     ),
                   ],
@@ -133,7 +143,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, LiveHostSide.unknown),
-                  child: const Text('Not sure / Spectator'),
+                  child: Text(l10n.tr('match_detail_not_sure_spectator')),
                 ),
               ],
             ),
@@ -153,8 +163,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         extra: {
           'isHost': true,
           'port': port,
-          'homeName': _homeName,
-          'awayName': _awayName,
+          'homeName': _homeName(context),
+          'awayName': _awayName(context),
           'homeScore': _homeScore,
           'awayScore': _awayScore,
           'side': (side == null) ? 'unknown' : liveHostSideToWire(side),
@@ -167,11 +177,12 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final isWide = MediaQuery.of(context).size.width > 600;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Match Details'),
+        title: Text(l10n.tr('match_detail_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -180,7 +191,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: isWide ? 700 : 500),
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 16),
               children: [
                 _buildHeader(context),
                 const SizedBox(height: 16),
@@ -194,6 +205,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   }
 
   Widget _buildHeader(BuildContext context) {
+    final l10n = context.l10n;
+
     return Glass(
       padding: const EdgeInsets.all(16),
       borderRadius: 20,
@@ -201,7 +214,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         children: [
           Expanded(
             child: Text(
-              '$_homeName  vs  $_awayName',
+              '${_homeName(context)}  ${l10n.tr('match_detail_vs')}  ${_awayName(context)}',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: Colors.white,
@@ -216,25 +229,26 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   }
 
   Widget _buildLiveSection(BuildContext context) {
+    final l10n = context.l10n;
+
     return Glass(
       padding: const EdgeInsets.all(16),
       borderRadius: 20,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Live Match (Gamers Mode)',
-            style: TextStyle(
+          Text(
+            l10n.tr('match_detail_live_section_title'),
+            style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w900,
               fontSize: 16,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Stream your screen + front camera. Viewers will see both players cams (top-left/top-right) '
-            'and one player’s screen (main).',
-            style: TextStyle(
+          Text(
+            l10n.tr('match_detail_live_section_description'),
+            style: const TextStyle(
               color: Colors.white38,
               fontSize: 12,
               height: 1.4,
@@ -258,7 +272,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               ),
               const SizedBox(width: 8),
               IconButton(
-                tooltip: 'Copy Live Match ID',
+                tooltip: l10n.tr('match_detail_copy_live_match_id_tooltip'),
                 onPressed: _copyLiveId,
                 icon: const Icon(Icons.copy, size: 18, color: Colors.cyanAccent),
               ),
@@ -277,16 +291,15 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                     )
                   : const Icon(Icons.play_circle_fill),
               label: Text(
-                _busy ? 'OPENING...' : 'OPEN HOST LIVE',
+                _busy ? l10n.tr('match_detail_opening').toUpperCase() : l10n.tr('match_detail_open_host_live').toUpperCase(),
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Tip: Both players can host using the same Match ID.\n'
-            'Viewers on the same Wi‑Fi/hotspot can join via Auto‑Discovery.',
-            style: TextStyle(color: Colors.white30, fontSize: 11, height: 1.3),
+          Text(
+            l10n.tr('match_detail_tip_text'),
+            style: const TextStyle(color: Colors.white30, fontSize: 11, height: 1.3),
           ),
         ],
       ),

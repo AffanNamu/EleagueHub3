@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -34,6 +35,30 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
     });
   }
 
+  String _displayGroupName(String groupId) {
+    final l10n = context.l10n;
+    switch (groupId) {
+      case 'Group A':
+        return l10n.tr('add_teams_group_a');
+      case 'Group B':
+        return l10n.tr('add_teams_group_b');
+      case 'Group C':
+        return l10n.tr('add_teams_group_c');
+      case 'Group D':
+        return l10n.tr('add_teams_group_d');
+      case 'Group E':
+        return l10n.tr('add_teams_group_e');
+      case 'Group F':
+        return l10n.tr('add_teams_group_f');
+      case 'Group G':
+        return l10n.tr('add_teams_group_g');
+      case 'Group H':
+        return l10n.tr('add_teams_group_h');
+      default:
+        return groupId;
+    }
+  }
+
   Future<void> _syncAndRefresh() async {
     if (_refreshing) return;
     setState(() => _refreshing = true);
@@ -49,15 +74,17 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final leagueAsync = ref.watch(leagueProvider(widget.id));
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Standings'),
+        title: Text(l10n.tr('standings_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           IconButton(
+            tooltip: l10n.tr('admin_knockout_reload_tooltip'),
             onPressed: _refreshing ? null : _syncAndRefresh,
             icon: _refreshing
                 ? const SizedBox(
@@ -82,7 +109,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const SectionHeader('League Standings'),
+                      SectionHeader(l10n.tr('standings_section_title')),
                       const SizedBox(height: 12),
                       Expanded(
                         child: leagueAsync.when(
@@ -91,7 +118,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                           ),
                           error: (error, stack) => Center(
                             child: Text(
-                              'Failed to load league.\n${error.toString()}',
+                              '${l10n.tr('standings_failed_load_league_prefix')}\n${error.toString()}',
                               style: const TextStyle(color: Colors.white70),
                               textAlign: TextAlign.center,
                             ),
@@ -106,18 +133,17 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                   ),
                                   error: (error, stack) => Center(
                                     child: Text(
-                                      'Failed to load group standings.\n${error.toString()}',
+                                      '${l10n.tr('standings_failed_load_group_standings_prefix')}\n${error.toString()}',
                                       style: const TextStyle(color: Colors.white70),
                                       textAlign: TextAlign.center,
                                     ),
                                   ),
                                   data: (groupMap) {
                                     if (groupMap.isEmpty) {
-                                      return const Center(
+                                      return Center(
                                         child: Text(
-                                          'No group results yet.\n'
-                                          'Standings will appear after group matches are played.',
-                                          style: TextStyle(color: Colors.white54),
+                                          l10n.tr('standings_no_group_results_yet'),
+                                          style: const TextStyle(color: Colors.white54),
                                           textAlign: TextAlign.center,
                                         ),
                                       );
@@ -137,8 +163,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                           return Padding(
                                             padding: const EdgeInsets.only(bottom: 12),
                                             child: Text(
-                                              'Expected UCL Group to be either 16 teams (4 groups of 4) or 32 teams (8 groups of 4).\n'
-                                              'Current: ${groupKeys.length} groups.',
+                                              '${l10n.tr('standings_ucl_group_structure_warning_prefix')}${groupKeys.length}${l10n.tr('standings_ucl_group_structure_warning_suffix')}',
                                               style: const TextStyle(
                                                 color: Colors.orangeAccent,
                                                 fontSize: 11,
@@ -164,7 +189,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                               Padding(
                                                 padding: const EdgeInsets.symmetric(horizontal: 4),
                                                 child: Text(
-                                                  groupId,
+                                                  _displayGroupName(groupId),
                                                   style: const TextStyle(
                                                     color: Colors.cyanAccent,
                                                     fontWeight: FontWeight.bold,
@@ -189,7 +214,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                   ),
                                   error: (error, stack) => Center(
                                     child: Text(
-                                      'Failed to load standings.\n${error.toString()}',
+                                      '${l10n.tr('standings_failed_load_standings_prefix')}\n${error.toString()}',
                                       style: const TextStyle(color: Colors.white70),
                                       textAlign: TextAlign.center,
                                     ),
@@ -202,8 +227,8 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                         final total = league.settings.swissRounds;
 
                                         final label = current == 0
-                                            ? 'Swiss phase: no rounds yet (max $total rounds)'
-                                            : 'Swiss phase: Round $current of $total';
+                                            ? '${l10n.tr('standings_swiss_phase_no_rounds_yet_prefix')}$total${l10n.tr('standings_swiss_phase_no_rounds_yet_suffix')}'
+                                            : '${l10n.tr('standings_swiss_phase_round_prefix')}$current${l10n.tr('standings_swiss_phase_round_mid')}$total';
 
                                         final autoColor = Colors.green.withOpacity(0.12);
                                         final playoffColor = Theme.of(context).colorScheme.primary.withOpacity(0.10);
@@ -222,12 +247,11 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                             children: [
                                               Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
                                               const SizedBox(height: 12),
-                                              const Expanded(
+                                              Expanded(
                                                 child: Center(
                                                   child: Text(
-                                                    'No results yet.\n'
-                                                    'Standings will appear here after matches are played.',
-                                                    style: TextStyle(color: Colors.white54),
+                                                    l10n.tr('standings_no_results_yet'),
+                                                    style: const TextStyle(color: Colors.white54),
                                                     textAlign: TextAlign.center,
                                                   ),
                                                 ),
@@ -241,10 +265,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                           children: [
                                             Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
                                             const SizedBox(height: 8),
-
                                             if (!allowed) ...[
                                               Text(
-                                                'This Swiss format supports only 18 or 36 teams.\nCurrent teams: $n.',
+                                                '${l10n.tr('standings_swiss_team_count_warning_prefix')}$n.',
                                                 style: const TextStyle(
                                                   color: Colors.orangeAccent,
                                                   fontSize: 11,
@@ -255,6 +278,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                               const SizedBox(height: 8),
                                             ] else ...[
                                               _swissLegendDynamic(
+                                                context: context,
                                                 teamCount: n,
                                                 autoColor: autoColor,
                                                 playoffColor: playoffColor,
@@ -262,7 +286,6 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                               ),
                                               const SizedBox(height: 8),
                                             ],
-
                                             Expanded(
                                               child: StandingsTable(
                                                 rows: rows,
@@ -294,18 +317,17 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                   ),
                                   error: (error, stack) => Center(
                                     child: Text(
-                                      'Failed to load standings.\n${error.toString()}',
+                                      '${l10n.tr('standings_failed_load_standings_prefix')}\n${error.toString()}',
                                       style: const TextStyle(color: Colors.white70),
                                       textAlign: TextAlign.center,
                                     ),
                                   ),
                                   data: (rows) {
                                     if (rows.isEmpty) {
-                                      return const Center(
+                                      return Center(
                                         child: Text(
-                                          'No results yet.\n'
-                                          'Standings will appear here after matches are played.',
-                                          style: TextStyle(color: Colors.white54),
+                                          l10n.tr('standings_no_results_yet'),
+                                          style: const TextStyle(color: Colors.white54),
                                           textAlign: TextAlign.center,
                                         ),
                                       );
@@ -337,11 +359,14 @@ Future<int> _getSwissCurrentRound(WidgetRef ref, String leagueId) async {
 }
 
 Widget _swissLegendDynamic({
+  required BuildContext context,
   required int teamCount,
   required Color autoColor,
   required Color playoffColor,
   required Color eliminatedColor,
 }) {
+  final l10n = context.l10n;
+
   Widget dot(Color c) => Container(
         width: 10,
         height: 10,
@@ -359,15 +384,15 @@ Widget _swissLegendDynamic({
       children: [
         dot(autoColor),
         const SizedBox(width: 6),
-        const Text('Top 8: Round of 16', style: labelStyle),
+        Text(l10n.tr('standings_swiss_legend_top8_r16'), style: labelStyle),
         const SizedBox(width: 12),
         dot(playoffColor),
         const SizedBox(width: 6),
-        const Text('9–24: Play-off', style: labelStyle),
+        Text(l10n.tr('standings_swiss_legend_9_24_playoff'), style: labelStyle),
         const SizedBox(width: 12),
         dot(eliminatedColor),
         const SizedBox(width: 6),
-        const Text('25–36: Eliminated', style: labelStyle),
+        Text(l10n.tr('standings_swiss_legend_25_36_eliminated'), style: labelStyle),
       ],
     );
   }
@@ -377,15 +402,15 @@ Widget _swissLegendDynamic({
     children: [
       dot(autoColor),
       const SizedBox(width: 6),
-      const Text('Top 4: Quarter Finals', style: labelStyle),
+      Text(l10n.tr('standings_swiss_legend_top4_quarter_finals'), style: labelStyle),
       const SizedBox(width: 12),
       dot(playoffColor),
       const SizedBox(width: 6),
-      const Text('5–12: Play-off', style: labelStyle),
+      Text(l10n.tr('standings_swiss_legend_5_12_playoff'), style: labelStyle),
       const SizedBox(width: 12),
       dot(eliminatedColor),
       const SizedBox(width: 6),
-      const Text('13–18: Eliminated', style: labelStyle),
+      Text(l10n.tr('standings_swiss_legend_13_18_eliminated'), style: labelStyle),
     ],
   );
 }

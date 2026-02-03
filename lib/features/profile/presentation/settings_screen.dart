@@ -24,6 +24,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   bool _overlayEnabled = true;
 
+  /// Autonyms (language names in their own language).
+  /// IMPORTANT: These should NOT be translated based on current app locale.
+  static const Map<String, String> _languageAutonyms = {
+    'en': 'English',
+    'fr': 'Français',
+    'es': 'Español',
+    'ru': 'Русский',
+    'sw': 'Kiswahili',
+    'ar': 'العربية',
+    'he': 'עברית',
+    'ja': '日本語',
+    'ko': '한국어',
+    'pt': 'Português',
+    'id': 'Bahasa Indonesia',
+    'tr': 'Türkçe',
+  };
+
+  static bool _isRtlLangCode(String code) => code == 'ar' || code == 'he';
+
+  String _languageDisplayName(String code) {
+    return _languageAutonyms[code] ?? code.toUpperCase();
+  }
+
+  TextDirection _languageTextDirection(String code) {
+    return _isRtlLangCode(code) ? TextDirection.rtl : TextDirection.ltr;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -171,7 +198,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   .map(
                                     (code) => DropdownMenuItem<String>(
                                       value: code,
-                                      child: Text(l10n.languageName(code)),
+                                      child: Directionality(
+                                        textDirection: _languageTextDirection(code),
+                                        child: Text(_languageDisplayName(code)),
+                                      ),
                                     ),
                                   )
                                   .toList(growable: false),

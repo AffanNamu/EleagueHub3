@@ -4,6 +4,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/locale/app_localizations.dart';
+
 /// Glass flip card (clean, not upside-down, smooth flip)
 /// - Uses a proper 3D flip with perspective
 /// - Ensures the "back" face is readable (not mirrored)
@@ -57,10 +59,12 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
   bool get _isFront => _controller.value < 0.5;
 
   Future<void> _copyCode() async {
+    final l10n = context.l10n;
+
     await Clipboard.setData(ClipboardData(text: widget.leagueCode));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Invite code copied')),
+      SnackBar(content: Text(l10n.tr('league_flip_card_invite_code_copied'))),
     );
   }
 
@@ -130,6 +134,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
   }
 
   Widget _buildFront() {
+    final l10n = context.l10n;
+
     return _glass(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -166,21 +172,38 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
               overflow: TextOverflow.ellipsis,
             ),
           ],
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          const SizedBox(height: 22),
+          Column(
             children: [
-              Icon(Icons.touch_app, size: 16, color: Colors.cyanAccent.withOpacity(0.8)),
-              const SizedBox(width: 8),
-              const Text(
-                "TAP TO JOIN / SCAN QR",
-                style: TextStyle(
-                  color: Colors.cyanAccent,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.touch_app, size: 16, color: Colors.cyanAccent.withOpacity(0.8)),
+                  const SizedBox(width: 8),
+                  Text(
+                    l10n.tr('league_flip_card_tap_to_join_scan_qr').toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.cyanAccent,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ],
               ),
+              if (widget.onDoubleTap != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  l10n.tr('league_flip_card_double_tap_to_view_details'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.65),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    height: 1.2,
+                  ),
+                ),
+              ],
             ],
           ),
         ],
@@ -189,6 +212,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
   }
 
   Widget _buildBack() {
+    final l10n = context.l10n;
+
     return _glass(
       child: Row(
         children: [
@@ -203,31 +228,31 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
               child: AspectRatio(
                 aspectRatio: 1,
                 child: Center(
-                  child: widget.qrWidget ??
-                      const Icon(Icons.qr_code_2_rounded, size: 100, color: Colors.black),
+                  child: widget.qrWidget ?? const Icon(Icons.qr_code_2_rounded, size: 100, color: Colors.black),
                 ),
               ),
             ),
           ),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsetsDirectional.only(end: 12),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "INVITE CODE",
+                    l10n.tr('league_flip_card_invite_code_label').toUpperCase(),
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.6),
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
                     ),
                   ),
                   const SizedBox(height: 4),
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
+                    alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       widget.leagueCode,
                       style: const TextStyle(
@@ -238,11 +263,11 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 22),
                   ElevatedButton.icon(
                     onPressed: _copyCode,
                     icon: const Icon(Icons.copy, size: 16),
-                    label: const Text("COPY"),
+                    label: Text(l10n.tr('common_copy').toUpperCase()),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blueAccent.withOpacity(0.5),
                       foregroundColor: Colors.white,

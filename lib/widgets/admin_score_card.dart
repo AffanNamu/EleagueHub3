@@ -1,5 +1,8 @@
-import 'package:flutter/material.dart';
 import 'dart:ui';
+
+import 'package:flutter/material.dart';
+
+import '../core/locale/app_localizations.dart';
 
 class AdminScoreCard extends StatefulWidget {
   final String homeTeam;
@@ -33,7 +36,10 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
               icon: const Icon(Icons.remove_circle_outline, color: Colors.cyanAccent),
               onPressed: () => score > 0 ? onChanged(score - 1) : null,
             ),
-            Text("$score", style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+            Text(
+              '$score',
+              style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+            ),
             IconButton(
               icon: const Icon(Icons.add_circle_outline, color: Colors.cyanAccent),
               onPressed: () => onChanged(score + 1),
@@ -46,6 +52,8 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
       child: BackdropFilter(
@@ -62,17 +70,40 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  Expanded(child: Text(widget.homeTeam, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                  const Text("VS", style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900)),
-                  Expanded(child: Text(widget.awayTeam, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                  Expanded(
+                    child: Text(
+                      widget.homeTeam,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  Text(
+                    l10n.tr('match_detail_vs').toUpperCase(),
+                    style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
+                  ),
+                  Expanded(
+                    child: Text(
+                      widget.awayTeam,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _scoreCounter("HOME", homeScore, (val) => setState(() => homeScore = val)),
-                  _scoreCounter("AWAY", awayScore, (val) => setState(() => awayScore = val)),
+                  _scoreCounter(
+                    l10n.tr('admin_score_home_fallback').toUpperCase(),
+                    homeScore,
+                    (val) => setState(() => homeScore = val),
+                  ),
+                  _scoreCounter(
+                    l10n.tr('admin_score_away_fallback').toUpperCase(),
+                    awayScore,
+                    (val) => setState(() => awayScore = val),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -83,7 +114,7 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text("UPDATE SCORE"),
+                child: Text(l10n.tr('admin_score_card_update_score').toUpperCase()),
               ),
             ],
           ),
