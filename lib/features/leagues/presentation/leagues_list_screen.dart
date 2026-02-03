@@ -382,7 +382,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
             LeagueFlipCard(
               leagueName: league.name,
               leagueCode: league.code.isNotEmpty ? league.code : league.id.substring(0, 8),
-              distribution: "${league.format.displayName} • ${league.season}",
+              distribution: "${l10n.tr(league.format.l10nKey)} • ${league.season}",
               subtitle: subtitle,
               onDoubleTap: () => context.push('/leagues/${league.id}'),
               qrWidget: QrImageView(

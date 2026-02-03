@@ -181,6 +181,25 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'league_flip_card_tap_to_join_scan_qr': 'Appuyez pour rejoindre / scanner le QR',
     'league_flip_card_double_tap_to_view_details': 'Double-tap pour voir les détails de la ligue',
     'league_flip_card_invite_code_label': 'Code d’invitation',
+
+    'admin_knockout_round_playoff': 'Barrage',
+    'admin_knockout_round_r16': 'Huitièmes de finale',
+    'admin_knockout_round_quarter_finals': 'Quarts de finale',
+    'admin_knockout_round_semi_finals': 'Demi-finales',
+    'admin_knockout_round_final': 'Finale',
+    'admin_knockout_round_third_place': '3e place',
+
+    'admin_knockout_leg1': 'Aller',
+    'admin_knockout_leg2': 'Retour',
+
+    'add_teams_group_a': 'Groupe A',
+    'add_teams_group_b': 'Groupe B',
+    'add_teams_group_c': 'Groupe C',
+    'add_teams_group_d': 'Groupe D',
+    'add_teams_group_e': 'Groupe E',
+    'add_teams_group_f': 'Groupe F',
+    'add_teams_group_g': 'Groupe G',
+    'add_teams_group_h': 'Groupe H',
   },
 
   'pt': {
@@ -361,6 +380,25 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'league_flip_card_tap_to_join_scan_qr': 'Toque para entrar / escanear QR',
     'league_flip_card_double_tap_to_view_details': 'Toque duas vezes para ver os detalhes da liga',
     'league_flip_card_invite_code_label': 'Código de convite',
+
+    'admin_knockout_round_playoff': 'Play-off',
+    'admin_knockout_round_r16': 'Oitavas de final',
+    'admin_knockout_round_quarter_finals': 'Quartas de final',
+    'admin_knockout_round_semi_finals': 'Semifinais',
+    'admin_knockout_round_final': 'Final',
+    'admin_knockout_round_third_place': '3º lugar',
+
+    'admin_knockout_leg1': 'Ida',
+    'admin_knockout_leg2': 'Volta',
+
+    'add_teams_group_a': 'Grupo A',
+    'add_teams_group_b': 'Grupo B',
+    'add_teams_group_c': 'Grupo C',
+    'add_teams_group_d': 'Grupo D',
+    'add_teams_group_e': 'Grupo E',
+    'add_teams_group_f': 'Grupo F',
+    'add_teams_group_g': 'Grupo G',
+    'add_teams_group_h': 'Grupo H',
   },
 
   'id': {
@@ -540,6 +578,25 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'league_flip_card_tap_to_join_scan_qr': 'Ketuk untuk bergabung / pindai QR',
     'league_flip_card_double_tap_to_view_details': 'Ketuk dua kali untuk melihat detail liga',
     'league_flip_card_invite_code_label': 'Kode undangan',
+
+    'admin_knockout_round_playoff': 'Play-off',
+    'admin_knockout_round_r16': 'Babak 16 besar',
+    'admin_knockout_round_quarter_finals': 'Perempat final',
+    'admin_knockout_round_semi_finals': 'Semifinal',
+    'admin_knockout_round_final': 'Final',
+    'admin_knockout_round_third_place': 'Perebutan tempat ke-3',
+
+    'admin_knockout_leg1': 'Leg 1',
+    'admin_knockout_leg2': 'Leg 2',
+
+    'add_teams_group_a': 'Grup A',
+    'add_teams_group_b': 'Grup B',
+    'add_teams_group_c': 'Grup C',
+    'add_teams_group_d': 'Grup D',
+    'add_teams_group_e': 'Grup E',
+    'add_teams_group_f': 'Grup F',
+    'add_teams_group_g': 'Grup G',
+    'add_teams_group_h': 'Grup H',
   },
 
   'tr': {
@@ -610,7 +667,8 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
         'UCL Group için beklenen: 16 takım (4 grup) veya 32 takım (8 grup).\nMevcut: ',
     'standings_ucl_group_structure_warning_suffix': ' grup.',
     'standings_no_results_yet': 'Henüz sonuç yok.\nMaçlar oynandıktan sonra puan durumu görünecek.',
-    'standings_swiss_team_count_warning_prefix': 'Swiss formatı yalnızca 18 veya 36 takımı destekler.\nMevcut takım: ',
+    'standings_swiss_team_count_warning_prefix':
+        'Swiss formatı yalnızca 18 veya 36 takımı destekler.\nMevcut takım: ',
     'standings_swiss_phase_no_rounds_yet_prefix': 'Swiss aşaması: henüz tur yok (maks ',
     'standings_swiss_phase_no_rounds_yet_suffix': ' tur)',
     'standings_swiss_phase_round_prefix': 'Swiss aşaması: Tur ',
@@ -718,6 +776,25 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'league_flip_card_tap_to_join_scan_qr': 'Katılmak için dokun / QR tara',
     'league_flip_card_double_tap_to_view_details': 'Lig detayları için çift dokun',
     'league_flip_card_invite_code_label': 'Davet kodu',
+
+    'admin_knockout_round_playoff': 'Play-off',
+    'admin_knockout_round_r16': 'Son 16',
+    'admin_knockout_round_quarter_finals': 'Çeyrek Finaller',
+    'admin_knockout_round_semi_finals': 'Yarı Finaller',
+    'admin_knockout_round_final': 'Final',
+    'admin_knockout_round_third_place': '3.’lük',
+
+    'admin_knockout_leg1': '1. Ayak',
+    'admin_knockout_leg2': '2. Ayak',
+
+    'add_teams_group_a': 'Grup A',
+    'add_teams_group_b': 'Grup B',
+    'add_teams_group_c': 'Grup C',
+    'add_teams_group_d': 'Grup D',
+    'add_teams_group_e': 'Grup E',
+    'add_teams_group_f': 'Grup F',
+    'add_teams_group_g': 'Grup G',
+    'add_teams_group_h': 'Grup H',
   },
 
   'ja': {
@@ -831,7 +908,8 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'qr_scanner_notice_viewer_but_already_registered_participant':
         '観戦を選びましたが、既にこのリーグの参加者として登録されています。',
     'qr_scanner_notice_already_registered': '既にこのリーグに登録されています。',
-    'qr_scanner_notice_league_full_joined_viewer_only': 'リーグは満員です。観戦のみで参加しました（参加者としてはカウントされません）。',
+    'qr_scanner_notice_league_full_joined_viewer_only':
+        'リーグは満員です。観戦のみで参加しました（参加者としてはカウントされません）。',
     'qr_scanner_notice_joined_viewer_only': '観戦のみで参加しました（参加者としてはカウントされません）。',
 
     'qr_scanner_unlock_dialog_title': '試合と順位表を解除',
@@ -890,6 +968,25 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'league_flip_card_tap_to_join_scan_qr': 'タップして参加 / QRをスキャン',
     'league_flip_card_double_tap_to_view_details': 'ダブルタップでリーグ詳細を表示',
     'league_flip_card_invite_code_label': '招待コード',
+
+    'admin_knockout_round_playoff': 'プレーオフ',
+    'admin_knockout_round_r16': 'ベスト16',
+    'admin_knockout_round_quarter_finals': '準々決勝',
+    'admin_knockout_round_semi_finals': '準決勝',
+    'admin_knockout_round_final': '決勝',
+    'admin_knockout_round_third_place': '3位決定戦',
+
+    'admin_knockout_leg1': '第1戦',
+    'admin_knockout_leg2': '第2戦',
+
+    'add_teams_group_a': 'グループA',
+    'add_teams_group_b': 'グループB',
+    'add_teams_group_c': 'グループC',
+    'add_teams_group_d': 'グループD',
+    'add_teams_group_e': 'グループE',
+    'add_teams_group_f': 'グループF',
+    'add_teams_group_g': 'グループG',
+    'add_teams_group_h': 'グループH',
   },
 
   'ko': {
@@ -1062,5 +1159,24 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'league_flip_card_tap_to_join_scan_qr': '탭하여 참가 / QR 스캔',
     'league_flip_card_double_tap_to_view_details': '두 번 탭하여 리그 상세 보기',
     'league_flip_card_invite_code_label': '초대 코드',
+
+    'admin_knockout_round_playoff': '플레이오프',
+    'admin_knockout_round_r16': '16강',
+    'admin_knockout_round_quarter_finals': '8강',
+    'admin_knockout_round_semi_finals': '4강',
+    'admin_knockout_round_final': '결승',
+    'admin_knockout_round_third_place': '3위 결정전',
+
+    'admin_knockout_leg1': '1차전',
+    'admin_knockout_leg2': '2차전',
+
+    'add_teams_group_a': '그룹 A',
+    'add_teams_group_b': '그룹 B',
+    'add_teams_group_c': '그룹 C',
+    'add_teams_group_d': '그룹 D',
+    'add_teams_group_e': '그룹 E',
+    'add_teams_group_f': '그룹 F',
+    'add_teams_group_g': '그룹 G',
+    'add_teams_group_h': '그룹 H',
   },
 };

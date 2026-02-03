@@ -8,6 +8,7 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'common_copy': 'Copiar',
 
     'fixtures_league_not_found': 'Liga no encontrada',
+    'fixtures_tbd': 'Por definir',
 
     'league_access_charges_paid_success': 'Cargos pagados con éxito',
     'league_access_payment_failed_prefix': 'El pago falló:',
@@ -16,8 +17,27 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'admin_knockout_status_completed': 'Completado',
     'admin_knockout_status_pending': 'Pendiente',
 
+    'admin_knockout_round_playoff': 'Play-off',
+    'admin_knockout_round_r16': 'Octavos de final',
+    'admin_knockout_round_quarter_finals': 'Cuartos de final',
+    'admin_knockout_round_semi_finals': 'Semifinales',
+    'admin_knockout_round_final': 'Final',
+    'admin_knockout_round_third_place': 'Tercer puesto',
+
+    'admin_knockout_leg1': 'Ida',
+    'admin_knockout_leg2': 'Vuelta',
+
     'league_space_live_badge': 'EN VIVO',
     'league_space_ended_badge': 'FINALIZADO',
+
+    'add_teams_group_a': 'Grupo A',
+    'add_teams_group_b': 'Grupo B',
+    'add_teams_group_c': 'Grupo C',
+    'add_teams_group_d': 'Grupo D',
+    'add_teams_group_e': 'Grupo E',
+    'add_teams_group_f': 'Grupo F',
+    'add_teams_group_g': 'Grupo G',
+    'add_teams_group_h': 'Grupo H',
 
     'admin_score_home_fallback': 'Local',
     'admin_score_away_fallback': 'Visitante',
@@ -189,6 +209,7 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'common_copy': 'Копировать',
 
     'fixtures_league_not_found': 'Лига не найдена',
+    'fixtures_tbd': 'Уточняется',
 
     'league_access_charges_paid_success': 'Оплата сборов прошла успешно',
     'league_access_payment_failed_prefix': 'Платёж не прошёл:',
@@ -197,8 +218,27 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'admin_knockout_status_completed': 'Завершено',
     'admin_knockout_status_pending': 'Ожидает',
 
+    'admin_knockout_round_playoff': 'Плей-офф',
+    'admin_knockout_round_r16': '1/8 финала',
+    'admin_knockout_round_quarter_finals': '1/4 финала',
+    'admin_knockout_round_semi_finals': '1/2 финала',
+    'admin_knockout_round_final': 'Финал',
+    'admin_knockout_round_third_place': 'Матч за 3-е место',
+
+    'admin_knockout_leg1': '1-й матч',
+    'admin_knockout_leg2': '2-й матч',
+
     'league_space_live_badge': 'LIVE',
     'league_space_ended_badge': 'ЗАВЕРШЕНО',
+
+    'add_teams_group_a': 'Группа A',
+    'add_teams_group_b': 'Группа B',
+    'add_teams_group_c': 'Группа C',
+    'add_teams_group_d': 'Группа D',
+    'add_teams_group_e': 'Группа E',
+    'add_teams_group_f': 'Группа F',
+    'add_teams_group_g': 'Группа G',
+    'add_teams_group_h': 'Группа H',
 
     'admin_score_home_fallback': 'Дом',
     'admin_score_away_fallback': 'Гости',
@@ -368,6 +408,7 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'common_copy': 'Nakili',
 
     'fixtures_league_not_found': 'Ligi haikupatikana',
+    'fixtures_tbd': 'Haijulikani',
 
     'league_access_charges_paid_success': 'Ada zimelipwa kikamilifu',
     'league_access_payment_failed_prefix': 'Malipo yameshindikana:',
@@ -376,8 +417,27 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'admin_knockout_status_completed': 'Imekamilika',
     'admin_knockout_status_pending': 'Inasubiri',
 
+    'admin_knockout_round_playoff': 'Play-off',
+    'admin_knockout_round_r16': 'Hatua ya 16',
+    'admin_knockout_round_quarter_finals': 'Robo Fainali',
+    'admin_knockout_round_semi_finals': 'Nusu Fainali',
+    'admin_knockout_round_final': 'Fainali',
+    'admin_knockout_round_third_place': 'Nafasi ya 3',
+
+    'admin_knockout_leg1': 'Mechi 1',
+    'admin_knockout_leg2': 'Mechi 2',
+
     'league_space_live_badge': 'LIVE',
     'league_space_ended_badge': 'IMEISHA',
+
+    'add_teams_group_a': 'Kundi A',
+    'add_teams_group_b': 'Kundi B',
+    'add_teams_group_c': 'Kundi C',
+    'add_teams_group_d': 'Kundi D',
+    'add_teams_group_e': 'Kundi E',
+    'add_teams_group_f': 'Kundi F',
+    'add_teams_group_g': 'Kundi G',
+    'add_teams_group_h': 'Kundi H',
 
     'admin_score_home_fallback': 'Nyumbani',
     'admin_score_away_fallback': 'Ugenini',
