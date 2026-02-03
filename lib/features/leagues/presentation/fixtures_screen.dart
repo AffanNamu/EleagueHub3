@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -214,10 +215,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   /// - Team count must be exactly 18 or 36
   /// - Next round cannot be generated until ALL matches in the current round are played
   Future<void> _generateNextSwissRound() async {
+    final l10n = context.l10n;
+
     if (_isGeneratingNextRound || _format != LeagueFormat.uclSwiss) return;
 
     if (!_isOrganizer) {
-      _snack('Only the organiser can generate Swiss rounds.');
+      _snack(l10n.tr('fixtures_only_organiser_can_generate_swiss_rounds'));
       return;
     }
 
@@ -225,7 +228,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     try {
       final league = await _repo.getLeagueById(widget.leagueId);
       if (league == null) {
-        _snack('League not found');
+        _snack(l10n.tr('fixtures_league_not_found'));
         return;
       }
 
@@ -235,7 +238,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       final n = teams.length;
       if (!(n == 18 || n == 36)) {
-        _snack('Swiss league phase supports only 18 or 36 teams. Current: $n.');
+        _snack('${l10n.tr('fixtures_swiss_team_count_error_prefix')}$n.');
         return;
       }
 
@@ -251,7 +254,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         final currentRoundMatches = existingMatches.where((m) => m.roundNumber == currentMaxRound).toList();
         final anyUnplayed = currentRoundMatches.any((m) => !m.isPlayed);
         if (anyUnplayed) {
-          _snack('Complete all matches in Round $currentMaxRound before generating the next round.');
+          _snack('${l10n.tr('admin_score_complete_round_prefix')}$currentMaxRound${l10n.tr('admin_score_complete_round_suffix')}');
           return;
         }
       }
@@ -269,7 +272,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         );
       } else {
         if (currentMaxRound >= maxRounds) {
-          _snack('All $maxRounds Swiss rounds have already been generated.');
+          _snack('${l10n.tr('admin_score_all_swiss_rounds_generated_prefix')}$maxRounds${l10n.tr('admin_score_all_swiss_rounds_generated_suffix')}');
           return;
         }
 
@@ -277,7 +280,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
         final alreadyExists = existingMatches.any((m) => m.roundNumber == nextRound);
         if (alreadyExists) {
-          _snack('Round $nextRound already exists.');
+          _snack('${l10n.tr('admin_score_round_already_exists_prefix')}$nextRound${l10n.tr('admin_score_round_already_exists_suffix')}');
           return;
         }
 
@@ -291,7 +294,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       }
 
       if (newFixtures.isEmpty) {
-        _snack('No valid Swiss pairings could be generated (check for existing rematches or constraints).');
+        _snack(l10n.tr('fixtures_no_valid_swiss_pairings'));
         return;
       }
 
@@ -301,12 +304,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       _setRound(nextRound);
 
-      _snack('Swiss round $nextRound generated');
+      _snack('${l10n.tr('fixtures_swiss_round_generated_prefix')}$nextRound${l10n.tr('fixtures_swiss_round_generated_suffix')}');
 
       await _loadInitialData();
     } catch (e) {
       if (mounted) {
-        _snack('Failed to generate Swiss round: $e');
+        _snack('${l10n.tr('fixtures_failed_generate_swiss_round_prefix')} $e');
       }
     } finally {
       if (mounted) setState(() => _isGeneratingNextRound = false);
@@ -315,19 +318,20 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Fixtures & Results'),
+        title: Text(l10n.tr('fixtures_appbar_title')),
         elevation: 0,
         backgroundColor: Colors.transparent,
         actions: [
           if (_format == LeagueFormat.uclSwiss && _isOrganizer)
             IconButton(
               onPressed: _isGeneratingNextRound ? null : _generateNextSwissRound,
-              tooltip: 'Generate next Swiss round',
+              tooltip: l10n.tr('fixtures_generate_next_swiss_round_tooltip'),
               icon: _isGeneratingNextRound
                   ? const SizedBox(
                       width: 18,
@@ -360,9 +364,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                         children: [
                           if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
                           if (totalRounds > 0) _buildRoundSelector(totalRounds),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: SectionHeader('Matchday Schedule'),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: SectionHeader(l10n.tr('fixtures_section_title')),
                           ),
                           Expanded(child: _buildMatchesList()),
                         ],
@@ -376,6 +380,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Widget _buildGroupSelector() {
+    final l10n = context.l10n;
     final bool allSelected = _selectedGroup == null;
 
     return Container(
@@ -388,7 +393,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
           GestureDetector(
             onTap: () => _setGroup(null),
             child: Container(
-              margin: const EdgeInsets.only(right: 10),
+              margin: const EdgeInsetsDirectional.only(end: 10),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
                 color: allSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
@@ -397,7 +402,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               ),
               alignment: Alignment.center,
               child: Text(
-                'All',
+                l10n.tr('admin_score_all_groups'),
                 style: TextStyle(
                   color: allSelected ? Colors.black : Colors.white70,
                   fontWeight: FontWeight.bold,
@@ -413,7 +418,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                 return GestureDetector(
                   onTap: () => _setGroup(group),
                   child: Container(
-                    margin: const EdgeInsets.only(right: 10),
+                    margin: const EdgeInsetsDirectional.only(end: 10),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       color: isSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
@@ -439,6 +444,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Widget _buildRoundSelector(int totalRounds) {
+    final l10n = context.l10n;
+
     return Container(
       height: 50,
       margin: const EdgeInsets.symmetric(vertical: 12),
@@ -453,7 +460,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
           return GestureDetector(
             onTap: () => _setRound(round),
             child: Container(
-              margin: const EdgeInsets.only(right: 12),
+              margin: const EdgeInsetsDirectional.only(end: 12),
               padding: const EdgeInsets.symmetric(horizontal: 20),
               decoration: BoxDecoration(
                 color: isSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
@@ -462,7 +469,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               ),
               alignment: Alignment.center,
               child: Text(
-                'RD $round',
+                '${l10n.tr('admin_score_round_prefix')}$round',
                 style: TextStyle(
                   color: isSelected ? Colors.black : Colors.white70,
                   fontWeight: FontWeight.bold,
@@ -477,6 +484,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Widget _buildMatchesList() {
+    final l10n = context.l10n;
+
     return FutureBuilder<List<FixtureMatch>>(
       future: _getMatches(),
       builder: (context, snapshot) {
@@ -487,8 +496,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         final matches = snapshot.data ?? [];
 
         if (matches.isEmpty) {
-          return const Center(
-            child: Text('No matches generated yet', style: TextStyle(color: Colors.white38)),
+          return Center(
+            child: Text(l10n.tr('fixtures_no_matches_generated_yet'), style: const TextStyle(color: Colors.white38)),
           );
         }
 
@@ -502,8 +511,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Widget _buildMatchCard(FixtureMatch match) {
-    final homeName = _teamNames[match.homeTeamId] ?? 'TBD';
-    final awayName = _teamNames[match.awayTeamId] ?? 'TBD';
+    final l10n = context.l10n;
+
+    final homeName = _teamNames[match.homeTeamId] ?? l10n.tr('fixtures_tbd');
+    final awayName = _teamNames[match.awayTeamId] ?? l10n.tr('fixtures_tbd');
     final groupLabel = match.groupId?.trim().isNotEmpty == true ? match.groupId!.trim() : null;
 
     final isFinished = match.status == MatchStatus.completed || match.status == MatchStatus.played;
@@ -522,7 +533,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Align(
-                    alignment: Alignment.centerLeft,
+                    alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       groupLabel,
                       style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
@@ -534,7 +545,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                   Expanded(
                     child: Text(
                       homeName,
-                      textAlign: TextAlign.right,
+                      textAlign: TextAlign.end,
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -547,12 +558,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                             '${match.homeScore} - ${match.awayScore}',
                             style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 18),
                           )
-                        : const Text('VS', style: TextStyle(color: Colors.white24, fontWeight: FontWeight.w900)),
+                        : Text(
+                            l10n.tr('league_details_vs'),
+                            style: const TextStyle(color: Colors.white24, fontWeight: FontWeight.w900),
+                          ),
                   ),
                   Expanded(
                     child: Text(
                       awayName,
-                      textAlign: TextAlign.left,
+                      textAlign: TextAlign.start,
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                       overflow: TextOverflow.ellipsis,
                     ),

@@ -217,5 +217,114 @@ const Map<String, Map<String, String>> appLocalizationsPart4 = {
     'league_creation_payment_provider_prefix': 'Provider:',
     'league_creation_payment_failed_prefix': 'Payment failed:',
     'league_creation_payment_pay_continue': 'Pay & Continue',
+
+    'league_participants_appbar_title': 'Participants',
+    'league_participants_empty_title': 'No participants yet',
+    'league_participants_empty_subtitle':
+        'Participants will appear here after they join via code/QR or are assigned to teams.',
+    'league_participants_organizers_title': 'Organizers',
+    'league_participants_participants_title': 'Participants',
+    'league_participants_no_team': 'No team',
+    'league_participants_team_prefix': 'Team ',
+    'league_participants_role_organizer': 'Organizer',
+    'league_participants_userid_prefix': 'userId: ',
+
+    'admin_knockout_appbar_title': 'Knockout Score Management',
+    'admin_knockout_reload_tooltip': 'Reload',
+    'admin_knockout_section_title': 'Update Knockout Results',
+    'admin_knockout_section_description':
+        'Update scores for Play-off, Round of 16, and beyond.\n'
+            'Winners automatically advance to the next round.\n'
+            'Rules enforced:\n'
+            '• Single-match knockouts cannot end in a draw (penalties winner required)\n'
+            '• 2-legged Play-offs advance only after Leg 2; aggregate ties require penalties winner',
+    'admin_knockout_empty_state':
+        'No knockout matches found.\nGenerate the bracket from the league details screen first.',
+
+    'admin_knockout_round_playoff': 'Play-off',
+    'admin_knockout_round_r16': 'Round of 16',
+    'admin_knockout_round_quarter_finals': 'Quarter Finals',
+    'admin_knockout_round_semi_finals': 'Semi Finals',
+    'admin_knockout_round_final': 'Final',
+    'admin_knockout_round_third_place': '3rd Place',
+
+    'admin_knockout_penalties_title': 'Penalties / Tiebreak Required',
+    'admin_knockout_select_winner_to_advance': 'Select the winner to advance.',
+
+    'admin_knockout_cannot_save_draw_tbd': 'Cannot save a draw for a TBD match. Set teams first.',
+    'admin_knockout_draw_requires_winner': 'This knockout match ended in a draw.',
+    'admin_knockout_winner_required': 'Winner required to advance.',
+    'admin_knockout_aggregate_tied_after_leg2': 'Aggregate is tied after Leg 2.',
+    'admin_knockout_aggregate_winner_required': 'Winner required to advance from an aggregate tie.',
+
+    'admin_knockout_score_updated_toast': 'Knockout score updated',
+
+    'admin_knockout_leg1': 'Leg 1',
+    'admin_knockout_leg2': 'Leg 2',
+
+    'admin_knockout_status_completed': 'Completed',
+    'admin_knockout_status_pending': 'Pending',
+
+    'admin_score_appbar_title': 'Score Management',
+    'admin_score_section_title': 'Update Match Results',
+
+    'admin_score_generate_classic': 'GENERATE CLASSIC FIXTURES',
+    'admin_score_generate_group': 'GENERATE GROUP FIXTURES',
+    'admin_score_generate_next_swiss_round': 'GENERATE NEXT SWISS ROUND',
+
+    'admin_score_help_text':
+        'Tap + / - to adjust each team\'s score.\n'
+            'Use group and round filters to quickly find matches.\n'
+            'Pending matches are listed first; completed go to the bottom.',
+
+    'admin_score_toast_score_updated': 'Score Updated Successfully',
+
+    'admin_score_not_enough_teams': 'Not enough teams to generate fixtures.',
+    'admin_score_fixtures_already_exist': 'Fixtures already exist.',
+    'admin_score_failed_generate_fixtures': 'Failed to generate fixtures.',
+    'admin_score_fixtures_generated_prefix': 'Fixtures generated (',
+    'admin_score_fixtures_generated_suffix': ' matches).',
+
+    'admin_score_group_team_count_error_prefix': 'UCL Group supports only 16 or 32 teams. Current: ',
+    'admin_score_complete_group_draw_first': 'Complete group draw first (all groups must have exactly 4 teams).',
+    'admin_score_group_fixtures_already_exist': 'Group fixtures already exist.',
+    'admin_score_failed_generate_group_fixtures': 'Failed to generate group fixtures.',
+    'admin_score_group_fixtures_generated_prefix': 'Group fixtures generated (',
+
+    'admin_score_swiss_team_count_error_prefix': 'Swiss format supports only 18 or 36 teams. Current: ',
+    'admin_score_swiss_even_team_count_required': 'Swiss league phase requires an even number of teams (no byes).',
+
+    'admin_score_complete_round_prefix': 'Complete all matches in Round ',
+    'admin_score_complete_round_suffix': ' before generating the next round.',
+    'admin_score_all_swiss_rounds_generated_prefix': 'All ',
+    'admin_score_all_swiss_rounds_generated_suffix': ' Swiss rounds have already been generated.',
+    'admin_score_round_already_exists_prefix': 'Round ',
+    'admin_score_round_already_exists_suffix': ' already exists.',
+    'admin_score_no_swiss_pairings_generated': 'No Swiss pairings could be generated.',
+    'admin_score_swiss_round_generated_prefix': 'Swiss round ',
+    'admin_score_swiss_round_generated_mid': ' generated (',
+
+    'admin_score_no_matches_to_manage': 'No matches to manage',
+    'admin_score_home_fallback': 'Home',
+    'admin_score_away_fallback': 'Away',
+
+    'admin_score_all_groups': 'All',
+    'admin_score_round_prefix': 'RD ',
+
+    'fixtures_appbar_title': 'Fixtures & Results',
+    'fixtures_generate_next_swiss_round_tooltip': 'Generate next Swiss round',
+    'fixtures_section_title': 'Matchday Schedule',
+
+    'fixtures_only_organiser_can_generate_swiss_rounds': 'Only the organiser can generate Swiss rounds.',
+    'fixtures_league_not_found': 'League not found',
+    'fixtures_swiss_team_count_error_prefix': 'Swiss league phase supports only 18 or 36 teams. Current: ',
+    'fixtures_no_valid_swiss_pairings':
+        'No valid Swiss pairings could be generated (check for existing rematches or constraints).',
+    'fixtures_swiss_round_generated_prefix': 'Swiss round ',
+    'fixtures_swiss_round_generated_suffix': ' generated',
+    'fixtures_failed_generate_swiss_round_prefix': 'Failed to generate Swiss round:',
+
+    'fixtures_no_matches_generated_yet': 'No matches generated yet',
+    'fixtures_tbd': 'TBD',
   },
 };

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -19,12 +20,10 @@ class AdminKnockoutScoreMgmtScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<AdminKnockoutScoreMgmtScreen> createState() =>
-      _AdminKnockoutScoreMgmtScreenState();
+  ConsumerState<AdminKnockoutScoreMgmtScreen> createState() => _AdminKnockoutScoreMgmtScreenState();
 }
 
-class _AdminKnockoutScoreMgmtScreenState
-    extends ConsumerState<AdminKnockoutScoreMgmtScreen> {
+class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScoreMgmtScreen> {
   late LocalLeaguesRepository _repo;
   bool _isLoading = true;
   List<KnockoutMatch> _matches = [];
@@ -71,6 +70,26 @@ class _AdminKnockoutScoreMgmtScreenState
     return done && m.homeScore != null && m.awayScore != null;
   }
 
+  String _roundDisplayName(String roundName) {
+    final l10n = context.l10n;
+    switch (roundName) {
+      case 'Play-off':
+        return l10n.tr('admin_knockout_round_playoff');
+      case 'Round of 16':
+        return l10n.tr('admin_knockout_round_r16');
+      case 'Quarter Finals':
+        return l10n.tr('admin_knockout_round_quarter_finals');
+      case 'Semi Finals':
+        return l10n.tr('admin_knockout_round_semi_finals');
+      case 'Final':
+        return l10n.tr('admin_knockout_round_final');
+      case '3rd Place':
+        return l10n.tr('admin_knockout_round_third_place');
+      default:
+        return roundName;
+    }
+  }
+
   KnockoutMatch? _findOtherPlayoffLeg({
     required KnockoutMatch leg,
     required List<KnockoutMatch> all,
@@ -101,6 +120,8 @@ class _AdminKnockoutScoreMgmtScreenState
     required String awayId,
     required String contextLabel,
   }) async {
+    final l10n = context.l10n;
+
     final homeName = _teamNames[homeId] ?? homeId;
     final awayName = _teamNames[awayId] ?? awayId;
 
@@ -114,12 +135,12 @@ class _AdminKnockoutScoreMgmtScreenState
             borderRadius: BorderRadius.circular(18),
             side: const BorderSide(color: Colors.white24),
           ),
-          title: const Text(
-            'Penalties / Tiebreak Required',
-            style: TextStyle(color: Colors.white),
+          title: Text(
+            l10n.tr('admin_knockout_penalties_title'),
+            style: const TextStyle(color: Colors.white),
           ),
           content: Text(
-            '$contextLabel\nSelect the winner to advance.',
+            '$contextLabel\n${l10n.tr('admin_knockout_select_winner_to_advance')}',
             style: const TextStyle(color: Colors.white70, fontSize: 13),
           ),
           actions: [
@@ -180,6 +201,8 @@ class _AdminKnockoutScoreMgmtScreenState
     int hScore,
     int aScore,
   ) async {
+    final l10n = context.l10n;
+
     var updatedMatch = match.copyWith(
       homeScore: hScore,
       awayScore: aScore,
@@ -206,7 +229,7 @@ class _AdminKnockoutScoreMgmtScreenState
 
       if (hId == null || aId == null) {
         if (hScore == aScore) {
-          _toastErr('Cannot save a draw for a TBD match. Set teams first.');
+          _toastErr(l10n.tr('admin_knockout_cannot_save_draw_tbd'));
           return;
         }
       } else {
@@ -214,10 +237,10 @@ class _AdminKnockoutScoreMgmtScreenState
           final winner = await _promptPenaltyWinner(
             homeId: hId,
             awayId: aId,
-            contextLabel: 'This knockout match ended in a draw.',
+            contextLabel: l10n.tr('admin_knockout_draw_requires_winner'),
           );
           if (winner == null) {
-            _toastErr('Winner required to advance.');
+            _toastErr(l10n.tr('admin_knockout_winner_required'));
             return;
           }
           updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: winner);
@@ -263,10 +286,10 @@ class _AdminKnockoutScoreMgmtScreenState
             final winner = await _promptPenaltyWinner(
               homeId: aId,
               awayId: bId,
-              contextLabel: 'Aggregate is tied after Leg 2.',
+              contextLabel: l10n.tr('admin_knockout_aggregate_tied_after_leg2'),
             );
             if (winner == null) {
-              _toastErr('Winner required to advance from an aggregate tie.');
+              _toastErr(l10n.tr('admin_knockout_aggregate_winner_required'));
               return;
             }
 
@@ -297,23 +320,24 @@ class _AdminKnockoutScoreMgmtScreenState
     if (!mounted) return;
     setState(() => _matches = advanced);
 
-    _toastOk('Knockout score updated');
+    _toastOk(l10n.tr('admin_knockout_score_updated_toast'));
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Knockout Score Management'),
+        title: Text(l10n.tr('admin_knockout_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           IconButton(
             onPressed: _loadData,
-            tooltip: 'Reload',
+            tooltip: l10n.tr('admin_knockout_reload_tooltip'),
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -330,20 +354,16 @@ class _AdminKnockoutScoreMgmtScreenState
                   ),
                   child: Column(
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16),
-                        child: SectionHeader('Update Knockout Results'),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: SectionHeader(l10n.tr('admin_knockout_section_title')),
                       ),
                       const SizedBox(height: 4),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Text(
-                          'Update scores for Play-off, Round of 16, and beyond.\n'
-                          'Winners automatically advance to the next round.\n'
-                          'Rules enforced:\n'
-                          '• Single-match knockouts cannot end in a draw (penalties winner required)\n'
-                          '• 2-legged Play-offs advance only after Leg 2; aggregate ties require penalties winner',
-                          style: TextStyle(
+                          l10n.tr('admin_knockout_section_description'),
+                          style: const TextStyle(
                             color: Colors.white38,
                             fontSize: 12,
                           ),
@@ -353,11 +373,10 @@ class _AdminKnockoutScoreMgmtScreenState
                       const SizedBox(height: 8),
                       Expanded(
                         child: _matches.isEmpty
-                            ? const Center(
+                            ? Center(
                                 child: Text(
-                                  'No knockout matches found.\n'
-                                  'Generate the bracket from the league details screen first.',
-                                  style: TextStyle(
+                                  l10n.tr('admin_knockout_empty_state'),
+                                  style: const TextStyle(
                                     color: Colors.white54,
                                     fontSize: 13,
                                   ),
@@ -402,7 +421,7 @@ class _AdminKnockoutScoreMgmtScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                roundName,
+                _roundDisplayName(roundName),
                 style: const TextStyle(
                   color: Colors.cyanAccent,
                   fontWeight: FontWeight.bold,
@@ -457,9 +476,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     _awayScore = widget.match.awayScore ?? 0;
   }
 
-  bool get _isCompleted =>
-      widget.match.status == MatchStatus.completed ||
-      widget.match.status == MatchStatus.played;
+  bool get _isCompleted => widget.match.status == MatchStatus.completed || widget.match.status == MatchStatus.played;
 
   void _incHome() => setState(() => _homeScore++);
   void _decHome() => setState(() {
@@ -473,8 +490,12 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     final isPlayoff = widget.match.roundName == 'Play-off';
-    final legLabel = isPlayoff ? (widget.match.isSecondLeg ? 'Leg 2' : 'Leg 1') : null;
+    final legLabel = isPlayoff
+        ? (widget.match.isSecondLeg ? l10n.tr('admin_knockout_leg2') : l10n.tr('admin_knockout_leg1'))
+        : null;
 
     return Glass(
       padding: const EdgeInsets.all(16),
@@ -505,11 +526,11 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Text(
-                  "VS",
-                  style: TextStyle(
+                  l10n.tr('league_details_vs'),
+                  style: const TextStyle(
                     color: Colors.white24,
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
@@ -531,13 +552,11 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _isCompleted
-                      ? Colors.cyanAccent.withOpacity(0.12)
-                      : Colors.white.withOpacity(0.04),
+                  color: _isCompleted ? Colors.cyanAccent.withOpacity(0.12) : Colors.white.withOpacity(0.04),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  _isCompleted ? 'Completed' : 'Pending',
+                  _isCompleted ? l10n.tr('admin_knockout_status_completed') : l10n.tr('admin_knockout_status_pending'),
                   style: TextStyle(
                     color: _isCompleted ? Colors.cyanAccent : Colors.white54,
                     fontSize: 11,
