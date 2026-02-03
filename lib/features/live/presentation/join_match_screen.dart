@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 
@@ -17,7 +18,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
   final _homeCtrl = TextEditingController();
   final _awayCtrl = TextEditingController();
 
-  String? _error;
+  String? _errorKey;
 
   @override
   void dispose() {
@@ -31,16 +32,18 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
     required bool isHost,
     required String side, // 'home' | 'away' | 'unknown'
   }) {
+    final l10n = context.l10n;
+
     final matchId = _matchIdCtrl.text.trim();
     final homeName = _homeCtrl.text.trim();
     final awayName = _awayCtrl.text.trim();
 
     if (matchId.isEmpty) {
-      setState(() => _error = 'Match ID is required');
+      setState(() => _errorKey = 'join_match_error_match_id_required');
       return;
     }
 
-    setState(() => _error = null);
+    setState(() => _errorKey = null);
 
     context.push(
       '/live/view/$matchId',
@@ -51,10 +54,17 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
         'side': side.trim().isEmpty ? 'unknown' : side.trim(),
       },
     );
+
+    // Silence unused warning in case analyzer is strict about l10n.
+    // (Not strictly needed, but keeps intent clear.)
+    // ignore: unnecessary_statements
+    l10n;
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     final media = MediaQuery.of(context);
     final isWide = media.size.width > 600;
 
@@ -65,7 +75,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Join Live Match'),
+        title: Text(l10n.tr('join_match_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -92,6 +102,8 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
   }
 
   Widget _buildHeaderCard() {
+    final l10n = context.l10n;
+
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
@@ -108,22 +120,22 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
             child: const Icon(Icons.public, color: Colors.cyanAccent),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Online Live Video',
-                  style: TextStyle(
+                  l10n.tr('join_match_header_title'),
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
-                  'Join using Match ID. This is ONLINE (no Wi‑Fi discovery / no IP / no port).',
-                  style: TextStyle(
+                  l10n.tr('join_match_header_subtitle'),
+                  style: const TextStyle(
                     color: Colors.white60,
                     fontSize: 12,
                     height: 1.4,
@@ -138,7 +150,10 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
   }
 
   Widget _buildFormCard(BuildContext context) {
+    final l10n = context.l10n;
+
     final isCompact = MediaQuery.of(context).size.width < 520;
+    final errorText = _errorKey == null ? null : l10n.tr(_errorKey!);
 
     return Glass(
       borderRadius: 20,
@@ -150,13 +165,13 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
             textInputAction: TextInputAction.next,
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
-              labelText: 'Match ID',
-              hintText: 'e.g. 9f2c1a',
+              labelText: l10n.tr('join_match_match_id_label'),
+              hintText: l10n.tr('join_match_match_id_hint'),
               prefixIcon: const Icon(Icons.tag, color: Colors.white70),
-              errorText: _error,
+              errorText: errorText,
             ),
             onChanged: (_) {
-              if (_error != null) setState(() => _error = null);
+              if (_errorKey != null) setState(() => _errorKey = null);
             },
           ),
           const SizedBox(height: 10),
@@ -165,9 +180,9 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
               controller: _homeCtrl,
               textInputAction: TextInputAction.next,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'Home name (optional)',
-                prefixIcon: Icon(Icons.home, color: Colors.white70),
+              decoration: InputDecoration(
+                labelText: l10n.tr('join_match_home_name_optional'),
+                prefixIcon: const Icon(Icons.home, color: Colors.white70),
               ),
             ),
             const SizedBox(height: 10),
@@ -175,9 +190,9 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
               controller: _awayCtrl,
               textInputAction: TextInputAction.done,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'Away name (optional)',
-                prefixIcon: Icon(Icons.flight_takeoff, color: Colors.white70),
+              decoration: InputDecoration(
+                labelText: l10n.tr('join_match_away_name_optional'),
+                prefixIcon: const Icon(Icons.flight_takeoff, color: Colors.white70),
               ),
             ),
           ] else ...[
@@ -188,9 +203,9 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
                     controller: _homeCtrl,
                     textInputAction: TextInputAction.next,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Home name (optional)',
-                      prefixIcon: Icon(Icons.home, color: Colors.white70),
+                    decoration: InputDecoration(
+                      labelText: l10n.tr('join_match_home_name_optional'),
+                      prefixIcon: const Icon(Icons.home, color: Colors.white70),
                     ),
                   ),
                 ),
@@ -200,9 +215,9 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
                     controller: _awayCtrl,
                     textInputAction: TextInputAction.done,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Away name (optional)',
-                      prefixIcon: Icon(Icons.flight_takeoff, color: Colors.white70),
+                    decoration: InputDecoration(
+                      labelText: l10n.tr('join_match_away_name_optional'),
+                      prefixIcon: const Icon(Icons.flight_takeoff, color: Colors.white70),
                     ),
                   ),
                 ),
@@ -210,11 +225,10 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
             ),
           ],
           const SizedBox(height: 10),
-          const Text(
-            'Tip: Both players can host using the same Match ID.\n'
-            'One hosts as HOME and the other hosts as AWAY.',
+          Text(
+            l10n.tr('join_match_tip'),
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               color: Colors.white38,
               fontSize: 11,
               height: 1.35,
@@ -226,6 +240,8 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
   }
 
   Widget _buildActionsCard({required bool isWide}) {
+    final l10n = context.l10n;
+
     final matchId = _matchIdCtrl.text.trim();
     final disabled = matchId.isEmpty;
 
@@ -239,7 +255,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
             child: FilledButton.icon(
               onPressed: disabled ? null : () => _pushLiveView(isHost: false, side: 'unknown'),
               icon: const Icon(Icons.play_arrow),
-              label: const Text('Join as Viewer'),
+              label: Text(l10n.tr('join_match_join_as_viewer')),
             ),
           ),
           const SizedBox(height: 10),
@@ -250,7 +266,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
                   child: OutlinedButton.icon(
                     onPressed: disabled ? null : () => _pushLiveView(isHost: true, side: 'home'),
                     icon: const Icon(Icons.sports_esports),
-                    label: const Text('Host as HOME'),
+                    label: Text(l10n.tr('join_match_host_as_home')),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -258,7 +274,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
                   child: OutlinedButton.icon(
                     onPressed: disabled ? null : () => _pushLiveView(isHost: true, side: 'away'),
                     icon: const Icon(Icons.sports_esports),
-                    label: const Text('Host as AWAY'),
+                    label: Text(l10n.tr('join_match_host_as_away')),
                   ),
                 ),
               ],
@@ -270,7 +286,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
               child: OutlinedButton.icon(
                 onPressed: disabled ? null : () => _pushLiveView(isHost: true, side: 'home'),
                 icon: const Icon(Icons.sports_esports),
-                label: const Text('Host as HOME'),
+                label: Text(l10n.tr('join_match_host_as_home')),
               ),
             ),
             const SizedBox(height: 10),
@@ -279,7 +295,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
               child: OutlinedButton.icon(
                 onPressed: disabled ? null : () => _pushLiveView(isHost: true, side: 'away'),
                 icon: const Icon(Icons.sports_esports),
-                label: const Text('Host as AWAY'),
+                label: Text(l10n.tr('join_match_host_as_away')),
               ),
             ),
           ],

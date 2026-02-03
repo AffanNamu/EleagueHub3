@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/widgets/glass.dart';
 
 class LiveFloatingQuickMessage extends StatefulWidget {
@@ -19,8 +20,7 @@ class LiveFloatingQuickMessage extends StatefulWidget {
   final IconData icon;
 
   @override
-  State<LiveFloatingQuickMessage> createState() =>
-      _LiveFloatingQuickMessageState();
+  State<LiveFloatingQuickMessage> createState() => _LiveFloatingQuickMessageState();
 }
 
 class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
@@ -58,6 +58,8 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
 
     return LayoutBuilder(
       builder: (ctx, constraints) {
+        final l10n = ctx.l10n;
+
         final maxW = constraints.maxWidth;
         final maxH = constraints.maxHeight;
 
@@ -78,12 +80,10 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
         const panelW = 220.0;
         const panelMaxH = 260.0;
 
-        final panelLeft = (_pos.dx + btn + 10 + panelW <= maxW)
-            ? (_pos.dx + btn + 10)
-            : (_pos.dx - panelW - 10);
+        final panelLeft =
+            (_pos.dx + btn + 10 + panelW <= maxW) ? (_pos.dx + btn + 10) : (_pos.dx - panelW - 10);
 
-        final panelTop = (_pos.dy - 10)
-            .clamp(8.0, (maxH - panelMaxH - 8).clamp(8.0, maxH));
+        final panelTop = (_pos.dy - 10).clamp(8.0, (maxH - panelMaxH - 8).clamp(8.0, maxH));
 
         return Stack(
           children: [
@@ -114,13 +114,11 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
                         return InkWell(
                           onTap: () => _send(msg),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.06),
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                  color: Colors.white.withOpacity(0.10)),
+                              border: Border.all(color: Colors.white.withOpacity(0.10)),
                             ),
                             child: Text(
                               msg,
@@ -158,7 +156,7 @@ class _LiveFloatingQuickMessageState extends State<LiveFloatingQuickMessage> {
                     child: IconButton(
                       onPressed: _toggleOpen,
                       icon: Icon(widget.icon, color: Colors.cyanAccent),
-                      tooltip: 'Quick message',
+                      tooltip: l10n.tr('live_quick_message_tooltip'),
                     ),
                   ),
                 ),

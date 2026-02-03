@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app_localizations_1.dart';
+import 'app_localizations_10.dart';
+import 'app_localizations_11.dart';
+import 'app_localizations_12.dart';
 import 'app_localizations_2.dart';
 import 'app_localizations_3.dart';
 import 'app_localizations_4.dart';
@@ -9,6 +12,7 @@ import 'app_localizations_5.dart';
 import 'app_localizations_6.dart';
 import 'app_localizations_7.dart';
 import 'app_localizations_8.dart';
+import 'app_localizations_9.dart';
 
 class AppLocalizations {
   AppLocalizations(this.locale);
@@ -57,6 +61,10 @@ class AppLocalizations {
     mergePart(appLocalizationsPart6);
     mergePart(appLocalizationsPart7);
     mergePart(appLocalizationsPart8);
+    mergePart(appLocalizationsPart9);
+    mergePart(appLocalizationsPart10);
+    mergePart(appLocalizationsPart11);
+    mergePart(appLocalizationsPart12);
 
     final frozen = <String, Map<String, String>>{};
     for (final entry in result.entries) {
@@ -221,8 +229,7 @@ class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> 
 
   @override
   Future<AppLocalizations> load(Locale locale) {
-    final resolved =
-        AppLocalizations._strings.containsKey(locale.languageCode) ? locale : const Locale('en');
+    final resolved = AppLocalizations._strings.containsKey(locale.languageCode) ? locale : const Locale('en');
     return SynchronousFuture<AppLocalizations>(AppLocalizations(resolved));
   }
 

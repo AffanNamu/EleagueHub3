@@ -22,13 +22,68 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _tabs = [
-    _HomeTab(),
-    LeaguesListScreen(),
-    LiveListScreen(),
-    MarketplaceListScreen(),
-    ProfileScreen(),
-  ];
+  late final List<Widget> _tabs;
+
+  /// Lazy tab instantiation: we only build a tab the first time it's visited,
+  /// and then keep its state alive (prevents reload loops / re-fetching).
+  late final List<bool> _built;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = const [
+      _HomeTab(),
+      LeaguesListScreen(),
+      LiveListScreen(),
+      MarketplaceListScreen(),
+      ProfileScreen(),
+    ];
+    _built = List<bool>.filled(_tabs.length, false);
+    _built[_index] = true;
+  }
+
+  void _selectTab(int i) {
+    if (i == _index) return;
+    setState(() {
+      _index = i;
+      _built[i] = true;
+    });
+  }
+
+  Future<bool> _handleSystemBack() async {
+    // 1) If there's a pushed route (GoRouter stack), pop it.
+    if (GoRouter.of(context).canPop()) {
+      GoRouter.of(context).pop();
+      return false;
+    }
+
+    // 2) If we're on any tab other than the first tab, go back through tabs.
+    if (_index > 0) {
+      _selectTab(_index - 1);
+      return false;
+    }
+
+    // 3) Root screen: allow exit (with optional confirmation).
+    final shouldExit = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Exit app?'),
+        content: const Text('Are you sure you want to close the app?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Exit'),
+          ),
+        ],
+      ),
+    );
+
+    return shouldExit ?? false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,75 +99,85 @@ class _HomeShellState extends State<HomeShell> {
       l10n.homeTabProfile,
     ];
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppTheme.backgroundGradient(theme.brightness),
-      ),
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        extendBody: true,
-        appBar: AppBar(
-          title: Text(tabTitles[_index]),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          actions: [
-            IconButton(
-              tooltip: l10n.homeSettingsTooltip,
-              onPressed: () => context.push('/settings'),
-              icon: const Icon(Icons.settings_outlined),
-            ),
-          ],
+    return WillPopScope(
+      onWillPop: _handleSystemBack,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: AppTheme.backgroundGradient(theme.brightness),
         ),
-        body: SafeArea(
-          bottom: false,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            child: KeyedSubtree(
-              key: ValueKey(_index),
-              child: _tabs[_index],
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          extendBody: true,
+          appBar: AppBar(
+            title: Text(tabTitles[_index]),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            actions: [
+              IconButton(
+                tooltip: l10n.homeSettingsTooltip,
+                onPressed: () => context.push('/settings'),
+                icon: const Icon(Icons.settings_outlined),
+              ),
+            ],
+          ),
+          body: SafeArea(
+            bottom: false,
+            // Keep tabs alive without rebuilding them on every tab switch.
+            child: Stack(
+              children: List.generate(_tabs.length, (i) {
+                final built = _built[i];
+
+                return Offstage(
+                  offstage: _index != i,
+                  child: TickerMode(
+                    enabled: _index == i,
+                    child: built ? _tabs[i] : const SizedBox.shrink(),
+                  ),
+                );
+              }),
             ),
           ),
-        ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 12),
-            child: Glass(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              borderRadius: 22,
-              child: NavigationBar(
-                height: 64,
-                backgroundColor: Colors.transparent,
-                indicatorColor: colorScheme.primary.withOpacity(0.2),
-                selectedIndex: _index,
-                onDestinationSelected: (i) => setState(() => _index = i),
-                destinations: [
-                  NavigationDestination(
-                    icon: const Icon(Icons.home_outlined),
-                    selectedIcon: const Icon(Icons.home),
-                    label: l10n.homeTabHome,
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.emoji_events_outlined),
-                    selectedIcon: const Icon(Icons.emoji_events),
-                    label: l10n.homeTabLeagues,
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.wifi_tethering_outlined),
-                    selectedIcon: const Icon(Icons.wifi_tethering),
-                    label: l10n.homeTabLive,
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.storefront_outlined),
-                    selectedIcon: const Icon(Icons.storefront),
-                    label: l10n.homeTabMarketplace,
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.person_outline),
-                    selectedIcon: const Icon(Icons.person),
-                    label: l10n.homeTabProfile,
-                  ),
-                ],
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 12),
+              child: Glass(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                borderRadius: 22,
+                child: NavigationBar(
+                  height: 64,
+                  backgroundColor: Colors.transparent,
+                  indicatorColor: colorScheme.primary.withOpacity(0.2),
+                  selectedIndex: _index,
+                  onDestinationSelected: _selectTab,
+                  destinations: [
+                    NavigationDestination(
+                      icon: const Icon(Icons.home_outlined),
+                      selectedIcon: const Icon(Icons.home),
+                      label: l10n.homeTabHome,
+                    ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.emoji_events_outlined),
+                      selectedIcon: const Icon(Icons.emoji_events),
+                      label: l10n.homeTabLeagues,
+                    ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.wifi_tethering_outlined),
+                      selectedIcon: const Icon(Icons.wifi_tethering),
+                      label: l10n.homeTabLive,
+                    ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.storefront_outlined),
+                      selectedIcon: const Icon(Icons.storefront),
+                      label: l10n.homeTabMarketplace,
+                    ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.person_outline),
+                      selectedIcon: const Icon(Icons.person),
+                      label: l10n.homeTabProfile,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

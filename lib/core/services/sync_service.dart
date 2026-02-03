@@ -25,6 +25,9 @@ class SyncService {
 
   bool _isSyncing = false;
 
+  /// IMPORTANT:
+  /// - Never throw from syncAll(). Screens must not get stuck in loading forever.
+  /// - Sync is best-effort: if anything fails, we keep working with local data.
   Future<void> syncAll() async {
     if (_isSyncing) return;
 
@@ -38,6 +41,9 @@ class SyncService {
     try {
       await _syncLocalQueueToCloud();
       await _syncCloudToLocal();
+    } catch (e, st) {
+      debugPrint('SyncService → syncAll FAILED (non-fatal): $e');
+      debugPrint('$st');
     } finally {
       _isSyncing = false;
     }
@@ -52,7 +58,7 @@ class SyncService {
 
     debugPrint('SyncService → Pending queue items: ${queue.length}');
     for (final q in queue) {
-      debugPrint('QueueItem → type=${q.entityType} action=${q.action} entityId=${q.entityId}');
+      debugPrint('QueueItem → type=${q.entityType} action=${q.action} id=${q.entityId}');
     }
 
     for (final item in queue) {
@@ -61,10 +67,11 @@ class SyncService {
         await SyncQueueService.instance.markDone(item.id);
         debugPrint('SyncService → Synced ${item.entityType}:${item.entityId}');
       } catch (e, st) {
+        // Do NOT rethrow. Leave item in queue for later retry.
         debugPrint('SyncService → FAILED type=${item.entityType} action=${item.action} entityId=${item.entityId}');
         debugPrint('Error: $e');
         debugPrint('$st');
-        rethrow;
+        break;
       }
     }
   }
@@ -266,11 +273,13 @@ class SyncService {
     final lastPulledAtMs = prefs.getInt('cloud_last_pulled_at_ms') ?? 0;
     debugPrint('SyncService → Cloud pull start. uid=$uid lastPulledAtMs=$lastPulledAtMs');
 
-    // Pull leagues user can access (memberships)
-    final leaguesSnap = await _firestore
-        .collection('leagues')
-        .where('memberIds', arrayContains: uid)
-        .get();
+    QuerySnapshot<Map<String, dynamic>> leaguesSnap;
+    try {
+      leaguesSnap = await _firestore.collection('leagues').where('memberIds', arrayContains: uid).get();
+    } catch (e) {
+      debugPrint('SyncService → Cloud pull FAILED at leagues query (non-fatal): $e');
+      return;
+    }
 
     final leagueIds = leaguesSnap.docs.map((d) => d.id).toList();
 
@@ -281,14 +290,18 @@ class SyncService {
       return League.fromRemoteMap(data);
     }).toList());
 
-    // Pull subcollections per league
+    // Pull subcollections per league (best-effort per league)
     for (final leagueId in leagueIds) {
-      await _pullTeams(prefs, leagueId);
-      await _pullMatches(prefs, leagueId);
-      await _pullKnockout(prefs, leagueId);
-      await _pullMemberships(prefs, leagueId);
-      await _pullAnnouncements(prefs, leagueId);
-      await _pullSpaceCurrent(prefs, leagueId);
+      try {
+        await _pullTeams(prefs, leagueId);
+        await _pullMatches(prefs, leagueId);
+        await _pullKnockout(prefs, leagueId);
+        await _pullMemberships(prefs, leagueId);
+        await _pullAnnouncements(prefs, leagueId);
+        await _pullSpaceCurrent(prefs, leagueId);
+      } catch (e) {
+        debugPrint('SyncService → Cloud pull partial failure leagueId=$leagueId (non-fatal): $e');
+      }
     }
 
     await prefs.setInt('cloud_last_pulled_at_ms', DateTime.now().millisecondsSinceEpoch);

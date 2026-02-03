@@ -1,5 +1,6 @@
 const Map<String, Map<String, String>> appLocalizationsPart7 = {
   'fr': {
+    'common_add': 'Ajouter',
     'common_later': 'Plus tard',
     'common_pay_now': 'Payer maintenant',
     'common_paste': 'Coller',
@@ -203,6 +204,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
   },
 
   'pt': {
+    'common_add': 'Adicionar',
     'common_later': 'Mais tarde',
     'common_pay_now': 'Pagar agora',
     'common_paste': 'Colar',
@@ -402,6 +404,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
   },
 
   'id': {
+    'common_add': 'Tambah',
     'common_later': 'Nanti',
     'common_pay_now': 'Bayar sekarang',
     'common_paste': 'Tempel',
@@ -600,6 +603,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
   },
 
   'tr': {
+    'common_add': 'Ekle',
     'common_later': 'Daha sonra',
     'common_pay_now': 'Şimdi öde',
     'common_paste': 'Yapıştır',
@@ -798,6 +802,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
   },
 
   'ja': {
+    'common_add': '追加',
     'common_later': 'あとで',
     'common_pay_now': '今すぐ支払う',
     'common_paste': '貼り付け',
@@ -990,6 +995,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
   },
 
   'ko': {
+    'common_add': '추가',
     'common_later': '나중에',
     'common_pay_now': '지금 결제',
     'common_paste': '붙여넣기',

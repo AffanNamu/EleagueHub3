@@ -371,6 +371,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+
+                // APP INFO (custom text requested)
                 Glass(
                   borderRadius: 24,
                   child: Padding(
@@ -386,17 +388,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          l10n.appInfoLine1,
-                          style: const TextStyle(
+                        const Text(
+                          'eSportlyic powered by Kaida',
+                          style: TextStyle(
                             color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          l10n.appInfoLine2,
-                          style: textTheme.bodySmall?.copyWith(
-                            color: Colors.white70,
                           ),
                         ),
                       ],

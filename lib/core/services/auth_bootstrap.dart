@@ -17,6 +17,8 @@ class AuthBootstrap {
 
     // Debug
     // ignore: avoid_print
-    print('AuthBootstrap → current uid=${user.uid} provider=${user.providerData.map((e) => e.providerId).join(",")}');
+    print(
+      'AuthBootstrap → current uid=${user.uid} provider=${user.providerData.map((e) => e.providerId).join(",")}',
+    );
   }
 }

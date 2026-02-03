@@ -9,8 +9,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'core/app/app.dart';
-import 'core/app/sync_bootstrap.dart';
 import 'core/persistence/prefs_service.dart';
 import 'core/services/auth_bootstrap.dart';
 import 'core/services/notification_service.dart';
@@ -21,6 +19,8 @@ import 'core/theme/theme_controller.dart';
 import 'core/locale/locale_controller.dart';
 import 'core/locale/app_localizations.dart';
 import 'core/widgets/offline_banner.dart';
+import 'core/routing/app_router.dart';
+import 'core/app/sync_bootstrap.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -84,7 +84,7 @@ class AppRoot extends ConsumerWidget {
     final themeMode = ref.watch(themeControllerProvider).mode;
     final localeState = ref.watch(localeControllerProvider);
 
-    return MaterialApp(
+    return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       onGenerateTitle: (context) => context.l10n.appName,
       themeMode: themeMode,
@@ -98,23 +98,32 @@ class AppRoot extends ConsumerWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      routerConfig: appRouter,
       builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        final clampedScale = mq.textScaler.clamp(
+          minScaleFactor: 0.9,
+          maxScaleFactor: 1.3,
+        );
+
         return Directionality(
           textDirection: localeState.direction,
-          child: Stack(
-            children: [
-              PermissionWrapper(child: child ?? const SizedBox.shrink()),
-              ValueListenableBuilder<bool>(
-                valueListenable: ConnectivityService.instance.isConnected,
-                builder: (context, online, _) {
-                  return online ? const SizedBox.shrink() : const OfflineBanner();
-                },
-              ),
-            ],
+          child: MediaQuery(
+            data: mq.copyWith(textScaler: clampedScale),
+            child: Stack(
+              children: [
+                PermissionWrapper(child: child ?? const SizedBox.shrink()),
+                ValueListenableBuilder<bool>(
+                  valueListenable: ConnectivityService.instance.isConnected,
+                  builder: (context, online, _) {
+                    return online ? const SizedBox.shrink() : const OfflineBanner();
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
-      home: const EleagueHubApp(),
     );
   }
 }

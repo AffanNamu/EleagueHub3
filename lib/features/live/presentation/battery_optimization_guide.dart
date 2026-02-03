@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 
 class BatteryOptimizationGuide {
@@ -31,6 +32,8 @@ class BatteryOptimizationGuide {
   }
 
   static Future<void> show(BuildContext context) async {
+    final l10n = context.l10n;
+
     final info = await _deviceInfo();
     final manufacturer = (info['manufacturer'] ?? '').toString().toLowerCase();
     final brand = (info['brand'] ?? '').toString().toLowerCase();
@@ -45,6 +48,9 @@ class BatteryOptimizationGuide {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
+        final vendorLabel = vendor.isEmpty ? l10n.tr('battery_opt_android') : vendor.toUpperCase();
+        final modelSuffix = model.isNotEmpty ? ' • $model' : '';
+
         return Padding(
           padding: EdgeInsets.only(
             left: 12,
@@ -59,9 +65,9 @@ class BatteryOptimizationGuide {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    'Fix Background Streaming (Battery Optimization)',
-                    style: TextStyle(
+                  Text(
+                    l10n.tr('battery_opt_title'),
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
@@ -69,65 +75,57 @@ class BatteryOptimizationGuide {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Device: ${vendor.isEmpty ? 'Android' : vendor.toUpperCase()} ${model.isNotEmpty ? "• $model" : ""}',
+                    '${l10n.tr('battery_opt_device_prefix')}$vendorLabel$modelSuffix',
                     style: const TextStyle(color: Colors.white60, fontSize: 12),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'If your stream stops when you open the game, your phone is killing the app in background.\n'
-                    'Do these steps once:',
-                    style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.35),
+                  Text(
+                    l10n.tr('battery_opt_intro'),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.35),
                   ),
                   const SizedBox(height: 12),
-
-                  _StepsBox(text: _stepsForVendor(vendor)),
-
+                  _StepsBox(text: _stepsForVendor(l10n, vendor)),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Quick buttons:',
-                    style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w800),
+                  Text(
+                    l10n.tr('battery_opt_quick_buttons'),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 10),
-
                   FilledButton.icon(
                     onPressed: requestIgnoreBatteryOptimizations,
                     icon: const Icon(Icons.battery_saver),
-                    label: const Text('REQUEST “IGNORE BATTERY OPTIMIZATION”'),
+                    label: Text(l10n.tr('battery_opt_request_ignore_btn')),
                   ),
                   const SizedBox(height: 10),
-
                   OutlinedButton.icon(
                     onPressed: openBatteryOptimizationSettings,
                     icon: const Icon(Icons.settings),
-                    label: const Text('OPEN BATTERY OPTIMIZATION SETTINGS'),
+                    label: Text(l10n.tr('battery_opt_open_battery_settings_btn')),
                   ),
                   const SizedBox(height: 10),
-
                   OutlinedButton.icon(
                     onPressed: openAppDetailsSettings,
                     icon: const Icon(Icons.info_outline),
-                    label: const Text('OPEN APP SETTINGS (AUTO-START / BACKGROUND)'),
+                    label: Text(l10n.tr('battery_opt_open_app_settings_btn')),
                   ),
-
                   const SizedBox(height: 14),
                   const Divider(color: Colors.white10),
-
-                  const Text(
-                    'Notes:',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                  Text(
+                    l10n.tr('battery_opt_notes_title'),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    '• Some games block screen capture (protected content). In that case viewers may see black screen.\n'
-                    '• Keep the streaming notification ON while broadcasting.\n'
-                    '• For best results, don’t “Force stop” the app during a live stream.',
-                    style: TextStyle(color: Colors.white60, fontSize: 12, height: 1.35),
+                  Text(
+                    l10n.tr('battery_opt_notes_body'),
+                    style: const TextStyle(color: Colors.white60, fontSize: 12, height: 1.35),
                   ),
-
                   const SizedBox(height: 10),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Close', style: TextStyle(color: Colors.cyanAccent)),
+                    child: Text(
+                      l10n.tr('battery_opt_close'),
+                      style: const TextStyle(color: Colors.cyanAccent),
+                    ),
                   ),
                 ],
               ),
@@ -138,55 +136,31 @@ class BatteryOptimizationGuide {
     );
   }
 
-  static String _stepsForVendor(String vendor) {
+  static String _stepsForVendor(AppLocalizations l10n, String vendor) {
     vendor = vendor.toLowerCase();
 
     // Many Tecno/Infinix are Transsion (XOS/HiOS); Oppo/Realme/OnePlus share similar flows.
     if (vendor.contains('samsung')) {
-      return '''
-Samsung:
-1) Settings → Battery and device care → Battery
-2) Background usage limits → Never sleeping apps → add this app
-3) Also check: Settings → Apps → (this app) → Battery → Allow background activity
-''';
+      return l10n.tr('battery_opt_steps_samsung');
     }
 
     if (vendor.contains('huawei') || vendor.contains('honor')) {
-      return '''
-Huawei / Honor:
-1) Settings → Battery → App launch
-2) Find this app → set to “Manage manually”
-3) Enable: Auto-launch, Secondary launch, Run in background
-''';
+      return l10n.tr('battery_opt_steps_huawei');
     }
 
     if (vendor.contains('oppo') || vendor.contains('realme') || vendor.contains('oneplus')) {
-      return '''
-OPPO / realme / OnePlus:
-1) Settings → Battery → More battery settings / App battery management
-2) Find this app → Allow background activity
-3) Also enable Auto-launch (often in: Settings → Apps → Auto-start)
-''';
+      return l10n.tr('battery_opt_steps_oppo');
     }
 
-    if (vendor.contains('infinix') || vendor.contains('tecno') || vendor.contains('itel') || vendor.contains('transsion')) {
-      return '''
-Infinix / Tecno / itel (HiOS/XOS):
-1) Settings → Battery / Power Marathon → turn OFF aggressive saving for this app
-2) Settings → Apps → (this app) → Battery → Allow background activity
-3) Enable Auto-start / Background launch if available
-4) Also whitelist the app in “Phone Master” / “Device Manager”
-''';
+    if (vendor.contains('infinix') ||
+        vendor.contains('tecno') ||
+        vendor.contains('itel') ||
+        vendor.contains('transsion')) {
+      return l10n.tr('battery_opt_steps_transsion');
     }
 
     // Generic fallback
-    return '''
-Generic Android:
-1) Settings → Battery → Battery optimization
-2) Find this app → set to “Don’t optimize”
-3) Settings → Apps → (this app) → Battery → Allow background activity
-4) If you have Auto-start settings, enable it for this app
-''';
+    return l10n.tr('battery_opt_steps_generic');
   }
 }
 

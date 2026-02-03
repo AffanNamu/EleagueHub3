@@ -35,15 +35,23 @@ enum _ProfileState { unknown, checking, missing, exists }
 class AuthRouterRefresh extends ChangeNotifier {
   AuthRouterRefresh() {
     _sub = FirebaseAuth.instance.authStateChanges().listen((user) {
+      final prevUserId = _user?.uid;
       _user = user;
-      _retryTimer?.cancel();
 
+      _retryTimer?.cancel();
+      _retryTimer = null;
+
+      // Signed out.
       if (_user == null) {
-        _profileState = _ProfileState.unknown;
-        notifyListeners();
+        _setProfileState(_ProfileState.unknown);
+        if (prevUserId != null) notifyListeners(); // user changed
         return;
       }
 
+      // Signed in.
+      // We always re-check once per auth event, but we avoid noisy notify loops by:
+      // - only notifying when state changes
+      // - cancelling any retry timers when user changes
       _checkProfileFor(_user!.uid);
     });
   }
@@ -54,7 +62,6 @@ class AuthRouterRefresh extends ChangeNotifier {
   final UserProfileRepository _profiles = UserProfileRepository();
 
   _ProfileState _profileState = _ProfileState.unknown;
-
   Timer? _retryTimer;
 
   bool get isSignedIn => _user != null;
@@ -72,15 +79,24 @@ class AuthRouterRefresh extends ChangeNotifier {
     await _checkProfileFor(uid);
   }
 
+  void _setProfileState(_ProfileState next) {
+    if (_profileState == next) return;
+    _profileState = next;
+    notifyListeners();
+  }
+
   Future<void> _checkProfileFor(String uid) async {
     final prev = _profileState;
 
-    _profileState = _ProfileState.checking;
-    notifyListeners();
+    _retryTimer?.cancel();
+    _retryTimer = null;
+
+    _setProfileState(_ProfileState.checking);
 
     try {
       final exists = await _profiles.profileExists(uid);
-      _profileState = exists ? _ProfileState.exists : _ProfileState.missing;
+      _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
+      return;
     } catch (e) {
       // IMPORTANT:
       // Never force onboarding on transient errors (offline / timeout / permission glitches),
@@ -89,22 +105,20 @@ class AuthRouterRefresh extends ChangeNotifier {
       // If we previously confirmed a profile exists, keep that state sticky.
       // Otherwise, go back to "unknown" and keep the user on the bootstrap loader
       // while we retry silently.
-      _profileState = (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
+      final fallback = (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
+      _setProfileState(fallback);
 
       if (kDebugMode) {
         // ignore: avoid_print
         print('AuthRouterRefresh: profile check failed for uid=$uid → $e');
       }
 
-      _retryTimer?.cancel();
       _retryTimer = Timer(const Duration(seconds: 3), () {
         if (_user?.uid != uid) return;
         // ignore: discarded_futures
         _checkProfileFor(uid);
       });
     }
-
-    notifyListeners();
   }
 
   @override

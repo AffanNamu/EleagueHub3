@@ -1,7 +1,7 @@
+import 'dart:async';
+
 import 'package:eleaguehub3/core/locale/app_localizations.dart';
-import 'package:eleaguehub3/core/services/sync_trigger.dart';
 import '../utils/current_user.dart';
-import "package:eleaguehub3/core/app/sync_debug_screen.dart";
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
@@ -31,7 +31,7 @@ class LeaguesListScreen extends ConsumerStatefulWidget {
   ConsumerState<LeaguesListScreen> createState() => _LeaguesListScreenState();
 }
 
-class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
+class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with AutomaticKeepAliveClientMixin {
   late LocalLeaguesRepository _localRepo;
   late LeagueAnnouncementsFirebase _annRepo;
 
@@ -51,8 +51,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
   String _effectiveUserId = '';
 
   bool _isLoading = true;
+  bool _loadingAnnouncements = false;
 
   String? _payingLeagueId;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -61,82 +65,132 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
     _localRepo = LocalLeaguesRepository(prefs);
     _annRepo = LeagueAnnouncementsFirebase(prefs);
 
+    // Initial load must be FAST and never hang on network.
+    // We load local data only; remote sync happens only when user manually refreshes.
     // ignore: discarded_futures
-    SyncTrigger.trySync().then((_) => _refreshLeagues());
-    _refreshLeagues();
+    _loadLeagues(syncFirst: false, showSpinner: true);
+  }
+
+  Future<void> _loadLeagues({
+    required bool syncFirst,
+    required bool showSpinner,
+  }) async {
+    if (showSpinner) {
+      if (!mounted) return;
+      setState(() => _isLoading = true);
+    }
+
+    try {
+      if (syncFirst) {
+        // Never let a sync keep the UI stuck forever.
+        try {
+          await SyncService.instance.syncAll().timeout(const Duration(seconds: 20));
+        } catch (e) {
+          // ignore: avoid_print
+          print('LeaguesListScreen: syncAll failed (non-fatal): $e');
+        }
+      }
+
+      final leagues = await _localRepo.listLeagues();
+      final prefs = ref.read(prefsServiceProvider);
+
+      String effectiveUserId = prefs.getCurrentUserId() ?? '';
+      if (effectiveUserId.trim().isEmpty) {
+        effectiveUserId = await CurrentUser.getOrCreateUserId();
+      }
+
+      final chargesStore = LeagueChargesStore(prefs);
+      final memberships = await _localRepo.listMemberships();
+
+      final Map<String, int> counts = {};
+      final Map<String, bool> viewerPaid = {};
+      final Map<String, bool> viewerIsParticipant = {};
+
+      // Local calculations only (fast).
+      await Future.wait(
+        leagues.map((league) async {
+          final teams = await _localRepo.getTeams(league.id);
+
+          final orphanMembersCount = memberships
+              .where((m) => m.leagueId == league.id && m.role == LeagueRole.member && m.teamId == null)
+              .length;
+
+          counts[league.id] = teams.length + orphanMembersCount;
+
+          viewerIsParticipant[league.id] = memberships.any(
+            (m) =>
+                m.leagueId == league.id &&
+                m.userId == effectiveUserId &&
+                (m.role == LeagueRole.member || m.role == LeagueRole.organizer),
+          );
+
+          final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+
+          if (!requiresCharges) {
+            viewerPaid[league.id] = true;
+          } else {
+            viewerPaid[league.id] = chargesStore.hasPaidCharges(
+              userId: effectiveUserId,
+              leagueId: league.id,
+            );
+          }
+        }),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _leagues = leagues;
+        _participantCounts = counts;
+        _viewerChargesPaid = viewerPaid;
+        _viewerIsParticipantByLeagueId = viewerIsParticipant;
+        _effectiveUserId = effectiveUserId;
+        _isLoading = false;
+      });
+
+      // Announcements may come from Firebase; do not block the "loaded" UI.
+      // Load them best-effort in the background.
+      unawaited(_loadLatestAnnouncements(leagues));
+    } catch (e) {
+      // If anything fails, never keep a perpetual spinner.
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      // ignore: avoid_print
+      print('LeaguesListScreen: load failed (non-fatal): $e');
+    }
+  }
+
+  Future<void> _loadLatestAnnouncements(List<League> leagues) async {
+    if (_loadingAnnouncements) return;
+    _loadingAnnouncements = true;
+
+    try {
+      final Map<String, LeagueAnnouncement?> latestAnns = {};
+
+      // Best-effort per-league fetch with timeouts so it can't hang.
+      await Future.wait(leagues.map((league) async {
+        try {
+          final anns = await _annRepo.listForLeague(league.id).timeout(const Duration(seconds: 5));
+          if (anns.isNotEmpty) {
+            anns.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+            latestAnns[league.id] = anns.first;
+          }
+        } catch (_) {
+          // Ignore per-league announcement failures (offline, timeout, etc.)
+        }
+      }));
+
+      if (!mounted) return;
+      setState(() {
+        _latestAnnouncements = latestAnns;
+      });
+    } finally {
+      _loadingAnnouncements = false;
+    }
   }
 
   Future<void> _refreshLeagues() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    await SyncService.instance.syncAll();
-
-    final leagues = await _localRepo.listLeagues();
-
-    final prefs = ref.read(prefsServiceProvider);
-
-    String effectiveUserId = prefs.getCurrentUserId() ?? '';
-    if (effectiveUserId.trim().isEmpty) {
-      effectiveUserId = await CurrentUser.getOrCreateUserId();
-    }
-
-    final chargesStore = LeagueChargesStore(prefs);
-
-    final memberships = await _localRepo.listMemberships();
-
-    final Map<String, int> counts = {};
-    final Map<String, LeagueAnnouncement?> latestAnns = {};
-    final Map<String, bool> viewerPaid = {};
-    final Map<String, bool> viewerIsParticipant = {};
-
-    await Future.wait(
-      leagues.map((league) async {
-        final teams = await _localRepo.getTeams(league.id);
-
-        final orphanMembersCount = memberships
-            .where((m) => m.leagueId == league.id && m.role == LeagueRole.member && m.teamId == null)
-            .length;
-
-        counts[league.id] = teams.length + orphanMembersCount;
-
-        viewerIsParticipant[league.id] = memberships.any(
-          (m) =>
-              m.leagueId == league.id &&
-              m.userId == effectiveUserId &&
-              (m.role == LeagueRole.member || m.role == LeagueRole.organizer),
-        );
-
-        final anns = await _annRepo.listForLeague(league.id);
-        if (anns.isNotEmpty) {
-          anns.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
-          latestAnns[league.id] = anns.first;
-        }
-
-        final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
-
-        if (!requiresCharges) {
-          viewerPaid[league.id] = true;
-        } else {
-          viewerPaid[league.id] = chargesStore.hasPaidCharges(
-            userId: effectiveUserId,
-            leagueId: league.id,
-          );
-        }
-      }),
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _leagues = leagues;
-      _participantCounts = counts;
-      _latestAnnouncements = latestAnns;
-      _viewerChargesPaid = viewerPaid;
-      _viewerIsParticipantByLeagueId = viewerIsParticipant;
-      _effectiveUserId = effectiveUserId;
-      _isLoading = false;
-    });
+    // Manual refresh: do a sync, then reload local data.
+    await _loadLeagues(syncFirst: true, showSpinner: true);
   }
 
   Future<void> _payChargesForLeague(BuildContext context, League league) async {
@@ -254,6 +308,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     final l10n = context.l10n;
     final media = MediaQuery.of(context);
     final screenWidth = media.size.width;
@@ -269,15 +325,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> {
         elevation: 0,
         centerTitle: false,
         actions: [
-          IconButton(
-            tooltip: l10n.tr('common_debug'),
-            icon: const Icon(Icons.bug_report),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SyncDebugScreen()),
-              );
-            },
-          ),
           IconButton(
             tooltip: l10n.tr('common_refresh'),
             icon: const Icon(Icons.refresh),

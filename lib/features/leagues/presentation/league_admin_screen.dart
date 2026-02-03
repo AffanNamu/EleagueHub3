@@ -67,6 +67,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     'Group H',
   ];
 
+  String _groupDisplayName(AppLocalizations l10n, String groupId) {
+    final g = groupId.trim();
+    if (g == 'Group A') return l10n.tr('add_teams_group_a');
+    if (g == 'Group B') return l10n.tr('add_teams_group_b');
+    if (g == 'Group C') return l10n.tr('add_teams_group_c');
+    if (g == 'Group D') return l10n.tr('add_teams_group_d');
+    if (g == 'Group E') return l10n.tr('add_teams_group_e');
+    if (g == 'Group F') return l10n.tr('add_teams_group_f');
+    if (g == 'Group G') return l10n.tr('add_teams_group_g');
+    if (g == 'Group H') return l10n.tr('add_teams_group_h');
+    return g;
+  }
+
   List<String> _allowedGroupsForUclGroup(League league) {
     // Enforce your supported sizes:
     // - 16 teams => 4 groups (A–D)
@@ -237,7 +250,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       final msg = groupId == null
           ? l10n.tr('league_admin_added_participant')
-          : '${l10n.tr('league_admin_added_participant_in_group_prefix')} $groupId.';
+          : '${l10n.tr('league_admin_added_participant_in_group_prefix')} ${_groupDisplayName(l10n, groupId)}.';
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -536,7 +549,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           context,
           Icons.spatial_audio_off,
           spaceLive ? l10n.tr('league_admin_league_space_live') : l10n.tr('league_admin_league_space_voice_room'),
-          spaceLive ? l10n.tr('league_admin_league_space_live_subtitle') : l10n.tr('league_admin_league_space_voice_room_subtitle'),
+          spaceLive
+              ? l10n.tr('league_admin_league_space_live_subtitle')
+              : l10n.tr('league_admin_league_space_voice_room_subtitle'),
           onTap: _showLeagueSpaceAdminSheet,
         ),
         _buildSettingsTile(
@@ -743,7 +758,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               Expanded(
                                 child: TextButton(
                                   onPressed: () => Navigator.of(ctx).pop(),
-                                  child: Text(l10n.tr('profile_close_tooltip'), style: const TextStyle(color: Colors.white70)),
+                                  child: Text(l10n.tr('profile_close_tooltip'),
+                                      style: const TextStyle(color: Colors.white70)),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -876,7 +892,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   final msg = messageController.text.trim();
                                   if (msg.isEmpty) return;
 
-                                  final title = rawTitle.isEmpty ? l10n.tr('league_admin_announcement_default_title') : rawTitle;
+                                  final title =
+                                      rawTitle.isEmpty ? l10n.tr('league_admin_announcement_default_title') : rawTitle;
                                   final now = DateTime.now().millisecondsSinceEpoch;
 
                                   final ann = LeagueAnnouncement(

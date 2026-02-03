@@ -1,29 +1,19 @@
 const Map<String, Map<String, String>> appLocalizationsPart8 = {
   'ar': {
-    'common_later': 'لاحقًا',
-    'common_pay_now': 'ادفع الآن',
-    'common_paste': 'لصق',
-    'common_continue': 'متابعة',
-    'common_open': 'فتح',
-    'common_done': 'تم',
-    'common_retry': 'إعادة المحاولة',
-    'common_copy': 'نسخ',
+    'common_add': 'إضافة',
 
     'qr_scanner_permission_error_prefix': 'خطأ في الإذن: ',
     'qr_scanner_failed_start_camera_prefix': 'فشل تشغيل الكاميرا: ',
     'qr_scanner_invalid_qr_join_code': 'رمز QR / كود الانضمام غير صالح.',
     'qr_scanner_join_failed_prefix': 'فشل الانضمام: ',
     'qr_scanner_payment_failed': 'فشلت عملية الدفع',
-
     'qr_scanner_join_mode_title': 'انضم إلى الدوري كـ...',
     'qr_scanner_join_code_prefix': 'رمز الانضمام: ',
     'qr_scanner_join_mode_participant_title': 'مشارك',
     'qr_scanner_join_mode_participant_subtitle': 'سيتم احتسابك كمشارك في هذا الدوري.',
     'qr_scanner_join_mode_viewer_title': 'مشاهد فقط',
     'qr_scanner_join_mode_viewer_subtitle': 'يمكنك تصفح الدوري، لكن لن تُحسب كمشارك.',
-
     'qr_scanner_joined_league_placeholder_name': 'دوري منضم',
-
     'qr_scanner_notice_viewer_but_already_added_team_assigned':
         'اخترت مشاهد، لكن المنظم أضافك بالفعل كمشارك (تم تعيين فريق).',
     'qr_scanner_notice_already_added_team_assigned': 'تمت إضافتك بالفعل بواسطة المنظم (تم تعيين فريق).',
@@ -32,19 +22,16 @@ const Map<String, Map<String, String>> appLocalizationsPart8 = {
     'qr_scanner_notice_already_registered': 'أنت مسجل بالفعل في هذا الدوري.',
     'qr_scanner_notice_league_full_joined_viewer_only': 'الدوري ممتلئ. انضممت كمشاهد فقط (لن تُحسب كمشارك).',
     'qr_scanner_notice_joined_viewer_only': 'انضممت كمشاهد فقط (لن تُحسب كمشارك).',
-
     'qr_scanner_unlock_dialog_title': 'فتح المباريات والترتيب',
     'qr_scanner_unlock_dialog_content_prefix':
         'يتطلب هذا الدوري رسومًا لعرض المباريات والترتيب.\n\nالدوري: ',
     'qr_scanner_unlock_dialog_content_suffix':
         '\n\nادفع الآن للفتح، أو اختر لاحقًا وادفع عند فتح المباريات/الترتيب.',
-
     'qr_scanner_manual_entry_title': 'إدخال رمز الانضمام',
     'qr_scanner_manual_entry_subtitle': 'الصق رمز الانضمام (حروف/أرقام) من المنظم.',
     'qr_scanner_join_code_hint': 'مثال: ABC123',
     'qr_scanner_enter_code_instead': 'إدخال الرمز بدلًا من ذلك',
     'qr_scanner_enter_code': 'أدخل الرمز',
-
     'qr_scanner_joined_appbar_title': 'تم الانضمام إلى الدوري',
     'qr_scanner_joined_line_viewer': 'انضممت كمشاهد (لن تُحسب كمشارك).',
     'qr_scanner_joined_line_participant': 'انضممت كمشارك.',
@@ -52,22 +39,17 @@ const Map<String, Map<String, String>> appLocalizationsPart8 = {
     'qr_scanner_can_open_league_message': 'يمكنك فتح الدوري الآن.',
     'qr_scanner_unlock_now': 'افتح الآن',
     'qr_scanner_teams_suffix': 'فرق',
-
     'qr_scanner_camera_not_available': 'الكاميرا غير متاحة',
-
     'qr_scanner_torch_on_tooltip': 'تشغيل الفلاش',
     'qr_scanner_torch_off_tooltip': 'إيقاف الفلاش',
     'qr_scanner_switch_camera_tooltip': 'تبديل الكاميرا',
-
     'qr_scanner_center_qr_instruction': 'ضع رمز QR في منتصف الإطار',
     'qr_scanner_camera_permission_required': 'مطلوب إذن الكاميرا',
-
     'qr_scanner_allow_camera_access_title': 'السماح بالوصول إلى الكاميرا',
     'qr_scanner_allow_camera_access_description':
         'لمسح رموز QR للدوري، فعّل إذن الكاميرا.\n\nأو اضغط على "أدخل الرمز" للانضمام يدويًا.',
     'qr_scanner_open_settings': 'فتح الإعدادات',
     'qr_scanner_grant_permission': 'منح الإذن',
-
     'qr_scanner_scan_again': 'مسح مرة أخرى',
 
     'match_detail_appbar_title': 'تفاصيل المباراة',
@@ -104,32 +86,96 @@ const Map<String, Map<String, String>> appLocalizationsPart8 = {
     'league_flip_card_tap_to_join_scan_qr': 'اضغط للانضمام / امسح QR',
     'league_flip_card_double_tap_to_view_details': 'انقر مرتين لعرض تفاصيل الدوري',
     'league_flip_card_invite_code_label': 'رمز الدعوة',
+
+    'add_teams_appbar_title_prefix': 'إضافة الفرق',
+    'add_teams_header_title': 'إضافة لاعبين (حسب UserId)',
+    'add_teams_format_classic': 'كلاسيكي',
+    'add_teams_format_ucl_group': 'مجموعات UCL',
+    'add_teams_format_ucl_swiss': 'سويس UCL',
+    'add_teams_unlock_group': 'يمكنك الحفظ في أي وقت. تُفتح المباريات عند 16 أو 32 فريقًا بالضبط.',
+    'add_teams_unlock_swiss': 'يمكنك الحفظ في أي وقت. تُفتح المباريات عند 18 أو 36 فريقًا بالضبط.',
+    'add_teams_unlock_classic': 'يمكنك الحفظ في أي وقت. تُفتح المباريات عند فريقين أو أكثر.',
+    'add_teams_league_pool': 'مجموعة الدوري',
+    'add_teams_unassigned': 'غير مخصص',
+    'add_teams_max_teams_error_prefix': 'الحد الأقصى',
+    'add_teams_max_teams_error_suffix': 'فرق مسموح بها لهذا النظام.',
+    'add_teams_user_already_added': 'تمت إضافة هذا المستخدم بالفعل إلى هذا الدوري.',
+    'add_teams_add_players_title': 'إضافة لاعبين',
+    'add_teams_saved_prefix': 'محفوظ: ',
+    'add_teams_new_prefix': 'جديد: ',
+    'add_teams_add_one_player': 'إضافة لاعب واحد',
+    'add_teams_paste_list': 'لصق قائمة',
+    'add_teams_import_csv': 'استيراد قائمة CSV',
+    'add_teams_add_player_by_userid_title': 'إضافة لاعب بواسطة UserId',
+    'add_teams_userid_hint': 'eS44e35f  (أو Firebase uid)',
+    'add_teams_lookup_tooltip': 'بحث',
+    'add_teams_resolved_profile_title': 'الملف الشخصي الذي تم العثور عليه',
+    'add_teams_uid_prefix': 'uid: ',
+    'add_teams_will_be_placed_in_prefix': 'سيتم وضعه في: ',
+    'add_teams_no_profile_found_help':
+        'لم يتم العثور على ملف شخصي لهذا UserId. اطلب من اللاعب تسجيل الدخول مرة واحدة ومشاركة UserId (eSxxxxxx).',
+    'add_teams_lookup_failed_prefix': 'فشل البحث:',
+    'add_teams_paste_userids_title': 'لصق UserIds',
+    'add_teams_paste_userids_subtitle':
+        'الصق واحدًا في كل سطر (أو مفصولًا بفواصل). استخدم UserId القصير (eSxxxxxx) أو Firebase uid.',
+    'add_teams_paste_hint': 'eS44e35f\neS91a2b3\nuid_3',
+    'add_teams_paste_at_least_one_userid': 'الصق UserId واحدًا على الأقل.',
+    'add_teams_validation_failed_prefix': 'فشل التحقق:',
+    'add_teams_clear': 'مسح',
+    'add_teams_validate': 'تحقق',
+    'add_teams_bulk_ok_prefix': 'صحيح: ',
+    'add_teams_bulk_not_found_prefix': 'غير موجود: ',
+    'add_teams_no_profile_found_short': 'لم يتم العثور على ملف شخصي',
+    'add_teams_add_valid': 'إضافة الصالحين',
+    'add_teams_saved_toast': 'تم حفظ الفرق.',
+    'add_teams_cannot_generate_group_prefix':
+        'لا يمكن إنشاء المباريات: تتطلب مجموعات UCL بالضبط 16 أو 32 فريقًا. الحالي: ',
+    'add_teams_cannot_generate_swiss_prefix':
+        'لا يمكن إنشاء المباريات: يتطلب النظام السويسري بالضبط 18 أو 36 فريقًا. الحالي: ',
+    'add_teams_cannot_generate_classic_prefix':
+        'لا يمكن إنشاء المباريات: يتطلب النظام الكلاسيكي فريقين على الأقل. الحالي: ',
+    'add_teams_swiss_fixtures_already_exist':
+        'مباريات النظام السويسري موجودة بالفعل. أنشئ الجولات اللاحقة من مولّد الجولات السويسرية.',
+    'add_teams_regenerate_fixtures_title': 'إعادة إنشاء المباريات؟',
+    'add_teams_regenerate_fixtures_message':
+        'المباريات موجودة بالفعل. إعادة الإنشاء ستعيد ضبط جميع نتائج المباريات.\n\nمتابعة؟',
+    'add_teams_regenerate': 'إعادة إنشاء',
+    'add_teams_invalid_group_structure_prefix': 'هيكل المجموعات غير صالح. لـ',
+    'add_teams_invalid_group_structure_suffix':
+        'فرق يجب أن يكون لديك مجموعات من 4 مع أسماء مجموعات صحيحة.',
+    'add_teams_failed_generate_fixtures': 'فشل إنشاء المباريات.',
+    'add_teams_fixtures_generated_prefix': 'تم إنشاء المباريات (',
+    'add_teams_fixtures_generated_suffix': ' مباراة).',
+    'add_teams_current_group': 'المجموعة الحالية',
+    'add_teams_review_teams': 'مراجعة الفرق',
+    'add_teams_empty_state':
+        'لا توجد فرق بعد.\nاضغط "إضافة لاعب واحد" أو "لصق قائمة" أو "استيراد قائمة CSV".',
+    'add_teams_label_saved': 'محفوظ',
+    'add_teams_label_new': 'جديد',
+    'add_teams_save_teams': 'حفظ الفرق',
+    'add_teams_generate_fixtures': 'إنشاء المباريات',
+    'add_teams_team_details_title': 'تفاصيل الفريق',
+    'add_teams_team_name_label': 'اسم الفريق',
+    'add_teams_uid_internal_label': 'uid (داخلي)',
+    'add_teams_group_label': 'المجموعة',
+    'add_teams_save_changes': 'حفظ التغييرات',
+    'add_teams_remove_team': 'إزالة الفريق',
   },
   'he': {
-    'common_later': 'אחר כך',
-    'common_pay_now': 'שלם עכשיו',
-    'common_paste': 'הדבק',
-    'common_continue': 'המשך',
-    'common_open': 'פתח',
-    'common_done': 'סיום',
-    'common_retry': 'נסה שוב',
-    'common_copy': 'העתק',
+    'common_add': 'הוסף',
 
     'qr_scanner_permission_error_prefix': 'שגיאת הרשאה: ',
     'qr_scanner_failed_start_camera_prefix': 'הפעלת המצלמה נכשלה: ',
     'qr_scanner_invalid_qr_join_code': 'קוד QR / קוד הצטרפות לא תקין.',
     'qr_scanner_join_failed_prefix': 'ההצטרפות נכשלה: ',
     'qr_scanner_payment_failed': 'התשלום נכשל',
-
     'qr_scanner_join_mode_title': 'הצטרף לליגה כ...',
     'qr_scanner_join_code_prefix': 'קוד הצטרפות: ',
     'qr_scanner_join_mode_participant_title': 'משתתף',
     'qr_scanner_join_mode_participant_subtitle': 'תיספר כמשתתף בליגה הזו.',
     'qr_scanner_join_mode_viewer_title': 'צופה בלבד',
     'qr_scanner_join_mode_viewer_subtitle': 'תוכל לעיין בליגה, אך לא תיספר כמשתתף.',
-
     'qr_scanner_joined_league_placeholder_name': 'ליגה שהצטרפת אליה',
-
     'qr_scanner_notice_viewer_but_already_added_team_assigned':
         'בחרת צופה, אך כבר נוספת ע"י המארגן כמשתתף (קבוצה הוקצתה).',
     'qr_scanner_notice_already_added_team_assigned': 'כבר נוספת ע"י המארגן (קבוצה הוקצתה).',
@@ -138,19 +184,16 @@ const Map<String, Map<String, String>> appLocalizationsPart8 = {
     'qr_scanner_notice_already_registered': 'אתה כבר רשום בליגה הזו.',
     'qr_scanner_notice_league_full_joined_viewer_only': 'הליגה מלאה. הצטרפת כצופה בלבד (לא תיספר כמשתתף).',
     'qr_scanner_notice_joined_viewer_only': 'הצטרפת כצופה בלבד (לא תיספר כמשתתף).',
-
     'qr_scanner_unlock_dialog_title': 'פתח משחקים וטבלה',
     'qr_scanner_unlock_dialog_content_prefix':
         'ליגה זו דורשת תשלום כדי לצפות במשחקים ובטבלה.\n\nליגה: ',
     'qr_scanner_unlock_dialog_content_suffix':
         '\n\nשלם עכשיו כדי לפתוח, או בחר "אחר כך" ושלם כשתפתח משחקים/טבלה.',
-
     'qr_scanner_manual_entry_title': 'הזן קוד הצטרפות',
     'qr_scanner_manual_entry_subtitle': 'הדבק את קוד ההצטרפות (אותיות/מספרים) מהמארגן.',
     'qr_scanner_join_code_hint': 'לדוגמה ABC123',
     'qr_scanner_enter_code_instead': 'הזן קוד במקום',
     'qr_scanner_enter_code': 'הזן קוד',
-
     'qr_scanner_joined_appbar_title': 'הצטרפת לליגה',
     'qr_scanner_joined_line_viewer': 'הצטרפת כצופה (לא תיספר כמשתתף).',
     'qr_scanner_joined_line_participant': 'הצטרפת כמשתתף.',
@@ -158,22 +201,17 @@ const Map<String, Map<String, String>> appLocalizationsPart8 = {
     'qr_scanner_can_open_league_message': 'אפשר לפתוח את הליגה עכשיו.',
     'qr_scanner_unlock_now': 'פתח עכשיו',
     'qr_scanner_teams_suffix': 'קבוצות',
-
     'qr_scanner_camera_not_available': 'המצלמה לא זמינה',
-
     'qr_scanner_torch_on_tooltip': 'פנס דולק',
     'qr_scanner_torch_off_tooltip': 'פנס כבוי',
     'qr_scanner_switch_camera_tooltip': 'החלף מצלמה',
-
     'qr_scanner_center_qr_instruction': 'מקם את קוד ה‑QR במרכז המסגרת',
     'qr_scanner_camera_permission_required': 'נדרשת הרשאת מצלמה',
-
     'qr_scanner_allow_camera_access_title': 'אפשר גישה למצלמה',
     'qr_scanner_allow_camera_access_description':
         'כדי לסרוק קודי QR של ליגות, אפשר הרשאת מצלמה.\n\nאו לחץ "הזן קוד" כדי להצטרף ידנית.',
     'qr_scanner_open_settings': 'פתח הגדרות',
     'qr_scanner_grant_permission': 'תן הרשאה',
-
     'qr_scanner_scan_again': 'סרוק שוב',
 
     'match_detail_appbar_title': 'פרטי משחק',
@@ -210,5 +248,79 @@ const Map<String, Map<String, String>> appLocalizationsPart8 = {
     'league_flip_card_tap_to_join_scan_qr': 'הקש כדי להצטרף / סרוק QR',
     'league_flip_card_double_tap_to_view_details': 'הקש פעמיים כדי לצפות בפרטי הליגה',
     'league_flip_card_invite_code_label': 'קוד הזמנה',
+
+    'add_teams_appbar_title_prefix': 'הוסף קבוצות',
+    'add_teams_header_title': 'הוסף שחקנים (לפי UserId)',
+    'add_teams_format_classic': 'קלאסי',
+    'add_teams_format_ucl_group': 'בתים (UCL)',
+    'add_teams_format_ucl_swiss': 'שוויצרי (UCL)',
+    'add_teams_unlock_group': 'אפשר לשמור בכל עת. המשחקים נפתחים בדיוק ב‑16 או 32 קבוצות.',
+    'add_teams_unlock_swiss': 'אפשר לשמור בכל עת. המשחקים נפתחים בדיוק ב‑18 או 36 קבוצות.',
+    'add_teams_unlock_classic': 'אפשר לשמור בכל עת. המשחקים נפתחים ב‑2+ קבוצות.',
+    'add_teams_league_pool': 'מאגר הליגה',
+    'add_teams_unassigned': 'לא משויך',
+    'add_teams_max_teams_error_prefix': 'מקסימום',
+    'add_teams_max_teams_error_suffix': 'קבוצות מותרות לפורמט הזה.',
+    'add_teams_user_already_added': 'המשתמש הזה כבר נוסף לליגה.',
+    'add_teams_add_players_title': 'הוסף שחקנים',
+    'add_teams_saved_prefix': 'נשמרו: ',
+    'add_teams_new_prefix': 'חדשים: ',
+    'add_teams_add_one_player': 'הוסף שחקן אחד',
+    'add_teams_paste_list': 'הדבק רשימה',
+    'add_teams_import_csv': 'ייבוא סגל CSV',
+    'add_teams_add_player_by_userid_title': 'הוסף שחקן לפי UserId',
+    'add_teams_userid_hint': 'eS44e35f  (או Firebase uid)',
+    'add_teams_lookup_tooltip': 'חיפוש',
+    'add_teams_resolved_profile_title': 'פרופיל שנמצא',
+    'add_teams_uid_prefix': 'uid: ',
+    'add_teams_will_be_placed_in_prefix': 'יוצב ב: ',
+    'add_teams_no_profile_found_help':
+        'לא נמצא פרופיל עבור UserId זה. בקש מהשחקן להתחבר פעם אחת ולשתף את ה‑UserId שלו (eSxxxxxx).',
+    'add_teams_lookup_failed_prefix': 'החיפוש נכשל:',
+    'add_teams_paste_userids_title': 'הדבק UserIds',
+    'add_teams_paste_userids_subtitle':
+        'הדבק אחד בכל שורה (או מופרד בפסיקים). השתמש ב‑UserId קצר (eSxxxxxx) או Firebase uid.',
+    'add_teams_paste_hint': 'eS44e35f\neS91a2b3\nuid_3',
+    'add_teams_paste_at_least_one_userid': 'הדבק לפחות UserId אחד.',
+    'add_teams_validation_failed_prefix': 'האימות נכשל:',
+    'add_teams_clear': 'נקה',
+    'add_teams_validate': 'אמת',
+    'add_teams_bulk_ok_prefix': 'תקין: ',
+    'add_teams_bulk_not_found_prefix': 'לא נמצא: ',
+    'add_teams_no_profile_found_short': 'לא נמצא פרופיל',
+    'add_teams_add_valid': 'הוסף תקינים',
+    'add_teams_saved_toast': 'הקבוצות נשמרו.',
+    'add_teams_cannot_generate_group_prefix':
+        'לא ניתן ליצור משחקים: פורמט בתים דורש בדיוק 16 או 32 קבוצות. נוכחי: ',
+    'add_teams_cannot_generate_swiss_prefix':
+        'לא ניתן ליצור משחקים: פורמט שוויצרי דורש בדיוק 18 או 36 קבוצות. נוכחי: ',
+    'add_teams_cannot_generate_classic_prefix':
+        'לא ניתן ליצור משחקים: פורמט קלאסי דורש לפחות 2 קבוצות. נוכחי: ',
+    'add_teams_swiss_fixtures_already_exist':
+        'משחקי Swiss כבר קיימים. צור סיבובים מאוחרים יותר ממחולל הסיבובים השוויצרי.',
+    'add_teams_regenerate_fixtures_title': 'ליצור מחדש משחקים?',
+    'add_teams_regenerate_fixtures_message':
+        'משחקים כבר קיימים. יצירה מחדש תאפס את כל תוצאות המשחקים.\n\nלהמשיך?',
+    'add_teams_regenerate': 'צור מחדש',
+    'add_teams_invalid_group_structure_prefix': 'מבנה בתים לא תקין. עבור',
+    'add_teams_invalid_group_structure_suffix':
+        'קבוצות חייבים להיות בתים של 4 עם שמות בתים תקינים.',
+    'add_teams_failed_generate_fixtures': 'יצירת המשחקים נכשלה.',
+    'add_teams_fixtures_generated_prefix': 'משחקים נוצרו (',
+    'add_teams_fixtures_generated_suffix': ' משחקים).',
+    'add_teams_current_group': 'הבית הנוכחי',
+    'add_teams_review_teams': 'סקור קבוצות',
+    'add_teams_empty_state':
+        'אין קבוצות עדיין.\nהקש "הוסף שחקן אחד", "הדבק רשימה" או "ייבוא סגל CSV".',
+    'add_teams_label_saved': 'נשמר',
+    'add_teams_label_new': 'חדש',
+    'add_teams_save_teams': 'שמור קבוצות',
+    'add_teams_generate_fixtures': 'צור משחקים',
+    'add_teams_team_details_title': 'פרטי קבוצה',
+    'add_teams_team_name_label': 'שם הקבוצה',
+    'add_teams_uid_internal_label': 'uid (פנימי)',
+    'add_teams_group_label': 'בית',
+    'add_teams_save_changes': 'שמור שינויים',
+    'add_teams_remove_team': 'הסר קבוצה',
   },
 };

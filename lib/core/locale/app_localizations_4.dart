@@ -480,5 +480,54 @@ const Map<String, Map<String, String>> appLocalizationsPart4 = {
     'league_flip_card_tap_to_join_scan_qr': 'Tap to join / scan QR',
     'league_flip_card_double_tap_to_view_details': 'Double tap to view league details',
     'league_flip_card_invite_code_label': 'Invite code',
+
+    'battery_opt_title': 'Fix Background Streaming (Battery Optimization)',
+    'battery_opt_device_prefix': 'Device: ',
+    'battery_opt_android': 'Android',
+    'battery_opt_intro':
+        'If your stream stops when you open the game, your phone is killing the app in background.\nDo these steps once:',
+    'battery_opt_quick_buttons': 'Quick buttons:',
+    'battery_opt_request_ignore_btn': 'REQUEST “IGNORE BATTERY OPTIMIZATION”',
+    'battery_opt_open_battery_settings_btn': 'OPEN BATTERY OPTIMIZATION SETTINGS',
+    'battery_opt_open_app_settings_btn': 'OPEN APP SETTINGS (AUTO-START / BACKGROUND)',
+    'battery_opt_notes_title': 'Notes:',
+    'battery_opt_notes_body':
+        '• Some games block screen capture (protected content). In that case viewers may see black screen.\n'
+            '• Keep the streaming notification ON while broadcasting.\n'
+            '• For best results, don’t “Force stop” the app during a live stream.',
+    'battery_opt_close': 'Close',
+
+    'battery_opt_steps_samsung': '''
+Samsung:
+1) Settings → Battery and device care → Battery
+2) Background usage limits → Never sleeping apps → add this app
+3) Also check: Settings → Apps → (this app) → Battery → Allow background activity
+''',
+    'battery_opt_steps_huawei': '''
+Huawei / Honor:
+1) Settings → Battery → App launch
+2) Find this app → set to “Manage manually”
+3) Enable: Auto-launch, Secondary launch, Run in background
+''',
+    'battery_opt_steps_oppo': '''
+OPPO / realme / OnePlus:
+1) Settings → Battery → More battery settings / App battery management
+2) Find this app → Allow background activity
+3) Also enable Auto-launch (often in: Settings → Apps → Auto-start)
+''',
+    'battery_opt_steps_transsion': '''
+Infinix / Tecno / itel (HiOS/XOS):
+1) Settings → Battery / Power Marathon → turn OFF aggressive saving for this app
+2) Settings → Apps → (this app) → Battery → Allow background activity
+3) Enable Auto-start / Background launch if available
+4) Also whitelist the app in “Phone Master” / “Device Manager”
+''',
+    'battery_opt_steps_generic': '''
+Generic Android:
+1) Settings → Battery → Battery optimization
+2) Find this app → set to “Don’t optimize”
+3) Settings → Apps → (this app) → Battery → Allow background activity
+4) If you have Auto-start settings, enable it for this app
+''',
   },
 };

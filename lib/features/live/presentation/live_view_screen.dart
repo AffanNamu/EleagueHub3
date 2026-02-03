@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -20,6 +21,11 @@ import 'widgets/live_floating_quick_message.dart';
 
 enum _PrimarySide { home, away }
 enum _ViewerLayoutMode { single, dual }
+
+String _trOr(AppLocalizations l10n, String key, String fallback) {
+  final v = l10n.tr(key);
+  return v == key ? fallback : v;
+}
 
 class LiveViewScreen extends ConsumerStatefulWidget {
   const LiveViewScreen({
@@ -79,22 +85,35 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   String? _incomingQuickText;
   String? _incomingQuickFrom;
 
-  static const List<String> _quickMessages = <String>[
-    'Focus!',
-    'Calm down',
-    'We got this',
-    'One more goal!',
-    'Don’t give up',
-    'Sorry',
-    'Unlucky',
-    'What a goal!',
-    'Ref??',
-  ];
+  List<String> _quickMessages(AppLocalizations l10n) {
+    return <String>[
+      _trOr(l10n, 'live_view_quick_focus', 'Focus!'),
+      _trOr(l10n, 'live_view_quick_calm_down', 'Calm down'),
+      _trOr(l10n, 'live_view_quick_we_got_this', 'We got this'),
+      _trOr(l10n, 'live_view_quick_one_more_goal', 'One more goal!'),
+      _trOr(l10n, 'live_view_quick_dont_give_up', 'Don’t give up'),
+      _trOr(l10n, 'live_view_quick_sorry', 'Sorry'),
+      _trOr(l10n, 'live_view_quick_unlucky', 'Unlucky'),
+      _trOr(l10n, 'live_view_quick_what_a_goal', 'What a goal!'),
+      _trOr(l10n, 'live_view_quick_ref', 'Ref??'),
+    ];
+  }
 
-  String get _homeLabel =>
-      (widget.homeName?.trim().isNotEmpty == true) ? widget.homeName!.trim() : 'HOME';
-  String get _awayLabel =>
-      (widget.awayName?.trim().isNotEmpty == true) ? widget.awayName!.trim() : 'AWAY';
+  String get _homeLabel {
+    final raw = widget.homeName?.trim() ?? '';
+    if (raw.isNotEmpty) return raw;
+
+    final l10n = context.l10n;
+    return _trOr(l10n, 'live_view_home_label', 'HOME');
+  }
+
+  String get _awayLabel {
+    final raw = widget.awayName?.trim() ?? '';
+    if (raw.isNotEmpty) return raw;
+
+    final l10n = context.l10n;
+    return _trOr(l10n, 'live_view_away_label', 'AWAY');
+  }
 
   LiveHostSide get _mySide => parseLiveHostSide(widget.hostSide);
 
@@ -132,8 +151,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     if (!prefs.liveOverlayEnabled()) return;
 
     try {
-      final bool granted =
-          await _liveChannel.invokeMethod<bool>('isOverlayPermissionGranted') ?? false;
+      final bool granted = await _liveChannel.invokeMethod<bool>('isOverlayPermissionGranted') ?? false;
       if (!granted) return;
       await _liveChannel.invokeMethod('startLiveOverlayBubble');
     } catch (_) {}
@@ -148,13 +166,25 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   Future<void> _startHostForegroundService() async {
     if (!widget.isHost) return;
+
+    final l10n = context.l10n;
+
     try {
-      final title = 'Live: ${_homeLabel.isNotEmpty ? _homeLabel : ''}'
-          '${_awayLabel.isNotEmpty ? ' vs $_awayLabel' : ''}'.trim();
+      final title = '${_trOr(l10n, 'live_view_notification_live_prefix', 'Live: ')}'
+              '${_homeLabel.isNotEmpty ? _homeLabel : ''}'
+              '${_awayLabel.isNotEmpty ? ' ${l10n.tr('match_detail_vs')} $_awayLabel' : ''}'
+          .trim();
+
       await ForegroundStreamingService.start(
         matchId: widget.matchId,
-        title: title.isEmpty ? 'Live match: ${widget.matchId}' : title,
-        text: 'Broadcasting online • Keep app alive in background',
+        title: title.isEmpty
+            ? '${_trOr(l10n, 'live_view_notification_live_match_prefix', 'Live match: ')}${widget.matchId}'
+            : title,
+        text: _trOr(
+          l10n,
+          'live_view_notification_broadcasting_body',
+          'Broadcasting online • Keep app alive in background',
+        ),
       );
     } catch (_) {
       // If this fails, Android may kill the app in background.
@@ -172,9 +202,15 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   Future<void> _connectOnline({required bool publishIfHost}) async {
     if (_busy) return;
 
+    final l10n = context.l10n;
+
     if (_uid.trim().isEmpty) {
       setState(() {
-        _errorText = 'Missing user ID. Please login/restart so current_user_id is set.';
+        _errorText = _trOr(
+          l10n,
+          'live_view_error_missing_user_id',
+          'Missing user ID. Please login/restart so current_user_id is set.',
+        );
       });
       return;
     }
@@ -365,6 +401,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     final room = _room;
     if (room == null) return;
 
+    final l10n = context.l10n;
+
     try {
       await room.localParticipant?.setScreenShareEnabled(enabled);
       if (!mounted) return;
@@ -373,7 +411,11 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       if (!mounted) return;
       setState(() => _hostScreenEnabled = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Screen share failed: $e')),
+        SnackBar(
+          content: Text(
+            '${_trOr(l10n, 'live_view_screen_share_failed_prefix', 'Screen share failed: ')}$e',
+          ),
+        ),
       );
     }
   }
@@ -523,9 +565,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   void _toggleViewerLayoutMode() {
     setState(() {
-      _viewerLayoutMode = _viewerLayoutMode == _ViewerLayoutMode.single
-          ? _ViewerLayoutMode.dual
-          : _ViewerLayoutMode.single;
+      _viewerLayoutMode = _viewerLayoutMode == _ViewerLayoutMode.single ? _ViewerLayoutMode.dual : _ViewerLayoutMode.single;
     });
   }
 
@@ -589,6 +629,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final canSendQuick = widget.isHost && _connected;
 
     if (!widget.isHost && _isFullscreen) {
@@ -615,7 +656,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                 child: IconButton(
                   icon: const Icon(Icons.fullscreen_exit, color: Colors.white),
                   onPressed: _toggleFullscreen,
-                  tooltip: 'Exit full screen',
+                  tooltip: _trOr(l10n, 'live_view_exit_fullscreen_tooltip', 'Exit full screen'),
                 ),
               ),
             ),
@@ -624,23 +665,28 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       );
     }
 
+    final title = widget.isHost
+        ? '${_trOr(l10n, 'live_view_host_title_prefix', 'Host Live (Online) • ')}${widget.matchId}'
+        : '${_trOr(l10n, 'live_view_viewer_title_prefix', 'Live (Online) • ')}$_homeLabel ${l10n.tr('match_detail_vs')} $_awayLabel';
+
     return GlassScaffold(
       appBar: AppBar(
-        title: Text(
-          widget.isHost
-              ? 'Host Live (Online) • ${widget.matchId}'
-              : 'Live (Online) • $_homeLabel vs $_awayLabel',
-        ),
+        title: Text(title),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Copy match info',
+            tooltip: _trOr(l10n, 'live_view_copy_match_info_tooltip', 'Copy match info'),
             onPressed: () {
-              final txt = 'Match: ${widget.matchId}\nRoom: ${_roomName ?? '(not connected)'}';
+              final notConnected = _trOr(l10n, 'live_view_not_connected', '(not connected)');
+              final txt =
+                  '${_trOr(l10n, 'live_view_clipboard_match_prefix', 'Match: ')}${widget.matchId}\n'
+                  '${_trOr(l10n, 'live_view_clipboard_room_prefix', 'Room: ')}${_roomName ?? notConnected}';
               Clipboard.setData(ClipboardData(text: txt));
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Copied match info')),
+                SnackBar(
+                  content: Text(_trOr(l10n, 'live_view_copied_match_info_toast', 'Copied match info')),
+                ),
               );
             },
             icon: const Icon(Icons.copy),
@@ -685,7 +731,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
               ),
             LiveFloatingQuickMessage(
               enabled: canSendQuick,
-              messages: _quickMessages,
+              messages: _quickMessages(l10n),
               onSend: _sendQuickToOpponent,
               icon: Icons.message_rounded,
             ),
@@ -696,12 +742,14 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   }
 
   Widget _buildControls(BuildContext context) {
+    final l10n = context.l10n;
+
     if (_errorText != null) {
       return Glass(
         borderRadius: 18,
         padding: const EdgeInsets.all(12),
         child: Text(
-          'Error: $_errorText',
+          '${l10n.tr('common_error_prefix')}: $_errorText',
           style: const TextStyle(color: Colors.redAccent),
         ),
       );
@@ -717,7 +765,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Room: ${_roomName ?? '...'} • side: ${liveHostSideToWire(_mySide)}',
+              '${_trOr(l10n, 'live_view_room_prefix', 'Room: ')}${_roomName ?? '...'} • '
+              '${_trOr(l10n, 'live_view_side_prefix', 'side: ')}${liveHostSideToWire(_mySide)}',
               style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
             const SizedBox(height: 10),
@@ -727,7 +776,13 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                   child: FilledButton.icon(
                     onPressed: _busy || started ? null : () => _connectOnline(publishIfHost: true),
                     icon: const Icon(Icons.cast),
-                    label: Text(_busy ? 'Starting...' : (started ? 'Broadcasting' : 'Start Broadcast')),
+                    label: Text(
+                      _busy
+                          ? _trOr(l10n, 'live_view_host_starting', 'Starting...')
+                          : (started
+                              ? _trOr(l10n, 'live_view_host_broadcasting', 'Broadcasting')
+                              : _trOr(l10n, 'live_view_host_start_broadcast', 'Start Broadcast')),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -741,7 +796,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                             if (mounted) setState(() => _busy = false);
                           },
                     icon: const Icon(Icons.stop),
-                    label: const Text('Stop'),
+                    label: Text(_trOr(l10n, 'live_view_host_stop', 'Stop')),
                   ),
                 ),
               ],
@@ -767,7 +822,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                   onPressed: started ? _toggleHostScreenShare : null,
                   style: IconButton.styleFrom(backgroundColor: Colors.white12),
                   icon: Icon(_hostScreenEnabled ? Icons.screen_share : Icons.stop_screen_share, color: Colors.white),
-                  tooltip: _hostScreenEnabled ? 'Stop screen share' : 'Start screen share',
+                  tooltip: _hostScreenEnabled
+                      ? _trOr(l10n, 'live_view_host_stop_screen_share', 'Stop screen share')
+                      : _trOr(l10n, 'live_view_host_start_screen_share', 'Start screen share'),
                 ),
               ],
             ),
@@ -775,7 +832,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
             OutlinedButton.icon(
               onPressed: () => BatteryOptimizationGuide.show(context),
               icon: const Icon(Icons.battery_alert_outlined),
-              label: const Text('Battery / Background Help'),
+              label: Text(_trOr(l10n, 'live_view_battery_background_help', 'Battery / Background Help')),
             ),
           ],
         ),
@@ -825,7 +882,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                           }
                         },
                   icon: const Icon(Icons.logout),
-                  label: const Text('Leave'),
+                  label: Text(_trOr(l10n, 'live_view_leave', 'Leave')),
                 ),
               ),
             ],
@@ -838,7 +895,11 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                   child: FilledButton.icon(
                     onPressed: _busy ? null : () => _connectOnline(publishIfHost: false),
                     icon: const Icon(Icons.refresh),
-                    label: Text(_busy ? 'Connecting...' : 'Reconnect'),
+                    label: Text(
+                      _busy
+                          ? _trOr(l10n, 'live_view_connecting', 'Connecting...')
+                          : _trOr(l10n, 'live_view_reconnect', 'Reconnect'),
+                    ),
                   ),
                 ),
               ],
@@ -849,6 +910,10 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   }
 
   Widget _buildStreamArea(BuildContext context) {
+    final l10n = context.l10n;
+
+    final waitingShort = _trOr(l10n, 'live_view_waiting_short', 'Waiting…');
+
     // Prefer real LiveKit sources:
     final homeScreen = _remoteVideoForSide(LiveHostSide.home, TrackSource.screenShareVideo);
     final awayScreen = _remoteVideoForSide(LiveHostSide.away, TrackSource.screenShareVideo);
@@ -867,34 +932,32 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       final rightTrack = (mySide == LiveHostSide.home) ? awayCam : localCam;
 
       return _GamerStreamLayout(
-        matchTitle: '$_homeLabel vs $_awayLabel',
+        matchTitle: '$_homeLabel ${l10n.tr('match_detail_vs')} $_awayLabel',
         screenTrack: main,
         camLeft: leftTrack,
         camRight: rightTrack,
         leftLabel: _homeLabel,
         rightLabel: _awayLabel,
-        leftHint: (mySide == LiveHostSide.away && leftTrack == null) ? 'Waiting…' : null,
-        rightHint: (mySide == LiveHostSide.home && rightTrack == null) ? 'Waiting…' : null,
+        leftHint: (mySide == LiveHostSide.away && leftTrack == null) ? waitingShort : null,
+        rightHint: (mySide == LiveHostSide.home && rightTrack == null) ? waitingShort : null,
         primary: _primary,
         onTapLeft: () => setState(() => _primary = _PrimarySide.home),
         onTapRight: () => setState(() => _primary = _PrimarySide.away),
       );
     }
 
-    final primaryScreen = (_primary == _PrimarySide.home)
-        ? (homeScreen ?? homeCam)
-        : (awayScreen ?? awayCam);
+    final primaryScreen = (_primary == _PrimarySide.home) ? (homeScreen ?? homeCam) : (awayScreen ?? awayCam);
 
     if (_viewerLayoutMode == _ViewerLayoutMode.single) {
       return _GamerStreamLayout(
-        matchTitle: '$_homeLabel vs $_awayLabel',
+        matchTitle: '$_homeLabel ${l10n.tr('match_detail_vs')} $_awayLabel',
         screenTrack: primaryScreen,
         camLeft: homeCam,
         camRight: awayCam,
         leftLabel: _homeLabel,
         rightLabel: _awayLabel,
-        leftHint: (homeScreen == null && homeCam == null) ? 'Waiting…' : null,
-        rightHint: (awayScreen == null && awayCam == null) ? 'Waiting…' : null,
+        leftHint: (homeScreen == null && homeCam == null) ? waitingShort : null,
+        rightHint: (awayScreen == null && awayCam == null) ? waitingShort : null,
         primary: _primary,
         onTapLeft: () => setState(() => _primary = _PrimarySide.home),
         onTapRight: () => setState(() => _primary = _PrimarySide.away),
@@ -902,7 +965,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     }
 
     return _DualViewerStreamLayout(
-      matchTitle: '$_homeLabel vs $_awayLabel',
+      matchTitle: '$_homeLabel ${l10n.tr('match_detail_vs')} $_awayLabel',
       homeMain: homeScreen ?? homeCam,
       awayMain: awayScreen ?? awayCam,
       homeCam: homeCam,
@@ -990,6 +1053,10 @@ class _DualViewerStreamLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final waitingForPrefix = _trOr(l10n, 'live_view_waiting_for_prefix', 'Waiting for ');
+    final camHint = _trOr(l10n, 'live_view_cam_hint', 'Cam…');
+
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(10),
@@ -1028,11 +1095,8 @@ class _DualViewerStreamLayout extends StatelessWidget {
                             ? VideoTrackRenderer(homeMain!)
                             : Center(
                                 child: Text(
-                                  'Waiting for $homeLabel…',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleSmall
-                                      ?.copyWith(color: Colors.white70),
+                                  '$waitingForPrefix$homeLabel…',
+                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white70),
                                 ),
                               ),
                       ),
@@ -1051,11 +1115,8 @@ class _DualViewerStreamLayout extends StatelessWidget {
                             ? VideoTrackRenderer(awayMain!)
                             : Center(
                                 child: Text(
-                                  'Waiting for $awayLabel…',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleSmall
-                                      ?.copyWith(color: Colors.white70),
+                                  '$waitingForPrefix$awayLabel…',
+                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white70),
                                 ),
                               ),
                       ),
@@ -1072,14 +1133,14 @@ class _DualViewerStreamLayout extends StatelessWidget {
               _CircularCam(
                 label: homeLabel,
                 track: homeCam,
-                hint: homeCam == null ? 'Cam…' : null,
+                hint: homeCam == null ? camHint : null,
                 selected: false,
                 onTap: () {},
               ),
               _CircularCam(
                 label: awayLabel,
                 track: awayCam,
-                hint: awayCam == null ? 'Cam…' : null,
+                hint: awayCam == null ? camHint : null,
                 selected: false,
                 onTap: () {},
               ),
@@ -1123,6 +1184,9 @@ class _GamerStreamLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final waitingForStream = _trOr(l10n, 'live_view_waiting_for_stream', 'Waiting for stream…');
+
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(10),
@@ -1137,11 +1201,8 @@ class _GamerStreamLayout extends StatelessWidget {
                     ? VideoTrackRenderer(screenTrack!)
                     : Center(
                         child: Text(
-                          'Waiting for stream…',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
-                              ?.copyWith(color: Colors.white70),
+                          waitingForStream,
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white70),
                         ),
                       ),
               ),
