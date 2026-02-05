@@ -9,6 +9,7 @@ class BootstrapScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final onBg = Theme.of(context).colorScheme.onBackground;
 
     return GlassScaffold(
       body: Center(
@@ -19,7 +20,7 @@ class BootstrapScreen extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               l10n.authBootstrapLoading,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white70),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: onBg.withOpacity(0.75)),
             ),
           ],
         ),

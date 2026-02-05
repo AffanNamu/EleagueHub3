@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/auth_service.dart';
@@ -82,10 +83,43 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  InputDecoration _fieldDecoration({
+    required bool isLight,
+    required String label,
+  }) {
+    final base = isLight ? AppTheme.navyBg : Colors.white;
+    final borderColor = isLight ? AppTheme.navyBg.withOpacity(0.18) : Colors.white.withOpacity(0.18);
+
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(color: base.withOpacity(0.75)),
+      filled: true,
+      fillColor: isLight ? Colors.black.withOpacity(0.04) : Colors.white.withOpacity(0.04),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: Theme.of(context).colorScheme.primary.withOpacity(0.85), width: 1.4),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final t = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final t = theme.textTheme;
+
+    final isLight = theme.brightness == Brightness.light;
+
+    final titleColor = isLight ? AppTheme.navyBg : Colors.white;
+    final bodyColor = isLight ? AppTheme.navyBg.withOpacity(0.72) : Colors.white70;
+    final fieldTextColor = isLight ? AppTheme.navyBg : Colors.white;
+
+    final cardFill = isLight ? Colors.white.withOpacity(0.82) : null;
+    final cardStroke = isLight ? AppTheme.navyBg.withOpacity(0.12) : null;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -99,6 +133,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Glass(
+              fill: cardFill,
+              stroke: cardStroke,
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -106,89 +142,59 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   children: [
                     Text(
                       l10n.onboardingHeader,
-                      style: t.titleLarge?.copyWith(fontWeight: FontWeight.w900, color: Colors.white),
+                      style: t.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: titleColor,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
                     Text(
                       l10n.onboardingDescription,
-                      style: t.bodySmall?.copyWith(color: Colors.white70, height: 1.35),
+                      style: t.bodySmall?.copyWith(
+                        color: bodyColor,
+                        height: 1.35,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 14),
                     TextField(
                       controller: _teamName,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: l10n.onboardingTeamNameLabel,
-                        labelStyle: const TextStyle(color: Colors.white70),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.04),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-                        ),
+                      style: TextStyle(color: fieldTextColor, fontWeight: FontWeight.w600),
+                      cursorColor: theme.colorScheme.primary,
+                      decoration: _fieldDecoration(
+                        isLight: isLight,
+                        label: l10n.onboardingTeamNameLabel,
                       ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _q1,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: l10n.onboardingFavoriteGameLabel,
-                        labelStyle: const TextStyle(color: Colors.white70),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.04),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-                        ),
+                      style: TextStyle(color: fieldTextColor, fontWeight: FontWeight.w600),
+                      cursorColor: theme.colorScheme.primary,
+                      decoration: _fieldDecoration(
+                        isLight: isLight,
+                        label: l10n.onboardingFavoriteGameLabel,
                       ),
                     ),
                     const SizedBox(height: 10),
                     TextField(
                       controller: _q2,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: l10n.onboardingExperienceLevelLabel,
-                        labelStyle: const TextStyle(color: Colors.white70),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.04),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-                        ),
+                      style: TextStyle(color: fieldTextColor, fontWeight: FontWeight.w600),
+                      cursorColor: theme.colorScheme.primary,
+                      decoration: _fieldDecoration(
+                        isLight: isLight,
+                        label: l10n.onboardingExperienceLevelLabel,
                       ),
                     ),
                     const SizedBox(height: 10),
                     TextField(
                       controller: _q3,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: l10n.onboardingRegionLabel,
-                        labelStyle: const TextStyle(color: Colors.white70),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.04),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-                        ),
+                      style: TextStyle(color: fieldTextColor, fontWeight: FontWeight.w600),
+                      cursorColor: theme.colorScheme.primary,
+                      decoration: _fieldDecoration(
+                        isLight: isLight,
+                        label: l10n.onboardingRegionLabel,
                       ),
                     ),
                     const SizedBox(height: 16),

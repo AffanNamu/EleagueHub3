@@ -9,7 +9,7 @@ class Glass extends StatelessWidget {
   const Glass({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16.0), // Added default value
+    this.padding = const EdgeInsets.all(16.0),
     this.borderRadius = 20.0,
     this.blurSigma = 18.0,
     this.fill,
