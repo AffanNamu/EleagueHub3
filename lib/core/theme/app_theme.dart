@@ -19,6 +19,11 @@ class AppTheme {
   static const Color lightSurface = Color(0xFFFAFBFC);
   static const Color lightSurfaceAlt = Color(0xFFF3F6FA);
 
+  // Light-mode glass (keep glassmorphism, but ensure contrast on off-white backgrounds)
+  // Dark-tinted glass so existing "white text on glass" UI remains readable.
+  static const Color _lightGlassFill = Color(0x7A0A1D37); // ~48% navy tint
+  static const Color _lightGlassStroke = Color(0x33FFFFFF); // subtle white edge
+
   // =========================
   // PUBLIC THEME ACCESSORS
   // =========================
@@ -27,7 +32,7 @@ class AppTheme {
   static ThemeData navyTheme() => _darkTheme();
 
   // =========================
-  // LIGHT THEME (OFF-WHITE SURFACES)
+  // LIGHT THEME (OFF-WHITE BACKGROUND)
   // =========================
 
   static ThemeData _lightTheme() {
@@ -36,7 +41,6 @@ class AppTheme {
       brightness: Brightness.light,
     );
 
-    // Keep this compatible across Flutter versions by only using widely available fields.
     final scheme = base.copyWith(
       primary: skyTop,
       secondary: skyTop,
@@ -58,6 +62,31 @@ class AppTheme {
         backgroundColor: Colors.transparent,
         foregroundColor: navyBg,
         elevation: 0,
+      ),
+
+      // Global TextField defaults for LIGHT surfaces (so users can see what they type).
+      // Note: Glass widget may override this locally when used on dark-tinted glass.
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.black.withOpacity(0.04),
+        labelStyle: TextStyle(color: navyBg.withOpacity(0.75)),
+        hintStyle: TextStyle(color: navyBg.withOpacity(0.55)),
+        prefixIconColor: navyBg.withOpacity(0.70),
+        suffixIconColor: navyBg.withOpacity(0.70),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: navyBg.withOpacity(0.18)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: skyTop.withOpacity(0.85), width: 1.4),
+        ),
+      ),
+
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: skyTop,
+        selectionColor: skyTop.withOpacity(0.25),
+        selectionHandleColor: skyTop,
       ),
 
       cardTheme: CardTheme(
@@ -92,6 +121,31 @@ class AppTheme {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
+
+      // Global TextField defaults for DARK surfaces.
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white.withOpacity(0.04),
+        labelStyle: const TextStyle(color: Colors.white70),
+        hintStyle: const TextStyle(color: Colors.white54),
+        prefixIconColor: Colors.white70,
+        suffixIconColor: Colors.white70,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.white24),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: navyAccent, width: 1.4),
+        ),
+      ),
+
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: navyAccent,
+        selectionColor: navyAccent.withOpacity(0.25),
+        selectionHandleColor: navyAccent,
+      ),
+
       cardTheme: CardTheme(
         color: glassFill(Brightness.dark),
         elevation: 0,
@@ -109,11 +163,11 @@ class AppTheme {
 
   /// Glass fill color (semi-transparent)
   static Color glassFill(Brightness b) =>
-      (b == Brightness.dark) ? const Color(0x1AFFFFFF) : const Color(0x26FFFFFF);
+      (b == Brightness.dark) ? const Color(0x1AFFFFFF) : _lightGlassFill;
 
   /// Glass stroke color (border)
   static Color glassStroke(Brightness b) =>
-      (b == Brightness.dark) ? const Color(0x2EFFFFFF) : const Color(0x33FFFFFF);
+      (b == Brightness.dark) ? const Color(0x2EFFFFFF) : _lightGlassStroke;
 
   /// Background gradient for entire scaffold
   ///
