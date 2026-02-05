@@ -283,9 +283,8 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
     }
 
     // ------------------------------------------------------------------
-    // CRITICAL FIX: single-match knockout rounds must not end as a draw
-    // unless a tiebreakWinnerTeamId is provided.
-    // Applies to: R16/QF/SF/Final/3rd Place (NOT Play-off, which can draw in leg 1).
+    // single-match knockout rounds must not end as a draw unless a winner is provided.
+    // Applies to: R16/QF/SF/Final/3rd Place (NOT Play-off).
     // ------------------------------------------------------------------
     if (updatedMatch.roundName != 'Play-off') {
       final hId = updatedMatch.homeTeamId;
@@ -315,7 +314,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
           }
         }
 
-        // Update in local list
         final idx2 = all.indexWhere((m) => m.id == updatedMatch.id);
         if (idx2 != -1) all[idx2] = updatedMatch;
       }
@@ -362,7 +360,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
             final idx2 = all.indexWhere((m) => m.id == updatedMatch.id);
             if (idx2 != -1) all[idx2] = updatedMatch;
           } else {
-            // Not tied -> clear any previously set tiebreak winner.
             if (updatedMatch.tiebreakWinnerTeamId != null) {
               updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: null);
               final idx2 = all.indexWhere((m) => m.id == updatedMatch.id);
@@ -504,6 +501,7 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: _ScoreEntryTile(
+                    key: ValueKey(m.id),
                     match: m,
                     homeName: _teamNames[m.homeTeamId ?? ''] ?? (m.homeTeamId ?? 'TBD'),
                     awayName: _teamNames[m.awayTeamId ?? ''] ?? (m.awayTeamId ?? 'TBD'),
@@ -545,6 +543,19 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     super.initState();
     _homeScore = widget.match.homeScore ?? 0;
     _awayScore = widget.match.awayScore ?? 0;
+  }
+
+  @override
+  void didUpdateWidget(covariant _ScoreEntryTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final newHome = widget.match.homeScore ?? 0;
+    final newAway = widget.match.awayScore ?? 0;
+
+    if (newHome != _homeScore || newAway != _awayScore) {
+      _homeScore = newHome;
+      _awayScore = newAway;
+    }
   }
 
   bool get _isCompleted => widget.match.status == MatchStatus.completed || widget.match.status == MatchStatus.played;

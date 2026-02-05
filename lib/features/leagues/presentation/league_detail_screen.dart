@@ -675,6 +675,65 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ],
           ),
+
+          // ------------------------------
+          // VIEWER / NON-OWNER ACCESS:
+          // Viewer can see bracket ONLY if knockouts have been generated (your "started" condition).
+          // ------------------------------
+          if (!isOwner) ...[
+            const SizedBox(height: 12),
+            if (hasKnockouts)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => context.push('/leagues/${widget.leagueId}/knockout'),
+                  icon: const Icon(Icons.emoji_events_rounded),
+                  label: Text(
+                    l10n.tr('league_details_view_knockout_bracket'),
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  ),
+                ),
+              )
+            else
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: cs.onSurface.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+                ),
+                child: Text(
+                  l10n.tr('league_details_need_knockouts_first'),
+                  style: TextStyle(
+                    color: cs.onSurface.withOpacity(0.72),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+              decoration: BoxDecoration(
+                color: cs.onSurface.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+              ),
+              child: Text(
+                l10n.tr('league_details_view_only_banner'),
+                style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontWeight: FontWeight.w700),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+
           if (isOwner) ...[
             const SizedBox(height: 12),
             SizedBox(
@@ -763,8 +822,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       style: TextButton.styleFrom(
                         foregroundColor: hasKnockouts ? cs.primary : cs.onSurface.withOpacity(0.30),
                       ),
-                      onPressed:
-                          hasKnockouts ? () => context.push('/leagues/${widget.leagueId}/knockout') : showNeedKnockoutsSnack,
+                      onPressed: hasKnockouts ? () => context.push('/leagues/${widget.leagueId}/knockout') : showNeedKnockoutsSnack,
                       icon: const Icon(Icons.account_tree_outlined, size: 18),
                       label: Text(
                         l10n.tr('league_details_view_knockout_bracket'),
@@ -795,22 +853,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 ],
               ),
             ],
-          ] else ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-              decoration: BoxDecoration(
-                color: cs.onSurface.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cs.onSurface.withOpacity(0.12)),
-              ),
-              child: Text(
-                l10n.tr('league_details_view_only_banner'),
-                style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontWeight: FontWeight.w700),
-                textAlign: TextAlign.center,
-              ),
-            ),
           ],
         ],
       ),

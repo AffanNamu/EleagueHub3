@@ -69,32 +69,43 @@ class KnockoutMatch {
     return tiebreakWinnerTeamId;
   }
 
+  /// IMPORTANT:
+  /// This copyWith supports explicitly setting nullable fields to null.
+  ///
+  /// Previous implementation used `param ?? this.field`, which made it impossible
+  /// to clear fields like [tiebreakWinnerTeamId] (critical for admin edits).
+  static const Object _unset = Object();
+
   KnockoutMatch copyWith({
     String? id,
     String? leagueId,
     String? roundName,
-    String? homeTeamId,
-    String? awayTeamId,
-    int? homeScore,
-    int? awayScore,
+    Object? homeTeamId = _unset,
+    Object? awayTeamId = _unset,
+    Object? homeScore = _unset,
+    Object? awayScore = _unset,
     MatchStatus? status,
-    String? tiebreakWinnerTeamId,
-    String? nextMatchId,
-    String? loserGoesToMatchId,
+    Object? tiebreakWinnerTeamId = _unset,
+    Object? nextMatchId = _unset,
+    Object? loserGoesToMatchId = _unset,
     bool? isSecondLeg,
   }) {
     return KnockoutMatch(
       id: id ?? this.id,
       leagueId: leagueId ?? this.leagueId,
       roundName: roundName ?? this.roundName,
-      homeTeamId: homeTeamId ?? this.homeTeamId,
-      awayTeamId: awayTeamId ?? this.awayTeamId,
-      homeScore: homeScore ?? this.homeScore,
-      awayScore: awayScore ?? this.awayScore,
+      homeTeamId: identical(homeTeamId, _unset) ? this.homeTeamId : homeTeamId as String?,
+      awayTeamId: identical(awayTeamId, _unset) ? this.awayTeamId : awayTeamId as String?,
+      homeScore: identical(homeScore, _unset) ? this.homeScore : homeScore as int?,
+      awayScore: identical(awayScore, _unset) ? this.awayScore : awayScore as int?,
       status: status ?? this.status,
-      tiebreakWinnerTeamId: tiebreakWinnerTeamId ?? this.tiebreakWinnerTeamId,
-      nextMatchId: nextMatchId ?? this.nextMatchId,
-      loserGoesToMatchId: loserGoesToMatchId ?? this.loserGoesToMatchId,
+      tiebreakWinnerTeamId: identical(tiebreakWinnerTeamId, _unset)
+          ? this.tiebreakWinnerTeamId
+          : tiebreakWinnerTeamId as String?,
+      nextMatchId: identical(nextMatchId, _unset) ? this.nextMatchId : nextMatchId as String?,
+      loserGoesToMatchId: identical(loserGoesToMatchId, _unset)
+          ? this.loserGoesToMatchId
+          : loserGoesToMatchId as String?,
       isSecondLeg: isSecondLeg ?? this.isSecondLeg,
     );
   }

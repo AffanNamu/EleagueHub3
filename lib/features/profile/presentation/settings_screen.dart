@@ -83,12 +83,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final textTheme = theme.textTheme;
+
     final themeState = ref.watch(themeControllerProvider);
     final localeState = ref.watch(localeControllerProvider);
-    final textTheme = Theme.of(context).textTheme;
 
     final currentLangCode = localeState.locale.languageCode;
     final supportedCodes = LocaleController.supportedLanguageCodes;
+
+    final titleStyle = textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w900,
+      color: cs.onSurface,
+    );
+
+    final hintStyle = textTheme.bodySmall?.copyWith(
+      color: cs.onSurface.withOpacity(0.72),
+      fontWeight: FontWeight.w600,
+    );
+
+    final cardInnerFill = cs.onSurface.withOpacity(theme.brightness == Brightness.dark ? 0.08 : 0.04);
+    final cardInnerStroke = cs.outlineVariant.withOpacity(theme.brightness == Brightness.dark ? 0.35 : 0.75);
 
     return GlassScaffold(
       appBar: AppBar(
@@ -111,13 +128,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          l10n.themeTitle,
-                          style: textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
+                        Text(l10n.themeTitle, style: titleStyle),
                         const SizedBox(height: 8),
                         SegmentedButton<ThemeMode>(
                           segments: [
@@ -141,12 +152,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           },
                         ),
                         const SizedBox(height: 10),
-                        Text(
-                          l10n.themeHint,
-                          style: textTheme.bodySmall?.copyWith(
-                            color: Colors.white70,
-                          ),
-                        ),
+                        Text(l10n.themeHint, style: hintStyle),
                       ],
                     ),
                   ),
@@ -159,20 +165,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          l10n.languageTitle,
-                          style: textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
+                        Text(l10n.languageTitle, style: titleStyle),
                         const SizedBox(height: 8),
-                        Text(
-                          l10n.languageHint,
-                          style: textTheme.bodySmall?.copyWith(
-                            color: Colors.white70,
-                          ),
-                        ),
+                        Text(l10n.languageHint, style: hintStyle),
                         const SizedBox(height: 12),
                         DropdownButtonHideUnderline(
                           child: Container(
@@ -181,17 +176,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.06),
+                              color: cardInnerFill,
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: Colors.white24,
-                              ),
+                              border: Border.all(color: cardInnerStroke),
                             ),
                             child: DropdownButton<String>(
                               value: supportedCodes.contains(currentLangCode) ? currentLangCode : 'en',
-                              dropdownColor: const Color(0xFF000428),
-                              style: const TextStyle(
-                                color: Colors.cyanAccent,
+                              dropdownColor: cs.surface,
+                              iconEnabledColor: cs.onSurface.withOpacity(0.72),
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w700,
                               ),
                               isExpanded: true,
                               items: supportedCodes
@@ -224,34 +219,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          l10n.notificationsTitle,
-                          style: textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
+                        Text(l10n.notificationsTitle, style: titleStyle),
                         const SizedBox(height: 8),
                         if (_loading)
-                          const LinearProgressIndicator(
-                            color: Colors.cyanAccent,
+                          LinearProgressIndicator(
+                            color: cs.primary,
+                            backgroundColor: cs.onSurface.withOpacity(0.10),
                             minHeight: 2,
                           )
                         else ...[
                           SwitchListTile.adaptive(
                             contentPadding: EdgeInsets.zero,
-                            activeColor: Colors.cyanAccent,
+                            activeColor: cs.primary,
                             title: Text(
                               l10n.notificationsEnabledTitle,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                             subtitle: Text(
                               l10n.notificationsEnabledSubtitle,
-                              style: const TextStyle(
-                                color: Colors.white60,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.60),
                                 fontSize: 12,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             value: _enabled,
@@ -264,23 +256,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               }
                             },
                           ),
-                          const Divider(
-                            color: Colors.white10,
-                          ),
+                          Divider(color: cs.onSurface.withOpacity(0.10)),
                           SwitchListTile.adaptive(
                             contentPadding: EdgeInsets.zero,
-                            activeColor: Colors.cyanAccent,
+                            activeColor: cs.primary,
                             title: Text(
                               l10n.notificationsMatchRemindersTitle,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                             subtitle: Text(
                               l10n.notificationsMatchRemindersSubtitle,
-                              style: const TextStyle(
-                                color: Colors.white60,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.60),
                                 fontSize: 12,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             value: _matchReminders,
@@ -293,18 +285,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                           SwitchListTile.adaptive(
                             contentPadding: EdgeInsets.zero,
-                            activeColor: Colors.cyanAccent,
+                            activeColor: cs.primary,
                             title: Text(
                               l10n.notificationsMarketingTitle,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                             subtitle: Text(
                               l10n.notificationsMarketingSubtitle,
-                              style: const TextStyle(
-                                color: Colors.white60,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.60),
                                 fontSize: 12,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             value: _marketing,
@@ -328,35 +322,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          l10n.liveOverlayTitle,
-                          style: textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
+                        Text(l10n.liveOverlayTitle, style: titleStyle),
                         const SizedBox(height: 8),
-                        Text(
-                          l10n.liveOverlayHint,
-                          style: textTheme.bodySmall?.copyWith(
-                            color: Colors.white70,
-                          ),
-                        ),
+                        Text(l10n.liveOverlayHint, style: hintStyle),
                         const SizedBox(height: 8),
                         SwitchListTile.adaptive(
                           contentPadding: EdgeInsets.zero,
-                          activeColor: Colors.cyanAccent,
+                          activeColor: cs.primary,
                           title: Text(
                             l10n.liveOverlaySwitchTitle,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: cs.onSurface,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                           subtitle: Text(
                             l10n.liveOverlaySwitchSubtitle,
-                            style: const TextStyle(
-                              color: Colors.white60,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.60),
                               fontSize: 12,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           value: _overlayEnabled,
@@ -380,18 +365,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          l10n.appInfoTitle,
-                          style: textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
+                        Text(l10n.appInfoTitle, style: titleStyle),
                         const SizedBox(height: 8),
-                        const Text(
+                        Text(
                           'eSportlyic powered by Kaida',
-                          style: TextStyle(
-                            color: Colors.white,
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],

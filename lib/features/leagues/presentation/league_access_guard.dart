@@ -13,253 +13,251 @@ import '../models/league_format.dart';
 import '../utils/current_user.dart';
 
 class LeagueAccessGuard extends ConsumerStatefulWidget {
-  const LeagueAccessGuard({
-    super.key,
-    required this.leagueId,
-    required this.child,
-  });
+const LeagueAccessGuard({
+super.key,
+required this.leagueId,
+required this.child,
+});
+final String leagueId;
+final Widget child;
 
-  final String leagueId;
-  final Widget child;
-
-  @override
-  ConsumerState<LeagueAccessGuard> createState() => _LeagueAccessGuardState();
+@override
+ConsumerState<LeagueAccessGuard> createState() => _LeagueAccessGuardState();
 }
 
 class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
-  bool _loading = true;
-  bool _processingPayment = false;
+bool _loading = true;
+bool _processingPayment = false;
 
-  League? _league;
-  String _userId = '';
-  bool _hasPaid = false;
-  LeagueChargesReceipt? _receipt;
+League? _league;
+String _userId = '';
+bool _hasPaid = false;
+LeagueChargesReceipt? _receipt;
 
-  @override
-  void initState() {
-    super.initState();
-    // ignore: discarded_futures
-    _load();
-  }
+@override
+void initState() {
+super.initState();
+// ignore: discarded_futures
+_load();
+}
+Future<void> _load() async {
+final prefs = ref.read(prefsServiceProvider);
+final repo = LocalLeaguesRepository(prefs);
+final league = await repo.getLeagueById(widget.leagueId);
 
-  Future<void> _load() async {
-    final prefs = ref.read(prefsServiceProvider);
-    final repo = LocalLeaguesRepository(prefs);
+String userId = prefs.getCurrentUserId() ?? '';
+if (userId.trim().isEmpty) {
+  userId = await CurrentUser.getOrCreateUserId();
+}
 
-    final league = await repo.getLeagueById(widget.leagueId);
+final store = LeagueChargesStore(prefs);
 
-    String userId = prefs.getCurrentUserId() ?? '';
-    if (userId.trim().isEmpty) {
-      userId = await CurrentUser.getOrCreateUserId();
-    }
+final hasPaid = store.hasPaidCharges(userId: userId, leagueId: widget.leagueId);
+final receipt = store.getReceipt(userId: userId, leagueId: widget.leagueId);
 
-    final store = LeagueChargesStore(prefs);
+if (!mounted) return;
+setState(() {
+  _league = league;
+  _userId = userId;
+  _hasPaid = hasPaid;
+  _receipt = receipt;
+  _loading = false;
+});
+}
 
-    final hasPaid = store.hasPaidCharges(userId: userId, leagueId: widget.leagueId);
-    final receipt = store.getReceipt(userId: userId, leagueId: widget.leagueId);
+bool _isClassicFree(League league) => league.format == LeagueFormat.classic;
 
-    if (!mounted) return;
-    setState(() {
-      _league = league;
-      _userId = userId;
-      _hasPaid = hasPaid;
-      _receipt = receipt;
-      _loading = false;
-    });
-  }
+bool _isOrganizerAlwaysAllowed(League league) => league.organizerUserId == _userId;
 
-  bool _isClassicFree(League league) => league.format == LeagueFormat.classic;
+bool _requiresCharges(League league) =>
+league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
 
-  bool _isOrganizerAlwaysAllowed(League league) => league.organizerUserId == _userId;
+@override
+Widget build(BuildContext context) {
+final l10n = context.l10n;
+final theme = Theme.of(context);
+final cs = theme.colorScheme;
+if (_loading) {
+  return Center(
+    child: CircularProgressIndicator(color: cs.primary),
+  );
+}
 
-  bool _requiresCharges(League league) =>
-      league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    if (_loading) {
-      return Center(
-        child: CircularProgressIndicator(color: cs.primary),
-      );
-    }
-
-    final league = _league;
-    if (league == null) {
-      return Center(
-        child: Glass(
-          padding: const EdgeInsets.all(16),
-          child: Text(
-            l10n.tr('leagues_error_not_found_local_storage'),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface,
-              fontWeight: FontWeight.w700,
-            ),
-            textAlign: TextAlign.center,
-          ),
+final league = _league;
+if (league == null) {
+  return Center(
+    child: Glass(
+      padding: const EdgeInsets.all(16),
+      child: Text(
+        l10n.tr('leagues_error_not_found_local_storage'),
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: cs.onSurface,
+          fontWeight: FontWeight.w700,
         ),
-      );
-    }
+        textAlign: TextAlign.center,
+      ),
+    ),
+  );
+}
 
-    if (_isClassicFree(league)) return widget.child;
+if (_isClassicFree(league)) return widget.child;
 
-    if (_isOrganizerAlwaysAllowed(league)) return widget.child;
+if (_isOrganizerAlwaysAllowed(league)) return widget.child;
 
-    if (!_requiresCharges(league)) return widget.child;
+if (!_requiresCharges(league)) return widget.child;
 
-    if (_hasPaid) return widget.child;
+if (_hasPaid) return widget.child;
 
-    final pricing = FlutterwaveConfig.pricingForLocale(Localizations.maybeLocaleOf(context));
+final pricing = FlutterwaveConfig.pricingForLocale(Localizations.maybeLocaleOf(context));
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Glass(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+return Center(
+  child: Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: Glass(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.lock_outline,
+              color: cs.primary.withOpacity(0.95),
+              size: 44,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              l10n.tr('league_access_charges_required_title'),
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${l10n.tr('league_access_amount_prefix')} ${pricing.viewLeagueAmount} ${pricing.currency}\n\n'
+              '${l10n.tr('league_access_charges_explanation')}\n\n'
+              '${l10n.tr('league_access_league_prefix')} ${league.name}',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface.withOpacity(0.72),
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (_receipt != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                '${l10n.tr('league_access_receipt_prefix')} ${_receipt!.receiptId}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurface.withOpacity(0.80),
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+            const SizedBox(height: 16),
+            Row(
               children: [
-                Icon(
-                  Icons.lock_outline,
-                  color: cs.primary.withOpacity(0.95),
-                  size: 44,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  l10n.tr('league_access_charges_required_title'),
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  '${l10n.tr('league_access_amount_prefix')} ${pricing.viewLeagueAmount} ${pricing.currency}\n\n'
-                  '${l10n.tr('league_access_charges_explanation')}\n\n'
-                  '${l10n.tr('league_access_league_prefix')} ${league.name}',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withOpacity(0.72),
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (_receipt != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    '${l10n.tr('league_access_receipt_prefix')} ${_receipt!.receiptId}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.80),
-                      fontWeight: FontWeight.w700,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _processingPayment ? null : () => _pay(context, league),
-                        child: _processingPayment
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : Text(l10n.tr('league_access_pay_charges')),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.tr('league_access_note_classic_free'),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.55),
-                    fontSize: 12,
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _processingPayment ? null : () => _pay(context, league),
+                    child: _processingPayment
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: cs.onPrimary,
+                            ),
+                          )
+                        : Text(l10n.tr('league_access_pay_charges')),
                   ),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.tr('league_access_note_classic_free'),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.55),
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
+    ),
+  ),
+);
+}
+
+Future<void> _pay(BuildContext context, League league) async {
+final l10n = context.l10n
+setState(() => _processingPayment = true);
+
+try {
+  final prefs = ref.read(prefsServiceProvider);
+  final payment = ref.read(leagueChargesPaymentServiceProvider);
+  final store = LeagueChargesStore(prefs);
+
+  final result = await payment.payLeagueCharges(
+    context: context,
+    userId: _userId,
+    leagueId: league.id,
+    leagueName: league.name,
+  );
+
+  if (!mounted) return;
+
+  if (!result.success) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
+    setState(() => _processingPayment = false);
+    return;
   }
 
-  Future<void> _pay(BuildContext context, League league) async {
-    final l10n = context.l10n;
+  final receipt = LeagueChargesReceipt(
+    leagueId: league.id,
+    userId: _userId,
+    receiptId: result.receiptId ?? '',
+    provider: result.provider,
+    paidAtMs: result.paidAtMs,
+  );
 
-    setState(() => _processingPayment = true);
+  await store.storeReceipt(receipt);
 
-    try {
-      final prefs = ref.read(prefsServiceProvider);
-      final payment = ref.read(leagueChargesPaymentServiceProvider);
-      final store = LeagueChargesStore(prefs);
+  if (!mounted) return;
+  setState(() {
+    _processingPayment = false;
+    _hasPaid = true;
+    _receipt = receipt;
+  });
 
-      final result = await payment.payLeagueCharges(
-        context: context,
-        userId: _userId,
-        leagueId: league.id,
-        leagueName: league.name,
-      );
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(l10n.tr('league_access_charges_paid_success')),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+} catch (e) {
+  if (!mounted) return;
+  setState(() => _processingPayment = false);
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('${l10n.tr('league_access_payment_failed_prefix')} $e'),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
 
-      if (!mounted) return;
-
-      if (!result.success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        setState(() => _processingPayment = false);
-        return;
-      }
-
-      final receipt = LeagueChargesReceipt(
-        leagueId: league.id,
-        userId: _userId,
-        receiptId: result.receiptId ?? '',
-        provider: result.provider,
-        paidAtMs: result.paidAtMs,
-      );
-
-      await store.storeReceipt(receipt);
-
-      if (!mounted) return;
-      setState(() {
-        _processingPayment = false;
-        _hasPaid = true;
-        _receipt = receipt;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_access_charges_paid_success')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _processingPayment = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${l10n.tr('league_access_payment_failed_prefix')} $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
 }
