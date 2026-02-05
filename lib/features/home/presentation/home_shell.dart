@@ -147,7 +147,7 @@ class _HomeShellState extends State<HomeShell> {
                 child: NavigationBar(
                   height: 64,
                   backgroundColor: Colors.transparent,
-                  indicatorColor: colorScheme.primary.withOpacity(0.2),
+                  indicatorColor: colorScheme.primary.withOpacity(0.18),
                   selectedIndex: _index,
                   onDestinationSelected: _selectTab,
                   destinations: [
@@ -218,6 +218,7 @@ class _HomeTab extends StatelessWidget {
     final t = theme.textTheme;
 
     final onBg = theme.colorScheme.onBackground;
+    final onSurface = theme.colorScheme.onSurface;
 
     final announcements = _mockAnnouncements(l10n);
 
@@ -233,14 +234,13 @@ class _HomeTab extends StatelessWidget {
                 l10n.homeWelcomeBack,
                 style: t.titleLarge?.copyWith(
                   fontWeight: FontWeight.w800,
-                  color: Colors.white,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 l10n.homeMvpDescription,
                 style: t.bodyMedium?.copyWith(
-                  color: Colors.white70,
+                  color: onSurface.withOpacity(0.72),
                 ),
               ),
             ],
@@ -318,6 +318,8 @@ class _QuickCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -339,14 +341,13 @@ class _QuickCard extends StatelessWidget {
                     title,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white70,
+                      color: onSurface.withOpacity(0.70),
                     ),
                   ),
                 ],

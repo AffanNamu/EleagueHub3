@@ -21,6 +21,27 @@ class GlassAnnouncement extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
+    final titleStyle = theme.textTheme.titleSmall?.copyWith(
+      color: onSurface,
+      fontWeight: FontWeight.w900,
+    );
+
+    final msgStyle = theme.textTheme.bodySmall?.copyWith(
+      color: onSurface.withOpacity(0.72),
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+    );
+
+    final timeStyle = theme.textTheme.bodySmall?.copyWith(
+      color: onSurface.withOpacity(0.45),
+      fontSize: 10,
+      fontWeight: FontWeight.w600,
+    );
+
     return SizedBox(
       width: 280,
       child: Glass(
@@ -31,9 +52,9 @@ class GlassAnnouncement extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.campaign,
-                  color: Colors.cyanAccent,
+                  color: cs.primary,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
@@ -42,25 +63,18 @@ class GlassAnnouncement extends StatelessWidget {
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: titleStyle,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            // Marquee or static text for the message
             SizedBox(
               height: 32,
               child: marquee
                   ? Marquee(
                       text: message,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                      ),
+                      style: msgStyle,
                       blankSpace: 40,
                       velocity: 25,
                       pauseAfterRound: const Duration(seconds: 1),
@@ -72,20 +86,14 @@ class GlassAnnouncement extends StatelessWidget {
                         message,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                        ),
+                        style: msgStyle,
                       ),
                     ),
             ),
             const Spacer(),
             Text(
               time,
-              style: const TextStyle(
-                color: Colors.white38,
-                fontSize: 10,
-              ),
+              style: timeStyle,
             ),
           ],
         ),

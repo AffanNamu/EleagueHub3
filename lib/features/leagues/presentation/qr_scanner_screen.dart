@@ -31,6 +31,8 @@ class QRScannerScreen extends ConsumerStatefulWidget {
 }
 
 class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsBindingObserver {
+  static const Color _premiumAmber = Color(0xFFF59E0B);
+
   bool _isScanned = false;
 
   League? _joinedLeague;
@@ -181,6 +183,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       isScrollControlled: true,
       builder: (ctx) {
         final l10n = ctx.l10n;
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
 
         return SafeArea(
           child: Padding(
@@ -197,16 +201,21 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                       children: [
                         Text(
                           l10n.tr('qr_scanner_join_mode_title'),
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: cs.onSurface,
                             fontWeight: FontWeight.w900,
                             fontSize: 16,
                           ),
+                          textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 6),
                         Text(
                           '${l10n.tr('qr_scanner_join_code_prefix')}${joinCode.toUpperCase()}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.70),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 12),
@@ -214,7 +223,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                           title: l10n.tr('qr_scanner_join_mode_participant_title'),
                           subtitle: l10n.tr('qr_scanner_join_mode_participant_subtitle'),
                           icon: Icons.sports_esports,
-                          accent: Colors.cyanAccent,
+                          accent: cs.primary,
                           onTap: () => Navigator.of(ctx).pop(LeagueJoinMode.participant),
                         ),
                         const SizedBox(height: 10),
@@ -222,13 +231,13 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                           title: l10n.tr('qr_scanner_join_mode_viewer_title'),
                           subtitle: l10n.tr('qr_scanner_join_mode_viewer_subtitle'),
                           icon: Icons.visibility,
-                          accent: Colors.white70,
+                          accent: cs.onSurface.withOpacity(0.72),
                           onTap: () => Navigator.of(ctx).pop(LeagueJoinMode.viewer),
                         ),
                         const SizedBox(height: 10),
                         TextButton(
                           onPressed: () => Navigator.of(ctx).pop(null),
-                          child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
+                          child: Text(l10n.tr('common_cancel')),
                         ),
                       ],
                     ),
@@ -388,6 +397,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     required String userId,
   }) async {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     if (!_requiresCharges(joinedLeague)) return;
     if (_isCreator(joinedLeague, userId)) return;
@@ -405,20 +416,23 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     final shouldPay = await showDialog<bool>(
       context: context,
       builder: (ctx) {
+        final dialogTheme = Theme.of(ctx);
+        final dialogCs = dialogTheme.colorScheme;
+
         return AlertDialog(
-          backgroundColor: const Color(0xFF0A1D37),
+          backgroundColor: dialogCs.surface,
           title: Text(
             l10n.tr('qr_scanner_unlock_dialog_title'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: TextStyle(color: dialogCs.onSurface, fontWeight: FontWeight.w900),
           ),
           content: Text(
             '${l10n.tr('qr_scanner_unlock_dialog_content_prefix')}${joinedLeague.name}${l10n.tr('qr_scanner_unlock_dialog_content_suffix')}',
-            style: const TextStyle(color: Colors.white70, height: 1.35),
+            style: TextStyle(color: dialogCs.onSurface.withOpacity(0.72), height: 1.35, fontWeight: FontWeight.w600),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(l10n.tr('common_later'), style: const TextStyle(color: Colors.white70)),
+              child: Text(l10n.tr('common_later')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(true),
@@ -493,7 +507,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_access_charges_paid_success'))),
+        SnackBar(
+          content: Text(l10n.tr('league_access_charges_paid_success')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -533,6 +550,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         isScrollControlled: true,
         builder: (ctx) {
           final l10n = ctx.l10n;
+          final theme = Theme.of(ctx);
+          final cs = theme.colorScheme;
+
           final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
           return SafeArea(
@@ -550,27 +570,34 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                         children: [
                           Text(
                             l10n.tr('qr_scanner_manual_entry_title'),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: cs.onSurface,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           Text(
                             l10n.tr('qr_scanner_manual_entry_subtitle'),
-                            style: const TextStyle(color: Colors.white70, fontSize: 11),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.70),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 12),
                           TextField(
                             controller: controller,
                             autofocus: true,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                            style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w800),
                             textCapitalization: TextCapitalization.characters,
                             decoration: InputDecoration(
                               hintText: l10n.tr('qr_scanner_join_code_hint'),
-                              hintStyle: const TextStyle(color: Colors.white38),
-                              prefixIcon: const Icon(Icons.key, color: Colors.white70),
+                              prefixIcon: const Icon(Icons.key),
                               suffixIcon: IconButton(
                                 tooltip: l10n.tr('common_paste'),
-                                icon: const Icon(Icons.content_paste, color: Colors.cyanAccent),
+                                icon: Icon(Icons.content_paste, color: cs.primary),
                                 onPressed: () async {
                                   final data = await Clipboard.getData('text/plain');
                                   final text = data?.text ?? '';
@@ -589,7 +616,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                               Expanded(
                                 child: TextButton(
                                   onPressed: () => Navigator.of(ctx).pop(null),
-                                  child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
+                                  child: Text(l10n.tr('common_cancel')),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -640,6 +667,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     if (_joinedLeague != null) {
       final league = _joinedLeague!;
@@ -702,10 +731,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                           Text(
                             joinedLine,
                             textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.82),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: cs.onSurface.withOpacity(0.86),
                               height: 1.4,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
                           if (_joinNotice != null) ...[
@@ -713,9 +742,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                             Text(
                               _joinNotice!,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.orangeAccent,
-                                fontWeight: FontWeight.w800,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: _premiumAmber,
+                                fontWeight: FontWeight.w900,
                                 height: 1.35,
                               ),
                             ),
@@ -726,9 +755,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                 ? l10n.tr('qr_scanner_requires_charges_message')
                                 : l10n.tr('qr_scanner_can_open_league_message'),
                             textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.70),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: cs.onSurface.withOpacity(0.72),
                               height: 1.4,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -777,7 +807,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                             Text(
                               _error!,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: cs.error, fontWeight: FontWeight.w900),
                             ),
                           ],
                         ],
@@ -802,6 +832,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
               onDetect: _onDetect,
               errorBuilder: (context, error, child) {
                 final l10n = context.l10n;
+                final theme = Theme.of(context);
+                final cs = theme.colorScheme;
 
                 return Center(
                   child: Padding(
@@ -812,17 +844,24 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.camera_alt_outlined, color: Colors.white70, size: 34),
+                          Icon(Icons.camera_alt_outlined, color: cs.onSurface.withOpacity(0.72), size: 34),
                           const SizedBox(height: 10),
                           Text(
                             l10n.tr('qr_scanner_camera_not_available'),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: cs.onSurface,
+                              fontWeight: FontWeight.w900,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 8),
                           Text(
                             error.toString(),
                             textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white70),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.70),
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -844,8 +883,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                 child: OutlinedButton(
                                   onPressed: _joining ? null : _showManualEntrySheet,
                                   style: OutlinedButton.styleFrom(
-                                    side: BorderSide(color: Colors.white.withOpacity(0.18)),
-                                    foregroundColor: Colors.cyanAccent,
+                                    side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+                                    foregroundColor: cs.primary,
                                   ),
                                   child: Text(l10n.tr('qr_scanner_enter_code_instead')),
                                 ),
@@ -865,7 +904,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
-                painter: _ScannerOverlayPainter(),
+                painter: _ScannerOverlayPainter(
+                  accent: cs.primary,
+                ),
               ),
             ),
           ),
@@ -883,10 +924,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                       ),
                       const Spacer(),
                       if (_joining)
-                        const SizedBox(
+                        SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.cyanAccent),
+                          child: CircularProgressIndicator(strokeWidth: 2.5, color: cs.primary),
                         ),
                     ],
                   ),
@@ -909,14 +950,21 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                   children: [
                                     Text(
                                       l10n.tr('qr_scanner_allow_camera_access_title'),
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                                      style: theme.textTheme.titleSmall?.copyWith(
+                                        color: cs.onSurface,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                       textAlign: TextAlign.center,
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
                                       l10n.tr('qr_scanner_allow_camera_access_description'),
                                       textAlign: TextAlign.center,
-                                      style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.35),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: cs.onSurface.withOpacity(0.72),
+                                        height: 1.35,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                     const SizedBox(height: 12),
                                     Row(
@@ -925,8 +973,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                           child: OutlinedButton(
                                             onPressed: _requestingPermission ? null : () => openAppSettings(),
                                             style: OutlinedButton.styleFrom(
-                                              side: BorderSide(color: Colors.white.withOpacity(0.18)),
-                                              foregroundColor: Colors.white70,
+                                              side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+                                              foregroundColor: cs.onSurface.withOpacity(0.80),
                                             ),
                                             child: Text(l10n.tr('qr_scanner_open_settings')),
                                           ),
@@ -952,8 +1000,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                       child: OutlinedButton(
                                         onPressed: _joining ? null : _showManualEntrySheet,
                                         style: OutlinedButton.styleFrom(
-                                          side: BorderSide(color: Colors.white.withOpacity(0.18)),
-                                          foregroundColor: Colors.cyanAccent,
+                                          side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+                                          foregroundColor: cs.primary,
                                         ),
                                         child: Text(l10n.tr('qr_scanner_enter_code_instead').toUpperCase()),
                                       ),
@@ -963,9 +1011,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                       Text(
                                         _error!,
                                         textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          color: Colors.redAccent,
-                                          fontWeight: FontWeight.bold,
+                                        style: TextStyle(
+                                          color: cs.error,
+                                          fontWeight: FontWeight.w900,
                                         ),
                                       ),
                                     ],
@@ -980,12 +1028,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      _joining
-                                          ? l10n.tr('qr_scanner_center_qr_instruction')
-                                          : l10n.tr('qr_scanner_center_qr_instruction'),
+                                      l10n.tr('qr_scanner_center_qr_instruction'),
                                       textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: Colors.white70,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: cs.onSurface.withOpacity(0.72),
                                         fontSize: 13,
                                         fontWeight: FontWeight.w700,
                                         height: 1.3,
@@ -996,9 +1042,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                       Text(
                                         _error!,
                                         textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          color: Colors.redAccent,
-                                          fontWeight: FontWeight.bold,
+                                        style: TextStyle(
+                                          color: cs.error,
+                                          fontWeight: FontWeight.w900,
                                         ),
                                       ),
                                     ],
@@ -1017,8 +1063,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                           child: OutlinedButton(
                                             onPressed: _joining ? null : _scanAgain,
                                             style: OutlinedButton.styleFrom(
-                                              side: BorderSide(color: Colors.white.withOpacity(0.18)),
-                                              foregroundColor: Colors.cyanAccent,
+                                              side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+                                              foregroundColor: cs.primary,
                                             ),
                                             child: Text(l10n.tr('qr_scanner_scan_again').toUpperCase()),
                                           ),
@@ -1033,7 +1079,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                           tooltip: _torchOn
                                               ? l10n.tr('qr_scanner_torch_off_tooltip')
                                               : l10n.tr('qr_scanner_torch_on_tooltip'),
-                                          icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off, color: Colors.white),
+                                          icon: Icon(
+                                            _torchOn ? Icons.flash_on : Icons.flash_off,
+                                            color: Colors.white,
+                                          ),
                                           onPressed: !_cameraPermissionGranted || _joining
                                               ? null
                                               : () async {
@@ -1117,6 +1166,9 @@ class _JoinModeTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final isRtl = Directionality.of(context) == TextDirection.rtl;
 
     return Glass(
@@ -1128,13 +1180,21 @@ class _JoinModeTile extends StatelessWidget {
         ),
         title: Text(
           title,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+          style: theme.textTheme.titleSmall?.copyWith(
+            color: cs.onSurface,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         subtitle: Text(
           subtitle,
-          style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.25),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: cs.onSurface.withOpacity(0.70),
+            fontSize: 12,
+            height: 1.25,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-        trailing: Icon(isRtl ? Icons.chevron_left : Icons.chevron_right, color: Colors.white38),
+        trailing: Icon(isRtl ? Icons.chevron_left : Icons.chevron_right, color: cs.onSurface.withOpacity(0.35)),
         onTap: onTap,
       ),
     );
@@ -1142,6 +1202,12 @@ class _JoinModeTile extends StatelessWidget {
 }
 
 class _ScannerOverlayPainter extends CustomPainter {
+  final Color accent;
+
+  const _ScannerOverlayPainter({
+    required this.accent,
+  });
+
   @override
   void paint(Canvas canvas, Size size) {
     final overlayPaint = Paint()..color = Colors.black.withOpacity(0.55);
@@ -1173,7 +1239,7 @@ class _ScannerOverlayPainter extends CustomPainter {
     canvas.drawRRect(rrect, borderPaint);
 
     final accentPaint = Paint()
-      ..color = Colors.cyanAccent.withOpacity(0.85)
+      ..color = accent.withOpacity(0.85)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4;
 
@@ -1197,5 +1263,5 @@ class _ScannerOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ScannerOverlayPainter oldDelegate) => oldDelegate.accent != accent;
 }

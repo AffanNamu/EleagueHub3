@@ -32,8 +32,6 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
     required bool isHost,
     required String side, // 'home' | 'away' | 'unknown'
   }) {
-    final l10n = context.l10n;
-
     final matchId = _matchIdCtrl.text.trim();
     final homeName = _homeCtrl.text.trim();
     final awayName = _awayCtrl.text.trim();
@@ -54,11 +52,6 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
         'side': side.trim().isEmpty ? 'unknown' : side.trim(),
       },
     );
-
-    // Silence unused warning in case analyzer is strict about l10n.
-    // (Not strictly needed, but keeps intent clear.)
-    // ignore: unnecessary_statements
-    l10n;
   }
 
   @override
@@ -103,6 +96,8 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
 
   Widget _buildHeaderCard() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Glass(
       borderRadius: 24,
@@ -115,9 +110,10 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
             height: 44,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.cyanAccent.withOpacity(0.18),
+              color: cs.primary.withOpacity(0.18),
+              border: Border.all(color: cs.primary.withOpacity(0.24)),
             ),
-            child: const Icon(Icons.public, color: Colors.cyanAccent),
+            child: Icon(Icons.public, color: cs.primary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -126,19 +122,20 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
               children: [
                 Text(
                   l10n.tr('join_match_header_title'),
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: cs.onSurface,
                     fontSize: 16,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   l10n.tr('join_match_header_subtitle'),
-                  style: const TextStyle(
-                    color: Colors.white60,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
                     fontSize: 12,
                     height: 1.4,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -151,6 +148,8 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
 
   Widget _buildFormCard(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final isCompact = MediaQuery.of(context).size.width < 520;
     final errorText = _errorKey == null ? null : l10n.tr(_errorKey!);
@@ -163,11 +162,11 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
           TextField(
             controller: _matchIdCtrl,
             textInputAction: TextInputAction.next,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w800),
             decoration: InputDecoration(
               labelText: l10n.tr('join_match_match_id_label'),
               hintText: l10n.tr('join_match_match_id_hint'),
-              prefixIcon: const Icon(Icons.tag, color: Colors.white70),
+              prefixIcon: const Icon(Icons.tag),
               errorText: errorText,
             ),
             onChanged: (_) {
@@ -179,20 +178,20 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
             TextField(
               controller: _homeCtrl,
               textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
               decoration: InputDecoration(
                 labelText: l10n.tr('join_match_home_name_optional'),
-                prefixIcon: const Icon(Icons.home, color: Colors.white70),
+                prefixIcon: const Icon(Icons.home),
               ),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _awayCtrl,
               textInputAction: TextInputAction.done,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
               decoration: InputDecoration(
                 labelText: l10n.tr('join_match_away_name_optional'),
-                prefixIcon: const Icon(Icons.flight_takeoff, color: Colors.white70),
+                prefixIcon: const Icon(Icons.flight_takeoff),
               ),
             ),
           ] else ...[
@@ -202,10 +201,10 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
                   child: TextField(
                     controller: _homeCtrl,
                     textInputAction: TextInputAction.next,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
                     decoration: InputDecoration(
                       labelText: l10n.tr('join_match_home_name_optional'),
-                      prefixIcon: const Icon(Icons.home, color: Colors.white70),
+                      prefixIcon: const Icon(Icons.home),
                     ),
                   ),
                 ),
@@ -214,10 +213,10 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
                   child: TextField(
                     controller: _awayCtrl,
                     textInputAction: TextInputAction.done,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
                     decoration: InputDecoration(
                       labelText: l10n.tr('join_match_away_name_optional'),
-                      prefixIcon: const Icon(Icons.flight_takeoff, color: Colors.white70),
+                      prefixIcon: const Icon(Icons.flight_takeoff),
                     ),
                   ),
                 ),
@@ -228,10 +227,11 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
           Text(
             l10n.tr('join_match_tip'),
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white38,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.45),
               fontSize: 11,
               height: 1.35,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],

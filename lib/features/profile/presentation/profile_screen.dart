@@ -25,6 +25,7 @@ class ProfileScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final t = theme.textTheme;
     final onBg = theme.colorScheme.onBackground;
+    final onSurface = theme.colorScheme.onSurface;
 
     final themeState = ref.watch(themeControllerProvider);
     final currentLeague = ref.watch(leagueModeProvider);
@@ -70,6 +71,9 @@ class ProfileScreen extends ConsumerWidget {
                     ? profile.effectiveShareId
                     : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
 
+                final iconMuted = onSurface.withOpacity(0.72);
+                final iconDim = onSurface.withOpacity(0.55);
+
                 return Row(
                   children: [
                     Container(
@@ -104,7 +108,6 @@ class ProfileScreen extends ConsumerWidget {
                                     key: ValueKey(teamName),
                                     style: t.titleLarge?.copyWith(
                                       fontWeight: FontWeight.w900,
-                                      color: Colors.white,
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -112,7 +115,7 @@ class ProfileScreen extends ConsumerWidget {
                               ),
                               IconButton(
                                 tooltip: l10n.tr('profile_edit_team_name_tooltip'),
-                                icon: const Icon(Icons.edit, color: Colors.white70, size: 18),
+                                icon: Icon(Icons.edit, color: iconMuted, size: 18),
                                 onPressed: uid.isEmpty
                                     ? null
                                     : () {
@@ -134,13 +137,15 @@ class ProfileScreen extends ConsumerWidget {
                                   uid.isEmpty
                                       ? l10n.tr('profile_not_signed_in')
                                       : '${l10n.tr('profile_userid_prefix')} $shortUserId',
-                                  style: t.bodySmall?.copyWith(color: Colors.white70),
+                                  style: t.bodySmall?.copyWith(
+                                    color: onSurface.withOpacity(0.72),
+                                  ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               IconButton(
                                 tooltip: l10n.tr('profile_copy_userid_tooltip'),
-                                icon: const Icon(Icons.copy, color: Colors.white54, size: 18),
+                                icon: Icon(Icons.copy, color: iconDim, size: 18),
                                 onPressed: uid.isEmpty
                                     ? null
                                     : () async {
@@ -158,7 +163,10 @@ class ProfileScreen extends ConsumerWidget {
                             const SizedBox(height: 2),
                             Text(
                               '${l10n.tr('profile_internal_uid_debug_prefix')} ${uid.length > 10 ? '${uid.substring(0, 10)}…' : uid}',
-                              style: t.bodySmall?.copyWith(color: Colors.white38, fontSize: 10),
+                              style: t.bodySmall?.copyWith(
+                                color: onSurface.withOpacity(0.45),
+                                fontSize: 10,
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
@@ -171,7 +179,7 @@ class ProfileScreen extends ConsumerWidget {
                       tooltip: l10n.tr('profile_toggle_theme_tooltip'),
                       icon: Icon(
                         themeState.mode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode,
-                        color: Colors.cyanAccent,
+                        color: theme.colorScheme.primary,
                       ),
                       onPressed: () {
                         HapticFeedback.selectionClick();
@@ -182,7 +190,7 @@ class ProfileScreen extends ConsumerWidget {
                     /// LOGOUT (WITH GLASS WARNING)
                     IconButton(
                       tooltip: l10n.tr('profile_logout_tooltip'),
-                      icon: const Icon(Icons.logout, color: Colors.white70),
+                      icon: Icon(Icons.logout, color: iconMuted),
                       onPressed: () async {
                         final ok = await _confirmLogout(context);
                         if (!ok) return;
@@ -238,13 +246,18 @@ class ProfileScreen extends ConsumerWidget {
 
   Future<bool> _confirmLogout(BuildContext context) async {
     final l10n = context.l10n;
-    final t = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final t = theme.textTheme;
+    final onSurface = theme.colorScheme.onSurface;
 
     final res = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
       barrierColor: Colors.black.withOpacity(0.55),
       builder: (ctx) {
+        final dialogTheme = Theme.of(ctx);
+        final dialogOnSurface = dialogTheme.colorScheme.onSurface;
+
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
@@ -272,7 +285,7 @@ class ProfileScreen extends ConsumerWidget {
                         child: Text(
                           l10n.tr('profile_logout_dialog_title'),
                           style: t.titleLarge?.copyWith(
-                            color: Colors.white,
+                            color: dialogOnSurface,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -280,7 +293,7 @@ class ProfileScreen extends ConsumerWidget {
                       IconButton(
                         tooltip: l10n.tr('profile_close_tooltip'),
                         onPressed: () => Navigator.of(ctx).pop(false),
-                        icon: const Icon(Icons.close, color: Colors.white70),
+                        icon: Icon(Icons.close, color: dialogOnSurface.withOpacity(0.72)),
                       ),
                     ],
                   ),
@@ -289,7 +302,10 @@ class ProfileScreen extends ConsumerWidget {
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       l10n.tr('profile_logout_dialog_message'),
-                      style: t.bodyMedium?.copyWith(color: Colors.white70, height: 1.35),
+                      style: t.bodyMedium?.copyWith(
+                        color: dialogOnSurface.withOpacity(0.72),
+                        height: 1.35,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -298,8 +314,8 @@ class ProfileScreen extends ConsumerWidget {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
-                            side: BorderSide(color: Colors.white.withOpacity(0.18)),
+                            foregroundColor: dialogOnSurface.withOpacity(0.80),
+                            side: BorderSide(color: dialogOnSurface.withOpacity(0.18)),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(ctx).pop(false),
@@ -345,28 +361,31 @@ class ProfileScreen extends ConsumerWidget {
       final next = await showDialog<String?>(
         context: context,
         builder: (ctx) {
+          final theme = Theme.of(ctx);
+          final onSurface = theme.colorScheme.onSurface;
+
           return AlertDialog(
-            backgroundColor: const Color(0xFF0A1D37),
+            backgroundColor: theme.colorScheme.surface,
             title: Text(
               l10n.tr('profile_edit_team_dialog_title'),
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: onSurface,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             content: TextField(
               controller: controller,
               autofocus: true,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: onSurface, fontWeight: FontWeight.w600),
               decoration: InputDecoration(
                 hintText: l10n.tr('profile_team_name_hint'),
-                hintStyle: const TextStyle(color: Colors.white38),
+                hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(null),
-                child: Text(
-                  l10n.tr('common_cancel'),
-                  style: const TextStyle(color: Colors.white70),
-                ),
+                child: Text(l10n.tr('common_cancel')),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
@@ -403,7 +422,9 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final t = theme.textTheme;
+    final onSurface = theme.colorScheme.onSurface;
 
     return Glass(
       padding: const EdgeInsets.all(12),
@@ -414,14 +435,13 @@ class _Stat extends StatelessWidget {
               value,
               style: t.titleLarge?.copyWith(
                 fontWeight: FontWeight.w900,
-                color: Colors.white,
               ),
             ),
           ),
           const SizedBox(height: 4),
           Text(
             label,
-            style: t.bodySmall?.copyWith(color: Colors.white60),
+            style: t.bodySmall?.copyWith(color: onSurface.withOpacity(0.65)),
             maxLines: 1,
           ),
         ],

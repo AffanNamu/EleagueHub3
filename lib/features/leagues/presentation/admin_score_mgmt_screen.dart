@@ -40,23 +40,50 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   bool _isGenerating = false;
 
-  void _toast(String msg, {Color bg = const Color(0xFF101522), Color fg = Colors.white}) {
+  Color _baseToastBg(ThemeData theme) {
+    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+  }
+
+  void _toast(String msg, {Color? bg, Color? fg}) {
     if (!mounted) return;
+
+    final theme = Theme.of(context);
+    final resolvedBg = bg ?? _baseToastBg(theme);
+    final resolvedFg = fg ?? Colors.white;
+
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
-        backgroundColor: bg,
-        content: Text(msg, style: TextStyle(color: fg, fontWeight: FontWeight.w600)),
+        backgroundColor: resolvedBg,
+        content: Text(msg, style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600)),
         duration: const Duration(seconds: 3),
       ),
     );
   }
 
-  void _toastOk(String msg) => _toast(msg, bg: Colors.cyanAccent.withOpacity(0.18), fg: Colors.cyanAccent);
-  void _toastWarn(String msg) => _toast(msg, bg: Colors.orangeAccent.withOpacity(0.14), fg: Colors.orangeAccent);
-  void _toastErr(String msg) => _toast(msg, bg: Colors.redAccent.withOpacity(0.14), fg: Colors.redAccent);
+  void _toastOk(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final baseBg = _baseToastBg(theme);
+    final accent = cs.primary;
+    _toast(msg, bg: Color.alphaBlend(accent.withOpacity(0.22), baseBg), fg: accent);
+  }
+
+  void _toastWarn(String msg) {
+    const warn = Color(0xFFF59E0B);
+    final theme = Theme.of(context);
+    final baseBg = _baseToastBg(theme);
+    _toast(msg, bg: Color.alphaBlend(warn.withOpacity(0.22), baseBg), fg: warn);
+  }
+
+  void _toastErr(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final baseBg = _baseToastBg(theme);
+    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.22), baseBg), fg: cs.error);
+  }
 
   @override
   void initState() {
@@ -356,10 +383,11 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
-
-    final onBg = Theme.of(context).colorScheme.onBackground;
 
     // Available rounds based on current selection
     List<int> availableRounds = [];
@@ -393,9 +421,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       ),
       body: SafeArea(
         child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: Colors.cyanAccent),
-              )
+            ? Center(child: CircularProgressIndicator(color: cs.primary))
             : Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: isTablet ? 1000 : 500),
@@ -417,14 +443,18 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                                 SizedBox(
                                   width: double.infinity,
                                   child: OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: cs.primary,
+                                      side: BorderSide(color: cs.primary),
+                                    ),
                                     onPressed: _isGenerating ? null : _generateClassicFixtures,
                                     icon: _isGenerating
-                                        ? const SizedBox(
+                                        ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
                                           )
-                                        : const Icon(Icons.auto_awesome, color: Colors.cyanAccent),
+                                        : const Icon(Icons.auto_awesome),
                                     label: Text(
                                       l10n.tr('admin_score_generate_classic'),
                                       style: const TextStyle(fontWeight: FontWeight.w900),
@@ -435,14 +465,18 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                                 SizedBox(
                                   width: double.infinity,
                                   child: OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: cs.primary,
+                                      side: BorderSide(color: cs.primary),
+                                    ),
                                     onPressed: _isGenerating ? null : _generateGroupFixtures,
                                     icon: _isGenerating
-                                        ? const SizedBox(
+                                        ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
                                           )
-                                        : const Icon(Icons.groups_2, color: Colors.cyanAccent),
+                                        : const Icon(Icons.groups_2),
                                     label: Text(
                                       l10n.tr('admin_score_generate_group'),
                                       style: const TextStyle(fontWeight: FontWeight.w900),
@@ -453,14 +487,18 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                                 SizedBox(
                                   width: double.infinity,
                                   child: OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: cs.primary,
+                                      side: BorderSide(color: cs.primary),
+                                    ),
                                     onPressed: _isGenerating ? null : _generateNextSwissRound,
                                     icon: _isGenerating
-                                        ? const SizedBox(
+                                        ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
                                           )
-                                        : const Icon(Icons.auto_mode, color: Colors.cyanAccent),
+                                        : const Icon(Icons.auto_mode),
                                     label: Text(
                                       l10n.tr('admin_score_generate_next_swiss_round'),
                                       style: const TextStyle(fontWeight: FontWeight.w900),
@@ -476,7 +514,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                         child: Text(
                           l10n.tr('admin_score_help_text'),
-                          style: TextStyle(color: onBg.withOpacity(0.62), fontSize: 12),
+                          style: TextStyle(color: cs.onBackground.withOpacity(0.62), fontSize: 12),
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -491,7 +529,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                             ? Center(
                                 child: Text(
                                   l10n.tr('admin_score_no_matches_to_manage'),
-                                  style: TextStyle(color: onBg.withOpacity(0.70)),
+                                  style: TextStyle(color: cs.onBackground.withOpacity(0.70), fontWeight: FontWeight.w600),
                                 ),
                               )
                             : ListView.separated(
@@ -520,14 +558,15 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final onBg = Theme.of(context).colorScheme.onBackground;
-
-    final unselectedBg = onBg.withOpacity(0.06);
-    final unselectedBorder = onBg.withOpacity(0.14);
-    final unselectedText = onBg.withOpacity(0.78);
+    final unselectedBg = cs.onBackground.withOpacity(0.06);
+    final unselectedBorder = cs.onBackground.withOpacity(0.14);
+    final unselectedText = cs.onBackground.withOpacity(0.78);
 
     final bool allSelected = _selectedGroup == null;
+
     return Container(
       height: 40,
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -555,17 +594,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
               margin: const EdgeInsetsDirectional.only(end: 8),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
-                color: allSelected ? Colors.cyanAccent : unselectedBg,
+                color: allSelected ? cs.primary : unselectedBg,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: allSelected ? Colors.cyanAccent : unselectedBorder,
+                  color: allSelected ? cs.primary : unselectedBorder,
                 ),
               ),
               alignment: Alignment.center,
               child: Text(
                 l10n.tr('admin_score_all_groups'),
                 style: TextStyle(
-                  color: allSelected ? Colors.black : unselectedText,
+                  color: allSelected ? cs.onPrimary : unselectedText,
                   fontWeight: FontWeight.bold,
                   fontSize: 11,
                 ),
@@ -597,17 +636,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                     margin: const EdgeInsetsDirectional.only(end: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.cyanAccent : unselectedBg,
+                      color: isSelected ? cs.primary : unselectedBg,
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: isSelected ? Colors.cyanAccent : unselectedBorder,
+                        color: isSelected ? cs.primary : unselectedBorder,
                       ),
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       group,
                       style: TextStyle(
-                        color: isSelected ? Colors.black : unselectedText,
+                        color: isSelected ? cs.onPrimary : unselectedText,
                         fontWeight: FontWeight.bold,
                         fontSize: 11,
                       ),
@@ -623,12 +662,12 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   Widget _buildRoundSelector(List<int> rounds) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final onBg = Theme.of(context).colorScheme.onBackground;
-
-    final unselectedBg = onBg.withOpacity(0.06);
-    final unselectedBorder = onBg.withOpacity(0.14);
-    final unselectedText = onBg.withOpacity(0.78);
+    final unselectedBg = cs.onBackground.withOpacity(0.06);
+    final unselectedBorder = cs.onBackground.withOpacity(0.14);
+    final unselectedText = cs.onBackground.withOpacity(0.78);
 
     return Container(
       height: 46,
@@ -646,17 +685,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
               margin: const EdgeInsetsDirectional.only(end: 10),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? Colors.cyanAccent : unselectedBg,
+                color: isSelected ? cs.primary : unselectedBg,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isSelected ? Colors.cyanAccent : unselectedBorder,
+                  color: isSelected ? cs.primary : unselectedBorder,
                 ),
               ),
               alignment: Alignment.center,
               child: Text(
                 '${l10n.tr('admin_score_round_prefix')}$round',
                 style: TextStyle(
-                  color: isSelected ? Colors.black : unselectedText,
+                  color: isSelected ? cs.onPrimary : unselectedText,
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
                 ),
@@ -712,6 +751,10 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+    final primary = cs.primary;
 
     final groupLabel = widget.match.groupId?.trim().isNotEmpty == true ? widget.match.groupId!.trim() : null;
     return Glass(
@@ -726,10 +769,10 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
                   groupLabel,
-                  style: const TextStyle(
-                    color: Colors.white54,
+                  style: TextStyle(
+                    color: onSurface.withOpacity(0.55),
                     fontSize: 11,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -739,9 +782,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               Expanded(
                 child: Text(
                   widget.homeName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -750,8 +792,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Text(
                   l10n.tr('league_details_vs'),
-                  style: const TextStyle(
-                    color: Colors.white24,
+                  style: TextStyle(
+                    color: onSurface.withOpacity(0.30),
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
                   ),
@@ -761,9 +803,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 child: Text(
                   widget.awayName,
                   textAlign: TextAlign.end,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -772,15 +813,15 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _isCompleted ? Colors.cyanAccent.withOpacity(0.12) : Colors.white.withOpacity(0.04),
+                  color: _isCompleted ? primary.withOpacity(0.14) : onSurface.withOpacity(0.06),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   _isCompleted ? l10n.tr('admin_knockout_status_completed') : l10n.tr('admin_knockout_status_pending'),
                   style: TextStyle(
-                    color: _isCompleted ? Colors.cyanAccent : Colors.white54,
+                    color: _isCompleted ? primary : onSurface.withOpacity(0.55),
                     fontSize: 11,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -795,13 +836,14 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 onInc: _incHome,
                 onDec: _decHome,
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Text(
                   ":",
                   style: TextStyle(
-                    color: Colors.white38,
+                    color: onSurface.withOpacity(0.35),
                     fontSize: 24,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
               ),
@@ -817,8 +859,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                   FocusScope.of(context).unfocus();
                 },
                 style: IconButton.styleFrom(
-                  backgroundColor: Colors.cyanAccent.withOpacity(0.2),
-                  foregroundColor: Colors.cyanAccent,
+                  backgroundColor: primary.withOpacity(0.18),
+                  foregroundColor: primary,
                 ),
                 icon: const Icon(Icons.done_all, size: 24),
               ),
@@ -834,11 +876,15 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback onInc,
     required VoidCallback onDec,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: onSurface.withOpacity(0.06),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: onSurface.withOpacity(0.12)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
@@ -855,8 +901,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
             child: Text(
               '$value',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
+              style: theme.textTheme.titleLarge?.copyWith(
                 fontSize: 22,
                 fontWeight: FontWeight.w900,
               ),
@@ -878,6 +923,11 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback? onPressed,
     required bool enabled,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+    final primary = cs.primary;
+
     return InkWell(
       onTap: onPressed,
       borderRadius: BorderRadius.circular(20),
@@ -885,13 +935,13 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
         width: 28,
         height: 28,
         decoration: BoxDecoration(
-          color: enabled ? Colors.cyanAccent.withOpacity(0.08) : Colors.white.withOpacity(0.02),
+          color: enabled ? primary.withOpacity(0.10) : onSurface.withOpacity(0.04),
           shape: BoxShape.circle,
         ),
         child: Icon(
           icon,
           size: 18,
-          color: enabled ? Colors.cyanAccent : Colors.white24,
+          color: enabled ? primary : onSurface.withOpacity(0.30),
         ),
       ),
     );

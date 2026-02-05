@@ -78,10 +78,12 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.cyanAccent),
+      return Center(
+        child: CircularProgressIndicator(color: cs.primary),
       );
     }
 
@@ -92,7 +94,10 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
           padding: const EdgeInsets.all(16),
           child: Text(
             l10n.tr('leagues_error_not_found_local_storage'),
-            style: const TextStyle(color: Colors.white),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w700,
+            ),
             textAlign: TextAlign.center,
           ),
         ),
@@ -121,17 +126,18 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
               children: [
                 Icon(
                   Icons.lock_outline,
-                  color: Colors.cyanAccent.withOpacity(0.95),
+                  color: cs.primary.withOpacity(0.95),
                   size: 44,
                 ),
                 const SizedBox(height: 12),
                 Text(
                   l10n.tr('league_access_charges_required_title'),
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: cs.onSurface,
                     fontWeight: FontWeight.w900,
                     fontSize: 18,
                   ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -139,16 +145,21 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                   '${l10n.tr('league_access_charges_explanation')}\n\n'
                   '${l10n.tr('league_access_league_prefix')} ${league.name}',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.72),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface.withOpacity(0.72),
                     height: 1.35,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 if (_receipt != null) ...[
                   const SizedBox(height: 12),
                   Text(
                     '${l10n.tr('league_access_receipt_prefix')} ${_receipt!.receiptId}',
-                    style: TextStyle(color: Colors.white.withOpacity(0.80)),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.80),
+                      fontWeight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
                 ],
                 const SizedBox(height: 16),
@@ -172,10 +183,11 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                 Text(
                   l10n.tr('league_access_note_classic_free'),
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.55),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.55),
                     fontSize: 12,
                     height: 1.35,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -207,7 +219,10 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
       if (!result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed'))),
+          SnackBar(
+            content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
         setState(() => _processingPayment = false);
         return;
@@ -231,13 +246,19 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_access_charges_paid_success'))),
+        SnackBar(
+          content: Text(l10n.tr('league_access_charges_paid_success')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _processingPayment = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${l10n.tr('league_access_payment_failed_prefix')} $e')),
+        SnackBar(
+          content: Text('${l10n.tr('league_access_payment_failed_prefix')} $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }

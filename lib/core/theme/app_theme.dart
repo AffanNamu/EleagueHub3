@@ -15,14 +15,12 @@ class AppTheme {
   static const Color skyBottom = Color(0xFF81D4FA);
 
   // Light Mode Surfaces (premium off-white; not pure white)
-  // Used for backgrounds/surfaces to replace sky-blue usage.
   static const Color lightSurface = Color(0xFFFAFBFC);
   static const Color lightSurfaceAlt = Color(0xFFF3F6FA);
 
-  // Light-mode glass (keep glassmorphism, but ensure contrast on off-white backgrounds)
-  // Dark-tinted glass so existing "white text on glass" UI remains readable.
-  static const Color _lightGlassFill = Color(0x7A0A1D37); // ~48% navy tint
-  static const Color _lightGlassStroke = Color(0x33FFFFFF); // subtle white edge
+  // Light-mode glass (premium frosted white; readable with navy/slate text)
+  static const Color _lightGlassFill = Color(0xBFFFFFFF); // ~75% frosted white
+  static const Color _lightGlassStroke = Color(0x1F0A1D37); // subtle navy edge
 
   // =========================
   // PUBLIC THEME ACCESSORS
@@ -37,7 +35,7 @@ class AppTheme {
 
   static ThemeData _lightTheme() {
     final base = ColorScheme.fromSeed(
-      seedColor: skyTop, // keep brand accent seed
+      seedColor: skyTop,
       brightness: Brightness.light,
     );
 
@@ -48,24 +46,20 @@ class AppTheme {
       background: lightSurface,
       onSurface: navyBg,
       onBackground: navyBg,
+      outline: navyBg.withOpacity(0.18),
+      outlineVariant: navyBg.withOpacity(0.10),
     );
 
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-
-      // Replace sky-blue scaffold background with premium off-white.
       scaffoldBackgroundColor: lightSurface,
       colorScheme: scheme,
-
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         foregroundColor: navyBg,
         elevation: 0,
       ),
-
-      // Global TextField defaults for LIGHT surfaces (so users can see what they type).
-      // Note: Glass widget may override this locally when used on dark-tinted glass.
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.black.withOpacity(0.04),
@@ -82,13 +76,11 @@ class AppTheme {
           borderSide: BorderSide(color: skyTop.withOpacity(0.85), width: 1.4),
         ),
       ),
-
       textSelectionTheme: TextSelectionThemeData(
         cursorColor: skyTop,
         selectionColor: skyTop.withOpacity(0.25),
         selectionHandleColor: skyTop,
       ),
-
       cardTheme: CardTheme(
         color: glassFill(Brightness.light),
         elevation: 0,
@@ -97,7 +89,6 @@ class AppTheme {
           side: BorderSide(color: glassStroke(Brightness.light)),
         ),
       ),
-
       dividerColor: navyBg.withOpacity(0.10),
     );
   }
@@ -121,8 +112,6 @@ class AppTheme {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-
-      // Global TextField defaults for DARK surfaces.
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white.withOpacity(0.04),
@@ -139,13 +128,11 @@ class AppTheme {
           borderSide: BorderSide(color: navyAccent, width: 1.4),
         ),
       ),
-
       textSelectionTheme: TextSelectionThemeData(
         cursorColor: navyAccent,
         selectionColor: navyAccent.withOpacity(0.25),
         selectionHandleColor: navyAccent,
       ),
-
       cardTheme: CardTheme(
         color: glassFill(Brightness.dark),
         elevation: 0,
@@ -170,9 +157,6 @@ class AppTheme {
       (b == Brightness.dark) ? const Color(0x2EFFFFFF) : _lightGlassStroke;
 
   /// Background gradient for entire scaffold
-  ///
-  /// - Dark: navy gradient (UNCHANGED)
-  /// - Light: off-white gradient (replaces sky-blue background usage)
   static Gradient backgroundGradient(Brightness b) {
     if (b == Brightness.dark) {
       return const LinearGradient(
@@ -229,8 +213,6 @@ class AppTheme {
   }
 
   /// Bubble palette for animated backgrounds
-  ///
-  /// Light mode uses subtle, premium tints (no sky-blue full-screen background).
   static List<Color> bubblePalette(Brightness b) {
     if (b == Brightness.dark) {
       return [

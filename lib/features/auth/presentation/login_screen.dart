@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/auth_service.dart';
@@ -161,49 +160,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  InputDecoration _fieldDecoration({
-    required bool isLight,
-    required String label,
-    required IconData icon,
-  }) {
-    final base = isLight ? AppTheme.navyBg : Colors.white;
-    final borderColor = isLight ? AppTheme.navyBg.withOpacity(0.18) : Colors.white.withOpacity(0.18);
-
-    return InputDecoration(
-      labelText: label,
-      labelStyle: TextStyle(color: base.withOpacity(0.75)),
-      prefixIcon: Icon(icon, color: base.withOpacity(0.70)),
-      filled: true,
-      fillColor: isLight ? Colors.black.withOpacity(0.04) : Colors.white.withOpacity(0.04),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: borderColor),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: Theme.of(context).colorScheme.primary.withOpacity(0.85), width: 1.4),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-
     final theme = Theme.of(context);
-    final isLight = theme.brightness == Brightness.light;
 
-    final Color titleColor = isLight ? AppTheme.navyBg : Colors.white;
-    final Color bodyColor = isLight ? AppTheme.navyBg.withOpacity(0.72) : Colors.white70;
+    final dividerColor = theme.colorScheme.onSurface.withOpacity(0.14);
+    final orTextColor = theme.colorScheme.onSurface.withOpacity(0.60);
 
-    final Color fieldTextColor = isLight ? AppTheme.navyBg : Colors.white;
-
-    final dividerColor = isLight ? AppTheme.navyBg.withOpacity(0.18) : Colors.white.withOpacity(0.15);
-    final orTextColor = isLight ? AppTheme.navyBg.withOpacity(0.65) : Colors.white.withOpacity(0.65);
-
-    // Light-mode login card should be light (so dark typing is visible).
-    final cardFill = isLight ? Colors.white.withOpacity(0.82) : null;
-    final cardStroke = isLight ? AppTheme.navyBg.withOpacity(0.12) : null;
+    final fieldStyle = theme.textTheme.bodyLarge?.copyWith(
+      fontWeight: FontWeight.w600,
+      color: theme.colorScheme.onSurface,
+    );
 
     return WillPopScope(
       onWillPop: _confirmExitApp,
@@ -214,8 +182,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Glass(
-                fill: cardFill,
-                stroke: cardStroke,
+                padding: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -231,14 +198,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         l10n.authLoginBrand,
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w800,
-                          color: titleColor,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         _isRegister ? l10n.authLoginSubtitleRegister : l10n.authLoginSubtitleSignIn,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: bodyColor,
+                          color: theme.colorScheme.onSurface.withOpacity(0.72),
                           height: 1.35,
                         ),
                         textAlign: TextAlign.center,
@@ -270,24 +236,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       TextField(
                         controller: _email,
                         keyboardType: TextInputType.emailAddress,
-                        style: TextStyle(color: fieldTextColor, fontWeight: FontWeight.w600),
+                        style: fieldStyle,
                         cursorColor: theme.colorScheme.primary,
-                        decoration: _fieldDecoration(
-                          isLight: isLight,
-                          label: l10n.authLoginEmailLabel,
-                          icon: Icons.email_outlined,
+                        decoration: InputDecoration(
+                          labelText: l10n.authLoginEmailLabel,
+                          prefixIcon: const Icon(Icons.email_outlined),
                         ),
                       ),
                       const SizedBox(height: 10),
                       TextField(
                         controller: _password,
                         obscureText: true,
-                        style: TextStyle(color: fieldTextColor, fontWeight: FontWeight.w600),
+                        style: fieldStyle,
                         cursorColor: theme.colorScheme.primary,
-                        decoration: _fieldDecoration(
-                          isLight: isLight,
-                          label: l10n.authLoginPasswordLabel,
-                          icon: Icons.lock_outline,
+                        decoration: InputDecoration(
+                          labelText: l10n.authLoginPasswordLabel,
+                          prefixIcon: const Icon(Icons.lock_outline),
                         ),
                       ),
                       if (_isRegister) ...[
@@ -295,12 +259,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         TextField(
                           controller: _confirm,
                           obscureText: true,
-                          style: TextStyle(color: fieldTextColor, fontWeight: FontWeight.w600),
+                          style: fieldStyle,
                           cursorColor: theme.colorScheme.primary,
-                          decoration: _fieldDecoration(
-                            isLight: isLight,
-                            label: l10n.authLoginConfirmPasswordLabel,
-                            icon: Icons.lock_reset,
+                          decoration: InputDecoration(
+                            labelText: l10n.authLoginConfirmPasswordLabel,
+                            prefixIcon: const Icon(Icons.lock_reset),
                           ),
                         ),
                       ],

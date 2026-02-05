@@ -415,6 +415,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
           content: Text(
             '${_trOr(l10n, 'live_view_screen_share_failed_prefix', 'Screen share failed: ')}$e',
           ),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -630,6 +631,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final canSendQuick = widget.isHost && _connected;
 
     if (!widget.isHost && _isFullscreen) {
@@ -686,6 +690,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(_trOr(l10n, 'live_view_copied_match_info_toast', 'Copied match info')),
+                  behavior: SnackBarBehavior.floating,
                 ),
               );
             },
@@ -743,6 +748,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   Widget _buildControls(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     if (_errorText != null) {
       return Glass(
@@ -750,7 +757,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         padding: const EdgeInsets.all(12),
         child: Text(
           '${l10n.tr('common_error_prefix')}: $_errorText',
-          style: const TextStyle(color: Colors.redAccent),
+          style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
         ),
       );
     }
@@ -767,7 +774,11 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
             Text(
               '${_trOr(l10n, 'live_view_room_prefix', 'Room: ')}${_roomName ?? '...'} • '
               '${_trOr(l10n, 'live_view_side_prefix', 'side: ')}${liveHostSideToWire(_mySide)}',
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 10),
             Row(
@@ -782,6 +793,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                           : (started
                               ? _trOr(l10n, 'live_view_host_broadcasting', 'Broadcasting')
                               : _trOr(l10n, 'live_view_host_start_broadcast', 'Start Broadcast')),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
                 ),
@@ -807,21 +819,28 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                 IconButton.filled(
                   onPressed: started ? _toggleHostMic : null,
                   style: IconButton.styleFrom(
-                    backgroundColor: (_hostMicEnabled ? Colors.greenAccent : Colors.redAccent).withOpacity(0.3),
+                    backgroundColor: (_hostMicEnabled ? const Color(0xFF22C55E) : cs.error).withOpacity(0.22),
+                    foregroundColor: Colors.white,
                   ),
-                  icon: Icon(_hostMicEnabled ? Icons.mic : Icons.mic_off, color: Colors.white),
+                  icon: Icon(_hostMicEnabled ? Icons.mic : Icons.mic_off),
                 ),
                 const SizedBox(width: 8),
                 IconButton.filled(
                   onPressed: started ? _toggleHostCamera : null,
-                  style: IconButton.styleFrom(backgroundColor: Colors.white12),
-                  icon: Icon(_hostCameraEnabled ? Icons.videocam : Icons.videocam_off, color: Colors.white),
+                  style: IconButton.styleFrom(
+                    backgroundColor: cs.onSurface.withOpacity(0.08),
+                    foregroundColor: cs.onSurface,
+                  ),
+                  icon: Icon(_hostCameraEnabled ? Icons.videocam : Icons.videocam_off),
                 ),
                 const SizedBox(width: 8),
                 IconButton.filled(
                   onPressed: started ? _toggleHostScreenShare : null,
-                  style: IconButton.styleFrom(backgroundColor: Colors.white12),
-                  icon: Icon(_hostScreenEnabled ? Icons.screen_share : Icons.stop_screen_share, color: Colors.white),
+                  style: IconButton.styleFrom(
+                    backgroundColor: cs.onSurface.withOpacity(0.08),
+                    foregroundColor: cs.onSurface,
+                  ),
+                  icon: Icon(_hostScreenEnabled ? Icons.screen_share : Icons.stop_screen_share),
                   tooltip: _hostScreenEnabled
                       ? _trOr(l10n, 'live_view_host_stop_screen_share', 'Stop screen share')
                       : _trOr(l10n, 'live_view_host_start_screen_share', 'Start screen share'),
@@ -849,24 +868,30 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
               IconButton.filled(
                 onPressed: _toggleViewerAudio,
                 style: IconButton.styleFrom(
-                  backgroundColor: (_viewerAudioEnabled ? Colors.greenAccent : Colors.redAccent).withOpacity(0.3),
+                  backgroundColor: (_viewerAudioEnabled ? const Color(0xFF22C55E) : cs.error).withOpacity(0.22),
+                  foregroundColor: Colors.white,
                 ),
-                icon: Icon(_viewerAudioEnabled ? Icons.volume_up : Icons.volume_off, color: Colors.white),
+                icon: Icon(_viewerAudioEnabled ? Icons.volume_up : Icons.volume_off),
               ),
               const SizedBox(width: 10),
               IconButton.filled(
                 onPressed: _toggleViewerLayoutMode,
-                style: IconButton.styleFrom(backgroundColor: Colors.white12),
+                style: IconButton.styleFrom(
+                  backgroundColor: cs.onSurface.withOpacity(0.08),
+                  foregroundColor: cs.onSurface,
+                ),
                 icon: Icon(
                   _viewerLayoutMode == _ViewerLayoutMode.dual ? Icons.view_agenda : Icons.view_week,
-                  color: Colors.white,
                 ),
               ),
               const SizedBox(width: 10),
               IconButton.filled(
                 onPressed: _toggleFullscreen,
-                style: IconButton.styleFrom(backgroundColor: Colors.white12),
-                icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white),
+                style: IconButton.styleFrom(
+                  backgroundColor: cs.onSurface.withOpacity(0.08),
+                  foregroundColor: cs.onSurface,
+                ),
+                icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -899,6 +924,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                       _busy
                           ? _trOr(l10n, 'live_view_connecting', 'Connecting...')
                           : _trOr(l10n, 'live_view_reconnect', 'Reconnect'),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
                 ),
@@ -997,6 +1023,8 @@ class _IncomingQuickBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return IgnorePointer(
       ignoring: true,
       child: Glass(
@@ -1004,14 +1032,14 @@ class _IncomingQuickBanner extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
-            const Icon(Icons.bolt, color: Colors.cyanAccent, size: 18),
+            Icon(Icons.bolt, color: cs.primary, size: 18),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 from == null ? text : '$from: $text',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
+                style: TextStyle(
+                  color: cs.onSurface,
+                  fontWeight: FontWeight.w900,
                   fontSize: 13,
                 ),
                 maxLines: 2,
@@ -1057,6 +1085,9 @@ class _DualViewerStreamLayout extends StatelessWidget {
     final waitingForPrefix = _trOr(l10n, 'live_view_waiting_for_prefix', 'Waiting for ');
     final camHint = _trOr(l10n, 'live_view_cam_hint', 'Cam…');
 
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(10),
@@ -1072,8 +1103,8 @@ class _DualViewerStreamLayout extends StatelessWidget {
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white70,
+                style: TextStyle(
+                  color: cs.onSurface.withOpacity(0.70),
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
@@ -1096,7 +1127,7 @@ class _DualViewerStreamLayout extends StatelessWidget {
                             : Center(
                                 child: Text(
                                   '$waitingForPrefix$homeLabel…',
-                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white70),
+                                  style: theme.textTheme.titleSmall?.copyWith(color: Colors.white70),
                                 ),
                               ),
                       ),
@@ -1116,7 +1147,7 @@ class _DualViewerStreamLayout extends StatelessWidget {
                             : Center(
                                 child: Text(
                                   '$waitingForPrefix$awayLabel…',
-                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white70),
+                                  style: theme.textTheme.titleSmall?.copyWith(color: Colors.white70),
                                 ),
                               ),
                       ),
@@ -1187,6 +1218,9 @@ class _GamerStreamLayout extends StatelessWidget {
     final l10n = context.l10n;
     final waitingForStream = _trOr(l10n, 'live_view_waiting_for_stream', 'Waiting for stream…');
 
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(10),
@@ -1202,7 +1236,7 @@ class _GamerStreamLayout extends StatelessWidget {
                     : Center(
                         child: Text(
                           waitingForStream,
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white70),
+                          style: theme.textTheme.titleSmall?.copyWith(color: Colors.white70),
                         ),
                       ),
               ),
@@ -1222,8 +1256,8 @@ class _GamerStreamLayout extends StatelessWidget {
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white70,
+                  style: TextStyle(
+                    color: cs.onSurface.withOpacity(0.70),
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1276,6 +1310,8 @@ class _CircularCam extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Opacity(
       opacity: 0.86,
       child: InkWell(
@@ -1289,7 +1325,7 @@ class _CircularCam extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: selected ? Colors.cyanAccent.withOpacity(0.95) : Colors.white24,
+                  color: selected ? cs.primary.withOpacity(0.95) : Colors.white24,
                   width: 2,
                 ),
                 color: Colors.black.withOpacity(0.35),

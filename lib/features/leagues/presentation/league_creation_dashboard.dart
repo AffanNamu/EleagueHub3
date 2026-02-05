@@ -55,6 +55,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   bool _creatorWillParticipate = false;
 
+  static const Color _premiumAmber = Color(0xFFF59E0B);
+
   static const List<String> _groupNames = <String>[
     'Group A',
     'Group B',
@@ -176,6 +178,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth >= 900;
 
@@ -224,7 +229,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                           Text(
                             l10n.tr('league_create_share_hint'),
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white.withOpacity(0.75), height: 1.4),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: cs.onSurface.withOpacity(0.75),
+                              height: 1.4,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -252,7 +261,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                             onPressed: () => context.push('/leagues/${league.id}'),
                             child: Text(
                               l10n.tr('league_create_open_league_details_upper'),
-                              style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900),
                             ),
                           ),
                         ],
@@ -343,6 +352,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _buildSideSummary(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final paymentColor = _creationRequiresPayment
+        ? (_paymentCompleted ? cs.primary : _premiumAmber)
+        : cs.primary;
 
     return Glass(
       padding: const EdgeInsets.all(16),
@@ -352,7 +367,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         children: [
           Text(
             l10n.tr('league_create_summary_title'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+            ),
           ),
           const SizedBox(height: 12),
           _summaryRow(Icons.auto_awesome, l10n.tr('league_create_summary_type_label'), _typeLabel),
@@ -373,16 +392,19 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             _creationRequiresPayment
                 ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
                 : l10n.tr('league_create_fee_free'),
-            valueColor: _creationRequiresPayment
-                ? (_paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent)
-                : Colors.cyanAccent,
+            valueColor: paymentColor,
           ),
           const SizedBox(height: 10),
           Text(
             _creationRequiresPayment
                 ? l10n.tr('league_create_fee_note_requires_payment')
                 : l10n.tr('league_create_fee_note_free'),
-            style: TextStyle(color: Colors.white.withOpacity(0.60), height: 1.35, fontSize: 12),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.60),
+              height: 1.35,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -395,24 +417,35 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     String value, {
     Color? valueColor,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Padding(
       padding: const EdgeInsetsDirectional.only(bottom: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: Colors.cyanAccent),
+          Icon(icon, size: 18, color: cs.primary),
           const SizedBox(width: 10),
           SizedBox(
             width: 90,
             child: Text(
               label,
-              style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, fontSize: 12),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.w700, height: 1.25),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: valueColor ?? cs.onSurface,
+                fontWeight: FontWeight.w800,
+                height: 1.25,
+              ),
             ),
           ),
         ],
@@ -422,6 +455,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _buildStepHeader(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final steps = <_StepMeta>[
       _StepMeta(l10n.tr('league_create_step_type'), Icons.auto_awesome),
@@ -436,7 +471,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       children: [
         Text(
           l10n.tr('league_create_header_title'),
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18),
+          style: theme.textTheme.titleLarge?.copyWith(
+            color: cs.onSurface,
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+          ),
         ),
         const SizedBox(height: 10),
         Row(
@@ -453,8 +492,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           child: LinearProgressIndicator(
             value: (_step + 1) / steps.length,
             minHeight: 8,
-            backgroundColor: Colors.white.withOpacity(0.08),
-            color: Colors.cyanAccent,
+            backgroundColor: cs.onSurface.withOpacity(0.08),
+            color: cs.primary,
           ),
         ),
       ],
@@ -467,32 +506,35 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     required int index,
     required int current,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final active = index == current;
     final done = index < current;
 
     final Color borderColor = active
-        ? Colors.cyanAccent.withOpacity(0.75)
+        ? cs.primary.withOpacity(0.75)
         : done
-            ? Colors.cyanAccent.withOpacity(0.40)
-            : Colors.white.withOpacity(0.12);
+            ? cs.primary.withOpacity(0.40)
+            : cs.onSurface.withOpacity(0.14);
 
     final Color bgColor = active
-        ? Colors.cyanAccent.withOpacity(0.16)
+        ? cs.primary.withOpacity(0.14)
         : done
-            ? Colors.white.withOpacity(0.06)
-            : Colors.white.withOpacity(0.04);
+            ? cs.onSurface.withOpacity(0.06)
+            : cs.onSurface.withOpacity(0.04);
 
     final Color iconColor = active
-        ? Colors.cyanAccent
+        ? cs.primary
         : done
-            ? Colors.cyanAccent.withOpacity(0.85)
-            : Colors.white54;
+            ? cs.primary.withOpacity(0.85)
+            : cs.onSurface.withOpacity(0.55);
 
     final Color textColor = active
-        ? Colors.cyanAccent
+        ? cs.primary
         : done
-            ? Colors.white70
-            : Colors.white54;
+            ? cs.onSurface.withOpacity(0.75)
+            : cs.onSurface.withOpacity(0.55);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -538,6 +580,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _stepLeagueType(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Column(
       key: key,
@@ -545,7 +589,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       children: [
         Text(
           l10n.tr('league_create_choose_type_help'),
-          style: TextStyle(color: Colors.white.withOpacity(0.72), height: 1.35),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: cs.onSurface.withOpacity(0.72),
+            height: 1.35,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 14),
         _typeCard(
@@ -583,9 +631,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                   selected: _maxTeams == n,
-                  selectedColor: Colors.cyanAccent.withOpacity(0.25),
-                  backgroundColor: Colors.white10,
-                  labelStyle: TextStyle(color: _maxTeams == n ? Colors.cyanAccent : Colors.white70),
+                  selectedColor: cs.primary.withOpacity(0.18),
+                  backgroundColor: cs.onSurface.withOpacity(0.06),
+                  labelStyle: TextStyle(
+                    color: _maxTeams == n ? cs.primary : cs.onSurface.withOpacity(0.72),
+                    fontWeight: _maxTeams == n ? FontWeight.w900 : FontWeight.w800,
+                  ),
                   onSelected: (v) {
                     if (!v) return;
                     setState(() => _selectedMaxTeams = n);
@@ -598,7 +649,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             _format == LeagueFormat.uclGroup
                 ? '${l10n.tr('league_create_groups_will_be_prefix')} ${_maxTeams ~/ 4} ${l10n.tr('league_create_groups_will_be_suffix')}'
                 : '${l10n.tr('league_create_swiss_table_prefix')} $_maxTeams ${l10n.tr('league_create_swiss_table_suffix')}',
-            style: const TextStyle(color: Colors.white54, fontSize: 11),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.55),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ],
@@ -612,6 +667,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     required IconData icon,
   }) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final selected = _type == type;
 
     return InkWell(
@@ -621,9 +679,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          color: selected ? Colors.cyanAccent.withOpacity(0.14) : Colors.white.withOpacity(0.04),
+          color: selected ? cs.primary.withOpacity(0.14) : cs.onSurface.withOpacity(0.04),
           border: Border.all(
-            color: selected ? Colors.cyanAccent.withOpacity(0.70) : Colors.white.withOpacity(0.10),
+            color: selected ? cs.primary.withOpacity(0.70) : cs.onSurface.withOpacity(0.12),
           ),
         ),
         child: Row(
@@ -633,21 +691,36 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               height: 46,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                color: selected ? Colors.cyanAccent.withOpacity(0.18) : Colors.white.withOpacity(0.06),
+                color: selected ? cs.primary.withOpacity(0.18) : cs.onSurface.withOpacity(0.06),
                 border: Border.all(
-                  color: selected ? Colors.cyanAccent.withOpacity(0.70) : Colors.white.withOpacity(0.10),
+                  color: selected ? cs.primary.withOpacity(0.70) : cs.onSurface.withOpacity(0.12),
                 ),
               ),
-              child: Icon(icon, color: selected ? Colors.cyanAccent : Colors.white70),
+              child: Icon(icon, color: selected ? cs.primary : cs.onSurface.withOpacity(0.72)),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14)),
+                  Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                    ),
+                  ),
                   const SizedBox(height: 6),
-                  Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.25, fontSize: 12)),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.70),
+                      height: 1.25,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -655,13 +728,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
-                color: selected ? Colors.cyanAccent : Colors.white.withOpacity(0.06),
+                color: selected ? cs.primary : cs.onSurface.withOpacity(0.06),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 selected ? l10n.tr('common_selected') : l10n.tr('common_select'),
                 style: TextStyle(
-                  color: selected ? Colors.black : Colors.white70,
+                  color: selected ? cs.onPrimary : cs.onSurface.withOpacity(0.72),
                   fontWeight: FontWeight.w900,
                   fontSize: 11,
                 ),
@@ -675,6 +748,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _stepLeagueDetails(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Column(
       key: key,
@@ -684,21 +759,10 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         const SizedBox(height: 10),
         TextField(
           controller: _name,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
             labelText: l10n.tr('league_create_league_name_required_label'),
-            labelStyle: const TextStyle(color: Colors.white70),
-            prefixIcon: const Icon(Icons.edit_note, color: Colors.white70),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.04),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-            ),
+            prefixIcon: const Icon(Icons.edit_note),
           ),
           onChanged: (_) {
             if (mounted) setState(() {});
@@ -709,22 +773,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           controller: _description,
           minLines: 3,
           maxLines: 7,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600),
           decoration: InputDecoration(
             labelText: l10n.tr('league_create_league_description_recommended_label'),
             alignLabelWithHint: true,
-            labelStyle: const TextStyle(color: Colors.white70),
-            prefixIcon: const Icon(Icons.subject, color: Colors.white70),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.04),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-            ),
+            prefixIcon: const Icon(Icons.subject),
           ),
         ),
         const SizedBox(height: 12),
@@ -766,6 +819,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     required String title,
     required String subtitle,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final selected = _privacy == value;
 
     return InkWell(
@@ -775,23 +831,37 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          color: selected ? Colors.cyanAccent.withOpacity(0.14) : Colors.white.withOpacity(0.04),
-          border: Border.all(color: selected ? Colors.cyanAccent.withOpacity(0.70) : Colors.white.withOpacity(0.10)),
+          color: selected ? cs.primary.withOpacity(0.14) : cs.onSurface.withOpacity(0.04),
+          border: Border.all(color: selected ? cs.primary.withOpacity(0.70) : cs.onSurface.withOpacity(0.12)),
         ),
         child: Row(
           children: [
             Icon(
               selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? Colors.cyanAccent : Colors.white54,
+              color: selected ? cs.primary : cs.onSurface.withOpacity(0.55),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                  Text(
+                    title,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                   const SizedBox(height: 6),
-                  Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.65), height: 1.25, fontSize: 12)),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.65),
+                      height: 1.25,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -803,6 +873,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _stepPayment(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
 
     if (!_creationRequiresPayment) {
       return Column(
@@ -815,7 +886,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             icon: Icons.verified,
             title: l10n.tr('league_create_no_payment_required_title'),
             subtitle: l10n.tr('league_create_no_payment_required_subtitle'),
-            accent: Colors.cyanAccent,
+            accent: cs.primary,
           ),
         ],
       );
@@ -828,7 +899,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         : l10n.tr('league_create_payment_required_subtitle');
 
     final statusIcon = _paymentCompleted ? Icons.verified : Icons.lock_outline;
-    final accent = _paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent;
+    final accent = _paymentCompleted ? cs.primary : _premiumAmber;
 
     return Column(
       key: key,
@@ -852,20 +923,29 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                   if (result != null && result.success) {
                     setState(() => _payment = result);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(l10n.tr('league_create_payment_successful'))),
+                      SnackBar(
+                        content: Text(l10n.tr('league_create_payment_successful')),
+                        behavior: SnackBarBehavior.floating,
+                      ),
                     );
                     return;
                   }
 
                   if (result == null) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(l10n.tr('league_create_payment_cancelled'))),
+                      SnackBar(
+                        content: Text(l10n.tr('league_create_payment_cancelled')),
+                        behavior: SnackBarBehavior.floating,
+                      ),
                     );
                     return;
                   }
 
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed'))),
+                    SnackBar(
+                      content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
+                      behavior: SnackBarBehavior.floating,
+                    ),
                   );
                 },
           style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
@@ -879,6 +959,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _stepConfirm(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final canCreate = _type != null && _name.text.trim().isNotEmpty && (!_creationRequiresPayment || _paymentCompleted);
 
@@ -907,36 +989,48 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
               : l10n.tr('league_create_fee_free'),
           valueColor: _creationRequiresPayment
-              ? (_paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent)
-              : Colors.cyanAccent,
+              ? (_paymentCompleted ? cs.primary : _premiumAmber)
+              : cs.primary,
         ),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: Colors.white.withOpacity(0.04),
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            color: cs.onSurface.withOpacity(0.04),
+            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
           ),
           child: SwitchListTile.adaptive(
             value: _creatorWillParticipate,
             onChanged: _submitting ? null : (v) => setState(() => _creatorWillParticipate = v),
-            activeColor: Colors.cyanAccent,
+            activeColor: cs.primary,
             contentPadding: EdgeInsets.zero,
             title: Text(
               l10n.tr('league_create_creator_participate_title'),
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w900,
+              ),
             ),
             subtitle: Text(
               l10n.tr('league_create_creator_participate_subtitle'),
-              style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 12, height: 1.25),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.65),
+                fontSize: 12,
+                height: 1.25,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ),
         const SizedBox(height: 14),
         Text(
           l10n.tr('league_create_admin_notice'),
-          style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.35),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: cs.onSurface.withOpacity(0.70),
+            height: 1.35,
+            fontWeight: FontWeight.w600,
+          ),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 12),
@@ -944,8 +1038,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           onPressed: (_submitting || !canCreate) ? null : () => _create(context),
           style: FilledButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 14),
-            backgroundColor: canCreate ? Colors.cyanAccent : Colors.white24,
-            foregroundColor: canCreate ? Colors.black : Colors.white54,
           ),
           child: _submitting
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
@@ -956,17 +1048,29 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   }
 
   Widget _confirmRow(IconData icon, String label, String value, {Color? valueColor}) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: Colors.cyanAccent),
+          Icon(icon, size: 18, color: cs.primary),
           const SizedBox(width: 10),
-          Text('$label: ', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800)),
+          Text(
+            '$label: ',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.70),
+              fontWeight: FontWeight.w900,
+            ),
+          ),
           Expanded(
             child: Text(
               value,
-              style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.w800),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: valueColor ?? cs.onSurface,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],
@@ -975,6 +1079,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   }
 
   Widget _sectionTitle(String text, IconData icon) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Row(
       children: [
         Container(
@@ -982,13 +1089,20 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           height: 34,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: Colors.cyanAccent.withOpacity(0.14),
-            border: Border.all(color: Colors.cyanAccent.withOpacity(0.35)),
+            color: cs.primary.withOpacity(0.14),
+            border: Border.all(color: cs.primary.withOpacity(0.35)),
           ),
-          child: Icon(icon, size: 18, color: Colors.cyanAccent),
+          child: Icon(icon, size: 18, color: cs.primary),
         ),
         const SizedBox(width: 10),
-        Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+        Text(
+          text,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: cs.onSurface,
+            fontWeight: FontWeight.w900,
+            fontSize: 16,
+          ),
+        ),
       ],
     );
   }
@@ -999,14 +1113,17 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     required String subtitle,
     Color? accent,
   }) {
-    final a = accent ?? Colors.cyanAccent;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final a = accent ?? cs.primary;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        color: Colors.white.withOpacity(0.04),
-        border: Border.all(color: a.withOpacity(0.40)),
+        color: cs.onSurface.withOpacity(0.04),
+        border: Border.all(color: a.withOpacity(0.35)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1017,9 +1134,23 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                Text(
+                  title,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.25, fontSize: 12)),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.70),
+                    height: 1.25,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1030,6 +1161,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _buildFooterActions(BuildContext context) {
     final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
+
     final isLast = _step == 4;
     final canGoBack = !_submitting;
     final canGoNext = !_submitting;
@@ -1052,8 +1185,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                   },
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
-              side: BorderSide(color: Colors.white.withOpacity(0.18)),
-              foregroundColor: Colors.white70,
+              side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+              foregroundColor: cs.onSurface.withOpacity(0.80),
             ),
             child: Text(backLabel.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w900)),
           ),
@@ -1084,7 +1217,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     if (_step == 0) {
       if (_type == null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.tr('league_create_error_select_type'))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.tr('league_create_error_select_type')), behavior: SnackBarBehavior.floating),
+        );
         return false;
       }
       return true;
@@ -1092,7 +1227,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     if (_step == 1) {
       if (_name.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.tr('league_create_error_name_required'))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.tr('league_create_error_name_required')), behavior: SnackBarBehavior.floating),
+        );
         return false;
       }
       return true;
@@ -1100,8 +1237,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     if (_step == 3) {
       if (_creationRequiresPayment && !_paymentCompleted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(l10n.tr('league_create_error_complete_payment_to_continue'))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.tr('league_create_error_complete_payment_to_continue')), behavior: SnackBarBehavior.floating),
+        );
         return false;
       }
       return true;
@@ -1114,23 +1252,30 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final l10n = context.l10n;
 
     if (_type == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.tr('league_create_error_select_type'))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.tr('league_create_error_select_type')), behavior: SnackBarBehavior.floating),
+      );
       return;
     }
 
     if (_name.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.tr('league_create_error_name_required'))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.tr('league_create_error_name_required')), behavior: SnackBarBehavior.floating),
+      );
       return;
     }
 
     if (_creationRequiresPayment && !_paymentCompleted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(l10n.tr('league_create_error_payment_must_be_completed'))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.tr('league_create_error_payment_must_be_completed')), behavior: SnackBarBehavior.floating),
+      );
       return;
     }
 
     if (!_allowedMaxTeams.contains(_maxTeams)) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.tr('league_create_error_invalid_team_count'))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.tr('league_create_error_invalid_team_count')), behavior: SnackBarBehavior.floating),
+      );
       return;
     }
 
@@ -1215,7 +1360,10 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${l10n.tr('league_create_error_failed_to_create_prefix')}: $e')),
+        SnackBar(
+          content: Text('${l10n.tr('league_create_error_failed_to_create_prefix')}: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }

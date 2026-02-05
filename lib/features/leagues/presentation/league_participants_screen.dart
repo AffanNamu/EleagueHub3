@@ -75,6 +75,7 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -87,9 +88,9 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 640),
             child: _loading
-                ? const Center(
+                ? Center(
                     child: CircularProgressIndicator(
-                      color: Colors.cyanAccent,
+                      color: cs.primary,
                     ),
                   )
                 : _buildBody(),
@@ -101,6 +102,8 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
 
   Widget _buildBody() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     if (_memberships.isEmpty) {
       return Padding(
@@ -112,26 +115,28 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
+                Icon(
                   Icons.people_outline,
                   size: 40,
-                  color: Colors.cyanAccent,
+                  color: cs.primary,
                 ),
                 const SizedBox(height: 12),
                 Text(
                   l10n.tr('league_participants_empty_title'),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
                     fontSize: 16,
                   ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 6),
                 Text(
                   l10n.tr('league_participants_empty_subtitle'),
-                  style: const TextStyle(
-                    color: Colors.white70,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.70),
                     fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -145,11 +150,11 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
     final organizers = _memberships.where((m) => m.role == LeagueRole.organizer).toList();
     final members = _memberships.where((m) => m.role == LeagueRole.member).toList();
 
-    final onBg = Theme.of(context).colorScheme.onBackground;
+    final onBg = cs.onBackground;
 
-    TextStyle sectionTitleStyle = TextStyle(
+    final sectionTitleStyle = TextStyle(
       color: onBg.withOpacity(0.78),
-      fontWeight: FontWeight.w800,
+      fontWeight: FontWeight.w900,
       fontSize: 13,
       letterSpacing: 0.2,
     );
@@ -178,6 +183,8 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
 
   Widget _buildMembershipTile(Membership m) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final assignedLeagueTeamName = (m.teamId != null && m.teamId!.isNotEmpty)
         ? (_teamsById[m.teamId!]?.name ?? '${l10n.tr('league_participants_team_prefix')}${m.teamId}')
@@ -198,25 +205,26 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
         borderRadius: 18,
         child: ListTile(
           leading: CircleAvatar(
-            backgroundColor: isOrganizer ? Colors.cyanAccent.withOpacity(0.2) : Colors.white.withOpacity(0.08),
+            backgroundColor: isOrganizer ? cs.primary.withOpacity(0.18) : cs.onSurface.withOpacity(0.08),
             child: Icon(
               isOrganizer ? Icons.verified_user : Icons.person,
-              color: isOrganizer ? Colors.cyanAccent : Colors.white70,
+              color: isOrganizer ? cs.primary : cs.onSurface.withOpacity(0.72),
               size: 18,
             ),
           ),
           title: Text(
             title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w900,
             ),
           ),
           subtitle: Text(
             subtitle,
-            style: const TextStyle(
-              color: Colors.white60,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.65),
               fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),

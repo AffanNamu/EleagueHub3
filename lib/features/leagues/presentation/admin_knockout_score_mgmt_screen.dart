@@ -45,23 +45,51 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
     _loadData();
   }
 
-  void _toast(String msg, {Color bg = const Color(0xFF101522), Color fg = Colors.white}) {
+  Color _baseToastBg(ThemeData theme) {
+    // Premium dark overlay (works well across both themes).
+    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+  }
+
+  void _toast(String msg, {Color? bg, Color? fg}) {
     if (!mounted) return;
+
+    final theme = Theme.of(context);
+    final resolvedBg = bg ?? _baseToastBg(theme);
+    final resolvedFg = fg ?? Colors.white;
+
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
-        backgroundColor: bg,
-        content: Text(msg, style: TextStyle(color: fg, fontWeight: FontWeight.w600)),
+        backgroundColor: resolvedBg,
+        content: Text(msg, style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600)),
         duration: const Duration(seconds: 3),
       ),
     );
   }
 
-  void _toastOk(String msg) => _toast(msg, bg: Colors.cyanAccent.withOpacity(0.18), fg: Colors.cyanAccent);
-  void _toastWarn(String msg) => _toast(msg, bg: Colors.orangeAccent.withOpacity(0.14), fg: Colors.orangeAccent);
-  void _toastErr(String msg) => _toast(msg, bg: Colors.redAccent.withOpacity(0.14), fg: Colors.redAccent);
+  void _toastOk(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final baseBg = _baseToastBg(theme);
+    final accent = cs.primary;
+    _toast(msg, bg: Color.alphaBlend(accent.withOpacity(0.22), baseBg), fg: accent);
+  }
+
+  void _toastWarn(String msg) {
+    const warn = Color(0xFFF59E0B);
+    final theme = Theme.of(context);
+    final baseBg = _baseToastBg(theme);
+    _toast(msg, bg: Color.alphaBlend(warn.withOpacity(0.22), baseBg), fg: warn);
+  }
+
+  void _toastErr(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final baseBg = _baseToastBg(theme);
+    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.22), baseBg), fg: cs.error);
+  }
 
   String _pairKey(String a, String b) => (a.compareTo(b) < 0) ? '$a|$b' : '$b|$a';
 
@@ -129,30 +157,66 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF000428),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: const BorderSide(color: Colors.white24),
-          ),
-          title: Text(
-            l10n.tr('admin_knockout_penalties_title'),
-            style: const TextStyle(color: Colors.white),
-          ),
-          content: Text(
-            '$contextLabel\n${l10n.tr('admin_knockout_select_winner_to_advance')}',
-            style: const TextStyle(color: Colors.white70, fontSize: 13),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, homeId),
-              child: Text(homeName.toUpperCase()),
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          child: Glass(
+            borderRadius: 22,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      l10n.tr('admin_knockout_penalties_title'),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '$contextLabel\n${l10n.tr('admin_knockout_select_winner_to_advance')}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: onSurface.withOpacity(0.72),
+                        height: 1.35,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: cs.primary,
+                              side: BorderSide(color: onSurface.withOpacity(0.18)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () => Navigator.pop(ctx, homeId),
+                            child: Text(homeName.toUpperCase()),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => Navigator.pop(ctx, awayId),
+                            child: Text(awayName.toUpperCase()),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, awayId),
-              child: Text(awayName.toUpperCase()),
-            ),
-          ],
+          ),
         );
       },
     );
@@ -326,10 +390,11 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
-
-    final onBg = Theme.of(context).colorScheme.onBackground;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -346,8 +411,8 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
       ),
       body: SafeArea(
         child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: Colors.cyanAccent),
+            ? Center(
+                child: CircularProgressIndicator(color: cs.primary),
               )
             : Center(
                 child: ConstrainedBox(
@@ -366,7 +431,7 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                         child: Text(
                           l10n.tr('admin_knockout_section_description'),
                           style: TextStyle(
-                            color: onBg.withOpacity(0.60),
+                            color: cs.onBackground.withOpacity(0.60),
                             fontSize: 12,
                           ),
                           textAlign: TextAlign.center,
@@ -379,8 +444,9 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                                 child: Text(
                                   l10n.tr('admin_knockout_empty_state'),
                                   style: TextStyle(
-                                    color: onBg.withOpacity(0.72),
+                                    color: cs.onBackground.withOpacity(0.72),
                                     fontSize: 13,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
@@ -396,6 +462,9 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   }
 
   Widget _buildGroupedList() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final byRound = <String, List<KnockoutMatch>>{};
     for (final m in _matches) {
       byRound.putIfAbsent(m.roundName, () => []).add(m);
@@ -424,9 +493,9 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
             children: [
               Text(
                 _roundDisplayName(roundName),
-                style: const TextStyle(
-                  color: Colors.cyanAccent,
-                  fontWeight: FontWeight.bold,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: cs.primary,
+                  fontWeight: FontWeight.w900,
                   fontSize: 14,
                 ),
               ),
@@ -493,6 +562,10 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+    final primary = cs.primary;
 
     final isPlayoff = widget.match.roundName == 'Play-off';
     final legLabel = isPlayoff
@@ -509,8 +582,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               padding: const EdgeInsets.only(bottom: 6),
               child: Text(
                 legLabel,
-                style: const TextStyle(
-                  color: Colors.white54,
+                style: TextStyle(
+                  color: onSurface.withOpacity(0.55),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                 ),
@@ -521,9 +594,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               Expanded(
                 child: Text(
                   widget.homeName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -532,8 +604,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Text(
                   l10n.tr('league_details_vs'),
-                  style: const TextStyle(
-                    color: Colors.white24,
+                  style: TextStyle(
+                    color: onSurface.withOpacity(0.30),
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
                   ),
@@ -543,9 +615,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 child: Text(
                   widget.awayName,
                   textAlign: TextAlign.end,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -554,15 +625,15 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _isCompleted ? Colors.cyanAccent.withOpacity(0.12) : Colors.white.withOpacity(0.04),
+                  color: _isCompleted ? primary.withOpacity(0.14) : onSurface.withOpacity(0.06),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   _isCompleted ? l10n.tr('admin_knockout_status_completed') : l10n.tr('admin_knockout_status_pending'),
                   style: TextStyle(
-                    color: _isCompleted ? Colors.cyanAccent : Colors.white54,
+                    color: _isCompleted ? primary : onSurface.withOpacity(0.55),
                     fontSize: 11,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -572,12 +643,27 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _scoreStepper(value: _homeScore, onInc: _incHome, onDec: _decHome),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24),
-                child: Text(":", style: TextStyle(color: Colors.white38, fontSize: 24)),
+              _scoreStepper(
+                value: _homeScore,
+                onInc: _incHome,
+                onDec: _decHome,
               ),
-              _scoreStepper(value: _awayScore, onInc: _incAway, onDec: _decAway),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  ":",
+                  style: TextStyle(
+                    color: onSurface.withOpacity(0.35),
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              _scoreStepper(
+                value: _awayScore,
+                onInc: _incAway,
+                onDec: _decAway,
+              ),
               const SizedBox(width: 24),
               IconButton.filled(
                 onPressed: () {
@@ -585,8 +671,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                   FocusScope.of(context).unfocus();
                 },
                 style: IconButton.styleFrom(
-                  backgroundColor: Colors.cyanAccent.withOpacity(0.2),
-                  foregroundColor: Colors.cyanAccent,
+                  backgroundColor: primary.withOpacity(0.18),
+                  foregroundColor: primary,
                 ),
                 icon: const Icon(Icons.done_all, size: 24),
               ),
@@ -602,11 +688,15 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback onInc,
     required VoidCallback onDec,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: onSurface.withOpacity(0.06),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: onSurface.withOpacity(0.12)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
@@ -619,7 +709,10 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
             child: Text(
               '$value',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
           const SizedBox(width: 6),
@@ -634,6 +727,11 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback? onPressed,
     required bool enabled,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+    final primary = cs.primary;
+
     return InkWell(
       onTap: onPressed,
       borderRadius: BorderRadius.circular(20),
@@ -641,10 +739,10 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
         width: 28,
         height: 28,
         decoration: BoxDecoration(
-          color: enabled ? Colors.cyanAccent.withOpacity(0.08) : Colors.white.withOpacity(0.02),
+          color: enabled ? primary.withOpacity(0.10) : onSurface.withOpacity(0.04),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, size: 18, color: enabled ? Colors.cyanAccent : Colors.white24),
+        child: Icon(icon, size: 18, color: enabled ? primary : onSurface.withOpacity(0.30)),
       ),
     );
   }

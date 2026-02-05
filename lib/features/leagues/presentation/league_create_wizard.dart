@@ -41,6 +41,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   League? _createdLeague;
 
+  static const Color _premiumAmber = Color(0xFFF59E0B);
+
   int get _maxTeams {
     switch (_format) {
       case LeagueFormat.classic:
@@ -91,6 +93,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth >= 900;
 
@@ -139,7 +144,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           Text(
                             l10n.tr('league_create_share_hint'),
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white.withOpacity(0.75), height: 1.4),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: cs.onSurface.withOpacity(0.75),
+                              height: 1.4,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -167,7 +176,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                             onPressed: () => context.push('/leagues/${league.id}'),
                             child: Text(
                               l10n.tr('league_create_open_league_details_upper'),
-                              style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900),
                             ),
                           ),
                         ],
@@ -256,6 +265,12 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _buildSideSummary(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final paymentColor = _creationRequiresPayment
+        ? (_paymentCompleted ? cs.primary : _premiumAmber)
+        : cs.primary;
 
     return Glass(
       padding: const EdgeInsets.all(16),
@@ -265,7 +280,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         children: [
           Text(
             l10n.tr('league_create_summary_title'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+            ),
           ),
           const SizedBox(height: 12),
           _summaryRow(Icons.format_list_bulleted, l10n.tr('league_create_summary_type_label'), _formatLabel(l10n)),
@@ -285,14 +304,17 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             _creationRequiresPayment ? (_paymentCompleted ? Icons.verified : Icons.lock_outline) : Icons.verified,
             l10n.tr('league_create_summary_creation_fee_label'),
             _creationFeeLabel(l10n),
-            valueColor: _creationRequiresPayment
-                ? (_paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent)
-                : Colors.cyanAccent,
+            valueColor: paymentColor,
           ),
           const SizedBox(height: 10),
           Text(
             _unlockNote(l10n),
-            style: TextStyle(color: Colors.white.withOpacity(0.60), height: 1.35, fontSize: 12),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.60),
+              height: 1.35,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -305,24 +327,35 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     String value, {
     Color? valueColor,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: Colors.cyanAccent),
+          Icon(icon, size: 18, color: cs.primary),
           const SizedBox(width: 10),
           SizedBox(
             width: 90,
             child: Text(
               label,
-              style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, fontSize: 12),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: TextStyle(color: valueColor ?? Colors.white, fontWeight: FontWeight.w700, height: 1.25),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: valueColor ?? cs.onSurface,
+                fontWeight: FontWeight.w800,
+                height: 1.25,
+              ),
             ),
           ),
         ],
@@ -332,6 +365,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _buildStepHeader() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final steps = <_StepMeta>[
       _StepMeta(l10n.tr('league_create_wizard_step_basics'), Icons.edit_note),
@@ -344,7 +379,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       children: [
         Text(
           l10n.tr('league_create_header_title'),
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18),
+          style: theme.textTheme.titleLarge?.copyWith(
+            color: cs.onSurface,
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+          ),
         ),
         const SizedBox(height: 10),
         Row(
@@ -368,8 +407,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           child: LinearProgressIndicator(
             value: (_step + 1) / steps.length,
             minHeight: 8,
-            backgroundColor: Colors.white.withOpacity(0.08),
-            color: Colors.cyanAccent,
+            backgroundColor: cs.onSurface.withOpacity(0.08),
+            color: cs.primary,
           ),
         ),
       ],
@@ -382,32 +421,35 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     required int index,
     required int current,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final active = index == current;
     final done = index < current;
 
     final Color borderColor = active
-        ? Colors.cyanAccent.withOpacity(0.75)
+        ? cs.primary.withOpacity(0.75)
         : done
-            ? Colors.cyanAccent.withOpacity(0.40)
-            : Colors.white.withOpacity(0.12);
+            ? cs.primary.withOpacity(0.40)
+            : cs.onSurface.withOpacity(0.14);
 
     final Color bgColor = active
-        ? Colors.cyanAccent.withOpacity(0.16)
+        ? cs.primary.withOpacity(0.14)
         : done
-            ? Colors.white.withOpacity(0.06)
-            : Colors.white.withOpacity(0.04);
+            ? cs.onSurface.withOpacity(0.06)
+            : cs.onSurface.withOpacity(0.04);
 
     final Color iconColor = active
-        ? Colors.cyanAccent
+        ? cs.primary
         : done
-            ? Colors.cyanAccent.withOpacity(0.85)
-            : Colors.white54;
+            ? cs.primary.withOpacity(0.85)
+            : cs.onSurface.withOpacity(0.55);
 
     final Color textColor = active
-        ? Colors.cyanAccent
+        ? cs.primary
         : done
-            ? Colors.white70
-            : Colors.white54;
+            ? cs.onSurface.withOpacity(0.75)
+            : cs.onSurface.withOpacity(0.55);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -449,6 +491,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _basicsStep({Key? key}) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Column(
       key: key,
@@ -458,21 +502,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 10),
         TextField(
           controller: _name,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
             labelText: l10n.tr('league_create_league_name_required_label'),
-            labelStyle: const TextStyle(color: Colors.white70),
-            prefixIcon: const Icon(Icons.edit_note, color: Colors.white70),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.04),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-            ),
+            prefixIcon: const Icon(Icons.edit_note),
           ),
           onChanged: (_) {
             if (mounted) setState(() {});
@@ -483,43 +516,21 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           controller: _description,
           minLines: 3,
           maxLines: 7,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600),
           decoration: InputDecoration(
             labelText: l10n.tr('league_create_league_description_recommended_label'),
             alignLabelWithHint: true,
-            labelStyle: const TextStyle(color: Colors.white70),
-            prefixIcon: const Icon(Icons.subject, color: Colors.white70),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.04),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-            ),
+            prefixIcon: const Icon(Icons.subject),
           ),
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<LeagueFormat>(
           value: _format,
-          dropdownColor: const Color(0xFF0A1D37),
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          dropdownColor: cs.surface,
+          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
             labelText: l10n.tr('league_create_wizard_tournament_format_label'),
-            labelStyle: const TextStyle(color: Colors.white70),
-            prefixIcon: const Icon(Icons.format_list_bulleted, color: Colors.white70),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.04),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-            ),
+            prefixIcon: const Icon(Icons.format_list_bulleted),
           ),
           items: [
             DropdownMenuItem(value: LeagueFormat.classic, child: Text(l10n.tr('league_create_type_classic_title'))),
@@ -537,22 +548,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 12),
         DropdownButtonFormField<LeaguePrivacy>(
           value: _privacy,
-          dropdownColor: const Color(0xFF0A1D37),
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          dropdownColor: cs.surface,
+          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
             labelText: l10n.tr('league_create_privacy_title'),
-            labelStyle: const TextStyle(color: Colors.white70),
-            prefixIcon: const Icon(Icons.lock, color: Colors.white70),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.04),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.cyanAccent.withOpacity(0.85)),
-            ),
+            prefixIcon: const Icon(Icons.lock),
           ),
           items: [
             DropdownMenuItem(value: LeaguePrivacy.private, child: Text(l10n.tr('league_create_private_title'))),
@@ -565,7 +565,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           icon: Icons.groups,
           title: '${l10n.tr('league_create_info_type_max_teams_prefix')} $_maxTeams',
           subtitle: '${l10n.tr('league_create_info_format_prefix')} ${_formatLabel(l10n)}',
-          accent: Colors.cyanAccent,
+          accent: cs.primary,
         ),
       ],
     );
@@ -573,6 +573,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _rulesStep({Key? key}) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Column(
       key: key,
@@ -584,20 +586,27 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: Colors.white.withOpacity(0.04),
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            color: cs.onSurface.withOpacity(0.04),
+            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
           ),
           child: SwitchListTile.adaptive(
             value: _doubleRoundRobin,
             onChanged: (v) => setState(() => _doubleRoundRobin = v),
-            activeColor: Colors.cyanAccent,
+            activeColor: cs.primary,
             title: Text(
               l10n.tr('league_create_wizard_double_round_robin_title'),
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w900,
+              ),
             ),
             subtitle: Text(
               l10n.tr('league_create_wizard_double_round_robin_subtitle'),
-              style: TextStyle(color: Colors.white.withOpacity(0.60), fontSize: 12),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.60),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             contentPadding: EdgeInsets.zero,
           ),
@@ -611,7 +620,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           subtitle: _creationRequiresPayment
               ? l10n.tr('league_create_payment_required_subtitle')
               : l10n.tr('league_create_no_payment_required_subtitle'),
-          accent: _creationRequiresPayment ? Colors.orangeAccent : Colors.cyanAccent,
+          accent: _creationRequiresPayment ? _premiumAmber : cs.primary,
         ),
       ],
     );
@@ -619,9 +628,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _reviewStep({Key? key}) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final canPay = _creationRequiresPayment && _name.text.trim().isNotEmpty;
     final canCreate = _name.text.trim().isNotEmpty && (!_creationRequiresPayment || _paymentCompleted);
+
+    final paymentAccent = !_creationRequiresPayment ? cs.primary : (_paymentCompleted ? cs.primary : _premiumAmber);
 
     return Column(
       key: key,
@@ -642,7 +655,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         _reviewRow(Icons.format_list_bulleted, l10n.tr('league_create_summary_type_label'), _formatLabel(l10n)),
         _reviewRow(Icons.lock, l10n.tr('league_create_summary_privacy_label'), _privacyLabel(l10n)),
         _reviewRow(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
-        _reviewRow(Icons.repeat, l10n.tr('league_create_wizard_double_rr_label'), _doubleRoundRobin ? l10n.tr('common_yes') : l10n.tr('common_no')),
+        _reviewRow(
+          Icons.repeat,
+          l10n.tr('league_create_wizard_double_rr_label'),
+          _doubleRoundRobin ? l10n.tr('common_yes') : l10n.tr('common_no'),
+        ),
         const SizedBox(height: 10),
         _infoBanner(
           icon: !_creationRequiresPayment ? Icons.verified : (_paymentCompleted ? Icons.verified : Icons.lock_outline),
@@ -656,7 +673,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               : (_paymentCompleted
                   ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}'
                   : l10n.tr('league_create_error_complete_payment_to_continue')),
-          accent: !_creationRequiresPayment ? Colors.cyanAccent : (_paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent),
+          accent: paymentAccent,
         ),
         if (_creationRequiresPayment) ...[
           const SizedBox(height: 12),
@@ -674,20 +691,29 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                     if (result != null && result.success) {
                       setState(() => _payment = result);
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(l10n.tr('league_create_payment_successful'))),
+                        SnackBar(
+                          content: Text(l10n.tr('league_create_payment_successful')),
+                          behavior: SnackBarBehavior.floating,
+                        ),
                       );
                       return;
                     }
 
                     if (result == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(l10n.tr('league_create_payment_cancelled'))),
+                        SnackBar(
+                          content: Text(l10n.tr('league_create_payment_cancelled')),
+                          behavior: SnackBarBehavior.floating,
+                        ),
                       );
                       return;
                     }
 
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed'))),
+                      SnackBar(
+                        content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
+                        behavior: SnackBarBehavior.floating,
+                      ),
                     );
                   },
             style: FilledButton.styleFrom(
@@ -703,8 +729,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           onPressed: (_submitting || !canCreate) ? null : () => _create(context),
           style: FilledButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 14),
-            backgroundColor: canCreate ? Colors.cyanAccent : Colors.white24,
-            foregroundColor: canCreate ? Colors.black : Colors.white54,
           ),
           child: _submitting
               ? const SizedBox(
@@ -717,29 +741,50 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
         ),
+        const SizedBox(height: 8),
+        Text(
+          l10n.tr('league_create_fee_note_free'),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: cs.onSurface.withOpacity(0.55),
+            height: 1.35,
+            fontWeight: FontWeight.w600,
+          ),
+          textAlign: TextAlign.center,
+        ),
       ],
     );
   }
 
   Widget _reviewRow(IconData icon, String label, String value) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: Colors.cyanAccent),
+          Icon(icon, size: 18, color: cs.primary),
           const SizedBox(width: 10),
           SizedBox(
             width: 92,
             child: Text(
               label,
-              style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, fontSize: 12),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, height: 1.25),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w800,
+                height: 1.25,
+              ),
             ),
           ),
         ],
@@ -748,6 +793,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   Widget _sectionTitle(String text, IconData icon) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Row(
       children: [
         Container(
@@ -755,15 +803,19 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           height: 34,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: Colors.cyanAccent.withOpacity(0.14),
-            border: Border.all(color: Colors.cyanAccent.withOpacity(0.35)),
+            color: cs.primary.withOpacity(0.14),
+            border: Border.all(color: cs.primary.withOpacity(0.35)),
           ),
-          child: Icon(icon, size: 18, color: Colors.cyanAccent),
+          child: Icon(icon, size: 18, color: cs.primary),
         ),
         const SizedBox(width: 10),
         Text(
           text,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: cs.onSurface,
+            fontWeight: FontWeight.w900,
+            fontSize: 16,
+          ),
         ),
       ],
     );
@@ -775,14 +827,17 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     required String subtitle,
     Color? accent,
   }) {
-    final a = accent ?? Colors.cyanAccent;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final a = accent ?? cs.primary;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        color: Colors.white.withOpacity(0.04),
-        border: Border.all(color: a.withOpacity(0.40)),
+        color: cs.onSurface.withOpacity(0.04),
+        border: Border.all(color: a.withOpacity(0.35)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -793,11 +848,22 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                Text(
+                  title,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Text(
                   subtitle,
-                  style: TextStyle(color: Colors.white.withOpacity(0.70), height: 1.25, fontSize: 12),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.70),
+                    height: 1.25,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -809,6 +875,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _buildFooterActions(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final isLast = _step == 2;
 
     return Row(
@@ -826,8 +895,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   },
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
-              side: BorderSide(color: Colors.white.withOpacity(0.18)),
-              foregroundColor: Colors.white70,
+              side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+              foregroundColor: cs.onSurface.withOpacity(0.80),
             ),
             child: Text(
               _step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back'),
@@ -845,7 +914,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
                     if (_step == 0 && _name.text.trim().isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(l10n.tr('league_create_error_name_required'))),
+                        SnackBar(
+                          content: Text(l10n.tr('league_create_error_name_required')),
+                          behavior: SnackBarBehavior.floating,
+                        ),
                       );
                       return;
                     }
@@ -870,14 +942,20 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     if (_name.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_create_error_name_required'))),
+        SnackBar(
+          content: Text(l10n.tr('league_create_error_name_required')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
 
     if (_creationRequiresPayment && !_paymentCompleted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_create_error_payment_must_be_completed'))),
+        SnackBar(
+          content: Text(l10n.tr('league_create_error_payment_must_be_completed')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }

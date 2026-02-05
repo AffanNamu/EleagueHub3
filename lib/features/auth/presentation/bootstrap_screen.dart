@@ -9,18 +9,21 @@ class BootstrapScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final onBg = Theme.of(context).colorScheme.onBackground;
+    final theme = Theme.of(context);
+    final onBg = theme.colorScheme.onBackground;
 
     return GlassScaffold(
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(color: Colors.cyanAccent),
+            CircularProgressIndicator(color: theme.colorScheme.primary),
             const SizedBox(height: 12),
             Text(
               l10n.authBootstrapLoading,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: onBg.withOpacity(0.75)),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: onBg.withOpacity(0.75),
+              ),
             ),
           ],
         ),

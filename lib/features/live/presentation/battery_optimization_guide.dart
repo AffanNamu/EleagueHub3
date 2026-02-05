@@ -33,6 +33,8 @@ class BatteryOptimizationGuide {
 
   static Future<void> show(BuildContext context) async {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final info = await _deviceInfo();
     final manufacturer = (info['manufacturer'] ?? '').toString().toLowerCase();
@@ -48,6 +50,9 @@ class BatteryOptimizationGuide {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
+        final sheetTheme = Theme.of(ctx);
+        final sheetCs = sheetTheme.colorScheme;
+
         final vendorLabel = vendor.isEmpty ? l10n.tr('battery_opt_android') : vendor.toUpperCase();
         final modelSuffix = model.isNotEmpty ? ' • $model' : '';
 
@@ -67,8 +72,8 @@ class BatteryOptimizationGuide {
                 children: [
                   Text(
                     l10n.tr('battery_opt_title'),
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: sheetTheme.textTheme.titleMedium?.copyWith(
+                      color: sheetCs.onSurface,
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
                     ),
@@ -76,19 +81,32 @@ class BatteryOptimizationGuide {
                   const SizedBox(height: 8),
                   Text(
                     '${l10n.tr('battery_opt_device_prefix')}$vendorLabel$modelSuffix',
-                    style: const TextStyle(color: Colors.white60, fontSize: 12),
+                    style: sheetTheme.textTheme.bodySmall?.copyWith(
+                      color: sheetCs.onSurface.withOpacity(0.60),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Text(
                     l10n.tr('battery_opt_intro'),
-                    style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.35),
+                    style: sheetTheme.textTheme.bodySmall?.copyWith(
+                      color: sheetCs.onSurface.withOpacity(0.72),
+                      fontSize: 12,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   _StepsBox(text: _stepsForVendor(l10n, vendor)),
                   const SizedBox(height: 12),
                   Text(
                     l10n.tr('battery_opt_quick_buttons'),
-                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w800),
+                    style: sheetTheme.textTheme.bodySmall?.copyWith(
+                      color: sheetCs.onSurface.withOpacity(0.72),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   FilledButton.icon(
@@ -109,22 +127,30 @@ class BatteryOptimizationGuide {
                     label: Text(l10n.tr('battery_opt_open_app_settings_btn')),
                   ),
                   const SizedBox(height: 14),
-                  const Divider(color: Colors.white10),
+                  Divider(color: sheetCs.onSurface.withOpacity(0.12)),
                   Text(
                     l10n.tr('battery_opt_notes_title'),
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                    style: sheetTheme.textTheme.titleSmall?.copyWith(
+                      color: sheetCs.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     l10n.tr('battery_opt_notes_body'),
-                    style: const TextStyle(color: Colors.white60, fontSize: 12, height: 1.35),
+                    style: sheetTheme.textTheme.bodySmall?.copyWith(
+                      color: sheetCs.onSurface.withOpacity(0.60),
+                      fontSize: 12,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx),
                     child: Text(
                       l10n.tr('battery_opt_close'),
-                      style: const TextStyle(color: Colors.cyanAccent),
+                      style: TextStyle(color: sheetCs.primary, fontWeight: FontWeight.w800),
                     ),
                   ),
                 ],
@@ -170,16 +196,24 @@ class _StepsBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+        color: cs.onSurface.withOpacity(0.06),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: cs.onSurface.withOpacity(0.12)),
       ),
       child: Text(
         text.trim(),
-        style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.35),
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: cs.onSurface.withOpacity(0.70),
+          fontSize: 12,
+          height: 1.35,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

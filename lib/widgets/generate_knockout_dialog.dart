@@ -13,16 +13,18 @@ class GenerateKnockoutDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return AlertDialog(
-      backgroundColor: const Color(0xFF000428),
+      backgroundColor: cs.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white24),
+        side: BorderSide(color: cs.onSurface.withOpacity(0.12)),
       ),
       title: Text(
         l10n.tr('generate_knockout_dialog_title'),
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w900),
       ),
       content: SizedBox(
         width: double.maxFinite,
@@ -31,16 +33,19 @@ class GenerateKnockoutDialog extends StatelessWidget {
           children: [
             Text(
               l10n.tr('generate_knockout_dialog_qualified_teams_intro'),
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
+              style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontSize: 13, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 15),
             Wrap(
               spacing: 8,
+              runSpacing: 8,
               children: qualifiedTeams
                   .map(
                     (t) => Chip(
-                      label: Text(t, style: const TextStyle(fontSize: 10)),
-                      backgroundColor: Colors.blueAccent.withOpacity(0.2),
+                      label: Text(t, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
+                      backgroundColor: cs.primary.withOpacity(0.12),
+                      side: BorderSide(color: cs.primary.withOpacity(0.18)),
+                      labelStyle: TextStyle(color: cs.onSurface),
                     ),
                   )
                   .toList(),
@@ -49,10 +54,11 @@ class GenerateKnockoutDialog extends StatelessWidget {
             Text(
               l10n.tr('generate_knockout_dialog_warning'),
               style: const TextStyle(
-                color: Colors.orangeAccent,
+                color: Color(0xFFF59E0B),
                 fontSize: 11,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w800,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -62,7 +68,7 @@ class GenerateKnockoutDialog extends StatelessWidget {
           onPressed: () => Navigator.pop(context, false),
           child: Text(l10n.tr('generate_knockout_dialog_cancel').toUpperCase()),
         ),
-        ElevatedButton(
+        FilledButton(
           onPressed: () {
             // Let the caller trigger bracket generation based on the returned result.
             Navigator.pop(context, true);

@@ -57,15 +57,16 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
     super.dispose();
   }
 
-  bool get _isFront => _controller.value < 0.5;
-
   Future<void> _copyCode() async {
     final l10n = context.l10n;
 
     await Clipboard.setData(ClipboardData(text: widget.leagueCode));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l10n.tr('league_flip_card_invite_code_copied'))),
+      SnackBar(
+        content: Text(l10n.tr('league_flip_card_invite_code_copied')),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -141,6 +142,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
   Widget _buildFront() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     // The hint "Double tap to view details" was getting clipped on smaller heights
     // when distribution/subtitle are long. Pin the hint area to the bottom so it
@@ -157,8 +160,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.blueAccent.withOpacity(0.2),
+                      color: cs.primary.withOpacity(0.14),
                       shape: BoxShape.circle,
+                      border: Border.all(color: cs.primary.withOpacity(0.22)),
                     ),
                     child: const Icon(Icons.emoji_events_outlined, color: Colors.amber, size: 40),
                   ),
@@ -167,14 +171,22 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     fit: BoxFit.scaleDown,
                     child: Text(
                       widget.leagueName,
-                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        color: cs.onSurface,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
                       maxLines: 1,
                     ),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     widget.distribution,
-                    style: TextStyle(color: Colors.white.withOpacity(0.72), fontSize: 13),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.72),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
@@ -183,7 +195,11 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     const SizedBox(height: 6),
                     Text(
                       widget.subtitle!,
-                      style: TextStyle(color: Colors.white.withOpacity(0.58), fontSize: 12),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.60),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
@@ -203,17 +219,17 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.touch_app, size: 16, color: Colors.cyanAccent.withOpacity(0.8)),
+                    Icon(Icons.touch_app, size: 16, color: cs.primary.withOpacity(0.85)),
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(
                         l10n.tr('league_flip_card_tap_to_join_scan_qr').toUpperCase(),
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.cyanAccent,
+                        style: TextStyle(
+                          color: cs.primary,
                           fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w900,
                           letterSpacing: 1.2,
                         ),
                       ),
@@ -228,7 +244,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.72),
+                      color: cs.onSurface.withOpacity(0.72),
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       height: 1.15,
@@ -245,6 +261,10 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
   Widget _buildBack() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final btnBg = cs.primary.withOpacity(theme.brightness == Brightness.dark ? 0.20 : 0.14);
 
     return _glass(
       child: Row(
@@ -275,9 +295,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                   Text(
                     l10n.tr('league_flip_card_invite_code_label').toUpperCase(),
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
+                      color: cs.onSurface.withOpacity(0.60),
                       fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w900,
                       letterSpacing: 0.8,
                     ),
                   ),
@@ -287,10 +307,10 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       widget.leagueCode,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        color: cs.onSurface,
                         fontSize: 22,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w900,
                         letterSpacing: 2,
                       ),
                     ),
@@ -301,8 +321,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     icon: const Icon(Icons.copy, size: 16),
                     label: Text(l10n.tr('common_copy').toUpperCase()),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent.withOpacity(0.5),
-                      foregroundColor: Colors.white,
+                      backgroundColor: btnBg,
+                      foregroundColor: cs.primary,
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),

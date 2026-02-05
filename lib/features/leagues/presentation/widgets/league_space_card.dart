@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../models/league_space.dart';
-import '../data/spaces_firebase.dart';
-import '../../../core/widgets/glass.dart';
+
+import 'package:eleaguehub3/core/widgets/glass.dart';
+import 'package:eleaguehub3/features/leagues/data/spaces_firebase.dart';
 
 class LeagueSpaceCard extends StatelessWidget {
   final String leagueId;
@@ -11,15 +11,31 @@ class LeagueSpaceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<LeagueSpace?>(
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return StreamBuilder<dynamic>(
       stream: _spaceRepo.watchSpace(leagueId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SizedBox(height: 100, child: Center(child: CircularProgressIndicator(strokeWidth: 2)));
+          return SizedBox(
+            height: 100,
+            child: Center(
+              child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+            ),
+          );
         }
 
         final space = snapshot.data;
-        final bool isLive = space?.isLive ?? false;
+
+        bool isLive = false;
+        try {
+          isLive = (space as dynamic)?.isLive == true;
+        } catch (_) {
+          isLive = false;
+        }
+
+        final liveDot = isLive ? cs.error : cs.onSurface.withOpacity(0.14);
 
         return Glass(
           borderRadius: 20,
@@ -31,11 +47,17 @@ class LeagueSpaceCard extends StatelessWidget {
                 width: 12,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: isLive ? Colors.redAccent : Colors.white10,
+                  color: liveDot,
                   shape: BoxShape.circle,
-                  boxShadow: isLive ? [
-                    BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 8, spreadRadius: 2)
-                  ] : [],
+                  boxShadow: isLive
+                      ? [
+                          BoxShadow(
+                            color: cs.error.withOpacity(0.45),
+                            blurRadius: 8,
+                            spreadRadius: 2,
+                          )
+                        ]
+                      : const [],
                 ),
               ),
               const SizedBox(width: 12),
@@ -44,30 +66,34 @@ class LeagueSpaceCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isLive ? "LIVE SPACE" : "SPACE OFFLINE",
+                      isLive ? 'LIVE SPACE' : 'SPACE OFFLINE',
                       style: TextStyle(
-                        color: isLive ? Colors.white : Colors.white38,
+                        color: isLive ? cs.onSurface : cs.onSurface.withOpacity(0.45),
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.2,
                         fontSize: 12,
                       ),
                     ),
                     Text(
-                      isLive ? "Join the conversation now" : "No active discussion",
-                      style: const TextStyle(color: Colors.white70, fontSize: 11),
+                      isLive ? 'Join the conversation now' : 'No active discussion',
+                      style: TextStyle(
+                        color: cs.onSurface.withOpacity(0.65),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
               ),
               if (isLive)
-                ElevatedButton(
-                  onPressed: () => /* Navigation to Space */ {},
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.cyanAccent,
-                    foregroundColor: Colors.black,
+                FilledButton(
+                  onPressed: () {},
+                  style: FilledButton.styleFrom(
+                    backgroundColor: cs.primary,
+                    foregroundColor: cs.onPrimary,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text("JOIN"),
+                  child: const Text('JOIN'),
                 ),
             ],
           ),

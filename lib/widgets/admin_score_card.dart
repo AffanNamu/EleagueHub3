@@ -1,8 +1,7 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../core/locale/app_localizations.dart';
+import '../core/widgets/glass.dart';
 
 class AdminScoreCard extends StatefulWidget {
   final String homeTeam;
@@ -24,24 +23,43 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
   int homeScore = 0;
   int awayScore = 0;
 
-  Widget _scoreCounter(String label, int score, Function(int) onChanged) {
+  Widget _scoreCounter(
+    BuildContext context, {
+    required String label,
+    required int score,
+    required ValueChanged<int> onChanged,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Column(
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: cs.onSurface.withOpacity(0.72),
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         const SizedBox(height: 8),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              icon: const Icon(Icons.remove_circle_outline, color: Colors.cyanAccent),
-              onPressed: () => score > 0 ? onChanged(score - 1) : null,
+              icon: Icon(Icons.remove_circle_outline, color: cs.primary),
+              onPressed: score > 0 ? () => onChanged(score - 1) : null,
             ),
             Text(
               '$score',
-              style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: cs.onSurface,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+              ),
             ),
             IconButton(
-              icon: const Icon(Icons.add_circle_outline, color: Colors.cyanAccent),
+              icon: Icon(Icons.add_circle_outline, color: cs.primary),
               onPressed: () => onChanged(score + 1),
             ),
           ],
@@ -53,72 +71,74 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.2)),
-          ),
-          child: Column(
+    return Glass(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.homeTeam,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
+              Expanded(
+                child: Text(
+                  widget.homeTeam,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
                   ),
-                  Text(
-                    l10n.tr('match_detail_vs').toUpperCase(),
-                    style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
-                  ),
-                  Expanded(
-                    child: Text(
-                      widget.awayTeam,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _scoreCounter(
-                    l10n.tr('admin_score_home_fallback').toUpperCase(),
-                    homeScore,
-                    (val) => setState(() => homeScore = val),
-                  ),
-                  _scoreCounter(
-                    l10n.tr('admin_score_away_fallback').toUpperCase(),
-                    awayScore,
-                    (val) => setState(() => awayScore = val),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () => widget.onSave(homeScore, awayScore),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.cyanAccent.withOpacity(0.3),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                child: Text(l10n.tr('admin_score_card_update_score').toUpperCase()),
+              ),
+              Text(
+                l10n.tr('match_detail_vs').toUpperCase(),
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: cs.primary,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  widget.awayTeam,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _scoreCounter(
+                context,
+                label: l10n.tr('admin_score_home_fallback').toUpperCase(),
+                score: homeScore,
+                onChanged: (val) => setState(() => homeScore = val),
+              ),
+              _scoreCounter(
+                context,
+                label: l10n.tr('admin_score_away_fallback').toUpperCase(),
+                score: awayScore,
+                onChanged: (val) => setState(() => awayScore = val),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => widget.onSave(homeScore, awayScore),
+              child: Text(l10n.tr('admin_score_card_update_score').toUpperCase()),
+            ),
+          ),
+        ],
       ),
     );
   }

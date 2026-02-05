@@ -32,6 +32,8 @@ class LeaguesListScreen extends ConsumerStatefulWidget {
 }
 
 class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with AutomaticKeepAliveClientMixin {
+  static const Color _premiumAmber = Color(0xFFF59E0B);
+
   late LocalLeaguesRepository _localRepo;
   late LeagueAnnouncementsFirebase _annRepo;
 
@@ -195,6 +197,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
   Future<void> _payChargesForLeague(BuildContext context, League league) async {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     if (_payingLeagueId == league.id) return;
 
@@ -212,7 +216,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
     if (league.organizerUserId == userId) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('leagues_creator_unlocked'))),
+        SnackBar(
+          content: Text(l10n.tr('leagues_creator_unlocked')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -229,20 +236,23 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) {
+        final dialogTheme = Theme.of(ctx);
+        final dialogCs = dialogTheme.colorScheme;
+
         return AlertDialog(
-          backgroundColor: const Color(0xFF0A1D37),
+          backgroundColor: dialogCs.surface,
           title: Text(
             l10n.tr('leagues_unlock_dialog_title'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: TextStyle(color: dialogCs.onSurface, fontWeight: FontWeight.w900),
           ),
           content: Text(
             '${l10n.tr('leagues_unlock_dialog_content_prefix')}\n\n${league.name}',
-            style: const TextStyle(color: Colors.white70, height: 1.35),
+            style: TextStyle(color: dialogCs.onSurface.withOpacity(0.72), height: 1.35, fontWeight: FontWeight.w600),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
+              child: Text(l10n.tr('common_cancel')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(true),
@@ -272,7 +282,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
       if (!result.success) {
         setState(() => _payingLeagueId = null);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed'))),
+          SnackBar(
+            content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
         return;
       }
@@ -295,13 +308,19 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('leagues_unlocked_success'))),
+        SnackBar(
+          content: Text(l10n.tr('leagues_unlocked_success')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _payingLeagueId = null);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${l10n.tr('leagues_payment_failed')}: $e')),
+        SnackBar(
+          content: Text('${l10n.tr('leagues_payment_failed')}: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
@@ -311,6 +330,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     super.build(context);
 
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final media = MediaQuery.of(context);
     final screenWidth = media.size.width;
     final isTablet = screenWidth >= 600;
@@ -336,8 +358,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
         padding: EdgeInsets.only(bottom: fabBottomOffset),
         child: FloatingActionButton(
           onPressed: () => _showOptions(context),
-          backgroundColor: Colors.cyanAccent,
-          foregroundColor: Colors.black,
+          backgroundColor: cs.primary,
+          foregroundColor: cs.onPrimary,
           child: const Icon(Icons.add),
         ),
       ),
@@ -358,9 +380,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
                     child: _isLoading
-                        ? const Center(
+                        ? Center(
                             child: CircularProgressIndicator(
-                              color: Colors.cyanAccent,
+                              color: cs.primary,
                             ),
                           )
                         : _leagues.isEmpty
@@ -382,6 +404,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     bool isTablet,
   ) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final prefs = ref.read(prefsServiceProvider);
     final String currentUserId = prefs.getCurrentUserId() ?? '';
@@ -453,9 +477,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                 child: _CardBadge(
                   label: l10n.tr('leagues_badge_owner'),
                   icon: Icons.admin_panel_settings,
-                  color: Colors.cyanAccent,
-                  bg: Colors.cyanAccent.withOpacity(0.20),
-                  border: Colors.cyanAccent.withOpacity(0.50),
+                  color: cs.primary,
+                  bg: cs.primary.withOpacity(0.18),
+                  border: cs.primary.withOpacity(0.45),
                 ),
               ),
             if (viewerIsViewerOnly)
@@ -465,9 +489,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                 child: _CardBadge(
                   label: l10n.tr('leagues_badge_viewer'),
                   icon: Icons.visibility,
-                  color: Colors.white70,
-                  bg: Colors.white.withOpacity(0.10),
-                  border: Colors.white.withOpacity(0.22),
+                  color: cs.onSurface.withOpacity(0.72),
+                  bg: cs.onSurface.withOpacity(0.08),
+                  border: cs.onSurface.withOpacity(0.18),
                 ),
               ),
             PositionedDirectional(
@@ -480,18 +504,18 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                     _CardBadge(
                       label: l10n.tr('leagues_badge_full'),
                       icon: Icons.block,
-                      color: Colors.redAccent,
-                      bg: Colors.redAccent.withOpacity(0.16),
-                      border: Colors.redAccent.withOpacity(0.45),
+                      color: cs.error,
+                      bg: cs.error.withOpacity(0.14),
+                      border: cs.error.withOpacity(0.40),
                     ),
                   if (isFull && showLockedBadge) const SizedBox(height: 6),
                   if (showLockedBadge)
                     _CardBadge(
                       label: l10n.tr('leagues_badge_locked'),
                       icon: Icons.lock_outline,
-                      color: Colors.orangeAccent,
-                      bg: Colors.orangeAccent.withOpacity(0.16),
-                      border: Colors.orangeAccent.withOpacity(0.45),
+                      color: _premiumAmber,
+                      bg: _premiumAmber.withOpacity(0.14),
+                      border: _premiumAmber.withOpacity(0.40),
                     ),
                 ],
               ),
@@ -505,7 +529,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                   child: FilledButton(
                     onPressed: payingThis ? null : () => _payChargesForLeague(context, league),
                     style: FilledButton.styleFrom(
-                      backgroundColor: Colors.orangeAccent.withOpacity(0.92),
+                      backgroundColor: _premiumAmber.withOpacity(0.92),
                       foregroundColor: Colors.black,
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
@@ -531,6 +555,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
   Widget _buildEmptyState(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final media = MediaQuery.of(context);
     final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
@@ -549,32 +575,35 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
+                    color: cs.onSurface.withOpacity(0.05),
                     shape: BoxShape.circle,
+                    border: Border.all(color: cs.onSurface.withOpacity(0.12)),
                   ),
                   child: Icon(
                     Icons.emoji_events_outlined,
                     size: 64,
-                    color: Colors.cyanAccent.withOpacity(0.8),
+                    color: cs.primary.withOpacity(0.92),
                   ),
                 ),
                 const SizedBox(height: 24),
                 Text(
                   l10n.tr('leagues_empty_title'),
-                  style: const TextStyle(
+                  style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: Colors.white,
+                    color: cs.onSurface,
                     fontSize: 22,
                   ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
                 Text(
                   l10n.tr('leagues_empty_subtitle'),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white60,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
                     fontSize: 14,
                     height: 1.5,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -583,7 +612,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                   icon: const Icon(Icons.add),
                   label: Text(l10n.tr('leagues_empty_cta')),
                   style: FilledButton.styleFrom(
-                    backgroundColor: Colors.white.withOpacity(0.1),
                     minimumSize: const Size(200, 50),
                   ),
                 ),
@@ -597,6 +625,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
   void _showOptions(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final media = MediaQuery.of(context);
 
     showModalBottomSheet(
@@ -623,31 +654,32 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         child: Text(
                           l10n.tr('leagues_options_title'),
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: cs.onSurface,
                             fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
-                      const Divider(color: Colors.white10),
+                      Divider(color: cs.onSurface.withOpacity(0.12)),
                       ListTile(
-                        leading: const CircleAvatar(
-                          backgroundColor: Colors.cyanAccent,
-                          child: Icon(Icons.add, color: Colors.black),
+                        leading: CircleAvatar(
+                          backgroundColor: cs.primary,
+                          child: Icon(Icons.add, color: cs.onPrimary),
                         ),
                         title: Text(
                           l10n.tr('leagues_options_create_title'),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                         subtitle: Text(
                           l10n.tr('leagues_options_create_subtitle'),
-                          style: const TextStyle(
-                            color: Colors.white38,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.55),
                             fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         onTap: () async {
@@ -659,24 +691,25 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                       const SizedBox(height: 8),
                       ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.white.withOpacity(0.1),
-                          child: const Icon(
+                          backgroundColor: cs.onSurface.withOpacity(0.08),
+                          child: Icon(
                             Icons.qr_code_scanner,
-                            color: Colors.white,
+                            color: cs.onSurface,
                           ),
                         ),
                         title: Text(
                           l10n.tr('leagues_options_join_qr_title'),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                         subtitle: Text(
                           l10n.tr('leagues_options_join_qr_subtitle'),
-                          style: const TextStyle(
-                            color: Colors.white38,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.55),
                             fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         onTap: () async {
@@ -688,24 +721,25 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                       const SizedBox(height: 8),
                       ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.white.withOpacity(0.1),
-                          child: const Icon(
+                          backgroundColor: cs.onSurface.withOpacity(0.08),
+                          child: Icon(
                             Icons.key,
-                            color: Colors.white,
+                            color: cs.onSurface,
                           ),
                         ),
                         title: Text(
                           l10n.tr('leagues_options_join_id_title'),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                         subtitle: Text(
                           l10n.tr('leagues_options_join_id_subtitle'),
-                          style: const TextStyle(
-                            color: Colors.white38,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.55),
                             fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         onTap: () async {
@@ -823,6 +857,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
         backgroundColor: Colors.transparent,
         isScrollControlled: true,
         builder: (ctx) {
+          final theme = Theme.of(ctx);
+          final cs = theme.colorScheme;
+          final onSurface = cs.onSurface;
+
           final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
           return SafeArea(
@@ -842,12 +880,20 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                             children: [
                               Text(
                                 l10n.tr('leagues_join_sheet_title'),
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: onSurface,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                ),
                               ),
                               const SizedBox(height: 6),
                               Text(
                                 l10n.tr('leagues_join_sheet_subtitle'),
-                                style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: onSurface.withOpacity(0.70),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 12),
@@ -855,11 +901,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                                 controller: controller,
                                 autofocus: true,
                                 textCapitalization: TextCapitalization.characters,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
                                 decoration: InputDecoration(
                                   hintText: l10n.tr('leagues_join_hint'),
-                                  hintStyle: const TextStyle(color: Colors.white38),
-                                  prefixIcon: const Icon(Icons.key, color: Colors.white70),
+                                  prefixIcon: const Icon(Icons.key),
                                   errorText: error,
                                 ),
                                 onChanged: (_) {
@@ -876,7 +921,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                                     children: [
                                       Text(
                                         l10n.tr('leagues_join_as_title'),
-                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: onSurface,
+                                          fontWeight: FontWeight.w900,
+                                        ),
                                       ),
                                       const SizedBox(height: 8),
                                       Row(
@@ -891,11 +939,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                                                       if (!v) return;
                                                       setModalState(() => mode = LeagueJoinMode.participant);
                                                     },
-                                              selectedColor: Colors.cyanAccent.withOpacity(0.25),
-                                              backgroundColor: Colors.white10,
+                                              selectedColor: cs.primary.withOpacity(0.18),
+                                              backgroundColor: onSurface.withOpacity(0.06),
                                               labelStyle: TextStyle(
-                                                color: mode == LeagueJoinMode.participant ? Colors.cyanAccent : Colors.white70,
-                                                fontWeight: FontWeight.w700,
+                                                color: mode == LeagueJoinMode.participant ? cs.primary : onSurface.withOpacity(0.72),
+                                                fontWeight: FontWeight.w800,
                                               ),
                                             ),
                                           ),
@@ -910,11 +958,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                                                       if (!v) return;
                                                       setModalState(() => mode = LeagueJoinMode.viewer);
                                                     },
-                                              selectedColor: Colors.white.withOpacity(0.12),
-                                              backgroundColor: Colors.white10,
+                                              selectedColor: onSurface.withOpacity(0.10),
+                                              backgroundColor: onSurface.withOpacity(0.06),
                                               labelStyle: TextStyle(
-                                                color: mode == LeagueJoinMode.viewer ? Colors.white : Colors.white70,
-                                                fontWeight: FontWeight.w700,
+                                                color: mode == LeagueJoinMode.viewer ? onSurface : onSurface.withOpacity(0.72),
+                                                fontWeight: FontWeight.w800,
                                               ),
                                             ),
                                           ),
@@ -925,7 +973,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                                         mode == LeagueJoinMode.viewer
                                             ? l10n.tr('leagues_join_as_viewer_description')
                                             : l10n.tr('leagues_join_as_participant_description'),
-                                        style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.25),
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: onSurface.withOpacity(0.70),
+                                          fontSize: 11,
+                                          height: 1.25,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -937,7 +990,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                                   Expanded(
                                     child: TextButton(
                                       onPressed: joining ? null : () => Navigator.of(ctx).pop(),
-                                      child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
+                                      child: Text(l10n.tr('common_cancel')),
                                     ),
                                   ),
                                   const SizedBox(width: 10),

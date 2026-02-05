@@ -110,6 +110,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+
         return Padding(
           padding: const EdgeInsets.all(12),
           child: Glass(
@@ -120,7 +123,10 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               children: [
                 Text(
                   l10n.tr('match_detail_streaming_as_title'),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -178,6 +184,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final isWide = MediaQuery.of(context).size.width > 600;
 
     return GlassScaffold(
@@ -206,6 +215,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   Widget _buildHeader(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Glass(
       padding: const EdgeInsets.all(16),
@@ -215,10 +226,10 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           Expanded(
             child: Text(
               '${_homeName(context)}  ${l10n.tr('match_detail_vs')}  ${_awayName(context)}',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                  ),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: cs.onSurface,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -230,6 +241,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   Widget _buildLiveSection(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Glass(
       padding: const EdgeInsets.all(16),
@@ -239,8 +252,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         children: [
           Text(
             l10n.tr('match_detail_live_section_title'),
-            style: const TextStyle(
-              color: Colors.white,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: cs.onSurface,
               fontWeight: FontWeight.w900,
               fontSize: 16,
             ),
@@ -248,23 +261,24 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           const SizedBox(height: 6),
           Text(
             l10n.tr('match_detail_live_section_description'),
-            style: const TextStyle(
-              color: Colors.white38,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.55),
               fontSize: 12,
               height: 1.4,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(Icons.tag, size: 18, color: Colors.white60),
+              Icon(Icons.tag, size: 18, color: cs.onSurface.withOpacity(0.60)),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   _liveMatchId,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
                     letterSpacing: 0.5,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -274,7 +288,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               IconButton(
                 tooltip: l10n.tr('match_detail_copy_live_match_id_tooltip'),
                 onPressed: _copyLiveId,
-                icon: const Icon(Icons.copy, size: 18, color: Colors.cyanAccent),
+                icon: Icon(Icons.copy, size: 18, color: cs.primary),
               ),
             ],
           ),
@@ -284,22 +298,27 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
             child: FilledButton.icon(
               onPressed: _busy ? null : _startLocalLive,
               icon: _busy
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary),
                     )
                   : const Icon(Icons.play_circle_fill),
               label: Text(
                 _busy ? l10n.tr('match_detail_opening').toUpperCase() : l10n.tr('match_detail_open_host_live').toUpperCase(),
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
           const SizedBox(height: 6),
           Text(
             l10n.tr('match_detail_tip_text'),
-            style: const TextStyle(color: Colors.white30, fontSize: 11, height: 1.3),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.45),
+              fontSize: 11,
+              height: 1.3,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),

@@ -35,10 +35,17 @@ class StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final brightness = theme.brightness;
+    final cs = theme.colorScheme;
 
-    final backgroundColor = AppTheme.statusColor(status, brightness);
-    final foregroundColor = Colors.white;
+    final backgroundColor = AppTheme.statusColor(status, theme.brightness);
+
+    // Use readable foreground on any status color (yellow/green/etc).
+    final bgBrightness = ThemeData.estimateBrightnessForColor(backgroundColor);
+    final foregroundColor = (bgBrightness == Brightness.dark) ? Colors.white : cs.onSurface;
+
+    final borderColor = (bgBrightness == Brightness.dark)
+        ? Colors.white.withOpacity(0.18)
+        : cs.onSurface.withOpacity(0.14);
 
     final label = _localizedStatus(context, status);
 
@@ -47,13 +54,16 @@ class StatusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: borderColor, width: 1),
       ),
       child: Text(
         label.toUpperCase(),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: theme.textTheme.labelSmall?.copyWith(
           color: foregroundColor,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.6,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.7,
         ),
       ),
     );

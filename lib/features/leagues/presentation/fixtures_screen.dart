@@ -103,14 +103,26 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     return g;
   }
 
+  Color _baseSnackBg(ThemeData theme) {
+    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+  }
+
   void _snack(String msg) {
     if (!mounted) return;
+
+    final theme = Theme.of(context);
+    final bg = _baseSnackBg(theme);
+
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
-        content: Text(msg),
+        backgroundColor: bg,
+        content: Text(
+          msg,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
       ),
     );
   }
@@ -345,10 +357,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
-
-    final onBg = Theme.of(context).colorScheme.onBackground;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -361,18 +374,18 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               onPressed: _isGeneratingNextRound ? null : _generateNextSwissRound,
               tooltip: l10n.tr('fixtures_generate_next_swiss_round_tooltip'),
               icon: _isGeneratingNextRound
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
                     )
-                  : const Icon(Icons.auto_mode),
+                  : Icon(Icons.auto_mode, color: cs.primary),
             ),
         ],
       ),
       body: SafeArea(
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+            ? Center(child: CircularProgressIndicator(color: cs.primary))
             : Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: isTablet ? 800 : 600),
@@ -396,7 +409,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: SectionHeader(l10n.tr('fixtures_section_title')),
                           ),
-                          Expanded(child: _buildMatchesList(onBg)),
+                          Expanded(child: _buildMatchesList()),
                         ],
                       );
                     },
@@ -409,12 +422,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final onBg = Theme.of(context).colorScheme.onBackground;
-
-    final unselectedBg = onBg.withOpacity(0.06);
-    final unselectedBorder = onBg.withOpacity(0.14);
-    final unselectedText = onBg.withOpacity(0.78);
+    final unselectedBg = cs.onBackground.withOpacity(0.06);
+    final unselectedBorder = cs.onBackground.withOpacity(0.14);
+    final unselectedText = cs.onBackground.withOpacity(0.78);
 
     final bool allSelected = _selectedGroup == null;
 
@@ -431,15 +444,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               margin: const EdgeInsetsDirectional.only(end: 10),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: allSelected ? Colors.cyanAccent : unselectedBg,
+                color: allSelected ? cs.primary : unselectedBg,
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: allSelected ? Colors.cyanAccent : unselectedBorder),
+                border: Border.all(color: allSelected ? cs.primary : unselectedBorder),
               ),
               alignment: Alignment.center,
               child: Text(
                 l10n.tr('admin_score_all_groups'),
                 style: TextStyle(
-                  color: allSelected ? Colors.black : unselectedText,
+                  color: allSelected ? cs.onPrimary : unselectedText,
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
                 ),
@@ -456,15 +469,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     margin: const EdgeInsetsDirectional.only(end: 10),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.cyanAccent : unselectedBg,
+                      color: isSelected ? cs.primary : unselectedBg,
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: isSelected ? Colors.cyanAccent : unselectedBorder),
+                      border: Border.all(color: isSelected ? cs.primary : unselectedBorder),
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       _groupDisplayName(l10n, group),
                       style: TextStyle(
-                        color: isSelected ? Colors.black : unselectedText,
+                        color: isSelected ? cs.onPrimary : unselectedText,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
                       ),
@@ -480,12 +493,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildRoundSelector(int totalRounds) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final onBg = Theme.of(context).colorScheme.onBackground;
-
-    final unselectedBg = onBg.withOpacity(0.06);
-    final unselectedBorder = onBg.withOpacity(0.14);
-    final unselectedText = onBg.withOpacity(0.78);
+    final unselectedBg = cs.onBackground.withOpacity(0.06);
+    final unselectedBorder = cs.onBackground.withOpacity(0.14);
+    final unselectedText = cs.onBackground.withOpacity(0.78);
 
     return Container(
       height: 50,
@@ -504,15 +517,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               margin: const EdgeInsetsDirectional.only(end: 12),
               padding: const EdgeInsets.symmetric(horizontal: 20),
               decoration: BoxDecoration(
-                color: isSelected ? Colors.cyanAccent : unselectedBg,
+                color: isSelected ? cs.primary : unselectedBg,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: isSelected ? Colors.cyanAccent : unselectedBorder),
+                border: Border.all(color: isSelected ? cs.primary : unselectedBorder),
               ),
               alignment: Alignment.center,
               child: Text(
                 '${l10n.tr('admin_score_round_prefix')}$round',
                 style: TextStyle(
-                  color: isSelected ? Colors.black : unselectedText,
+                  color: isSelected ? cs.onPrimary : unselectedText,
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
@@ -524,14 +537,16 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     );
   }
 
-  Widget _buildMatchesList(Color onBg) {
+  Widget _buildMatchesList() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return FutureBuilder<List<FixtureMatch>>(
       future: _getMatches(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Colors.cyanAccent));
+          return Center(child: CircularProgressIndicator(color: cs.primary));
         }
 
         final matches = snapshot.data ?? [];
@@ -540,7 +555,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
           return Center(
             child: Text(
               l10n.tr('fixtures_no_matches_generated_yet'),
-              style: TextStyle(color: onBg.withOpacity(0.70)),
+              style: TextStyle(color: cs.onBackground.withOpacity(0.70), fontWeight: FontWeight.w600),
               textAlign: TextAlign.center,
             ),
           );
@@ -557,6 +572,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildMatchCard(FixtureMatch match) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final homeName = _teamNames[match.homeTeamId] ?? l10n.tr('fixtures_tbd');
     final awayName = _teamNames[match.awayTeamId] ?? l10n.tr('fixtures_tbd');
@@ -581,7 +598,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       _groupDisplayName(l10n, groupLabel),
-                      style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        color: cs.onSurface.withOpacity(0.55),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
@@ -591,28 +612,42 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     child: Text(
                       homeName,
                       textAlign: TextAlign.end,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  Container(
-                    width: 80,
-                    alignment: Alignment.center,
-                    child: (isFinished && hasScore)
-                        ? Text(
-                            '${match.homeScore} - ${match.awayScore}',
-                            style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 18),
-                          )
-                        : Text(
-                            l10n.tr('league_details_vs'),
-                            style: const TextStyle(color: Colors.white24, fontWeight: FontWeight.w900),
-                          ),
+                  SizedBox(
+                    width: 88,
+                    child: Center(
+                      child: (isFinished && hasScore)
+                          ? Text(
+                              '${match.homeScore} - ${match.awayScore}',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: cs.primary,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 18,
+                              ),
+                            )
+                          : Text(
+                              l10n.tr('league_details_vs'),
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: cs.onSurface.withOpacity(0.30),
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                    ),
                   ),
                   Expanded(
                     child: Text(
                       awayName,
                       textAlign: TextAlign.start,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),

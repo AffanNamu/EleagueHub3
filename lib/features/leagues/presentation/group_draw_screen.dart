@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/fixture_generator.dart';
 import '../models/league_format.dart';
 import '../models/team.dart';
@@ -32,23 +33,50 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
   static const int _groupSize = 4;
 
-  void _toast(String msg, {Color bg = const Color(0xFF101522), Color fg = Colors.white}) {
+  Color _baseToastBg(ThemeData theme) {
+    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+  }
+
+  void _toast(String msg, {Color? bg, Color? fg}) {
     if (!mounted) return;
+
+    final theme = Theme.of(context);
+    final resolvedBg = bg ?? _baseToastBg(theme);
+    final resolvedFg = fg ?? Colors.white;
+
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
-        backgroundColor: bg,
-        content: Text(msg, style: TextStyle(color: fg, fontWeight: FontWeight.w600)),
+        backgroundColor: resolvedBg,
+        content: Text(msg, style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600)),
         duration: const Duration(seconds: 3),
       ),
     );
   }
 
-  void _toastOk(String msg) => _toast(msg, bg: Colors.cyanAccent.withOpacity(0.18), fg: Colors.cyanAccent);
-  void _toastWarn(String msg) => _toast(msg, bg: Colors.orangeAccent.withOpacity(0.14), fg: Colors.orangeAccent);
-  void _toastErr(String msg) => _toast(msg, bg: Colors.redAccent.withOpacity(0.14), fg: Colors.redAccent);
+  void _toastOk(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final baseBg = _baseToastBg(theme);
+    final accent = cs.primary;
+    _toast(msg, bg: Color.alphaBlend(accent.withOpacity(0.22), baseBg), fg: accent);
+  }
+
+  void _toastWarn(String msg) {
+    const warn = Color(0xFFF59E0B);
+    final theme = Theme.of(context);
+    final baseBg = _baseToastBg(theme);
+    _toast(msg, bg: Color.alphaBlend(warn.withOpacity(0.22), baseBg), fg: warn);
+  }
+
+  void _toastErr(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final baseBg = _baseToastBg(theme);
+    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.22), baseBg), fg: cs.error);
+  }
 
   @override
   void initState() {
@@ -271,10 +299,11 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     if (!(_allTeams.length == 16 || _allTeams.length == 32) || groups.isEmpty) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF000428),
+      return GlassScaffold(
         appBar: AppBar(
           title: Text(l10n.tr('group_draw_appbar_title')),
           backgroundColor: Colors.transparent,
@@ -285,7 +314,11 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
             child: Text(
               '${l10n.tr('group_draw_team_count_help_prefix')}${_allTeams.length}.',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: cs.onBackground.withOpacity(0.72),
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ),
@@ -294,8 +327,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
     final orderedGroupKeys = groups.keys.toList();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF000428),
+    return GlassScaffold(
       appBar: AppBar(
         title: Text(l10n.tr('group_draw_appbar_title')),
         backgroundColor: Colors.transparent,
@@ -314,7 +346,11 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
               padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 0),
               child: Text(
                 l10n.tr('group_draw_locked_banner'),
-                style: const TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.w800, fontSize: 12),
+                style: const TextStyle(
+                  color: Color(0xFFF59E0B),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -323,9 +359,8 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
             child: Row(
               children: [
                 Expanded(
-                  child: ElevatedButton(
+                  child: FilledButton.tonal(
                     onPressed: (_drawLocked || isDrawing) ? null : (remainingTeams.isNotEmpty ? startDraw : null),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.white24),
                     child: Text(
                       isDrawing
                           ? l10n.tr('group_draw_drawing_teams')
@@ -337,19 +372,18 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: ElevatedButton.icon(
+                  child: FilledButton.icon(
                     onPressed: (_drawLocked || !_allGroupsFull || _isGeneratingFixtures) ? null : _generateGroupFixtures,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent.withOpacity(0.22)),
                     icon: _isGeneratingFixtures
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent),
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
-                        : const Icon(Icons.auto_awesome, color: Colors.cyanAccent),
+                        : const Icon(Icons.auto_awesome),
                     label: Text(
                       l10n.tr('group_draw_generate_fixtures').toUpperCase(),
-                      style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900),
+                      style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.4),
                     ),
                   ),
                 ),

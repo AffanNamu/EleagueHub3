@@ -18,25 +18,69 @@ class StandingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = isQualified ? cs.primary.withOpacity(0.06) : Colors.transparent;
+
+    final rankStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: isQualified ? cs.primary : cs.onSurface.withOpacity(0.65),
+      fontWeight: isQualified ? FontWeight.w900 : FontWeight.w700,
+    );
+
+    final nameStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: cs.onSurface,
+      fontSize: 15,
+      fontWeight: FontWeight.w800,
+    );
+
+    final gdStyle = theme.textTheme.bodySmall?.copyWith(
+      color: cs.onSurface.withOpacity(0.70),
+      fontWeight: FontWeight.w700,
+    );
+
+    final ptsStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: cs.onSurface,
+      fontWeight: FontWeight.w900,
+    );
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
-        color: isQualified ? Colors.cyanAccent.withOpacity(0.05) : Colors.transparent,
+        color: bg,
       ),
       child: Row(
         children: [
           SizedBox(
             width: 30,
-            child: Text("$rank", style: TextStyle(
-              color: isQualified ? Colors.cyanAccent : Colors.white60,
-              fontWeight: isQualified ? FontWeight.bold : FontWeight.normal,
-            )),
+            child: Text(
+              '$rank',
+              style: rankStyle,
+            ),
           ),
           Expanded(
-            child: Text(teamName, style: const TextStyle(color: Colors.white, fontSize: 15)),
+            child: Text(
+              teamName,
+              style: nameStyle,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-          SizedBox(width: 40, child: Text("$gd", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70))),
-          SizedBox(width: 40, child: Text("$points", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+          SizedBox(
+            width: 40,
+            child: Text(
+              '$gd',
+              textAlign: TextAlign.center,
+              style: gdStyle,
+            ),
+          ),
+          SizedBox(
+            width: 40,
+            child: Text(
+              '$points',
+              textAlign: TextAlign.center,
+              style: ptsStyle,
+            ),
+          ),
         ],
       ),
     );

@@ -150,8 +150,10 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final appBarFg = Theme.of(context).appBarTheme.foregroundColor ?? Theme.of(context).colorScheme.onBackground;
+    final appBarFg = Theme.of(context).appBarTheme.foregroundColor ?? cs.onBackground;
 
     final rounds = <String, List<KnockoutMatch>>{};
     for (var m in _matches) {
@@ -202,14 +204,14 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
         actions: [
           IconButton(
             onPressed: _loadData,
-            icon: const Icon(Icons.sync_rounded, color: Colors.cyanAccent),
+            icon: Icon(Icons.sync_rounded, color: cs.primary),
             tooltip: l10n.tr('knockout_bracket_reload_tooltip'),
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Colors.cyanAccent),
+          ? Center(
+              child: CircularProgressIndicator(color: cs.primary),
             )
           : Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -221,12 +223,12 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.emoji_events_outlined, size: 48, color: Colors.white24),
+                            Icon(Icons.emoji_events_outlined, size: 48, color: cs.onSurface.withOpacity(0.25)),
                             const SizedBox(height: 16),
                             Text(
                               l10n.tr('knockout_bracket_empty_state'),
                               textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.white70, fontSize: 14),
+                              style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontSize: 14, fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),
@@ -265,6 +267,8 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
 
   Widget _buildHeaderInfo() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return SizedBox(
       width: double.infinity,
@@ -278,8 +282,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
               children: [
                 Text(
                   l10n.tr('knockout_bracket_header_title'),
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w900,
                     fontSize: 18,
                     letterSpacing: 0.5,
@@ -287,7 +290,11 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                 ),
                 Text(
                   '${_matches.length} ${l10n.tr('knockout_bracket_matches_scheduled_suffix')}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.55),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -298,9 +305,9 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
             start: 0,
             child: Container(
               width: 3,
-              decoration: const BoxDecoration(
-                color: Colors.cyanAccent,
-                borderRadius: BorderRadiusDirectional.only(
+              decoration: BoxDecoration(
+                color: cs.primary,
+                borderRadius: const BorderRadiusDirectional.only(
                   topStart: Radius.circular(18),
                   bottomStart: Radius.circular(18),
                 ),
@@ -313,6 +320,9 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   }
 
   Widget _buildRoundColumn(String title, List<KnockoutMatch> roundMatches) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Column(
       children: [
         SizedBox(
@@ -325,8 +335,8 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
               child: Text(
                 title.toUpperCase(),
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.cyanAccent,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: cs.primary,
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 2,
@@ -342,6 +352,9 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
 
   Widget _buildMatchCard(KnockoutMatch match) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
 
     final homeName = _teamName(match.homeTeamId) ?? (match.homeTeamId ?? l10n.tr('fixtures_tbd'));
     final awayName = _teamName(match.awayTeamId) ?? (match.awayTeamId ?? l10n.tr('fixtures_tbd'));
@@ -410,6 +423,8 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
       }
     }
 
+    final leftStripeColor = isTBD ? onSurface.withOpacity(0.22) : cs.primary;
+
     return Container(
       width: 240,
       margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
@@ -423,7 +438,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                 borderRadius: BorderRadius.circular(11),
                 gradient: LinearGradient(
                   colors: [
-                    isTBD ? Colors.white10 : Colors.cyanAccent.withOpacity(0.1),
+                    isTBD ? onSurface.withOpacity(0.06) : cs.primary.withOpacity(0.10),
                     Colors.transparent,
                   ],
                   begin: Alignment.topLeft,
@@ -439,8 +454,8 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                         alignment: AlignmentDirectional.centerStart,
                         child: Text(
                           subtitle,
-                          style: const TextStyle(
-                            color: Colors.white54,
+                          style: TextStyle(
+                            color: onSurface.withOpacity(0.55),
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                           ),
@@ -449,7 +464,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                     if (subtitle != null) const SizedBox(height: 8),
                     _buildTeamRow(homeName, match.homeScore?.toString() ?? "-", isHomeWinner),
                     const SizedBox(height: 8),
-                    Divider(color: Colors.white.withOpacity(0.05), height: 1),
+                    Divider(color: onSurface.withOpacity(0.10), height: 1),
                     const SizedBox(height: 8),
                     _buildTeamRow(awayName, match.awayScore?.toString() ?? "-", isAwayWinner),
                     if (aggNote != null) ...[
@@ -458,7 +473,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                         alignment: AlignmentDirectional.centerStart,
                         child: Text(
                           aggNote!,
-                          style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
+                          style: TextStyle(color: onSurface.withOpacity(0.55), fontSize: 11, fontWeight: FontWeight.w600),
                         ),
                       ),
                     ],
@@ -470,8 +485,8 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                           tiebreakNote!,
                           style: TextStyle(
                             color: tiebreakNote == l10n.tr('knockout_bracket_draw_winner_required')
-                                ? Colors.orangeAccent
-                                : Colors.white54,
+                                ? const Color(0xFFF59E0B)
+                                : onSurface.withOpacity(0.55),
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
                           ),
@@ -490,7 +505,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
             child: Container(
               width: 3,
               decoration: BoxDecoration(
-                color: isTBD ? Colors.white24 : Colors.cyanAccent,
+                color: leftStripeColor,
                 borderRadius: const BorderRadiusDirectional.only(
                   topStart: Radius.circular(12),
                   bottomStart: Radius.circular(12),
@@ -504,6 +519,13 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   }
 
   Widget _buildTeamRow(String name, String score, bool isWinner) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
+    final baseTextColor = (score == "-") ? onSurface.withOpacity(0.45) : onSurface;
+    final nameColor = isWinner ? cs.primary : baseTextColor;
+
     return Row(
       children: [
         Expanded(
@@ -511,9 +533,9 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
             name.toUpperCase(),
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: isWinner ? Colors.cyanAccent : (score == "-" ? Colors.white38 : Colors.white),
+              color: nameColor,
               fontSize: 13,
-              fontWeight: isWinner ? FontWeight.w900 : FontWeight.w500,
+              fontWeight: isWinner ? FontWeight.w900 : FontWeight.w700,
               letterSpacing: 0.5,
             ),
           ),
@@ -521,14 +543,14 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: isWinner ? Colors.cyanAccent.withOpacity(0.1) : Colors.transparent,
+            color: isWinner ? cs.primary.withOpacity(0.12) : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
           ),
           child: Text(
             score,
-            style: TextStyle(
-              color: isWinner ? Colors.cyanAccent : Colors.white,
-              fontWeight: FontWeight.w800,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: isWinner ? cs.primary : onSurface,
+              fontWeight: FontWeight.w900,
               fontSize: 14,
             ),
           ),
@@ -538,6 +560,9 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   }
 
   Widget _buildBracketConnector() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     return Container(
       width: 40,
       margin: const EdgeInsets.only(top: 100),
@@ -548,7 +573,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                Colors.cyanAccent.withOpacity(0.5),
+                cs.primary.withOpacity(0.45),
                 Colors.transparent,
               ],
             ),

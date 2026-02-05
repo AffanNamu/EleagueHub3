@@ -161,7 +161,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final league = _league;
     if (league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet'))),
+        SnackBar(
+          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -276,7 +279,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final league = _league;
     if (league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet'))),
+        SnackBar(
+          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -292,7 +298,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${l10n.tr('league_admin_export_failed_prefix')} $e')),
+        SnackBar(
+          content: Text('${l10n.tr('league_admin_export_failed_prefix')} $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } finally {
       if (mounted) setState(() => _exportingRoster = false);
@@ -304,7 +313,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     if (_league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet'))),
+        SnackBar(
+          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -402,6 +414,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -422,9 +436,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                   const SizedBox(height: 20),
                   Expanded(
                     child: _isLeagueLoading
-                        ? const Center(
-                            child: CircularProgressIndicator(color: Colors.cyanAccent),
-                          )
+                        ? Center(child: CircularProgressIndicator(color: cs.primary))
                         : _buildSettingsList(context),
                   ),
                 ],
@@ -438,6 +450,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   Widget _buildInfoCard() {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final title = widget.hasPendingChanges
+        ? l10n.tr('league_admin_offline_changes_title')
+        : l10n.tr('league_admin_fully_synced_title');
+
+    final subtitle = widget.hasPendingChanges
+        ? l10n.tr('league_admin_offline_changes_subtitle')
+        : l10n.tr('league_admin_fully_synced_subtitle');
+
+    final statusIcon = widget.hasPendingChanges ? Icons.cloud_off : Icons.cloud_done;
+    final statusColor = widget.hasPendingChanges ? const Color(0xFFF59E0B) : const Color(0xFF22C55E);
 
     return Glass(
       borderRadius: 24,
@@ -445,27 +470,26 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Icon(
-              widget.hasPendingChanges ? Icons.cloud_off : Icons.cloud_done,
-              color: widget.hasPendingChanges ? Colors.orangeAccent : Colors.greenAccent,
-              size: 40,
-            ),
+            Icon(statusIcon, color: statusColor, size: 40),
             const SizedBox(width: 20),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.hasPendingChanges
-                        ? l10n.tr('league_admin_offline_changes_title')
-                        : l10n.tr('league_admin_fully_synced_title'),
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   Text(
-                    widget.hasPendingChanges
-                        ? l10n.tr('league_admin_offline_changes_subtitle')
-                        : l10n.tr('league_admin_fully_synced_subtitle'),
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.70),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -476,7 +500,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 await SyncTrigger.trySync();
                 await _loadLeague();
               },
-              icon: const Icon(Icons.sync, color: Colors.white70),
+              icon: Icon(Icons.sync, color: cs.onSurface.withOpacity(0.72)),
             ),
           ],
         ),
@@ -492,7 +516,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     if (!mounted) return;
     setState(() => _isSyncing = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l10n.tr('league_admin_sync_complete'))),
+      SnackBar(
+        content: Text(l10n.tr('league_admin_sync_complete')),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -595,8 +622,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     bool isDestructive = false,
     VoidCallback? onTap,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final chevronIcon = isRtl ? Icons.chevron_left : Icons.chevron_right;
+
+    final leadingColor = isDestructive ? cs.error : cs.primary;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -606,10 +638,23 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(icon, color: isDestructive ? Colors.redAccent : Colors.white),
-            title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: Text(subtitle, style: const TextStyle(color: Colors.white60, fontSize: 12)),
-            trailing: Icon(chevronIcon, color: Colors.white30),
+            leading: Icon(icon, color: leadingColor),
+            title: Text(
+              title,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            subtitle: Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.65),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            trailing: Icon(chevronIcon, color: cs.onSurface.withOpacity(0.30)),
             onTap: onTap,
           ),
         ),
@@ -632,6 +677,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
+            final theme = Theme.of(ctx);
+            final cs = theme.colorScheme;
+            final onSurface = cs.onSurface;
+
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -649,38 +698,51 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               child: Text(
                                 l10n.tr('league_admin_live_voice_settings'),
-                                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: onSurface,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
-                            const Divider(color: Colors.white10),
+                            Divider(color: onSurface.withOpacity(0.12)),
                             SwitchListTile.adaptive(
                               value: chatEnabled,
                               onChanged: (v) => setModalState(() => chatEnabled = v),
-                              activeColor: Colors.cyanAccent,
-                              title: Text(l10n.tr('league_admin_viewer_text_chat'), style: const TextStyle(color: Colors.white)),
+                              activeColor: cs.primary,
+                              title: Text(
+                                l10n.tr('league_admin_viewer_text_chat'),
+                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
+                              ),
                               subtitle: Text(
                                 l10n.tr('league_admin_viewer_text_chat_subtitle'),
-                                style: const TextStyle(color: Colors.white60, fontSize: 12),
+                                style: TextStyle(color: onSurface.withOpacity(0.65), fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
                             SwitchListTile.adaptive(
                               value: voiceEnabled,
                               onChanged: (v) => setModalState(() => voiceEnabled = v),
-                              activeColor: Colors.cyanAccent,
-                              title: Text(l10n.tr('league_admin_viewer_audio'), style: const TextStyle(color: Colors.white)),
+                              activeColor: cs.primary,
+                              title: Text(
+                                l10n.tr('league_admin_viewer_audio'),
+                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
+                              ),
                               subtitle: Text(
                                 l10n.tr('league_admin_viewer_audio_subtitle'),
-                                style: const TextStyle(color: Colors.white60, fontSize: 12),
+                                style: TextStyle(color: onSurface.withOpacity(0.65), fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
                             SwitchListTile.adaptive(
                               value: reactionsEnabled,
                               onChanged: (v) => setModalState(() => reactionsEnabled = v),
-                              activeColor: Colors.cyanAccent,
-                              title: Text(l10n.tr('league_admin_viewer_reactions'), style: const TextStyle(color: Colors.white)),
+                              activeColor: cs.primary,
+                              title: Text(
+                                l10n.tr('league_admin_viewer_reactions'),
+                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
+                              ),
                               subtitle: Text(
                                 l10n.tr('league_admin_viewer_reactions_subtitle'),
-                                style: const TextStyle(color: Colors.white60, fontSize: 12),
+                                style: TextStyle(color: onSurface.withOpacity(0.65), fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
                             Align(
@@ -696,7 +758,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     if (!mounted) return;
                                     Navigator.of(ctx).pop();
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(l10n.tr('league_admin_live_viewer_settings_updated'))),
+                                      SnackBar(
+                                        content: Text(l10n.tr('league_admin_live_viewer_settings_updated')),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
                                     );
                                   },
                                   child: Text(l10n.tr('common_save')),
@@ -726,6 +791,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -741,14 +810,22 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                       children: [
                         Text(
                           l10n.tr('league_admin_league_space_sheet_title'),
-                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: onSurface,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           spaceLive
                               ? '${l10n.tr('league_admin_league_space_running_prefix')} $leagueName.'
                               : '${l10n.tr('league_admin_league_space_start_description_prefix')} $leagueName${l10n.tr('league_admin_league_space_start_description_suffix')}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: onSurface.withOpacity(0.70),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 16),
@@ -758,8 +835,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               Expanded(
                                 child: TextButton(
                                   onPressed: () => Navigator.of(ctx).pop(),
-                                  child: Text(l10n.tr('profile_close_tooltip'),
-                                      style: const TextStyle(color: Colors.white70)),
+                                  child: Text(l10n.tr('profile_close_tooltip')),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -791,7 +867,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: FilledButton.icon(
-                                  style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+                                  style: FilledButton.styleFrom(backgroundColor: cs.error),
                                   onPressed: () {
                                     Navigator.of(ctx).pop();
                                     _endSpace();
@@ -820,7 +896,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     if (_league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet'))),
+        SnackBar(
+          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -833,6 +912,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
         return SafeArea(
           child: Padding(
             padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom).add(const EdgeInsets.all(16)),
@@ -848,31 +931,35 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                       children: [
                         Text(
                           l10n.tr('league_admin_send_announcement_sheet_title'),
-                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: onSurface,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           l10n.tr('league_admin_send_announcement_sheet_subtitle'),
-                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: onSurface.withOpacity(0.70),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: titleController,
-                          style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
                             labelText: l10n.tr('league_admin_announcement_title_optional'),
-                            labelStyle: const TextStyle(color: Colors.white70),
                           ),
                         ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: messageController,
-                          style: const TextStyle(color: Colors.white),
                           maxLines: 3,
                           decoration: InputDecoration(
                             labelText: l10n.tr('league_admin_announcement_message_label'),
-                            labelStyle: const TextStyle(color: Colors.white70),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -881,7 +968,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             Expanded(
                               child: TextButton(
                                 onPressed: () => Navigator.of(ctx).pop(),
-                                child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
+                                child: Text(l10n.tr('common_cancel')),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -917,7 +1004,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   if (!mounted) return;
                                   Navigator.of(ctx).pop();
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(l10n.tr('league_admin_announcement_sent'))),
+                                    SnackBar(
+                                      content: Text(l10n.tr('league_admin_announcement_sent')),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
                                   );
                                 },
                                 child: Text(l10n.tr('league_admin_send')),
@@ -944,6 +1034,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -961,22 +1055,26 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Text(
                             l10n.tr('league_admin_manage_teams_title'),
-                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: onSurface,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ),
-                        const Divider(color: Colors.white10),
+                        Divider(color: onSurface.withOpacity(0.12)),
                         ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: Colors.cyanAccent,
-                            child: Icon(Icons.group, color: Colors.black),
+                          leading: CircleAvatar(
+                            backgroundColor: cs.primary,
+                            child: Icon(Icons.group, color: cs.onPrimary),
                           ),
                           title: Text(
                             l10n.tr('league_admin_teams_add_edit_title'),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                            style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
                           ),
                           subtitle: Text(
                             l10n.tr('league_admin_teams_add_edit_subtitle'),
-                            style: const TextStyle(color: Colors.white38, fontSize: 12),
+                            style: TextStyle(color: onSurface.withOpacity(0.55), fontSize: 12, fontWeight: FontWeight.w600),
                           ),
                           onTap: () {
                             Navigator.of(ctx).pop();
@@ -986,16 +1084,16 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 8),
                         ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: Colors.white.withOpacity(0.1),
-                            child: const Icon(Icons.people, color: Colors.white),
+                            backgroundColor: onSurface.withOpacity(0.08),
+                            child: Icon(Icons.people, color: onSurface),
                           ),
                           title: Text(
                             l10n.tr('league_admin_joined_participants_title'),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                            style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
                           ),
                           subtitle: Text(
                             l10n.tr('league_admin_joined_participants_subtitle'),
-                            style: const TextStyle(color: Colors.white38, fontSize: 12),
+                            style: TextStyle(color: onSurface.withOpacity(0.55), fontSize: 12, fontWeight: FontWeight.w600),
                           ),
                           onTap: () {
                             Navigator.of(ctx).pop();
@@ -1023,7 +1121,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     if (_league == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('league_admin_league_info_not_loaded_yet_try_again'))),
+        SnackBar(
+          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet_try_again')),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -1043,7 +1144,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final l10n = context.l10n;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l10n.tr('league_admin_rules_editor_unchanged'))),
+      SnackBar(
+        content: Text(l10n.tr('league_admin_rules_editor_unchanged')),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -1053,23 +1157,27 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     showDialog(
       context: context,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
         return AlertDialog(
-          backgroundColor: const Color(0xFF0A1D37),
+          backgroundColor: cs.surface,
           title: Text(
             l10n.tr('league_admin_delete_league_confirm_title'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
           ),
           content: Text(
             l10n.tr('league_admin_delete_league_confirm_message'),
-            style: const TextStyle(color: Colors.white70),
+            style: TextStyle(color: onSurface.withOpacity(0.72), fontWeight: FontWeight.w600),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(l10n.tr('common_cancel'), style: const TextStyle(color: Colors.white70)),
+              child: Text(l10n.tr('common_cancel')),
             ),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+              style: FilledButton.styleFrom(backgroundColor: cs.error),
               onPressed: () async {
                 await _localRepo.deleteLeagueCompletely(widget.leagueId);
 
@@ -1079,7 +1187,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 GoRouter.of(context).go('/leagues');
 
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(l10n.tr('league_admin_league_deleted'))),
+                  SnackBar(
+                    content: Text(l10n.tr('league_admin_league_deleted')),
+                    behavior: SnackBarBehavior.floating,
+                  ),
                 );
               },
               child: Text(l10n.tr('league_admin_delete')),
