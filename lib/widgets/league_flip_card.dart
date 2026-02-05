@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/locale/app_localizations.dart';
+import '../core/theme/app_theme.dart';
 
 /// Glass flip card (clean, not upside-down, smooth flip)
 /// - Uses a proper 3D flip with perspective
@@ -115,6 +116,11 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
   }
 
   Widget _glass({required Widget child}) {
+    final brightness = Theme.of(context).brightness;
+
+    final fill = AppTheme.glassFill(brightness);
+    final stroke = AppTheme.glassStroke(brightness);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
@@ -123,9 +129,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
           height: 220,
           width: double.infinity,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
+            color: fill,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.2)),
+            border: Border.all(color: stroke),
           ),
           child: child,
         ),
@@ -136,75 +142,101 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
   Widget _buildFront() {
     final l10n = context.l10n;
 
+    // The hint "Double tap to view details" was getting clipped on smaller heights
+    // when distribution/subtitle are long. Pin the hint area to the bottom so it
+    // always remains visible inside the fixed-height glass container.
     return _glass(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Stack(
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blueAccent.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.emoji_events_outlined, color: Colors.amber, size: 40),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            widget.leagueName,
-            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            widget.distribution,
-            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-          if (widget.subtitle != null) ...[
-            const SizedBox(height: 6),
-            Text(
-              widget.subtitle!,
-              style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 12),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-          const SizedBox(height: 22),
-          Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 62),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  Icon(Icons.touch_app, size: 16, color: Colors.cyanAccent.withOpacity(0.8)),
-                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blueAccent.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.emoji_events_outlined, color: Colors.amber, size: 40),
+                  ),
+                  const SizedBox(height: 14),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      widget.leagueName,
+                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                   Text(
-                    l10n.tr('league_flip_card_tap_to_join_scan_qr').toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.cyanAccent,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
+                    widget.distribution,
+                    style: TextStyle(color: Colors.white.withOpacity(0.72), fontSize: 13),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                  if (widget.subtitle != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      widget.subtitle!,
+                      style: TextStyle(color: Colors.white.withOpacity(0.58), fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 14,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.touch_app, size: 16, color: Colors.cyanAccent.withOpacity(0.8)),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        l10n.tr('league_flip_card_tap_to_join_scan_qr').toUpperCase(),
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.cyanAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (widget.onDoubleTap != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    l10n.tr('league_flip_card_double_tap_to_view_details'),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.72),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
                     ),
                   ),
                 ],
-              ),
-              if (widget.onDoubleTap != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  l10n.tr('league_flip_card_double_tap_to_view_details'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.65),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    height: 1.2,
-                  ),
-                ),
               ],
-            ],
+            ),
           ),
         ],
       ),
@@ -222,7 +254,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
               margin: const EdgeInsets.all(20),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
+                color: Colors.white.withOpacity(0.92),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: AspectRatio(

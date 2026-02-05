@@ -22,7 +22,10 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
-    final t = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final t = theme.textTheme;
+    final onBg = theme.colorScheme.onBackground;
+
     final themeState = ref.watch(themeControllerProvider);
     final currentLeague = ref.watch(leagueModeProvider);
 
@@ -39,7 +42,7 @@ class ProfileScreen extends ConsumerWidget {
           Text(
             l10n.tr('profile_title'),
             style: t.headlineSmall?.copyWith(
-              color: Colors.white,
+              color: onBg.withOpacity(0.95),
               fontWeight: FontWeight.w900,
               letterSpacing: 0.2,
             ),
@@ -47,7 +50,7 @@ class ProfileScreen extends ConsumerWidget {
           const SizedBox(height: 10),
           Text(
             l10n.tr('profile_subtitle'),
-            style: t.bodySmall?.copyWith(color: Colors.white70),
+            style: t.bodySmall?.copyWith(color: onBg.withOpacity(0.70)),
           ),
           const SizedBox(height: 16),
 
@@ -128,7 +131,9 @@ class ProfileScreen extends ConsumerWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  uid.isEmpty ? l10n.tr('profile_not_signed_in') : '${l10n.tr('profile_userid_prefix')} $shortUserId',
+                                  uid.isEmpty
+                                      ? l10n.tr('profile_not_signed_in')
+                                      : '${l10n.tr('profile_userid_prefix')} $shortUserId',
                                   style: t.bodySmall?.copyWith(color: Colors.white70),
                                   overflow: TextOverflow.ellipsis,
                                 ),

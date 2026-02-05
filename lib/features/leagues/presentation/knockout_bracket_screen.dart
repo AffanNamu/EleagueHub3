@@ -6,9 +6,9 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/leagues_repository_local.dart';
+import '../models/enums.dart';
 import '../models/knockout_match.dart';
 import '../models/team.dart';
-import '../models/enums.dart';
 
 class KnockoutBracketScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -151,6 +151,8 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
 
+    final appBarFg = Theme.of(context).appBarTheme.foregroundColor ?? Theme.of(context).colorScheme.onBackground;
+
     final rounds = <String, List<KnockoutMatch>>{};
     for (var m in _matches) {
       rounds.putIfAbsent(m.roundName, () => []).add(m);
@@ -190,7 +192,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
             fontSize: 16,
             fontWeight: FontWeight.w800,
             letterSpacing: 1.2,
-            color: Colors.white.withOpacity(0.9),
+            color: appBarFg.withOpacity(0.92),
           ),
         ),
         centerTitle: true,
@@ -264,26 +266,46 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   Widget _buildHeaderInfo() {
     final l10n = context.l10n;
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: const BoxDecoration(
-        border: BorderDirectional(start: BorderSide(color: Colors.cyanAccent, width: 3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return SizedBox(
+      width: double.infinity,
+      child: Stack(
         children: [
-          Text(
-            l10n.tr('knockout_bracket_header_title'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 18,
-              letterSpacing: 0.5,
+          Glass(
+            borderRadius: 18,
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.tr('knockout_bracket_header_title'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                Text(
+                  '${_matches.length} ${l10n.tr('knockout_bracket_matches_scheduled_suffix')}',
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ],
             ),
           ),
-          Text(
-            '${_matches.length} ${l10n.tr('knockout_bracket_matches_scheduled_suffix')}',
-            style: const TextStyle(color: Colors.white38, fontSize: 11),
+          PositionedDirectional(
+            top: 0,
+            bottom: 0,
+            start: 0,
+            child: Container(
+              width: 3,
+              decoration: const BoxDecoration(
+                color: Colors.cyanAccent,
+                borderRadius: BorderRadiusDirectional.only(
+                  topStart: Radius.circular(18),
+                  bottomStart: Radius.circular(18),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -293,23 +315,23 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   Widget _buildRoundColumn(String title, List<KnockoutMatch> roundMatches) {
     return Column(
       children: [
-        Container(
+        SizedBox(
           width: 240,
-          margin: const EdgeInsets.only(bottom: 24),
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Text(
-            title.toUpperCase(),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.cyanAccent,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 2,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: Glass(
+              borderRadius: 30,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              child: Text(
+                title.toUpperCase(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.cyanAccent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2,
+                ),
+              ),
             ),
           ),
         ),
@@ -325,7 +347,6 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
     final awayName = _teamName(match.awayTeamId) ?? (match.awayTeamId ?? l10n.tr('fixtures_tbd'));
 
     final isTBD = match.homeTeamId == null || match.awayTeamId == null;
-    final finished = _isFinished(match);
 
     bool isHomeWinner = false;
     bool isAwayWinner = false;
@@ -372,7 +393,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
         }
       }
     } else {
-      if (finished) {
+      if (_isFinished(match)) {
         if (match.homeScore! > match.awayScore!) {
           isHomeWinner = true;
         } else if (match.awayScore! > match.homeScore!) {
@@ -380,7 +401,8 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
         } else if (match.tiebreakWinnerTeamId != null) {
           isHomeWinner = match.tiebreakWinnerTeamId == match.homeTeamId;
           isAwayWinner = match.tiebreakWinnerTeamId == match.awayTeamId;
-          tiebreakNote = '${l10n.tr('knockout_bracket_penalties_prefix')}${_teamName(match.tiebreakWinnerTeamId) ?? match.tiebreakWinnerTeamId}';
+          tiebreakNote =
+              '${l10n.tr('knockout_bracket_penalties_prefix')}${_teamName(match.tiebreakWinnerTeamId) ?? match.tiebreakWinnerTeamId}';
         } else {
           // Should no longer happen if admin screen enforces penalties winner.
           tiebreakNote = l10n.tr('knockout_bracket_draw_winner_required');

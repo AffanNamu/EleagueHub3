@@ -9,8 +9,8 @@ import '../../../core/widgets/section_header.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
 import '../logic/fixture_generator.dart';
-import '../models/fixture_match.dart';
 import '../models/enums.dart';
+import '../models/fixture_match.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/team.dart';
@@ -218,7 +218,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       }
 
       await _repo.saveMatches(widget.leagueId, fixtures);
-      _toastOk('${l10n.tr('admin_score_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}');
+      _toastOk(
+        '${l10n.tr('admin_score_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
+      );
       await _loadData();
     } finally {
       if (mounted) setState(() => _isGenerating = false);
@@ -258,7 +260,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       }
 
       await _repo.saveMatches(widget.leagueId, fixtures);
-      _toastOk('${l10n.tr('admin_score_group_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}');
+      _toastOk(
+        '${l10n.tr('admin_score_group_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
+      );
       await _loadData();
     } finally {
       if (mounted) setState(() => _isGenerating = false);
@@ -294,13 +298,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         final currentRoundMatches = existing.where((m) => m.roundNumber == currentMaxRound).toList();
         final anyUnplayed = currentRoundMatches.any((m) => !m.isPlayed);
         if (anyUnplayed) {
-          _toastWarn('${l10n.tr('admin_score_complete_round_prefix')}$currentMaxRound${l10n.tr('admin_score_complete_round_suffix')}');
+          _toastWarn(
+            '${l10n.tr('admin_score_complete_round_prefix')}$currentMaxRound${l10n.tr('admin_score_complete_round_suffix')}',
+          );
           return;
         }
       }
 
       if (currentMaxRound >= maxRounds) {
-        _toastWarn('${l10n.tr('admin_score_all_swiss_rounds_generated_prefix')}$maxRounds${l10n.tr('admin_score_all_swiss_rounds_generated_suffix')}');
+        _toastWarn(
+          '${l10n.tr('admin_score_all_swiss_rounds_generated_prefix')}$maxRounds${l10n.tr('admin_score_all_swiss_rounds_generated_suffix')}',
+        );
         return;
       }
 
@@ -309,7 +317,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       // Prevent duplicates
       final alreadyExists = existing.any((m) => m.roundNumber == nextRound);
       if (alreadyExists) {
-        _toastWarn('${l10n.tr('admin_score_round_already_exists_prefix')}$nextRound${l10n.tr('admin_score_round_already_exists_suffix')}');
+        _toastWarn(
+          '${l10n.tr('admin_score_round_already_exists_prefix')}$nextRound${l10n.tr('admin_score_round_already_exists_suffix')}',
+        );
         return;
       }
 
@@ -332,7 +342,11 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       }
 
       await _repo.saveMatches(widget.leagueId, newFixtures);
-      _toastOk('${l10n.tr('admin_score_swiss_round_generated_prefix')}$nextRound${l10n.tr('admin_score_swiss_round_generated_mid')}${newFixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}');
+      _toastOk(
+        '${l10n.tr('admin_score_swiss_round_generated_prefix')}$nextRound'
+        '${l10n.tr('admin_score_swiss_round_generated_mid')}${newFixtures.length}'
+        '${l10n.tr('admin_score_fixtures_generated_suffix')}',
+      );
       await _loadData();
     } finally {
       if (mounted) setState(() => _isGenerating = false);
@@ -344,6 +358,8 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     final l10n = context.l10n;
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
+
+    final onBg = Theme.of(context).colorScheme.onBackground;
 
     // Available rounds based on current selection
     List<int> availableRounds = [];
@@ -460,7 +476,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                         child: Text(
                           l10n.tr('admin_score_help_text'),
-                          style: const TextStyle(color: Colors.white30, fontSize: 12),
+                          style: TextStyle(color: onBg.withOpacity(0.62), fontSize: 12),
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -475,7 +491,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                             ? Center(
                                 child: Text(
                                   l10n.tr('admin_score_no_matches_to_manage'),
-                                  style: const TextStyle(color: Colors.white38),
+                                  style: TextStyle(color: onBg.withOpacity(0.70)),
                                 ),
                               )
                             : ListView.separated(
@@ -505,6 +521,12 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
 
+    final onBg = Theme.of(context).colorScheme.onBackground;
+
+    final unselectedBg = onBg.withOpacity(0.06);
+    final unselectedBorder = onBg.withOpacity(0.14);
+    final unselectedText = onBg.withOpacity(0.78);
+
     final bool allSelected = _selectedGroup == null;
     return Container(
       height: 40,
@@ -533,17 +555,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
               margin: const EdgeInsetsDirectional.only(end: 8),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
-                color: allSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
+                color: allSelected ? Colors.cyanAccent : unselectedBg,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: allSelected ? Colors.cyanAccent : Colors.white10,
+                  color: allSelected ? Colors.cyanAccent : unselectedBorder,
                 ),
               ),
               alignment: Alignment.center,
               child: Text(
                 l10n.tr('admin_score_all_groups'),
                 style: TextStyle(
-                  color: allSelected ? Colors.black : Colors.white70,
+                  color: allSelected ? Colors.black : unselectedText,
                   fontWeight: FontWeight.bold,
                   fontSize: 11,
                 ),
@@ -575,17 +597,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                     margin: const EdgeInsetsDirectional.only(end: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
+                      color: isSelected ? Colors.cyanAccent : unselectedBg,
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: isSelected ? Colors.cyanAccent : Colors.white10,
+                        color: isSelected ? Colors.cyanAccent : unselectedBorder,
                       ),
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       group,
                       style: TextStyle(
-                        color: isSelected ? Colors.black : Colors.white70,
+                        color: isSelected ? Colors.black : unselectedText,
                         fontWeight: FontWeight.bold,
                         fontSize: 11,
                       ),
@@ -601,6 +623,12 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   Widget _buildRoundSelector(List<int> rounds) {
     final l10n = context.l10n;
+
+    final onBg = Theme.of(context).colorScheme.onBackground;
+
+    final unselectedBg = onBg.withOpacity(0.06);
+    final unselectedBorder = onBg.withOpacity(0.14);
+    final unselectedText = onBg.withOpacity(0.78);
 
     return Container(
       height: 46,
@@ -618,17 +646,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
               margin: const EdgeInsetsDirectional.only(end: 10),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
+                color: isSelected ? Colors.cyanAccent : unselectedBg,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isSelected ? Colors.cyanAccent : Colors.white10,
+                  color: isSelected ? Colors.cyanAccent : unselectedBorder,
                 ),
               ),
               alignment: Alignment.center,
               child: Text(
                 '${l10n.tr('admin_score_round_prefix')}$round',
                 style: TextStyle(
-                  color: isSelected ? Colors.black : Colors.white70,
+                  color: isSelected ? Colors.black : unselectedText,
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
                 ),
@@ -669,8 +697,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     _awayScore = widget.match.awayScore ?? 0;
   }
 
-  bool get _isCompleted =>
-      widget.match.status == MatchStatus.completed || widget.match.status == MatchStatus.played;
+  bool get _isCompleted => widget.match.status == MatchStatus.completed || widget.match.status == MatchStatus.played;
 
   void _incHome() => setState(() => _homeScore++);
   void _decHome() => setState(() {

@@ -88,6 +88,21 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     _persistRound(1);
   }
 
+  String _groupDisplayName(AppLocalizations l10n, String groupId) {
+    final g = groupId.trim();
+
+    if (g == 'Group A') return l10n.tr('add_teams_group_a');
+    if (g == 'Group B') return l10n.tr('add_teams_group_b');
+    if (g == 'Group C') return l10n.tr('add_teams_group_c');
+    if (g == 'Group D') return l10n.tr('add_teams_group_d');
+    if (g == 'Group E') return l10n.tr('add_teams_group_e');
+    if (g == 'Group F') return l10n.tr('add_teams_group_f');
+    if (g == 'Group G') return l10n.tr('add_teams_group_g');
+    if (g == 'Group H') return l10n.tr('add_teams_group_h');
+
+    return g;
+  }
+
   void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -141,9 +156,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       }
 
       final filteredList = filteredForRounds.toList();
-      final maxRound = filteredList.isEmpty
-          ? 1
-          : filteredList.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+      final maxRound =
+          filteredList.isEmpty ? 1 : filteredList.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
 
       var roundToUse = _selectedRound;
       if (roundToUse > maxRound) roundToUse = maxRound;
@@ -254,7 +268,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         final currentRoundMatches = existingMatches.where((m) => m.roundNumber == currentMaxRound).toList();
         final anyUnplayed = currentRoundMatches.any((m) => !m.isPlayed);
         if (anyUnplayed) {
-          _snack('${l10n.tr('admin_score_complete_round_prefix')}$currentMaxRound${l10n.tr('admin_score_complete_round_suffix')}');
+          _snack(
+            '${l10n.tr('admin_score_complete_round_prefix')}$currentMaxRound'
+            '${l10n.tr('admin_score_complete_round_suffix')}',
+          );
           return;
         }
       }
@@ -272,7 +289,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         );
       } else {
         if (currentMaxRound >= maxRounds) {
-          _snack('${l10n.tr('admin_score_all_swiss_rounds_generated_prefix')}$maxRounds${l10n.tr('admin_score_all_swiss_rounds_generated_suffix')}');
+          _snack(
+            '${l10n.tr('admin_score_all_swiss_rounds_generated_prefix')}$maxRounds'
+            '${l10n.tr('admin_score_all_swiss_rounds_generated_suffix')}',
+          );
           return;
         }
 
@@ -280,7 +300,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
         final alreadyExists = existingMatches.any((m) => m.roundNumber == nextRound);
         if (alreadyExists) {
-          _snack('${l10n.tr('admin_score_round_already_exists_prefix')}$nextRound${l10n.tr('admin_score_round_already_exists_suffix')}');
+          _snack(
+            '${l10n.tr('admin_score_round_already_exists_prefix')}$nextRound'
+            '${l10n.tr('admin_score_round_already_exists_suffix')}',
+          );
           return;
         }
 
@@ -304,7 +327,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       _setRound(nextRound);
 
-      _snack('${l10n.tr('fixtures_swiss_round_generated_prefix')}$nextRound${l10n.tr('fixtures_swiss_round_generated_suffix')}');
+      _snack(
+        '${l10n.tr('fixtures_swiss_round_generated_prefix')}$nextRound'
+        '${l10n.tr('fixtures_swiss_round_generated_suffix')}',
+      );
 
       await _loadInitialData();
     } catch (e) {
@@ -321,6 +347,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final l10n = context.l10n;
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
+
+    final onBg = Theme.of(context).colorScheme.onBackground;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -368,7 +396,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: SectionHeader(l10n.tr('fixtures_section_title')),
                           ),
-                          Expanded(child: _buildMatchesList()),
+                          Expanded(child: _buildMatchesList(onBg)),
                         ],
                       );
                     },
@@ -381,6 +409,13 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
+
+    final onBg = Theme.of(context).colorScheme.onBackground;
+
+    final unselectedBg = onBg.withOpacity(0.06);
+    final unselectedBorder = onBg.withOpacity(0.14);
+    final unselectedText = onBg.withOpacity(0.78);
+
     final bool allSelected = _selectedGroup == null;
 
     return Container(
@@ -396,15 +431,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               margin: const EdgeInsetsDirectional.only(end: 10),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: allSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
+                color: allSelected ? Colors.cyanAccent : unselectedBg,
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: allSelected ? Colors.cyanAccent : Colors.white10),
+                border: Border.all(color: allSelected ? Colors.cyanAccent : unselectedBorder),
               ),
               alignment: Alignment.center,
               child: Text(
                 l10n.tr('admin_score_all_groups'),
                 style: TextStyle(
-                  color: allSelected ? Colors.black : Colors.white70,
+                  color: allSelected ? Colors.black : unselectedText,
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
                 ),
@@ -421,15 +456,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     margin: const EdgeInsetsDirectional.only(end: 10),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
+                      color: isSelected ? Colors.cyanAccent : unselectedBg,
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: isSelected ? Colors.cyanAccent : Colors.white10),
+                      border: Border.all(color: isSelected ? Colors.cyanAccent : unselectedBorder),
                     ),
                     alignment: Alignment.center,
                     child: Text(
-                      group,
+                      _groupDisplayName(l10n, group),
                       style: TextStyle(
-                        color: isSelected ? Colors.black : Colors.white70,
+                        color: isSelected ? Colors.black : unselectedText,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
                       ),
@@ -445,6 +480,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildRoundSelector(int totalRounds) {
     final l10n = context.l10n;
+
+    final onBg = Theme.of(context).colorScheme.onBackground;
+
+    final unselectedBg = onBg.withOpacity(0.06);
+    final unselectedBorder = onBg.withOpacity(0.14);
+    final unselectedText = onBg.withOpacity(0.78);
 
     return Container(
       height: 50,
@@ -463,15 +504,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               margin: const EdgeInsetsDirectional.only(end: 12),
               padding: const EdgeInsets.symmetric(horizontal: 20),
               decoration: BoxDecoration(
-                color: isSelected ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
+                color: isSelected ? Colors.cyanAccent : unselectedBg,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: isSelected ? Colors.cyanAccent : Colors.white10),
+                border: Border.all(color: isSelected ? Colors.cyanAccent : unselectedBorder),
               ),
               alignment: Alignment.center,
               child: Text(
                 '${l10n.tr('admin_score_round_prefix')}$round',
                 style: TextStyle(
-                  color: isSelected ? Colors.black : Colors.white70,
+                  color: isSelected ? Colors.black : unselectedText,
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
@@ -483,7 +524,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     );
   }
 
-  Widget _buildMatchesList() {
+  Widget _buildMatchesList(Color onBg) {
     final l10n = context.l10n;
 
     return FutureBuilder<List<FixtureMatch>>(
@@ -497,7 +538,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
         if (matches.isEmpty) {
           return Center(
-            child: Text(l10n.tr('fixtures_no_matches_generated_yet'), style: const TextStyle(color: Colors.white38)),
+            child: Text(
+              l10n.tr('fixtures_no_matches_generated_yet'),
+              style: TextStyle(color: onBg.withOpacity(0.70)),
+              textAlign: TextAlign.center,
+            ),
           );
         }
 
@@ -535,7 +580,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                   child: Align(
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
-                      groupLabel,
+                      _groupDisplayName(l10n, groupLabel),
                       style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   ),

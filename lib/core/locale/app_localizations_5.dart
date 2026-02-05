@@ -7,7 +7,18 @@ const Map<String, Map<String, String>> appLocalizationsPart5 = {
     'common_open': 'فتح',
     'common_copy': 'نسخ',
 
+    'fixtures_appbar_title': 'المباريات والنتائج',
+    'fixtures_generate_next_swiss_round_tooltip': 'إنشاء الجولة السويسرية التالية',
+    'fixtures_section_title': 'جدول المباريات',
+    'fixtures_only_organiser_can_generate_swiss_rounds': 'فقط المنظم يمكنه إنشاء جولات Swiss.',
     'fixtures_league_not_found': 'الدوري غير موجود',
+    'fixtures_swiss_team_count_error_prefix': 'مرحلة Swiss تدعم فقط 18 أو 36 فريقًا. الحالي: ',
+    'fixtures_no_valid_swiss_pairings':
+        'لا يمكن إنشاء مواجهات Swiss صالحة (تحقق من تكرار المواجهات أو القيود).',
+    'fixtures_swiss_round_generated_prefix': 'تم إنشاء جولة Swiss ',
+    'fixtures_swiss_round_generated_suffix': ' بنجاح',
+    'fixtures_failed_generate_swiss_round_prefix': 'فشل إنشاء جولة Swiss:',
+    'fixtures_no_matches_generated_yet': 'لم يتم إنشاء مباريات بعد',
     'fixtures_tbd': 'سيُحدد لاحقًا',
 
     'league_access_charges_paid_success': 'تم دفع الرسوم بنجاح',
@@ -38,6 +49,15 @@ const Map<String, Map<String, String>> appLocalizationsPart5 = {
     'add_teams_group_f': 'المجموعة F',
     'add_teams_group_g': 'المجموعة G',
     'add_teams_group_h': 'المجموعة H',
+
+    'admin_score_all_groups': 'الكل',
+    'admin_score_round_prefix': 'ج ',
+    'admin_score_complete_round_prefix': 'أكمل جميع مباريات الجولة ',
+    'admin_score_complete_round_suffix': ' قبل إنشاء الجولة التالية.',
+    'admin_score_all_swiss_rounds_generated_prefix': 'تم إنشاء جميع ',
+    'admin_score_all_swiss_rounds_generated_suffix': ' جولات Swiss بالفعل.',
+    'admin_score_round_already_exists_prefix': 'الجولة ',
+    'admin_score_round_already_exists_suffix': ' موجودة بالفعل.',
 
     'admin_score_home_fallback': 'المضيف',
     'admin_score_away_fallback': 'الضيف',
@@ -102,7 +122,17 @@ const Map<String, Map<String, String>> appLocalizationsPart5 = {
     'common_open': 'פתח',
     'common_copy': 'העתק',
 
+    'fixtures_appbar_title': 'לוח משחקים ותוצאות',
+    'fixtures_generate_next_swiss_round_tooltip': 'צור סיבוב Swiss הבא',
+    'fixtures_section_title': 'לוח משחקים',
+    'fixtures_only_organiser_can_generate_swiss_rounds': 'רק המארגן יכול ליצור סיבובי Swiss.',
     'fixtures_league_not_found': 'ליגה לא נמצאה',
+    'fixtures_swiss_team_count_error_prefix': 'שלב Swiss תומך רק ב‑18 או 36 קבוצות. נוכחי: ',
+    'fixtures_no_valid_swiss_pairings': 'לא ניתן ליצור שיבוצי Swiss תקינים (בדוק משחקים חוזרים או מגבלות).',
+    'fixtures_swiss_round_generated_prefix': 'סיבוב Swiss ',
+    'fixtures_swiss_round_generated_suffix': ' נוצר',
+    'fixtures_failed_generate_swiss_round_prefix': 'יצירת סיבוב Swiss נכשלה:',
+    'fixtures_no_matches_generated_yet': 'עדיין לא נוצרו משחקים',
     'fixtures_tbd': 'ייקבע בהמשך',
 
     'league_access_charges_paid_success': 'החיוב שולם בהצלחה',
@@ -133,6 +163,15 @@ const Map<String, Map<String, String>> appLocalizationsPart5 = {
     'add_teams_group_f': 'בית ו׳',
     'add_teams_group_g': 'בית ז׳',
     'add_teams_group_h': 'בית ח׳',
+
+    'admin_score_all_groups': 'הכל',
+    'admin_score_round_prefix': 'סבב ',
+    'admin_score_complete_round_prefix': 'סיים את כל המשחקים בסבב ',
+    'admin_score_complete_round_suffix': ' לפני יצירת הסבב הבא.',
+    'admin_score_all_swiss_rounds_generated_prefix': 'כל ',
+    'admin_score_all_swiss_rounds_generated_suffix': ' סבבי Swiss כבר נוצרו.',
+    'admin_score_round_already_exists_prefix': 'סבב ',
+    'admin_score_round_already_exists_suffix': ' כבר קיים.',
 
     'admin_score_home_fallback': 'בית',
     'admin_score_away_fallback': 'חוץ',

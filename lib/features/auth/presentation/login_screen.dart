@@ -188,12 +188,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 12),
                       Text(
                         l10n.authLoginBrand,
-                        style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+                        style: t.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         _isRegister ? l10n.authLoginSubtitleRegister : l10n.authLoginSubtitleSignIn,
-                        style: t.bodyMedium,
+                        style: t.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                          height: 1.35,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 18),

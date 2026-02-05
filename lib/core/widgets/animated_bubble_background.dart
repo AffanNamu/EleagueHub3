@@ -8,12 +8,10 @@ class AnimatedBubbleBackground extends StatefulWidget {
   const AnimatedBubbleBackground({super.key});
 
   @override
-  State<AnimatedBubbleBackground> createState() =>
-      _AnimatedBubbleBackgroundState();
+  State<AnimatedBubbleBackground> createState() => _AnimatedBubbleBackgroundState();
 }
 
-class _AnimatedBubbleBackgroundState extends State<AnimatedBubbleBackground>
-    with SingleTickerProviderStateMixin {
+class _AnimatedBubbleBackgroundState extends State<AnimatedBubbleBackground> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final List<_Bubble> _bubbles;
   final Random _rng = Random(); // dynamic random seed
@@ -94,7 +92,8 @@ class _Bubble {
       drift: 0.10 + rng.nextDouble() * 0.35,
       speed: 0.25 + rng.nextDouble() * 1.2,
       phase: rng.nextDouble() * pi * 2,
-      colorIndex: rng.nextInt(3), // ensure palette has at least 3 colors
+      // Palette has 4 colors in both themes; modulo is applied when painting anyway.
+      colorIndex: rng.nextInt(4),
     );
   }
 }
@@ -123,9 +122,7 @@ class _BubblePainter extends CustomPainter {
       final x = (b.baseX + wobbleX * 0.12) * size.width;
       final y = (b.baseY + wobbleY * 0.10) * size.height;
 
-      final r = b.radius *
-          min(size.width, size.height) *
-          (0.85 + 0.25 * sin(dt * 0.9 + b.phase));
+      final r = b.radius * min(size.width, size.height) * (0.85 + 0.25 * sin(dt * 0.9 + b.phase));
 
       final paint = Paint()
         ..color = colors[b.colorIndex % colors.length]

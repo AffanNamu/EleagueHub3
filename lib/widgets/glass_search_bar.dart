@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../core/locale/app_localizations.dart';
+import '../core/theme/app_theme.dart';
 
 class GlassSearchBar extends StatelessWidget {
   final TextEditingController? controller;
@@ -17,6 +18,14 @@ class GlassSearchBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
+
+    final fill = AppTheme.glassFill(brightness);
+    final stroke = AppTheme.glassStroke(brightness);
+
+    // This search bar is typically used on top of the app background (GlassScaffold),
+    // so keep it readable in light mode too (our light-mode glass is dark-tinted).
+    const textColor = Colors.white;
 
     return Padding(
       padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 16, 8),
@@ -26,26 +35,24 @@ class GlassSearchBar extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
+              color: fill,
               borderRadius: BorderRadius.circular(15),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.2),
-              ),
+              border: Border.all(color: stroke),
             ),
             child: TextField(
               controller: controller,
               onChanged: onChanged,
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(color: textColor),
               textAlignVertical: TextAlignVertical.center,
               decoration: InputDecoration(
                 isDense: true,
                 hintText: l10n.tr('glass_search_bar_hint'),
                 hintStyle: TextStyle(
-                  color: Colors.white.withOpacity(0.5),
+                  color: textColor.withOpacity(0.55),
                 ),
                 prefixIcon: Icon(
                   Icons.search,
-                  color: Colors.white.withOpacity(0.7),
+                  color: textColor.withOpacity(0.72),
                 ),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(

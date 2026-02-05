@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/widgets/glass.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/glass.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
 import '../../live/presentation/live_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
-import '../../social/ui/widgets/glass_announcement.dart';
 import '../../social/domain/announcement.dart';
+import '../../social/ui/widgets/glass_announcement.dart';
 
 /// HomeShell: Main tabbed scaffold for the app
 class HomeShell extends StatefulWidget {
@@ -214,7 +214,10 @@ class _HomeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final t = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final t = theme.textTheme;
+
+    final onBg = theme.colorScheme.onBackground;
 
     final announcements = _mockAnnouncements(l10n);
 
@@ -248,7 +251,7 @@ class _HomeTab extends StatelessWidget {
           l10n.homeAnnouncementsTitle,
           style: t.titleMedium?.copyWith(
             fontWeight: FontWeight.w900,
-            color: Colors.white,
+            color: onBg.withOpacity(0.92),
           ),
         ),
         const SizedBox(height: 8),

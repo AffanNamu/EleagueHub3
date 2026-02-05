@@ -145,17 +145,22 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
     final organizers = _memberships.where((m) => m.role == LeagueRole.organizer).toList();
     final members = _memberships.where((m) => m.role == LeagueRole.member).toList();
 
+    final onBg = Theme.of(context).colorScheme.onBackground;
+
+    TextStyle sectionTitleStyle = TextStyle(
+      color: onBg.withOpacity(0.78),
+      fontWeight: FontWeight.w800,
+      fontSize: 13,
+      letterSpacing: 0.2,
+    );
+
     return ListView(
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 16),
       children: [
         if (organizers.isNotEmpty) ...[
           Text(
             l10n.tr('league_participants_organizers_title'),
-            style: const TextStyle(
-              color: Colors.white70,
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
-            ),
+            style: sectionTitleStyle,
           ),
           const SizedBox(height: 8),
           ...organizers.map(_buildMembershipTile),
@@ -163,11 +168,7 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
         ],
         Text(
           l10n.tr('league_participants_participants_title'),
-          style: const TextStyle(
-            color: Colors.white70,
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-          ),
+          style: sectionTitleStyle,
         ),
         const SizedBox(height: 8),
         ...members.map(_buildMembershipTile),

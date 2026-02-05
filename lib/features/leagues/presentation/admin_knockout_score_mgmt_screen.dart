@@ -8,8 +8,8 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/logic/tournament_controller.dart';
-import '../models/knockout_match.dart';
 import '../models/enums.dart';
+import '../models/knockout_match.dart';
 
 class AdminKnockoutScoreMgmtScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -329,6 +329,8 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
 
+    final onBg = Theme.of(context).colorScheme.onBackground;
+
     return GlassScaffold(
       appBar: AppBar(
         title: Text(l10n.tr('admin_knockout_appbar_title')),
@@ -363,8 +365,8 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Text(
                           l10n.tr('admin_knockout_section_description'),
-                          style: const TextStyle(
-                            color: Colors.white38,
+                          style: TextStyle(
+                            color: onBg.withOpacity(0.60),
                             fontSize: 12,
                           ),
                           textAlign: TextAlign.center,
@@ -376,8 +378,8 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                             ? Center(
                                 child: Text(
                                   l10n.tr('admin_knockout_empty_state'),
-                                  style: const TextStyle(
-                                    color: Colors.white54,
+                                  style: TextStyle(
+                                    color: onBg.withOpacity(0.72),
                                     fontSize: 13,
                                   ),
                                   textAlign: TextAlign.center,

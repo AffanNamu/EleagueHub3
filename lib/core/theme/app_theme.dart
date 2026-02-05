@@ -6,13 +6,18 @@ class AppTheme {
   // CORE BRAND COLORS
   // =========================
 
-  // Deep Navy (Dark Mode)
+  // Deep Navy (Dark Mode) — UNCHANGED
   static const Color navyBg = Color(0xFF0A1D37);
   static const Color navyAccent = Color(0xFF00D4FF);
 
-  // Sky (Light Mode)
+  // Sky (Light Mode) — keep as ACCENT only (NOT background)
   static const Color skyTop = Color(0xFF40C4FF);
   static const Color skyBottom = Color(0xFF81D4FA);
+
+  // Light Mode Surfaces (premium off-white; not pure white)
+  // Used for backgrounds/surfaces to replace sky-blue usage.
+  static const Color lightSurface = Color(0xFFFAFBFC);
+  static const Color lightSurfaceAlt = Color(0xFFF3F6FA);
 
   // =========================
   // PUBLIC THEME ACCESSORS
@@ -22,24 +27,39 @@ class AppTheme {
   static ThemeData navyTheme() => _darkTheme();
 
   // =========================
-  // LIGHT (SKY) THEME
+  // LIGHT THEME (OFF-WHITE SURFACES)
   // =========================
 
   static ThemeData _lightTheme() {
+    final base = ColorScheme.fromSeed(
+      seedColor: skyTop, // keep brand accent seed
+      brightness: Brightness.light,
+    );
+
+    // Keep this compatible across Flutter versions by only using widely available fields.
+    final scheme = base.copyWith(
+      primary: skyTop,
+      secondary: skyTop,
+      surface: lightSurface,
+      background: lightSurface,
+      onSurface: navyBg,
+      onBackground: navyBg,
+    );
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      scaffoldBackgroundColor: skyBottom,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: skyTop,
-        brightness: Brightness.light,
-        surface: skyBottom,
-      ),
+
+      // Replace sky-blue scaffold background with premium off-white.
+      scaffoldBackgroundColor: lightSurface,
+      colorScheme: scheme,
+
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
-        foregroundColor: Color(0xFF0A1D37),
+        foregroundColor: navyBg,
         elevation: 0,
       ),
+
       cardTheme: CardTheme(
         color: glassFill(Brightness.light),
         elevation: 0,
@@ -48,11 +68,13 @@ class AppTheme {
           side: BorderSide(color: glassStroke(Brightness.light)),
         ),
       ),
+
+      dividerColor: navyBg.withOpacity(0.10),
     );
   }
 
   // =========================
-  // DARK (NAVY) THEME
+  // DARK (NAVY) THEME — UNCHANGED
   // =========================
 
   static ThemeData _darkTheme() {
@@ -94,6 +116,9 @@ class AppTheme {
       (b == Brightness.dark) ? const Color(0x2EFFFFFF) : const Color(0x33FFFFFF);
 
   /// Background gradient for entire scaffold
+  ///
+  /// - Dark: navy gradient (UNCHANGED)
+  /// - Light: off-white gradient (replaces sky-blue background usage)
   static Gradient backgroundGradient(Brightness b) {
     if (b == Brightness.dark) {
       return const LinearGradient(
@@ -102,10 +127,14 @@ class AppTheme {
         colors: [navyBg, Color(0xFF07162A)],
       );
     }
+
     return const LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
-      colors: [skyTop, skyBottom],
+      colors: [
+        lightSurface,
+        lightSurfaceAlt,
+      ],
     );
   }
 
@@ -120,7 +149,7 @@ class AppTheme {
     switch (s) {
       case 'open':
       case 'recruiting':
-        return (b == Brightness.dark) ? navyAccent : const Color(0xFF0A1D37);
+        return (b == Brightness.dark) ? navyAccent : navyBg;
 
       case 'in progress':
       case 'ongoing':
@@ -141,11 +170,13 @@ class AppTheme {
         return Colors.grey;
 
       default:
-        return (b == Brightness.dark) ? Colors.white : const Color(0xFF0A1D37);
+        return (b == Brightness.dark) ? Colors.white : navyBg;
     }
   }
 
   /// Bubble palette for animated backgrounds
+  ///
+  /// Light mode uses subtle, premium tints (no sky-blue full-screen background).
   static List<Color> bubblePalette(Brightness b) {
     if (b == Brightness.dark) {
       return [
@@ -155,11 +186,12 @@ class AppTheme {
         Colors.white.withOpacity(0.06),
       ];
     }
-    return const [
-      skyTop,
-      skyBottom,
-      Color(0xFFFFFFFF),
-      Color(0xFFB3E5FC),
+
+    return [
+      lightSurface,
+      lightSurfaceAlt,
+      skyTop.withOpacity(0.10),
+      const Color(0xFFB3E5FC),
     ];
   }
 }

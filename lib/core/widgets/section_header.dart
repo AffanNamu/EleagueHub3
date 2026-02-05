@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'glass.dart';
+
 class SectionHeader extends StatelessWidget {
   const SectionHeader(
     this.title, {
@@ -18,6 +20,13 @@ class SectionHeader extends StatelessWidget {
     final textTheme = theme.textTheme;
     final colorScheme = theme.colorScheme;
 
+    // Many screens use dark-tinted Glass even in light mode.
+    // If this header is rendered inside Glass, default "onSurface" (navy in light)
+    // can become unreadable. Detect and adapt.
+    final bool insideGlass = context.findAncestorWidgetOfExactType<Glass>() != null;
+
+    final Color titleColor = insideGlass ? Colors.white : colorScheme.onSurface;
+
     return Padding(
       padding: padding,
       child: Row(
@@ -29,7 +38,7 @@ class SectionHeader extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
-                color: colorScheme.onSurface,
+                color: titleColor,
                 letterSpacing: 0.3,
               ),
             ),

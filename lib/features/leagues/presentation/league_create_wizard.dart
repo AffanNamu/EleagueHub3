@@ -1,4 +1,3 @@
-import '../utils/current_user.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +15,7 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import '../utils/current_user.dart';
 
 class LeagueCreateWizard extends ConsumerStatefulWidget {
   const LeagueCreateWizard({super.key});
@@ -102,77 +102,79 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           backgroundColor: Colors.transparent,
           elevation: 0,
         ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: isWide ? 760 : 520),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  LeagueFlipCard(
-                    leagueName: league.name,
-                    leagueCode: league.code,
-                    distribution: '${league.format.displayName} • ${league.season}',
-                    subtitle: '0 / ${league.maxTeams} ${l10n.tr('league_create_teams_word')}',
-                    onDoubleTap: () => context.push('/leagues/${league.id}'),
-                    qrWidget: QrImageView(
-                      data: league.qrPayload,
-                      version: QrVersions.auto,
-                      gapless: true,
-                      eyeStyle: const QrEyeStyle(
-                        eyeShape: QrEyeShape.square,
-                        color: Colors.black,
-                      ),
-                      dataModuleStyle: const QrDataModuleStyle(
-                        dataModuleShape: QrDataModuleShape.square,
-                        color: Colors.black,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: isWide ? 760 : 520),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    LeagueFlipCard(
+                      leagueName: league.name,
+                      leagueCode: league.code,
+                      distribution: '${league.format.displayName} • ${league.season}',
+                      subtitle: '0 / ${league.maxTeams} ${l10n.tr('league_create_teams_word')}',
+                      onDoubleTap: () => context.push('/leagues/${league.id}'),
+                      qrWidget: QrImageView(
+                        data: league.qrPayload,
+                        version: QrVersions.auto,
+                        gapless: true,
+                        eyeStyle: const QrEyeStyle(
+                          eyeShape: QrEyeShape.square,
+                          color: Colors.black,
+                        ),
+                        dataModuleStyle: const QrDataModuleStyle(
+                          dataModuleShape: QrDataModuleShape.square,
+                          color: Colors.black,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Glass(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Text(
-                          l10n.tr('league_create_share_hint'),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white.withOpacity(0.75), height: 1.4),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton(
-                                onPressed: () => context.go('/leagues'),
-                                child: Text(l10n.tr('league_create_done_upper')),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => context.push(
-                                  '/leagues/add-teams',
-                                  extra: {'leagueId': league.id, 'format': league.format},
-                                ),
-                                child: Text(l10n.tr('league_create_add_teams_upper')),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        TextButton(
-                          onPressed: () => context.push('/leagues/${league.id}'),
-                          child: Text(
-                            l10n.tr('league_create_open_league_details_upper'),
-                            style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold),
+                    const SizedBox(height: 16),
+                    Glass(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          Text(
+                            l10n.tr('league_create_share_hint'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white.withOpacity(0.75), height: 1.4),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: () => context.go('/leagues'),
+                                  child: Text(l10n.tr('league_create_done_upper')),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () => context.push(
+                                    '/leagues/add-teams',
+                                    extra: {'leagueId': league.id, 'format': league.format},
+                                  ),
+                                  child: Text(l10n.tr('league_create_add_teams_upper')),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: () => context.push('/leagues/${league.id}'),
+                            child: Text(
+                              l10n.tr('league_create_open_league_details_upper'),
+                              style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -603,8 +605,12 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 12),
         _infoBanner(
           icon: _creationRequiresPayment ? Icons.lock_outline : Icons.verified,
-          title: _creationRequiresPayment ? l10n.tr('league_create_payment_required_title') : l10n.tr('league_create_no_payment_required_title'),
-          subtitle: _creationRequiresPayment ? l10n.tr('league_create_payment_required_subtitle') : l10n.tr('league_create_no_payment_required_subtitle'),
+          title: _creationRequiresPayment
+              ? l10n.tr('league_create_payment_required_title')
+              : l10n.tr('league_create_no_payment_required_title'),
+          subtitle: _creationRequiresPayment
+              ? l10n.tr('league_create_payment_required_subtitle')
+              : l10n.tr('league_create_no_payment_required_subtitle'),
           accent: _creationRequiresPayment ? Colors.orangeAccent : Colors.cyanAccent,
         ),
       ],
@@ -623,26 +629,34 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       children: [
         _sectionTitle(l10n.tr('league_create_wizard_step_review'), Icons.check_circle_outline),
         const SizedBox(height: 10),
-        _reviewRow(Icons.label, l10n.tr('league_create_summary_name_label'), _name.text.trim().isEmpty ? l10n.tr('league_create_summary_not_set') : _name.text.trim()),
-        _reviewRow(Icons.subject, l10n.tr('league_create_wizard_description_label'), _description.text.trim().isEmpty ? l10n.tr('common_none') : _description.text.trim()),
+        _reviewRow(
+          Icons.label,
+          l10n.tr('league_create_summary_name_label'),
+          _name.text.trim().isEmpty ? l10n.tr('league_create_summary_not_set') : _name.text.trim(),
+        ),
+        _reviewRow(
+          Icons.subject,
+          l10n.tr('league_create_wizard_description_label'),
+          _description.text.trim().isEmpty ? l10n.tr('common_none') : _description.text.trim(),
+        ),
         _reviewRow(Icons.format_list_bulleted, l10n.tr('league_create_summary_type_label'), _formatLabel(l10n)),
         _reviewRow(Icons.lock, l10n.tr('league_create_summary_privacy_label'), _privacyLabel(l10n)),
         _reviewRow(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
         _reviewRow(Icons.repeat, l10n.tr('league_create_wizard_double_rr_label'), _doubleRoundRobin ? l10n.tr('common_yes') : l10n.tr('common_no')),
         const SizedBox(height: 10),
         _infoBanner(
-          icon: !_creationRequiresPayment
-              ? Icons.verified
-              : (_paymentCompleted ? Icons.verified : Icons.lock_outline),
+          icon: !_creationRequiresPayment ? Icons.verified : (_paymentCompleted ? Icons.verified : Icons.lock_outline),
           title: !_creationRequiresPayment
               ? '${l10n.tr('league_create_summary_creation_fee_label')}: ${l10n.tr('league_create_fee_free')}'
-              : (_paymentCompleted ? '${l10n.tr('league_create_summary_creation_fee_label')}: ${l10n.tr('league_create_fee_paid')}' : '${l10n.tr('league_create_summary_creation_fee_label')}: ${l10n.tr('league_create_fee_required')}'),
+              : (_paymentCompleted
+                  ? '${l10n.tr('league_create_summary_creation_fee_label')}: ${l10n.tr('league_create_fee_paid')}'
+                  : '${l10n.tr('league_create_summary_creation_fee_label')}: ${l10n.tr('league_create_fee_required')}'),
           subtitle: !_creationRequiresPayment
               ? l10n.tr('league_create_fee_note_free')
-              : (_paymentCompleted ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}' : l10n.tr('league_create_error_complete_payment_to_continue')),
-          accent: !_creationRequiresPayment
-              ? Colors.cyanAccent
-              : (_paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent),
+              : (_paymentCompleted
+                  ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}'
+                  : l10n.tr('league_create_error_complete_payment_to_continue')),
+          accent: !_creationRequiresPayment ? Colors.cyanAccent : (_paymentCompleted ? Colors.cyanAccent : Colors.orangeAccent),
         ),
         if (_creationRequiresPayment) ...[
           const SizedBox(height: 12),
@@ -679,7 +693,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            child: Text(_paymentCompleted ? l10n.tr('league_create_payment_done_view_receipt') : l10n.tr('league_create_pay_now')),
+            child: Text(
+              _paymentCompleted ? l10n.tr('league_create_payment_done_view_receipt') : l10n.tr('league_create_pay_now'),
+            ),
           ),
         ],
         const SizedBox(height: 12),
@@ -813,7 +829,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               side: BorderSide(color: Colors.white.withOpacity(0.18)),
               foregroundColor: Colors.white70,
             ),
-            child: Text(_step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back'), style: const TextStyle(fontWeight: FontWeight.w900)),
+            child: Text(
+              _step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back'),
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -836,7 +855,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            child: Text(isLast ? l10n.tr('common_done') : l10n.tr('common_next'), style: const TextStyle(fontWeight: FontWeight.w900)),
+            child: Text(
+              isLast ? l10n.tr('common_done') : l10n.tr('common_next'),
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
           ),
         ),
       ],

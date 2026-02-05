@@ -1,26 +1,18 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:permission_handler/permission_handler.dart';
 
+import 'core/app/app.dart';
+import 'core/app/sync_bootstrap.dart';
 import 'core/persistence/prefs_service.dart';
 import 'core/services/auth_bootstrap.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/sync_queue_service.dart';
-import 'core/services/connectivity_service.dart';
-import 'core/theme/app_theme.dart';
-import 'core/theme/theme_controller.dart';
-import 'core/locale/locale_controller.dart';
-import 'core/locale/app_localizations.dart';
-import 'core/widgets/offline_banner.dart';
-import 'core/routing/app_router.dart';
-import 'core/app/sync_bootstrap.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -68,92 +60,10 @@ Future<void> main() async {
         overrides: [
           prefsServiceProvider.overrideWithValue(prefs),
         ],
-        child: const AppRoot(),
+        child: const EleagueHubApp(),
       ),
     );
   }, (error, stack) {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
   });
-}
-
-class AppRoot extends ConsumerWidget {
-  const AppRoot({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeControllerProvider).mode;
-    final localeState = ref.watch(localeControllerProvider);
-
-    return MaterialApp.router(
-      debugShowCheckedModeBanner: false,
-      onGenerateTitle: (context) => context.l10n.appName,
-      themeMode: themeMode,
-      theme: AppTheme.skyTheme(),
-      darkTheme: AppTheme.navyTheme(),
-      locale: localeState.locale,
-      supportedLocales: LocaleController.supportedLocales,
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      routerConfig: appRouter,
-      builder: (context, child) {
-        final mq = MediaQuery.of(context);
-        final clampedScale = mq.textScaler.clamp(
-          minScaleFactor: 0.9,
-          maxScaleFactor: 1.3,
-        );
-
-        return Directionality(
-          textDirection: localeState.direction,
-          child: MediaQuery(
-            data: mq.copyWith(textScaler: clampedScale),
-            child: Stack(
-              children: [
-                PermissionWrapper(child: child ?? const SizedBox.shrink()),
-                ValueListenableBuilder<bool>(
-                  valueListenable: ConnectivityService.instance.isConnected,
-                  builder: (context, online, _) {
-                    return online ? const SizedBox.shrink() : const OfflineBanner();
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class PermissionWrapper extends StatefulWidget {
-  final Widget child;
-  const PermissionWrapper({super.key, required this.child});
-
-  @override
-  State<PermissionWrapper> createState() => _PermissionWrapperState();
-}
-
-class _PermissionWrapperState extends State<PermissionWrapper> {
-  @override
-  void initState() {
-    super.initState();
-    _checkPermissions();
-  }
-
-  Future<void> _checkPermissions() async {
-    await [
-      Permission.camera,
-      Permission.microphone,
-      Permission.notification,
-      Permission.bluetoothConnect,
-    ].request();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return widget.child;
-  }
 }
