@@ -12,6 +12,18 @@ class League {
   /// Backward compatible: old stored/remote data may not include it.
   final String description;
 
+  /// OPTIONAL: League main image (hero/cover).
+  /// Backward compatible: may be absent in old data.
+  final String leagueImageUrl;
+
+  /// OPTIONAL: Sponsor/branding image.
+  /// Backward compatible: may be absent in old data.
+  final String sponsorImageUrl;
+
+  /// OPTIONAL: Viewer capacity (separate from participants).
+  /// 0 means not enabled / not purchased.
+  final int viewerCapacity;
+
   final LeagueFormat format;
   final LeaguePrivacy privacy;
   final String region;
@@ -38,6 +50,9 @@ class League {
     required this.id,
     required this.name,
     this.description = '',
+    this.leagueImageUrl = '',
+    this.sponsorImageUrl = '',
+    this.viewerCapacity = 0,
     required this.format,
     required this.privacy,
     required this.region,
@@ -53,6 +68,10 @@ class League {
 
   bool get isPrivate => privacy == LeaguePrivacy.private;
 
+  bool get hasLeagueImage => leagueImageUrl.trim().isNotEmpty;
+  bool get hasSponsorImage => sponsorImageUrl.trim().isNotEmpty;
+  bool get hasViewerCapacity => viewerCapacity > 0;
+
   /// Backward compatible: if old leagues have no stored QR payload,
   /// compute a stable payload from [id] + [code].
   String get qrPayload {
@@ -64,6 +83,14 @@ class League {
         'id': id,
         'name': name,
         'description': description,
+
+        // Media (optional)
+        'leagueImageUrl': leagueImageUrl,
+        'sponsorImageUrl': sponsorImageUrl,
+
+        // Viewer capacity (optional paid add-on)
+        'viewerCapacity': viewerCapacity,
+
         'format': format.index,
         'isPrivate': isPrivate ? 1 : 0,
         'region': region,
@@ -88,11 +115,42 @@ class League {
 
   factory League.fromJson(Map<String, dynamic> json) => fromRemoteMap(json);
 
+  static String _stringFromAny(dynamic v) => (v is String) ? v : '';
+
+  static int _intFromAny(dynamic v, {int fallback = 0}) {
+    if (v == null) return fallback;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim()) ?? fallback;
+    return fallback;
+  }
+
   static League fromRemoteMap(Map<String, dynamic> map) {
+    // Backward/forward compatible key resolution (some deployments may have used different keys).
+    final leagueImageUrl =
+        _stringFromAny(map['leagueImageUrl']).trim().isNotEmpty ? _stringFromAny(map['leagueImageUrl']) : //
+            _stringFromAny(map['leagueImage']).trim().isNotEmpty ? _stringFromAny(map['leagueImage']) : //
+                _stringFromAny(map['imageUrl']).trim().isNotEmpty ? _stringFromAny(map['imageUrl']) : //
+                    _stringFromAny(map['logoUrl']);
+
+    final sponsorImageUrl =
+        _stringFromAny(map['sponsorImageUrl']).trim().isNotEmpty ? _stringFromAny(map['sponsorImageUrl']) : //
+            _stringFromAny(map['sponsorImage']).trim().isNotEmpty ? _stringFromAny(map['sponsorImage']) : //
+                _stringFromAny(map['sponsorLogoUrl']).trim().isNotEmpty ? _stringFromAny(map['sponsorLogoUrl']) : //
+                    _stringFromAny(map['sponsorUrl']);
+
+    final viewerCapacity = _intFromAny(
+      map['viewerCapacity'] ?? map['viewerCount'],
+      fallback: 0,
+    );
+
     return League(
       id: (map['id'] as String?) ?? '',
       name: (map['name'] as String?) ?? '',
       description: (map['description'] as String?) ?? '',
+      leagueImageUrl: leagueImageUrl,
+      sponsorImageUrl: sponsorImageUrl,
+      viewerCapacity: viewerCapacity,
       format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
       privacy: (map['isPrivate'] == 1 || map['isPrivate'] == true)
           ? LeaguePrivacy.private
@@ -115,6 +173,9 @@ class League {
     String? id,
     String? name,
     String? description,
+    String? leagueImageUrl,
+    String? sponsorImageUrl,
+    int? viewerCapacity,
     LeagueFormat? format,
     LeaguePrivacy? privacy,
     String? region,
@@ -131,6 +192,9 @@ class League {
       id: id ?? this.id,
       name: name ?? this.name,
       description: description ?? this.description,
+      leagueImageUrl: leagueImageUrl ?? this.leagueImageUrl,
+      sponsorImageUrl: sponsorImageUrl ?? this.sponsorImageUrl,
+      viewerCapacity: viewerCapacity ?? this.viewerCapacity,
       format: format ?? this.format,
       privacy: privacy ?? this.privacy,
       region: region ?? this.region,

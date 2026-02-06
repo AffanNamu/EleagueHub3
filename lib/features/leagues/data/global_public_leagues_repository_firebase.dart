@@ -37,11 +37,19 @@ class GlobalPublicLeaguesRepositoryFirebase {
       final items = <GlobalPublicLeague>[];
 
       for (final doc in snapshot.docs) {
-        final data = doc.data();
+        final raw = doc.data();
+
+        // Defensive: avoid mutating converter-returned maps (can be unmodifiable).
+        final data = <String, dynamic>{...raw};
 
         // Ensure id is always present for navigation.
         data['id'] = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? data['id'] : doc.id;
 
+        // League.fromRemoteMap handles optional fields:
+        // - description
+        // - leagueImageUrl
+        // - sponsorImageUrl
+        // - viewerCapacity
         final league = League.fromRemoteMap(data);
 
         // Extra optional fields (global-discovery only)

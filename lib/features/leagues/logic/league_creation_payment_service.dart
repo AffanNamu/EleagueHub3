@@ -17,18 +17,29 @@ class LeagueCreationPaymentResult {
   final String provider;
   final String? errorMessage;
 
+  /// OPTIONAL add-on: viewer capacity purchased at creation time.
+  /// 0 means not enabled.
+  final int viewerCapacity;
+
+  /// Amount charged (Flutterwave string format).
+  final String totalAmount;
+
   const LeagueCreationPaymentResult._({
     required this.success,
     required this.receiptId,
     required this.paidAtMs,
     required this.provider,
     required this.errorMessage,
+    required this.viewerCapacity,
+    required this.totalAmount,
   });
 
   factory LeagueCreationPaymentResult.paid({
     required String receiptId,
     required int paidAtMs,
     required String provider,
+    required int viewerCapacity,
+    required String totalAmount,
   }) {
     return LeagueCreationPaymentResult._(
       success: true,
@@ -36,12 +47,16 @@ class LeagueCreationPaymentResult {
       paidAtMs: paidAtMs,
       provider: provider,
       errorMessage: null,
+      viewerCapacity: viewerCapacity,
+      totalAmount: totalAmount,
     );
   }
 
   factory LeagueCreationPaymentResult.failed({
     required String provider,
     required String errorMessage,
+    int viewerCapacity = 0,
+    String totalAmount = '0',
   }) {
     return LeagueCreationPaymentResult._(
       success: false,
@@ -49,6 +64,8 @@ class LeagueCreationPaymentResult {
       paidAtMs: 0,
       provider: provider,
       errorMessage: errorMessage,
+      viewerCapacity: viewerCapacity,
+      totalAmount: totalAmount,
     );
   }
 }
@@ -58,6 +75,9 @@ abstract class LeagueCreationPaymentService {
     required BuildContext context,
     required String userId,
     required String leagueName,
+
+    /// OPTIONAL paid add-on (viewers are separate from participants).
+    int viewerCapacity,
   });
 
   String get providerName;
@@ -69,18 +89,36 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
   @override
   String get providerName => 'flutterwave';
 
+  String _toFlutterwaveAmount(double v) {
+    // Flutterwave accepts string numbers; keep it clean.
+    final rounded = double.parse(v.toStringAsFixed(2));
+    final intVal = rounded.toInt();
+    if ((rounded - intVal).abs() < 0.000001) return '$intVal';
+    // Avoid locale commas, etc.
+    return rounded.toStringAsFixed(2);
+  }
+
   @override
   Future<LeagueCreationPaymentResult> collectLeagueCreationFee({
     required BuildContext context,
     required String userId,
     required String leagueName,
+    int viewerCapacity = 0,
   }) async {
+    final safeViewerCapacity = viewerCapacity < 0 ? 0 : viewerCapacity;
+
     try {
       FlutterwaveConfig.assertConfigured();
 
       final locale = Localizations.maybeLocaleOf(context);
       final pricing = FlutterwaveConfig.pricingForLocale(locale);
       FlutterwaveConfig.assertValidPricing(pricing);
+
+      final base = double.tryParse(pricing.createLeagueAmount.trim()) ?? 0;
+      final unit = double.tryParse(pricing.viewLeagueAmount.trim()) ?? 0;
+
+      final total = base + (safeViewerCapacity * unit);
+      final totalAmount = _toFlutterwaveAmount(total);
 
       final authUser = FirebaseAuth.instance.currentUser;
       final String email = (authUser?.email?.trim().isNotEmpty ?? false)
@@ -101,17 +139,21 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
 
       final txRef = 'EH-CRT-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
+      final description = safeViewerCapacity > 0
+          ? 'League creation + viewers ($safeViewerCapacity): $leagueName'
+          : 'League creation charges: $leagueName';
+
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
         currency: pricing.currency,
         redirectUrl: FlutterwaveConfig.redirectUrl,
         txRef: txRef,
-        amount: pricing.createLeagueAmount,
+        amount: totalAmount,
         customer: customer,
         paymentOptions: 'card,ussd,banktransfer',
         customization: Customization(
           title: 'EleagueHub',
-          description: 'League creation charges: $leagueName',
+          description: description,
         ),
         isTestMode: FlutterwaveConfig.isTestMode,
       );
@@ -131,17 +173,23 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
           receiptId: receipt,
           paidAtMs: now,
           provider: providerName,
+          viewerCapacity: safeViewerCapacity,
+          totalAmount: totalAmount,
         );
       }
 
       return LeagueCreationPaymentResult.failed(
         provider: providerName,
         errorMessage: 'Payment cancelled or not successful',
+        viewerCapacity: safeViewerCapacity,
+        totalAmount: totalAmount,
       );
     } catch (e) {
       return LeagueCreationPaymentResult.failed(
         provider: providerName,
         errorMessage: e.toString(),
+        viewerCapacity: safeViewerCapacity,
+        totalAmount: '0',
       );
     }
   }

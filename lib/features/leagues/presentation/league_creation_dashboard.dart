@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +16,7 @@ import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../data/leagues_repository_local.dart';
 import '../logic/league_creation_payment_service.dart';
+import '../logic/league_media_service.dart';
 import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
@@ -37,12 +40,21 @@ class LeagueCreationDashboard extends ConsumerStatefulWidget {
 class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboard> {
   final Uuid _uuid = const Uuid();
 
+  late final String _draftLeagueId;
+
   int _step = 0;
 
   LeagueCreationType? _type;
 
   final TextEditingController _name = TextEditingController();
   final TextEditingController _description = TextEditingController();
+
+  // OPTIONAL images (URLs or data:image;base64,...)
+  final TextEditingController _leagueImageUrl = TextEditingController();
+  final TextEditingController _sponsorImageUrl = TextEditingController();
+
+  bool _uploadingLeagueImage = false;
+  bool _uploadingSponsorImage = false;
 
   LeaguePrivacy _privacy = LeaguePrivacy.private;
 
@@ -68,6 +80,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     'Group H',
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    // Stable ID so any uploaded media is associated with the league we end up creating.
+    _draftLeagueId = _uuid.v4();
+  }
+
   String _pickRandomGroupNameForMaxTeams(int maxTeams) {
     final rnd = Random.secure();
     final groupCount = (maxTeams ~/ 4).clamp(1, 8);
@@ -79,6 +98,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   void dispose() {
     _name.dispose();
     _description.dispose();
+    _leagueImageUrl.dispose();
+    _sponsorImageUrl.dispose();
     super.dispose();
   }
 
@@ -173,6 +194,70 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _selectedMaxTeams = 20;
       }
     });
+  }
+
+  Future<void> _uploadImage({
+    required LeagueMediaKind kind,
+  }) async {
+    final l10n = context.l10n;
+    if (_submitting) return;
+
+    if (kind == LeagueMediaKind.leagueImage) {
+      if (_uploadingLeagueImage) return;
+      setState(() => _uploadingLeagueImage = true);
+    } else {
+      if (_uploadingSponsorImage) return;
+      setState(() => _uploadingSponsorImage = true);
+    }
+
+    try {
+      final service = LeagueMediaService();
+      final url = await service.pickAndUploadImage(
+        leagueId: _draftLeagueId,
+        kind: kind,
+      );
+
+      if (!mounted) return;
+
+      if (url == null || url.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Image not selected or upload failed.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        if (kind == LeagueMediaKind.leagueImage) {
+          _leagueImageUrl.text = url;
+        } else {
+          _sponsorImageUrl.text = url;
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.tr('common_done')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Upload failed: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _uploadingLeagueImage = false;
+        _uploadingSponsorImage = false;
+      });
+    }
   }
 
   @override
@@ -394,6 +479,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                 : l10n.tr('league_create_fee_free'),
             valueColor: paymentColor,
           ),
+          if ((_payment?.viewerCapacity ?? 0) > 0)
+            _summaryRow(
+              Icons.visibility,
+              'Viewers',
+              '${_payment!.viewerCapacity}',
+              valueColor: cs.primary,
+            ),
           const SizedBox(height: 10),
           Text(
             _creationRequiresPayment
@@ -781,6 +873,27 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           ),
         ),
         const SizedBox(height: 12),
+
+        // Optional images (URL or Upload)
+        _sectionTitle('Images (optional)', Icons.image_outlined),
+        const SizedBox(height: 10),
+        _OptionalImageField(
+          controller: _leagueImageUrl,
+          label: 'League Image URL (optional)',
+          uploading: _uploadingLeagueImage,
+          onUpload: () => _uploadImage(kind: LeagueMediaKind.leagueImage),
+          onClear: () => setState(() => _leagueImageUrl.text = ''),
+        ),
+        const SizedBox(height: 10),
+        _OptionalImageField(
+          controller: _sponsorImageUrl,
+          label: 'Sponsor Image URL (optional)',
+          uploading: _uploadingSponsorImage,
+          onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
+          onClear: () => setState(() => _sponsorImageUrl.text = ''),
+        ),
+
+        const SizedBox(height: 12),
         _infoBanner(
           icon: _typeIcon,
           title: '$_typeLabel • ${l10n.tr('league_create_info_type_max_teams_prefix')} $_maxTeams',
@@ -908,6 +1021,15 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _sectionTitle(l10n.tr('league_create_payment_title'), Icons.payments_outlined),
         const SizedBox(height: 10),
         _infoBanner(icon: statusIcon, title: statusTitle, subtitle: statusSubtitle, accent: accent),
+        if ((_payment?.viewerCapacity ?? 0) > 0) ...[
+          const SizedBox(height: 10),
+          _infoBanner(
+            icon: Icons.visibility,
+            title: 'Viewer Capacity enabled',
+            subtitle: '${_payment!.viewerCapacity} viewers',
+            accent: cs.primary,
+          ),
+        ],
         const SizedBox(height: 14),
         FilledButton(
           onPressed: _submitting
@@ -982,6 +1104,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
         ),
         _confirmRow(Icons.groups, l10n.tr('league_create_confirm_max_teams_label'), '$_maxTeams'),
+        if ((_payment?.viewerCapacity ?? 0) > 0)
+          _confirmRow(Icons.visibility, 'Viewers', '${_payment!.viewerCapacity}', valueColor: cs.primary),
         _confirmRow(
           _creationRequiresPayment ? (_paymentCompleted ? Icons.verified : Icons.lock_outline) : Icons.verified,
           l10n.tr('league_create_confirm_creation_fee_label'),
@@ -1297,7 +1421,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         creatorTeamName = name;
       }
 
-      final leagueId = _uuid.v4();
+      final leagueId = _draftLeagueId;
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final settings = LeagueSettings.defaultsFor(_format).copyWith(lastPulledAtMs: 0);
@@ -1306,6 +1430,14 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         id: leagueId,
         name: _name.text.trim(),
         description: _description.text.trim(),
+
+        // optional images
+        leagueImageUrl: _leagueImageUrl.text.trim(),
+        sponsorImageUrl: _sponsorImageUrl.text.trim(),
+
+        // optional paid add-on
+        viewerCapacity: _payment?.viewerCapacity ?? 0,
+
         format: _format,
         privacy: _privacy,
         region: 'Global',
@@ -1366,6 +1498,113 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         ),
       );
     }
+  }
+}
+
+class _OptionalImageField extends StatelessWidget {
+  const _OptionalImageField({
+    required this.controller,
+    required this.label,
+    required this.uploading,
+    required this.onUpload,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final bool uploading;
+  final VoidCallback onUpload;
+  final VoidCallback onClear;
+
+  Uint8List? _tryDecodeDataUri(String raw) {
+    final s = raw.trim();
+    if (!s.startsWith('data:image')) return null;
+    final idx = s.indexOf('base64,');
+    if (idx < 0) return null;
+    final b64 = s.substring(idx + 'base64,'.length);
+    try {
+      return base64Decode(b64);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final url = controller.text.trim();
+    final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
+
+    final preview = Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: bytes != null
+            ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
+            : (url.isNotEmpty
+                ? Image.network(
+                    url,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
+                  )
+                : Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55))),
+      ),
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        preview,
+        const SizedBox(width: 10),
+        Expanded(
+          child: TextField(
+            controller: controller,
+            keyboardType: TextInputType.url,
+            style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600),
+            decoration: InputDecoration(
+              labelText: label,
+              prefixIcon: const Icon(Icons.link),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: uploading
+                  ? Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                    )
+                  : IconButton(
+                      tooltip: 'Upload',
+                      onPressed: onUpload,
+                      icon: const Icon(Icons.cloud_upload_outlined),
+                    ),
+            ),
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: IconButton(
+                tooltip: 'Clear',
+                onPressed: onClear,
+                icon: const Icon(Icons.clear),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 

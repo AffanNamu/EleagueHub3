@@ -41,7 +41,17 @@ class LocalLeaguesRepository {
 
   Future<List<League>> getAllLeagues() async {
     final raw = _prefs.getStringList(kLeaguesKey) ?? <String>[];
-    return raw.map(League.fromJsonString).toList();
+
+    // Defensive: do not crash the whole app if one stored entry is malformed.
+    final out = <League>[];
+    for (final s in raw) {
+      try {
+        out.add(League.fromJsonString(s));
+      } catch (_) {
+        // Skip bad record (non-fatal)
+      }
+    }
+    return out;
   }
 
   Future<League?> getLeagueById(String id) async {

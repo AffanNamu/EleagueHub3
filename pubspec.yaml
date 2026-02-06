@@ -22,6 +22,7 @@ dependencies:
   firebase_auth: ^5.5.1
   google_sign_in: ^6.2.1
   firebase_crashlytics: ^4.1.0
+  firebase_storage: ^12.3.7
 
   # Data Persistence
   shared_preferences: ^2.2.3

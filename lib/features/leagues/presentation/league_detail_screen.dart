@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -500,6 +502,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       _pill(league.isPrivate ? l10n.tr('league_details_private') : l10n.tr('league_details_public'), cs.primary),
       _pill('${league.maxTeams} ${l10n.tr('league_details_teams_max_suffix')}', _premiumAmber),
       _pill(league.region, _premiumViolet),
+      if (league.viewerCapacity > 0) _pill('${league.viewerCapacity} Viewers', _premiumTeal),
       _pill(
         settings.doubleRoundRobin ? l10n.tr('league_details_double_rr') : l10n.tr('league_details_single_rr'),
         _premiumSky,
@@ -513,11 +516,18 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       rulePills.add(_pill('${l10n.tr('league_details_swiss_rounds_prefix')} ${settings.swissRounds}', _premiumTeal));
     }
 
+    final desc = league.description.trim();
+
     return Glass(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _LeagueHero(
+            leagueImageUrl: league.leagueImageUrl,
+            sponsorImageUrl: league.sponsorImageUrl,
+          ),
+          const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
@@ -553,6 +563,18 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (desc.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              desc,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface.withOpacity(0.74),
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
           Wrap(spacing: 8, runSpacing: 8, children: rulePills),
         ],
@@ -1342,5 +1364,112 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     _toastOk(label);
     if (mounted) setState(() {});
+  }
+}
+
+class _LeagueHero extends StatelessWidget {
+  const _LeagueHero({
+    required this.leagueImageUrl,
+    required this.sponsorImageUrl,
+  });
+
+  final String leagueImageUrl;
+  final String sponsorImageUrl;
+
+  Uint8List? _tryDecodeDataUri(String raw) {
+    final s = raw.trim();
+    if (!s.startsWith('data:image')) return null;
+    final idx = s.indexOf('base64,');
+    if (idx < 0) return null;
+    final b64 = s.substring(idx + 'base64,'.length);
+    try {
+      return base64Decode(b64);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Widget _imageOrPlaceholder(BuildContext context, String url, {BoxFit fit = BoxFit.cover}) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final u = url.trim();
+    final bytes = u.isEmpty ? null : _tryDecodeDataUri(u);
+
+    if (bytes != null) {
+      return Image.memory(bytes, fit: fit, gaplessPlayback: true);
+    }
+
+    if (u.isNotEmpty) {
+      return Image.network(
+        u,
+        fit: fit,
+        errorBuilder: (_, __, ___) => Center(
+          child: Icon(Icons.emoji_events_outlined, size: 36, color: cs.onSurface.withOpacity(0.55)),
+        ),
+        loadingBuilder: (context, child, event) {
+          if (event == null) return child;
+          return Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: cs.primary.withOpacity(0.85),
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    return Center(
+      child: Icon(Icons.emoji_events_outlined, size: 48, color: cs.onSurface.withOpacity(0.55)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final mainUrl = leagueImageUrl.trim();
+    final sponsorUrl = sponsorImageUrl.trim();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        height: 160,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: cs.onSurface.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _imageOrPlaceholder(context, mainUrl),
+            if (sponsorUrl.isNotEmpty)
+              PositionedDirectional(
+                end: 10,
+                bottom: 10,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.92),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+                    ),
+                    child: _imageOrPlaceholder(context, sponsorUrl, fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

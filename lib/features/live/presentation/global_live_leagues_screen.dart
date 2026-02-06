@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -299,9 +301,15 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                       item.league.region,
                     ];
 
+                    if (item.league.viewerCapacity > 0) {
+                      subtitleParts.add('${item.league.viewerCapacity} Viewers');
+                    }
+
                     final countLabel = item.registeredCount == null
                         ? 'Capacity: ${item.league.maxTeams}'
                         : 'Capacity: ${item.registeredCount} / ${item.league.maxTeams}';
+
+                    final desc = item.league.description.trim();
 
                     return Glass(
                       borderRadius: 22,
@@ -309,15 +317,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: cs.primary.withOpacity(0.16),
-                              border: Border.all(color: cs.primary.withOpacity(0.22)),
-                            ),
-                            child: Icon(Icons.public, color: cs.primary),
+                          _LeagueThumb(
+                            leagueImageUrl: item.league.leagueImageUrl,
+                            sponsorImageUrl: item.league.sponsorImageUrl,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -366,7 +368,20 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                     height: 1.25,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
+                                if (desc.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    desc,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: cs.onSurface.withOpacity(0.62),
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 8),
                                 Text(
                                   countLabel,
                                   style: theme.textTheme.bodySmall?.copyWith(
@@ -402,6 +417,103 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
               },
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LeagueThumb extends StatelessWidget {
+  const _LeagueThumb({
+    required this.leagueImageUrl,
+    required this.sponsorImageUrl,
+  });
+
+  final String leagueImageUrl;
+  final String sponsorImageUrl;
+
+  Uint8List? _tryDecodeDataUri(String raw) {
+    final s = raw.trim();
+    if (!s.startsWith('data:image')) return null;
+    final idx = s.indexOf('base64,');
+    if (idx < 0) return null;
+    final b64 = s.substring(idx + 'base64,'.length);
+    try {
+      return base64Decode(b64);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Widget _imgOrCup(BuildContext context, String url, {BoxFit fit = BoxFit.cover}) {
+    final cs = Theme.of(context).colorScheme;
+    final u = url.trim();
+    final bytes = u.isEmpty ? null : _tryDecodeDataUri(u);
+
+    if (bytes != null) {
+      return Image.memory(bytes, fit: fit, gaplessPlayback: true);
+    }
+
+    if (u.isNotEmpty) {
+      return Image.network(
+        u,
+        fit: fit,
+        errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, color: cs.primary),
+        loadingBuilder: (context, w, event) {
+          if (event == null) return w;
+          return Center(
+            child: SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+            ),
+          );
+        },
+      );
+    }
+
+    return Icon(Icons.emoji_events_outlined, color: cs.primary);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final sponsor = sponsorImageUrl.trim();
+
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: cs.primary.withOpacity(0.16),
+        border: Border.all(color: cs.primary.withOpacity(0.22)),
+      ),
+      child: ClipOval(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _imgOrCup(context, leagueImageUrl),
+            if (sponsor.isNotEmpty)
+              PositionedDirectional(
+                end: 0,
+                bottom: 0,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.92),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: cs.onSurface.withOpacity(0.16)),
+                  ),
+                  child: ClipOval(
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: _imgOrCup(context, sponsor, fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

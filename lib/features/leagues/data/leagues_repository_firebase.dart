@@ -8,20 +8,52 @@ class LeaguesRepositoryFirebase {
 
   CollectionReference get _leaguesCol => _firestore.collection('leagues');
 
+  League _docToLeague(QueryDocumentSnapshot doc) {
+    final raw = (doc.data() as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final map = <String, dynamic>{...raw};
+
+    // Ensure id is always present (some Firestore docs won't include an 'id' field).
+    final existingId = (map['id'] as String?)?.trim() ?? '';
+    if (existingId.isEmpty) {
+      map['id'] = doc.id;
+    }
+
+    return League.fromRemoteMap(map);
+  }
+
+  League _snapToLeague(DocumentSnapshot doc) {
+    final raw = (doc.data() as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final map = <String, dynamic>{...raw};
+
+    final existingId = (map['id'] as String?)?.trim() ?? '';
+    if (existingId.isEmpty) {
+      map['id'] = doc.id;
+    }
+
+    return League.fromRemoteMap(map);
+  }
+
   Future<List<League>> getAllLeagues() async {
     final snapshot = await _leaguesCol.get();
-    return snapshot.docs.map((doc) => League.fromJson(doc.data() as Map<String, dynamic>)).toList();
+    return snapshot.docs
+        .whereType<QueryDocumentSnapshot>()
+        .map(_docToLeague)
+        .toList();
   }
 
   Stream<List<League>> watchLeagues() {
-    return _leaguesCol.snapshots().map((snapshot) =>
-        snapshot.docs.map((doc) => League.fromJson(doc.data() as Map<String, dynamic>)).toList());
+    return _leaguesCol.snapshots().map(
+          (snapshot) => snapshot.docs
+              .whereType<QueryDocumentSnapshot>()
+              .map(_docToLeague)
+              .toList(),
+        );
   }
 
   Future<League?> getLeagueById(String id) async {
     final doc = await _leaguesCol.doc(id).get();
     if (!doc.exists) return null;
-    return League.fromJson(doc.data() as Map<String, dynamic>);
+    return _snapToLeague(doc);
   }
 
   Future<void> saveLeague(League league) async {

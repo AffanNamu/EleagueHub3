@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:eleaguehub3/core/locale/app_localizations.dart';
 import '../utils/current_user.dart';
@@ -197,8 +199,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
   Future<void> _payChargesForLeague(BuildContext context, League league) async {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     if (_payingLeagueId == league.id) return;
 
@@ -398,14 +398,43 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     );
   }
 
+  String _buildCardSubtitle({
+    required BuildContext context,
+    required League league,
+    required int registered,
+    required LeagueAnnouncement? latestAnn,
+  }) {
+    final l10n = context.l10n;
+
+    final pieces = <String>[
+      '$registered / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}',
+    ];
+
+    // Viewer capacity (optional paid add-on)
+    if (league.viewerCapacity > 0) {
+      pieces.add('${league.viewerCapacity} Viewers');
+    }
+
+    // Description (optional)
+    final desc = league.description.trim();
+    if (desc.isNotEmpty) {
+      pieces.add(desc);
+    }
+
+    if (latestAnn != null && latestAnn.title.trim().isNotEmpty) {
+      pieces.add(latestAnn.title.trim());
+    }
+
+    return pieces.join(' • ');
+  }
+
   Widget _buildLeagueList(
     BuildContext context,
     List<League> leagues,
     bool isTablet,
   ) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final prefs = ref.read(prefsServiceProvider);
     final String currentUserId = prefs.getCurrentUserId() ?? '';
@@ -443,8 +472,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
         final isFull = registered >= league.maxTeams;
 
         final latestAnn = _latestAnnouncements[league.id];
-        final baseSubtitle = '$registered / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}';
-        final subtitle = latestAnn != null ? '$baseSubtitle • ${latestAnn.title}' : baseSubtitle;
+
+        final subtitle = _buildCardSubtitle(
+          context: context,
+          league: league,
+          registered: registered,
+          latestAnn: latestAnn,
+        );
 
         final payingThis = _payingLeagueId == league.id;
 
@@ -470,6 +504,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                 ),
               ),
             ),
+
+            // League image (optional) — list shows league image only.
+            PositionedDirectional(
+              bottom: 14,
+              start: 14,
+              child: _LeagueImageThumb(
+                imageUrl: league.leagueImageUrl,
+              ),
+            ),
+
             if (isOwner)
               PositionedDirectional(
                 top: 12,
@@ -1024,6 +1068,80 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     } finally {
       controller.dispose();
     }
+  }
+}
+
+class _LeagueImageThumb extends StatelessWidget {
+  const _LeagueImageThumb({
+    required this.imageUrl,
+  });
+
+  final String imageUrl;
+
+  Uint8List? _tryDecodeDataUri(String raw) {
+    final s = raw.trim();
+    if (!s.startsWith('data:image')) return null;
+    final idx = s.indexOf('base64,');
+    if (idx < 0) return null;
+    final b64 = s.substring(idx + 'base64,'.length);
+    try {
+      return base64Decode(b64);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final url = imageUrl.trim();
+    final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
+
+    final Widget content;
+
+    if (bytes != null) {
+      content = Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+      );
+    } else if (url.isNotEmpty) {
+      content = Image.network(
+        url,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) {
+          return Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.65));
+        },
+        loadingBuilder: (context, child, event) {
+          if (event == null) return child;
+          return Center(
+            child: SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: cs.primary.withOpacity(0.85),
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      content = Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.65));
+    }
+
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(child: Center(child: content)),
+    );
   }
 }
 
