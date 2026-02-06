@@ -48,6 +48,38 @@ service cloud.firestore {
     }
 
     // --------------------------
+    // Quick messages validation (best-effort)
+    // --------------------------
+    function validQuickMsg(s) {
+      // 1..15 chars, no urls, no mentions
+      return (s is string)
+        && (s.size() > 0)
+        && (s.size() <= 15)
+        && !s.matches('.*(https?://|www\\.|@|\\.com|\\.net|\\.org).*');
+    }
+
+    function validQuickMessages(list) {
+      // Firestore rules have no loops, so we unroll checks up to 15 items.
+      return (list is list)
+        && (list.size() <= 15)
+        && (list.size() < 1  || validQuickMsg(list[0]))
+        && (list.size() < 2  || validQuickMsg(list[1]))
+        && (list.size() < 3  || validQuickMsg(list[2]))
+        && (list.size() < 4  || validQuickMsg(list[3]))
+        && (list.size() < 5  || validQuickMsg(list[4]))
+        && (list.size() < 6  || validQuickMsg(list[5]))
+        && (list.size() < 7  || validQuickMsg(list[6]))
+        && (list.size() < 8  || validQuickMsg(list[7]))
+        && (list.size() < 9  || validQuickMsg(list[8]))
+        && (list.size() < 10 || validQuickMsg(list[9]))
+        && (list.size() < 11 || validQuickMsg(list[10]))
+        && (list.size() < 12 || validQuickMsg(list[11]))
+        && (list.size() < 13 || validQuickMsg(list[12]))
+        && (list.size() < 14 || validQuickMsg(list[13]))
+        && (list.size() < 15 || validQuickMsg(list[14]));
+    }
+
+    // --------------------------
     // User Profiles (Firebase uid is doc id)
     // --------------------------
     match /users/{userId} {
@@ -83,19 +115,20 @@ service cloud.firestore {
       // Users can:
       // 1) update teamName (+ updatedAt)
       // 2) backfill shareId ONCE if it was missing (+ updatedAt)
+      // 3) update premium custom quick messages (+ updatedAt)
       //
-      // This keeps userId/authProvider/createdAt immutable.
+      // This keeps userId/authProvider/createdAt/isPremium immutable from client.
       allow update: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.userId == userId
         && (
-          // Normal edit
+          // 1) Normal edit
           request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'teamName',
             'updatedAt'
           ])
           ||
-          // One-time shareId backfill (for old profiles that don't have shareId yet)
+          // 2) One-time shareId backfill
           (
             resource.data.shareId == null
             && request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -104,6 +137,15 @@ service cloud.firestore {
             ])
             && (request.resource.data.shareId is string)
             && request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$')
+          )
+          ||
+          // 3) Quick messages update (Premium gating is handled by app + admin set isPremium).
+          (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'quickMessagesCustom',
+              'updatedAt'
+            ])
+            && validQuickMessages(request.resource.data.quickMessagesCustom)
           )
         );
 
@@ -128,18 +170,11 @@ service cloud.firestore {
           || (request.auth.uid in request.resource.data.memberIds)
         );
 
-      // UPDATE rules:
-      // 1) Owner can update freely (existing behavior).
-      // 2) Members can self-join by adding themselves to memberIds (+ updatedAtMs).
-      // 3) Global public-league join is allowed to ALSO update registeredCount + isFull,
-      //    but only under strict "single-user join" conditions (prevents tampering).
       allow update: if isOwner(leagueId)
-        // Existing self-join path (Join by code) — unchanged semantics
         || (signedIn()
           && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
           && (request.resource.data.memberIds is list)
           && (request.auth.uid in request.resource.data.memberIds))
-        // Global join path (adds auth.uid exactly once + increments count exactly once)
         || (signedIn()
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'memberIds',
@@ -150,18 +185,13 @@ service cloud.firestore {
           && (request.resource.data.memberIds is list)
           && (request.auth.uid in request.resource.data.memberIds)
 
-          // Ensure this update is a true join:
-          // - old memberIds (if any) are preserved
-          // - exactly one new member is added (the caller)
           && (
-            // Old doc has memberIds list
             (
               (resource.data.memberIds is list)
               && request.resource.data.memberIds.hasAll(resource.data.memberIds)
               && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
               && !(request.auth.uid in resource.data.memberIds)
             )
-            // Backward compatibility: old doc has no memberIds yet
             ||
             (
               !(resource.data.memberIds is list)
@@ -170,11 +200,9 @@ service cloud.firestore {
             )
           )
 
-          // registeredCount must increment by exactly 1 (supports missing old field -> treat as 0)
           && (request.resource.data.registeredCount is int)
           && request.resource.data.registeredCount == (registeredCountOrZero(resource.data) + 1)
 
-          // isFull must match the capacity check for the resulting registeredCount
           && (
             (request.resource.data.isFull is bool)
             && (
@@ -203,15 +231,9 @@ service cloud.firestore {
       }
 
       match /memberships/{membershipId} {
-        // IMPORTANT for Global Join transaction:
-        // - allow the signed-in user to read their own membership doc path
-        //   even if they are not yet a member (doc may not exist).
         allow get: if isOwner(leagueId) || isMember(leagueId) || (signedIn() && membershipId == request.auth.uid);
-
-        // Keep list restricted to league members/admin (prevents enumeration).
         allow list: if isOwner(leagueId) || isMember(leagueId);
 
-        // Keep existing behavior, but add a safe guard: leagueId must match.
         allow create, update: if isOwner(leagueId)
           || (
             signedIn()
@@ -231,14 +253,12 @@ service cloud.firestore {
         allow read: if isOwner(leagueId) || isMember(leagueId);
         allow write: if isOwner(leagueId);
 
-        // Nested reactions: members can react, everyone in league can see
         match /reactions/{reactionId} {
           allow read: if isOwner(leagueId) || isMember(leagueId);
           allow create: if signedIn() && (isOwner(leagueId) || isMember(leagueId));
           allow update, delete: if false;
         }
 
-        // ✅ REQUIRED by your Space UI
         match /requests/{uid} {
           allow get: if isOwner(leagueId) || (signedIn() && request.auth.uid == uid);
           allow list: if isOwner(leagueId);
@@ -249,7 +269,6 @@ service cloud.firestore {
             && request.resource.data.userId == request.auth.uid
             && request.resource.data.status == "pending";
 
-          // Host can approve/deny; requester can delete their own request.
           allow update: if signedIn() && (
             isOwner(leagueId)
             || (request.auth.uid == uid)
@@ -260,7 +279,6 @@ service cloud.firestore {
           );
         }
 
-        // ✅ REQUIRED by your Space UI (host panel)
         match /speakers/{uid} {
           allow read: if isOwner(leagueId) || isMember(leagueId);
           allow create, update, delete: if isOwner(leagueId);
@@ -268,7 +286,6 @@ service cloud.firestore {
       }
     }
 
-    // ✅ REQUIRED by LeagueSpacesFirebase (top-level collection)
     match /league_spaces/{spaceId} {
       allow read: if signedIn()
         && (resource.data.leagueId is string)

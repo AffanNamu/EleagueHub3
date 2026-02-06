@@ -6,13 +6,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
-import android.util.Point
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -347,7 +347,6 @@ class LiveOverlayBubbleService : Service() {
         val mic = micView ?: return
         val muted = loadMicMuted()
 
-        // Visual change when muted/unmuted (user requirement)
         if (muted) {
             mic.setImageResource(android.R.drawable.ic_lock_silent_mode)
             mic.alpha = 0.75f

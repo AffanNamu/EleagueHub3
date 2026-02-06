@@ -65,8 +65,12 @@ class QuickMessagePolicy {
     }
 
     // If emojis not allowed, restrict to basic punctuation/letters/numbers/spaces.
+    //
+    // IMPORTANT:
+    // - Do NOT use a raw string here because we want to include \' safely.
+    // - Also escape $ for Dart string interpolation.
     if (!allowEmojis) {
-      final ok = RegExp(r"^[a-zA-Z0-9\s\.\,\!\?\-\’\'\"]+$").hasMatch(s);
+      final ok = RegExp('^[a-zA-Z0-9\\s\\.,!\\?\\-’\\\'"]+\$').hasMatch(s);
       if (!ok) return const QuickMessageValidationResult.invalid('Only plain text is allowed');
     }
 
