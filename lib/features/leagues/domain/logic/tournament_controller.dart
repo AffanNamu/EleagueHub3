@@ -4,6 +4,10 @@ import '../../models/enums.dart';
 import '../../models/knockout_match.dart';
 import '../standings/standings.dart';
 
+/// Used internally to decide which slot (home/away) a feeder match writes into
+/// in the next match. Must be top-level in Dart (enums can't be declared inside classes).
+enum _KoSlot { home, away }
+
 class TournamentController {
   static String _shortCode(String roundName) {
     switch (roundName) {
@@ -164,20 +168,16 @@ class TournamentController {
     return int.tryParse(raw) ?? 0;
   }
 
-  enum _Slot { home, away }
-
   /// Determines which slot (home/away) this match must feed into on its next match.
   ///
   /// Root cause fixed:
-  /// Previously we were "fill first null slot", which is NOT idempotent:
-  /// re-saving the same semifinal would fill home on first save, then away on second save,
-  /// producing duplicate finalists (A vs A).
-  static _Slot _slotForAdvancement({
+  /// Previously we were "fill first null slot", which is NOT idempotent.
+  static _KoSlot _slotForAdvancement({
     required KnockoutMatch fromMatch,
     required List<KnockoutMatch> allMatches,
   }) {
     final nextId = fromMatch.nextMatchId;
-    if (nextId == null) return _Slot.home;
+    if (nextId == null) return _KoSlot.home;
 
     // All matches from the SAME round that advance into the SAME next match.
     final feeders = allMatches
@@ -185,9 +185,8 @@ class TournamentController {
         .toList();
 
     if (feeders.length <= 1) {
-      // Single feeder (rare, but possible with byes or special formats).
       // Always write to HOME to keep idempotency (overwrite same slot).
-      return _Slot.home;
+      return _KoSlot.home;
     }
 
     feeders.sort((a, b) {
@@ -199,7 +198,7 @@ class TournamentController {
 
     final pos = feeders.indexWhere((m) => m.id == fromMatch.id);
     final safePos = max(0, pos);
-    return (safePos % 2 == 0) ? _Slot.home : _Slot.away;
+    return (safePos % 2 == 0) ? _KoSlot.home : _KoSlot.away;
   }
 
   static List<KnockoutMatch> _advanceWinnerToNext({
@@ -214,11 +213,12 @@ class TournamentController {
 
     return allMatches.map((m) {
       if (m.id != nextId) return m;
-      // Overwrite ONLY the deterministic slot -> idempotent + supports corrections.
-      return switch (slot) {
-        _Slot.home => m.copyWith(homeTeamId: winnerId),
-        _Slot.away => m.copyWith(awayTeamId: winnerId),
-      };
+
+      if (slot == _KoSlot.home) {
+        return m.copyWith(homeTeamId: winnerId);
+      } else {
+        return m.copyWith(awayTeamId: winnerId);
+      }
     }).toList();
   }
 
@@ -230,7 +230,6 @@ class TournamentController {
     final thirdId = completedSemiFinal.loserGoesToMatchId;
     if (thirdId == null) return allMatches;
 
-    // Determine which slot the loser should fill based on semi-final ordering.
     final semiFeeders = allMatches
         .where((m) => m.roundName == 'Semi Finals' && m.loserGoesToMatchId == thirdId)
         .toList();
@@ -246,26 +245,20 @@ class TournamentController {
 
     final pos = semiFeeders.indexWhere((m) => m.id == completedSemiFinal.id);
     final safePos = max(0, pos);
-    final slot = (safePos % 2 == 0) ? _Slot.home : _Slot.away;
+    final slot = (safePos % 2 == 0) ? _KoSlot.home : _KoSlot.away;
 
     return allMatches.map((m) {
       if (m.id != thirdId) return m;
-      return switch (slot) {
-        _Slot.home => m.copyWith(homeTeamId: loserId),
-        _Slot.away => m.copyWith(awayTeamId: loserId),
-      };
+
+      if (slot == _KoSlot.home) {
+        return m.copyWith(homeTeamId: loserId);
+      } else {
+        return m.copyWith(awayTeamId: loserId);
+      }
     }).toList();
   }
 
-  /// UCL GROUP MODEL:
-  /// - Allowed total teams: 16 or 32
-  /// - Structure: groups of 4
-  ///   - 16 teams => 4 groups of 4 => top 2 => 8 qualifiers => Quarter Finals start
-  ///   - 32 teams => 8 groups of 4 => top 2 => 16 qualifiers => Round of 16 start
-  ///
-  /// This method enforces:
-  /// - number of groups must be 4 or 8
-  /// - each group standings list must have exactly 4 teams
+  /// UCL GROUP MODEL seeding (16 or 32 teams).
   static List<KnockoutMatch> seedKnockoutsFromGroups({
     required String leagueId,
     required Map<String, List<StandingsRow>> groupStandings,
@@ -279,7 +272,6 @@ class TournamentController {
 
     if (groupCount != 4 && groupCount != 8) return [];
 
-    // Enforce each group has exactly 4 teams ranked.
     for (final k in keys) {
       final rows = groupStandings[k] ?? const <StandingsRow>[];
       if (rows.length != 4) return [];
@@ -304,8 +296,7 @@ class TournamentController {
     final startRound = tree.where((m) => m.roundName == startRoundName).toList();
     if (startRound.length != startMatchCount) return [];
 
-    // Pair groups in twos: (A,B), (C,D), ...:
-    // A1 vs B2, B1 vs A2, etc.
+    // Pair groups in twos: A1 vs B2, B1 vs A2, etc.
     final seeded = <KnockoutMatch>[];
     var idx = 0;
     for (var i = 0; i + 1 < winners.length; i += 2) {
@@ -315,16 +306,10 @@ class TournamentController {
       final g2Runner = runners[i + 1];
 
       seeded.add(
-        startRound[idx++].copyWith(
-          homeTeamId: g1Winner.teamId,
-          awayTeamId: g2Runner.teamId,
-        ),
+        startRound[idx++].copyWith(homeTeamId: g1Winner.teamId, awayTeamId: g2Runner.teamId),
       );
       seeded.add(
-        startRound[idx++].copyWith(
-          homeTeamId: g2Winner.teamId,
-          awayTeamId: g1Runner.teamId,
-        ),
+        startRound[idx++].copyWith(homeTeamId: g2Winner.teamId, awayTeamId: g1Runner.teamId),
       );
     }
 
@@ -332,20 +317,7 @@ class TournamentController {
     return tree.map((m) => seededById[m.id] ?? m).toList();
   }
 
-  /// UCL SWISS MODEL:
-  /// - Allowed total teams: 18 or 36
-  /// - League phase standings must include exactly that many teams.
-  /// - Play-off is two-legged (aggregate over 2 legs).
-  ///
-  /// For 36 teams (UEFA-style):
-  /// - Top 8 -> Round of 16 (home slots)
-  /// - 9–24 -> Play-off (16 teams => 8 ties => 16 matches / 2 legs)
-  /// - 25–36 eliminated
-  ///
-  /// For 18 teams (compact variant):
-  /// - Top 4 -> Quarter Finals (home slots)
-  /// - 5–12 -> Play-off (8 teams => 4 ties => 8 matches / 2 legs)
-  /// - 13–18 eliminated
+  /// UCL SWISS MODEL seeding (18 or 36 teams).
   static List<KnockoutMatch> seedSwissKnockouts({
     required String leagueId,
     required List<StandingsRow> swissStandings,
@@ -380,22 +352,21 @@ class TournamentController {
         seededR16.add(
           r16[i].copyWith(
             homeTeamId: autoQualifiers[i].teamId,
-            awayTeamId: null, // filled by playoff winners
+            awayTeamId: null,
           ),
         );
       }
 
-      // Create 8 two-legged ties: 9 vs 24, 10 vs 23, ... 16 vs 17
+      // Create 8 two-legged ties: 9 vs 24 ... 16 vs 17
       final playoffMatches = <KnockoutMatch>[];
       int start = 0;
       int end = playoffSeeds.length - 1;
 
       for (var tieIndex = 0; tieIndex < 8; tieIndex++) {
-        final a = playoffSeeds[start++]; // higher seed in PO pool
-        final b = playoffSeeds[end--]; // lower seed
+        final a = playoffSeeds[start++];
+        final b = playoffSeeds[end--];
         final r16Index = 7 - tieIndex;
 
-        // Leg 1
         playoffMatches.add(
           KnockoutMatch(
             id: id('PO1', tieIndex + 1),
@@ -413,7 +384,6 @@ class TournamentController {
           ),
         );
 
-        // Leg 2 (reverse)
         playoffMatches.add(
           KnockoutMatch(
             id: id('PO2', tieIndex + 1),
@@ -458,18 +428,16 @@ class TournamentController {
     final qf = tree.where((m) => m.roundName == 'Quarter Finals').toList();
     if (qf.length != 4) return [];
 
-    // Seed Top 4 as home teams in QF.
     final seededQF = <KnockoutMatch>[];
     for (var i = 0; i < 4; i++) {
       seededQF.add(
         qf[i].copyWith(
           homeTeamId: autoQualifiers[i].teamId,
-          awayTeamId: null, // filled by playoff winners
+          awayTeamId: null,
         ),
       );
     }
 
-    // Create 4 two-legged ties: 5 vs 12, 6 vs 11, 7 vs 10, 8 vs 9
     final playoffMatches = <KnockoutMatch>[];
     int start = 0;
     int end = playoffSeeds.length - 1;
@@ -524,11 +492,6 @@ class TournamentController {
   }
 
   /// Automatic advancement after a KO match is confirmed.
-  ///
-  /// Special rule:
-  /// - For two-legged "Play-off" ties, advancement happens ONLY when the
-  ///   second leg is completed, using aggregate score across both legs.
-  /// - If aggregate is tied after leg 2, completedMatch.tiebreakWinnerTeamId is required.
   static List<KnockoutMatch> processMatchResult({
     required KnockoutMatch completedMatch,
     required List<KnockoutMatch> allMatches,
@@ -588,8 +551,7 @@ class TournamentController {
 
       if (winner == null) return allMatches;
 
-      // For play-offs, we place the winner into the "available" slot.
-      // If both are filled (e.g., after edits), we overwrite AWAY (UEFA-style: seeded teams are usually HOME).
+      // For play-offs, place winner into first available slot; if both filled, overwrite away.
       return allMatches.map((m) {
         if (m.id != nextId) return m;
 
@@ -600,7 +562,6 @@ class TournamentController {
         if (nextAway == null && nextHome != null) return m.copyWith(awayTeamId: winner);
         if (nextHome == null && nextAway == null) return m.copyWith(homeTeamId: winner);
 
-        // both filled -> overwrite away to be deterministic
         if (nextAway != winner) return m.copyWith(awayTeamId: winner);
         return m;
       }).toList();
@@ -614,7 +575,6 @@ class TournamentController {
 
     var updated = allMatches;
 
-    // Winner advances (IDEMPOTENT + CORRECTION-SAFE).
     if (completedMatch.nextMatchId != null) {
       updated = _advanceWinnerToNext(
         completedMatch: completedMatch,
@@ -623,7 +583,6 @@ class TournamentController {
       );
     }
 
-    // Optional 3rd place placement (only if loserGoesToMatchId exists).
     if (loserId != null && completedMatch.roundName == 'Semi Finals' && completedMatch.loserGoesToMatchId != null) {
       updated = _placeLoserToThirdPlace(
         completedSemiFinal: completedMatch,
