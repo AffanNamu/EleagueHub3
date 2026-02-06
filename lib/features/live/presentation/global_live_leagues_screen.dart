@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../leagues/domain/models/global_public_league.dart';
+import '../../leagues/logic/global_public_league_join_service.dart';
 import '../../leagues/logic/global_public_leagues_providers.dart';
 import '../../leagues/utils/current_user.dart';
 
