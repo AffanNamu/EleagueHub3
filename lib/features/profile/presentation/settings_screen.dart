@@ -1,13 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/persistence/prefs_service.dart';
-import '../../../core/theme/theme_controller.dart';
-import '../../../core/locale/locale_controller.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/locale/locale_controller.dart';
+import '../../../core/persistence/prefs_service.dart';
+import '../../../core/platform/overlay_platform.dart';
+import '../../../core/services/notification_service.dart';
+import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../../../core/services/notification_service.dart';
+
+String _trOr(AppLocalizations l10n, String key, String fallback) {
+  final v = l10n.tr(key);
+  return v == key ? fallback : v;
+}
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -16,13 +24,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBindingObserver {
   bool _loading = true;
   bool _enabled = true;
   bool _marketing = false;
   bool _matchReminders = true;
 
-  bool _overlayEnabled = true;
+  bool _overlayEnabled = false;
+  bool _overlayPermissionGranted = false;
 
   /// Autonyms (language names in their own language).
   /// IMPORTANT: These should NOT be translated based on current app locale.
@@ -54,21 +63,44 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // If user granted overlay permission in system Settings, detect on resume.
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshOverlayPermissionAndMaybeStart());
+    }
   }
 
   Future<void> _load() async {
     final prefs = ref.read(prefsServiceProvider);
     final map = await prefs.loadNotificationPrefs();
     final overlay = prefs.liveOverlayEnabled();
+    final granted = await OverlayPlatform.isOverlayPermissionGranted();
+
     if (!mounted) return;
     setState(() {
       _enabled = map['enabled'] ?? true;
       _marketing = map['marketing'] ?? false;
       _matchReminders = map['matchReminders'] ?? true;
       _overlayEnabled = overlay;
+      _overlayPermissionGranted = granted;
       _loading = false;
     });
+
+    // System-wide behavior (B): if enabled + granted, ensure overlay is running.
+    if (_overlayEnabled && _overlayPermissionGranted) {
+      await OverlayPlatform.startGlobalOverlay();
+    }
   }
 
   Future<void> _saveNotifications() async {
@@ -77,6 +109,92 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       enabled: _enabled,
       marketing: _marketing,
       matchReminders: _matchReminders,
+    );
+  }
+
+  Future<void> _refreshOverlayPermissionAndMaybeStart() async {
+    final granted = await OverlayPlatform.isOverlayPermissionGranted();
+    if (!mounted) return;
+
+    setState(() => _overlayPermissionGranted = granted);
+
+    if (_overlayEnabled && granted) {
+      await OverlayPlatform.startGlobalOverlay();
+    }
+  }
+
+  Future<void> _setOverlayEnabled(bool enabled) async {
+    final prefs = ref.read(prefsServiceProvider);
+
+    if (!enabled) {
+      setState(() {
+        _overlayEnabled = false;
+      });
+      await prefs.setLiveOverlayEnabled(false);
+      await OverlayPlatform.stopGlobalOverlay();
+      return;
+    }
+
+    // Enabling: explicit user action + permission flow.
+    setState(() {
+      _overlayEnabled = true;
+    });
+    await prefs.setLiveOverlayEnabled(true);
+
+    final granted = await OverlayPlatform.isOverlayPermissionGranted();
+    if (!mounted) return;
+    setState(() => _overlayPermissionGranted = granted);
+
+    if (granted) {
+      await OverlayPlatform.startGlobalOverlay();
+      return;
+    }
+
+    final l10n = context.l10n;
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_trOr(l10n, 'live_overlay_permission_title', 'Allow overlay permission')),
+        content: Text(
+          _trOr(
+            l10n,
+            'live_overlay_permission_body',
+            'To show the floating voice/message controls above other apps, Android requires an “Appear on top” permission. You can enable it in system settings.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(_trOr(l10n, 'common_open_settings', 'Open settings')),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed != true) {
+      // Keep enabled but inactive until permission is granted (requirement).
+      return;
+    }
+
+    await OverlayPlatform.requestOverlayPermission();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          _trOr(
+            l10n,
+            'live_overlay_permission_snackbar',
+            'Grant the overlay permission, then return to the app.',
+          ),
+        ),
+      ),
     );
   }
 
@@ -106,6 +224,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final cardInnerFill = cs.onSurface.withOpacity(theme.brightness == Brightness.dark ? 0.08 : 0.04);
     final cardInnerStroke = cs.outlineVariant.withOpacity(theme.brightness == Brightness.dark ? 0.35 : 0.75);
+
+    final overlayStatusText = !_overlayEnabled
+        ? _trOr(l10n, 'live_overlay_status_off', 'Overlay: Off')
+        : (_overlayPermissionGranted
+            ? _trOr(l10n, 'live_overlay_status_on', 'Overlay: On')
+            : _trOr(l10n, 'live_overlay_status_needs_permission', 'Overlay: Permission required'));
 
     return GlassScaffold(
       appBar: AppBar(
@@ -315,6 +439,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+
+                // LIVE OVERLAY (system-wide)
                 Glass(
                   borderRadius: 24,
                   child: Padding(
@@ -325,6 +451,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         Text(l10n.liveOverlayTitle, style: titleStyle),
                         const SizedBox(height: 8),
                         Text(l10n.liveOverlayHint, style: hintStyle),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: cs.onSurface.withOpacity(theme.brightness == Brightness.dark ? 0.06 : 0.04),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _overlayEnabled
+                                    ? (_overlayPermissionGranted ? Icons.check_circle_outline : Icons.warning_amber_rounded)
+                                    : Icons.info_outline,
+                                size: 18,
+                                color: _overlayEnabled
+                                    ? (_overlayPermissionGranted ? const Color(0xFF22C55E) : const Color(0xFFF59E0B))
+                                    : cs.onSurface.withOpacity(0.65),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  overlayStatusText,
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.70),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              if (_overlayEnabled && !_overlayPermissionGranted)
+                                TextButton(
+                                  onPressed: () async {
+                                    await OverlayPlatform.requestOverlayPermission();
+                                  },
+                                  child: Text(_trOr(l10n, 'live_overlay_grant_permission', 'Grant')),
+                                ),
+                            ],
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         SwitchListTile.adaptive(
                           contentPadding: EdgeInsets.zero,
@@ -346,15 +511,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                           value: _overlayEnabled,
                           onChanged: (v) async {
-                            setState(() => _overlayEnabled = v);
-                            final prefs = ref.read(prefsServiceProvider);
-                            await prefs.setLiveOverlayEnabled(v);
+                            await _setOverlayEnabled(v);
                           },
                         ),
                       ],
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 12),
 
                 // APP INFO (custom text requested)

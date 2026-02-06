@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/platform/overlay_bridge.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../leagues/services/livekit_service.dart';
@@ -133,6 +134,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   @override
   void dispose() {
+    OverlayBridge.clearHandlers();
+
     if (_isFullscreen) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -142,6 +145,38 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     _pollTimer?.cancel();
     _disconnectRoom();
     super.dispose();
+  }
+
+  void _registerOverlayHandlersForMatch() {
+    // Overlay can: end session, send quick, and (host only) toggle mic.
+    OverlayBridge.endSession = () async {
+      await _disconnectRoom();
+    };
+
+    OverlayBridge.sendQuick = (label) async {
+      if (!widget.isHost) return;
+      if (!_connected) return;
+      _sendQuickToOpponent(label);
+    };
+
+    OverlayBridge.toggleMic = () async {
+      if (!widget.isHost) return;
+      if (!_connected) return;
+      await _toggleHostMic();
+    };
+
+    OverlayBridge.setMicEnabled = (enabled) async {
+      if (!widget.isHost) return;
+      final room = _room;
+      if (room == null) return;
+      if (!_connected) return;
+
+      try {
+        await room.localParticipant?.setMicrophoneEnabled(enabled);
+        if (!mounted) return;
+        setState(() => _hostMicEnabled = enabled);
+      } catch (_) {}
+    };
   }
 
   // Do NOT request overlay permission automatically.
@@ -157,8 +192,15 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     } catch (_) {}
   }
 
-  Future<void> _stopOverlayBubble() async {
+  Future<void> _stopOverlayBubbleIfNotGloballyEnabled() async {
     if (!Platform.isAndroid) return;
+
+    // IMPORTANT:
+    // Overlay is "system-wide always available" (mode B). Do not stop it just because
+    // a LiveView session ended, if the user enabled overlay globally.
+    final prefs = ref.read(prefsServiceProvider);
+    if (prefs.liveOverlayEnabled()) return;
+
     try {
       await _liveChannel.invokeMethod('stopLiveOverlayBubble');
     } catch (_) {}
@@ -278,20 +320,20 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
           final fromSide = (msg['fromSide'] ?? '').toString().trim().toLowerCase();
           final label = (msg['label'] ?? '').toString();
 
-          if (label.trim().isEmpty) return;
+          if (label.trim().isNotEmpty) {
+            final my = liveHostSideToWire(_mySide).toLowerCase();
 
-          final my = liveHostSideToWire(_mySide).toLowerCase();
+            if (to.isNotEmpty && my.isNotEmpty && my != 'unknown') {
+              if (to != my) return;
+            } else {
+              if (my != 'unknown' && fromSide.isNotEmpty && fromSide == my) return;
+            }
 
-          if (to.isNotEmpty && my.isNotEmpty && my != 'unknown') {
-            if (to != my) return;
-          } else {
-            if (my != 'unknown' && fromSide.isNotEmpty && fromSide == my) return;
+            _showIncomingQuick(
+              label,
+              from: fromIdentity ?? (fromSide.isNotEmpty ? fromSide.toUpperCase() : null),
+            );
           }
-
-          _showIncomingQuick(
-            label,
-            from: fromIdentity ?? (fromSide.isNotEmpty ? fromSide.toUpperCase() : null),
-          );
         } catch (_) {}
       });
 
@@ -303,6 +345,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         _room = room;
         _connected = true;
       });
+
+      _registerOverlayHandlersForMatch();
 
       _pollTimer?.cancel();
       _pollTimer = Timer.periodic(const Duration(milliseconds: 700), (_) {
@@ -422,6 +466,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   }
 
   Future<void> _disconnectRoom() async {
+    OverlayBridge.clearHandlers();
+
     _pollTimer?.cancel();
     _pollTimer = null;
 
@@ -442,7 +488,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
     _connected = false;
 
-    await _stopOverlayBubble();
+    await _stopOverlayBubbleIfNotGloballyEnabled();
     await _stopHostForegroundService();
   }
 
@@ -631,8 +677,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     final canSendQuick = widget.isHost && _connected;
 
@@ -1052,6 +1096,8 @@ class _IncomingQuickBanner extends StatelessWidget {
     );
   }
 }
+
+// ---- Remaining UI widgets (unchanged from your version) ----
 
 class _DualViewerStreamLayout extends StatelessWidget {
   const _DualViewerStreamLayout({

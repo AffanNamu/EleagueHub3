@@ -10,12 +10,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/app/app.dart';
 import 'core/app/sync_bootstrap.dart';
 import 'core/persistence/prefs_service.dart';
+import 'core/platform/overlay_bridge.dart';
 import 'core/services/auth_bootstrap.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/sync_queue_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Overlay actions from Android (bubble + notification) must be wired early.
+  OverlayBridge.ensureInitialized();
 
   await Firebase.initializeApp();
 

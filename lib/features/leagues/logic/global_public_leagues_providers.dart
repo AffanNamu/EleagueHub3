@@ -14,12 +14,12 @@ final globalPublicLeaguesRepositoryProvider = Provider<GlobalPublicLeaguesReposi
 });
 
 /// Global discovery stream:
-/// - PUBLIC leagues only
-/// - NOT FULL leagues only
+/// - PUBLIC leagues only (filtered in repository)
+/// - finished leagues excluded (filtered in repository)
 /// - realtime via Firestore snapshots
 final globalPublicLeaguesStreamProvider = StreamProvider.autoDispose<List<GlobalPublicLeague>>((ref) {
   final repo = ref.watch(globalPublicLeaguesRepositoryProvider);
-  return repo.watchLatestPublicNotFullLeagues(limit: 100);
+  return repo.watchLatestPublicLeagues(limit: 100);
 });
 
 final globalPublicLeagueJoinServiceProvider = Provider<GlobalPublicLeagueJoinService>((ref) {

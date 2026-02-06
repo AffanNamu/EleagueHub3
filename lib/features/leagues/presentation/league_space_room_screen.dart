@@ -7,6 +7,8 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/platform/overlay_bridge.dart';
+import '../../../core/platform/overlay_platform.dart';
 import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -52,6 +54,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _micPrimed = false;
 
   bool _requestedMicPermissionOnJoin = false;
+
+  // ---- Overlay/FGS integration ----
+  bool _voiceFgsRunning = false;
 
   // ---- Spaces (requests/speakers) state ----
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _mySpeakerSub;
@@ -103,7 +108,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (userId == _uid) return '${cached.trim()} ($_youLabel)';
       return cached.trim();
     }
-    // Fallback to a shortened uid to reduce "numbers and strings" feeling.
     if (userId == _uid) return '${_shortUid(userId)} ($_youLabel)';
     return _shortUid(userId);
   }
@@ -128,7 +132,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           }
         });
       } catch (_) {
-        // ignore lookup errors (offline/permissions/etc). We keep fallback uid display.
+        // ignore lookup errors
       } finally {
         _displayNameLoading.remove(uid);
       }
@@ -206,11 +210,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final prefs = await PreferencesService.create();
     _uid = prefs.getCurrentUserId() ?? '';
 
-    // Start resolving "You" display name early.
     _ensureDisplayNameLoaded(_uid);
 
-    // IMPORTANT:
-    // Await the mic permission request before any auto-connect/prime happens.
     await _requestMicPermissionOnJoin();
 
     _spaceSub = _spaceDoc.snapshots().listen((snap) async {
@@ -230,7 +231,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         final data = snap.data() ?? <String, dynamic>{};
         final space = LeagueSpace.fromJson(data);
 
-        // Resolve host display name for nicer UI.
         _ensureDisplayNameLoaded(space.hostUserId);
 
         setState(() {
@@ -239,13 +239,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _error = '';
         });
 
-        // once we have uid + a space doc, attach speaker/request listeners
         _ensureSpaceRoleListeners();
-
-        // Twitter Spaces: join already connected to audio
         _autoConnectIfNeeded();
 
-        // if Space ended while connected, disconnect audio
         if (!_isLive && _connected) {
           await _disconnectAudio();
         }
@@ -298,7 +294,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     if (_uid.isEmpty) return;
     if (_space == null) return;
 
-    // Host is always speaker-approved.
     if (_isHost) {
       if (!_isSpeakerApproved || _speakerMutedByHost) {
         setState(() {
@@ -324,9 +319,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _speakerMutedByHost = muted;
       });
 
-      // Twitter Spaces behavior:
-      // speaker approval is instant and does NOT reconnect/refresh/republish.
-      // It only toggles mute/unmute of the already-published mic track.
       await _syncMicWithSpaceState();
 
       if (wasApproved != approved && approved) _toastOk(l10n.tr('league_space_toast_now_speaker'));
@@ -357,6 +349,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     _myRequestSub?.cancel();
     _myRequestSub = null;
 
+    OverlayBridge.clearHandlers();
     unawaited(_disconnectAudio());
     super.dispose();
   }
@@ -365,12 +358,70 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool get _isHost => _space != null && _uid.isNotEmpty && _space!.hostUserId == _uid;
 
   Future<void> _maybeStartAudioPlayback(Room room) async {
-    // Best-effort: some platforms require explicit audio start.
     try {
       await (room as dynamic).startAudio();
+    } catch (_) {}
+  }
+
+  Future<void> _startVoiceFgs() async {
+    if (_voiceFgsRunning) return;
+
+    // Safety: only start mic-type FGS if mic permission is granted.
+    final mic = await Permission.microphone.status;
+    if (!mic.isGranted) return;
+
+    try {
+      final st = await Permission.notification.status;
+      if (!st.isGranted) {
+        await Permission.notification.request();
+      }
+    } catch (_) {}
+
+    final title = 'Voice chat';
+    final text = (_space?.title?.trim().isNotEmpty == true) ? (_space!.title!.trim()) : 'Space audio is running';
+
+    try {
+      await OverlayPlatform.startOverlayVoiceForegroundService(
+        title: title,
+        text: text,
+      );
+      _voiceFgsRunning = true;
     } catch (_) {
-      // ignore
+      _voiceFgsRunning = false;
     }
+  }
+
+  Future<void> _stopVoiceFgs() async {
+    if (!_voiceFgsRunning) return;
+    try {
+      await OverlayPlatform.stopOverlayVoiceForegroundService();
+    } catch (_) {}
+    _voiceFgsRunning = false;
+  }
+
+  void _registerOverlayHandlersForSpace() {
+    OverlayBridge.setMicEnabled = (enabled) async {
+      if (!_connected || _room == null) return;
+      if (!_micPrimed) return;
+
+      if (enabled) {
+        await _syncMicWithSpaceState();
+        return;
+      }
+
+      await _setMicEnabled(false);
+    };
+
+    OverlayBridge.toggleMic = () async {
+      if (!_connected || _room == null) return;
+      await _toggleMic();
+    };
+
+    OverlayBridge.endSession = () async {
+      await _disconnectAudio();
+    };
+
+    OverlayBridge.sendQuick = null;
   }
 
   Future<void> _connectAudio() async {
@@ -386,7 +437,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     });
 
     try {
-      // Ensure mic permission decision is final BEFORE join/prime.
       await _requestMicPermissionOnJoin();
 
       final token = await LiveKitService.fetchToken(
@@ -425,8 +475,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       });
 
       await room.connect(token.url, token.token);
-
-      // Start playback (best-effort)
       await _maybeStartAudioPlayback(room);
 
       if (!mounted) return;
@@ -436,11 +484,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _connected = true;
       });
 
-      // Prime mic publication ON JOIN (exactly once), then enforce listener vs speaker via mute state.
       await _primeMicPublicationOnJoin();
-
-      // Apply current Firestore speaker state.
       await _syncMicWithSpaceState();
+
+      _registerOverlayHandlersForSpace();
+      await _startVoiceFgs();
 
       if (!mounted) return;
       setState(() {
@@ -460,15 +508,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     if (_micPrimed) return;
 
     final micStatus = await Permission.microphone.status;
-    if (!micStatus.isGranted) {
-      // User can still listen; but cannot become a speaker instantly later without republish.
-      // This matches: approval must only unmute an already-published track.
-      return;
-    }
+    if (!micStatus.isGranted) return;
 
     try {
-      // This call creates + publishes the mic track if it doesn't exist.
-      // After this, further mic changes are mute/unmute only (no republish).
       await _room!.localParticipant!.setMicrophoneEnabled(true);
       _micPrimed = true;
       _micEnabled = true;
@@ -486,7 +528,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     final shouldBeUnmuted = _isHost || (_isSpeakerApproved && !_speakerMutedByHost);
 
-    // If mic wasn't primed at join, we refuse to enable later (that would publish on approval).
     if (!_micPrimed) {
       if (shouldBeUnmuted) {
         _toastWarn(l10n.tr('league_space_mic_not_primed_toast'));
@@ -502,7 +543,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     if (!_micPrimed) return;
 
     try {
-      // With a primed mic track, this is a mute/unmute (no republish).
       await _room!.localParticipant!.setMicrophoneEnabled(enabled);
       if (!mounted) return;
       setState(() {
@@ -514,6 +554,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _disconnectAudio() async {
+    await _stopVoiceFgs();
+    OverlayBridge.clearHandlers();
+
     try {
       _listener?.dispose();
       _listener = null;
@@ -640,7 +683,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       'updatedAtMs': now,
     }, SetOptions(merge: true));
 
-    // ensure not speaker
     await _speakersCol.doc(userId).delete().catchError((_) {});
     _toastWarn('${l10n.tr('league_space_denied_prefix')}${_displayName(userId)}');
   }

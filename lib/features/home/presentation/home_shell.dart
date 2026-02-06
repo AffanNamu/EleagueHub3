@@ -51,19 +51,12 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _onDestinationSelected(int i) {
-    // LIVE TAB SPECIAL BEHAVIOR (non-breaking):
-    // - Keep existing Live tab content/state intact (LiveListScreen).
-    // - Additionally, tapping the Live icon opens the new Global discovery screen.
+    // Requirement (B):
+    // Tapping the Live (global) icon should open Global Leagues,
+    // AND when user goes back they should return to the PREVIOUS TAB.
+    //
+    // So we DO NOT change the selected tab index here.
     if (i == 2) {
-      if (i != _index) {
-        setState(() {
-          _index = i;
-          _built[i] = true;
-        });
-      }
-
-      // Route to the NEW Global Live screen.
-      // Existing Live behavior remains available when navigating back.
       context.push('/global-live');
       return;
     }
@@ -182,7 +175,7 @@ class _HomeShellState extends State<HomeShell> {
                       selectedIcon: const Icon(Icons.emoji_events),
                       label: l10n.homeTabLeagues,
                     ),
-                    // LIVE (Icon changed to a global/worldwide community symbol)
+                    // LIVE (Icon changed to global/worldwide symbol)
                     NavigationDestination(
                       icon: const Icon(Icons.public_outlined),
                       selectedIcon: const Icon(Icons.public),

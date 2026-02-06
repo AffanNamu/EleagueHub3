@@ -17,13 +17,16 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Expose messenger to Services (overlay/foreground) so they can send actions to Dart.
+        FlutterEngineHolder.setBinaryMessenger(flutterEngine.dartExecutor.binaryMessenger)
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             LOCAL_LIVE_CHANNEL
         ).setMethodCallHandler { call, result ->
             when (call.method) {
 
-                // Foreground streaming service controls
+                // Foreground streaming service controls (existing)
                 "startForegroundStreamingService" -> {
                     val title = call.argument<String>("title") ?: "Live streaming"
                     val text = call.argument<String>("text") ?: "Broadcasting is running"
@@ -59,7 +62,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // Battery optimization helpers
+                // Battery optimization helpers (existing)
                 "openBatteryOptimizationSettings" -> {
                     try {
                         val i = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
@@ -106,7 +109,7 @@ class MainActivity : FlutterActivity() {
                     result.success(map)
                 }
 
-                // Overlay permission + bubble
+                // Overlay permission + bubble (existing)
                 "isOverlayPermissionGranted" -> {
                     val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         Settings.canDrawOverlays(this)
@@ -156,7 +159,69 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // Old placeholders (not used now; handled in Dart/WebRTC)
+                // New aliases (for global overlay UX from HomeShell/Settings)
+                "startGlobalOverlay" -> {
+                    try {
+                        val intent = Intent(this, LiveOverlayBubbleService::class.java).apply {
+                            action = LiveOverlayBubbleService.ACTION_SHOW
+                        }
+                        startService(intent)
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("GLOBAL_OVERLAY_START_FAILED", e.toString(), null)
+                    }
+                }
+
+                "stopGlobalOverlay" -> {
+                    try {
+                        val intent = Intent(this, LiveOverlayBubbleService::class.java).apply {
+                            action = LiveOverlayBubbleService.ACTION_HIDE
+                        }
+                        startService(intent)
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("GLOBAL_OVERLAY_STOP_FAILED", e.toString(), null)
+                    }
+                }
+
+                // Voice-call style FGS controls (implemented later on Android side).
+                // Using class-name strings here avoids compile-break in this step.
+                "startOverlayVoiceForegroundService" -> {
+                    val title = call.argument<String>("title") ?: "Voice chat"
+                    val text = call.argument<String>("text") ?: "Voice chat is running"
+                    try {
+                        val intent = Intent().apply {
+                            setClassName(this@MainActivity, "com.eleaguehub.app.OverlayVoiceForegroundService")
+                            action = "com.eleaguehub.app.OVERLAY_VOICE_FGS_START"
+                            putExtra("title", title)
+                            putExtra("text", text)
+                        }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            ContextCompat.startForegroundService(this, intent)
+                        } else {
+                            startService(intent)
+                        }
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("VOICE_FGS_START_FAILED", e.toString(), null)
+                    }
+                }
+
+                "stopOverlayVoiceForegroundService" -> {
+                    try {
+                        val intent = Intent().apply {
+                            setClassName(this@MainActivity, "com.eleaguehub.app.OverlayVoiceForegroundService")
+                            action = "com.eleaguehub.app.OVERLAY_VOICE_FGS_STOP"
+                        }
+                        startService(intent)
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("VOICE_FGS_STOP_FAILED", e.toString(), null)
+                    }
+                }
+
+                // Old placeholders (existing; not used now; handled in Dart/WebRTC)
                 "startHostSession" -> {
                     Log.i("LocalLive", "startHostSession (unused now; handled in Dart/WebRTC)")
                     result.success(null)

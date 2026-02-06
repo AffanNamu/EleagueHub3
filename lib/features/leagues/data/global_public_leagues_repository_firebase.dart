@@ -20,13 +20,17 @@ class GlobalPublicLeaguesRepositoryFirebase {
     // Stored format in this app is typically:
     // - isPrivate: 1/0 (int) from League.toJson()
     // But we also support boolean for forward-compatibility.
+    //
+    // NOTE:
+    // This query requires a composite index for:
+    //   isPrivate (ASC) + updatedAtMs (DESC)
     return _leaguesCol
         .where('isPrivate', whereIn: const [0, false])
         .orderBy('updatedAtMs', descending: true)
         .limit(limit);
   }
 
-  Stream<List<GlobalPublicLeague>> watchLatestPublicNotFullLeagues({
+  Stream<List<GlobalPublicLeague>> watchLatestPublicLeagues({
     int limit = 100,
   }) {
     return _publicLeaguesQuery(limit: limit).snapshots().map((snapshot) {
@@ -47,17 +51,22 @@ class GlobalPublicLeaguesRepositoryFirebase {
 
         final isFullStored = data['isFull'] == true || data['isFull'] == 1;
 
+        // Finished flag (optional, backward compatible)
+        final isFinishedStored = data['isFinished'] == true || data['isFinished'] == 1;
+
         final item = GlobalPublicLeague(
           league: league,
           registeredCount: registeredCount,
           isFullStored: isFullStored,
+          isFinishedStored: isFinishedStored,
         );
 
         // Enforce visibility rules:
         // - public only
-        // - not full
+        // - finished leagues should not appear
+        // - NOTE: we DO NOT hide full leagues anymore (per updated requirement)
         if (!item.isPublic) continue;
-        if (item.isFullComputed) continue;
+        if (item.isFinished) continue;
 
         items.add(item);
       }

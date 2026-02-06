@@ -12,20 +12,29 @@ class GlobalPublicLeague {
   final int? registeredCount;
 
   /// Optional stored boolean on the league doc.
-  /// If true, the league must not appear in global discovery.
+  /// If true, it indicates the league has reached participant capacity.
+  ///
+  /// NOTE: With your updated product requirement, we DO NOT hide full leagues.
+  /// We keep it for UI and join enforcement.
   final bool isFullStored;
+
+  /// Optional finished flag; if true, global list will hide it (finished leagues).
+  final bool isFinishedStored;
 
   const GlobalPublicLeague({
     required this.league,
     required this.registeredCount,
     required this.isFullStored,
+    required this.isFinishedStored,
   });
 
   bool get isPublic => !league.isPrivate;
 
-  /// Global visibility rule:
-  /// - if isFullStored is true => hide
-  /// - else if registeredCount is available and >= maxTeams => hide
+  bool get isFinished => isFinishedStored;
+
+  /// Participant-fullness:
+  /// - if isFullStored is true => full
+  /// - else if registeredCount is available and >= maxTeams => full
   bool get isFullComputed {
     if (isFullStored) return true;
     final c = registeredCount;

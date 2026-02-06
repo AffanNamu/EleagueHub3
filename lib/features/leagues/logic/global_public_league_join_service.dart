@@ -10,6 +10,7 @@ enum GlobalPublicLeagueJoinStatus {
   alreadyJoined,
   full,
   privateLeague,
+  finished,
 }
 
 class GlobalPublicLeagueJoinResult {
@@ -23,9 +24,11 @@ class GlobalPublicLeagueJoinResult {
 }
 
 /// Production-oriented join service:
-/// - Joins a PUBLIC league for any global user.
-/// - Enforces capacity using a denormalized `registeredCount` field when present.
-/// - Sets `isFull=true` when capacity is reached so the global list removes it automatically.
+/// - Any user can join a PUBLIC league as:
+///   - participant: consumes capacity (registeredCount++)
+///   - viewer: does NOT consume capacity
+/// - Participant join uses a Firestore transaction to enforce capacity safely.
+/// - Viewer join adds the user to memberIds for access, without creating a membership doc.
 /// - Best-effort sync into local storage via existing LocalLeaguesRepository join-by-code.
 class GlobalPublicLeagueJoinService {
   GlobalPublicLeagueJoinService({
@@ -40,6 +43,7 @@ class GlobalPublicLeagueJoinService {
   Future<GlobalPublicLeagueJoinResult> joinPublicLeague({
     required GlobalPublicLeague league,
     required String userId,
+    required LeagueJoinMode mode,
   }) async {
     final leagueId = league.league.id.trim();
     if (leagueId.isEmpty) {
@@ -56,7 +60,6 @@ class GlobalPublicLeagueJoinService {
     final membershipsRef = leagueRef.collection('memberships').doc(userId);
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    final baselineCount = league.registeredCount ?? 0;
 
     final GlobalPublicLeagueJoinStatus status = await _firestore.runTransaction((tx) async {
       final snap = await tx.get(leagueRef);
@@ -67,24 +70,43 @@ class GlobalPublicLeagueJoinService {
         return GlobalPublicLeagueJoinStatus.privateLeague;
       }
 
+      final isFinished = data['isFinished'] == true || data['isFinished'] == 1;
+      if (isFinished) {
+        return GlobalPublicLeagueJoinStatus.finished;
+      }
+
       final memberIdsRaw = data['memberIds'];
       final memberIds = (memberIdsRaw is List)
           ? memberIdsRaw.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty).toSet()
           : <String>{};
 
-      // Idempotency: if user is already a member/viewer, do not increment counts.
+      // Idempotency: if user already has access, don't re-join / re-count.
       if (memberIds.contains(userId)) {
         return GlobalPublicLeagueJoinStatus.alreadyJoined;
       }
 
+      // VIEWER JOIN: do not touch counts, do not create membership.
+      if (mode == LeagueJoinMode.viewer) {
+        tx.set(
+          leagueRef,
+          <String, dynamic>{
+            'memberIds': FieldValue.arrayUnion([userId]),
+            'updatedAtMs': now,
+          },
+          SetOptions(merge: true),
+        );
+        return GlobalPublicLeagueJoinStatus.joined;
+      }
+
+      // PARTICIPANT JOIN
       final maxTeams = (data['maxTeams'] as num?)?.toInt() ?? league.league.maxTeams;
 
       final isFullStored = data['isFull'] == true || data['isFull'] == 1;
 
-      final registeredCount = (data['registeredCount'] as num?)?.toInt() ?? baselineCount;
+      final registeredCount = (data['registeredCount'] as num?)?.toInt() ?? (league.registeredCount ?? 0);
 
       if (isFullStored || registeredCount >= maxTeams) {
-        // Ensure it disappears globally going forward.
+        // Keep `isFull` consistent for the rest of the app.
         tx.set(
           leagueRef,
           <String, dynamic>{
@@ -96,9 +118,9 @@ class GlobalPublicLeagueJoinService {
         return GlobalPublicLeagueJoinStatus.full;
       }
 
+      // If membership doc exists, treat as already joined (but ensure memberIds contains user).
       final membershipSnap = await tx.get(membershipsRef);
       if (membershipSnap.exists) {
-        // Membership doc already exists but memberIds may not; ensure memberIds contains user.
         tx.set(
           leagueRef,
           <String, dynamic>{
@@ -113,7 +135,7 @@ class GlobalPublicLeagueJoinService {
       final nextCount = registeredCount + 1;
       final nextIsFull = nextCount >= maxTeams;
 
-      // Write membership with deterministic docId=userId for idempotency in this join path.
+      // Write membership with deterministic docId=userId for idempotency.
       tx.set(
         membershipsRef,
         <String, dynamic>{
@@ -128,7 +150,7 @@ class GlobalPublicLeagueJoinService {
         SetOptions(merge: true),
       );
 
-      // Update league doc counts + full flag.
+      // Update league doc counts + access.
       tx.set(
         leagueRef,
         <String, dynamic>{
@@ -143,18 +165,19 @@ class GlobalPublicLeagueJoinService {
       return GlobalPublicLeagueJoinStatus.joined;
     });
 
-    if (status == GlobalPublicLeagueJoinStatus.full || status == GlobalPublicLeagueJoinStatus.privateLeague) {
+    if (status == GlobalPublicLeagueJoinStatus.full ||
+        status == GlobalPublicLeagueJoinStatus.privateLeague ||
+        status == GlobalPublicLeagueJoinStatus.finished) {
       return GlobalPublicLeagueJoinResult(status: status, league: null);
     }
 
     // Best-effort local sync using existing code path (DO NOT modify legacy join flows).
-    // This keeps the user's "My Leagues" tab consistent.
     League? syncedLeague;
     try {
       syncedLeague = await _localRepo.joinLeagueLocallyByCode(
         joinCode: joinCode,
         userId: userId,
-        mode: LeagueJoinMode.participant,
+        mode: mode,
         placeholderBuilder: (generatedLeagueId) {
           // Only used on transient network failures.
           return league.league.copyWith(
