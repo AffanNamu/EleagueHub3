@@ -24,6 +24,7 @@ import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/leagues/presentation/match_detail_screen.dart';
 import '../../features/leagues/presentation/qr_scanner_screen.dart';
+import '../../features/live/presentation/global_live_leagues_screen.dart';
 import '../../features/live/presentation/join_match_screen.dart';
 import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -197,6 +198,12 @@ final appRouter = GoRouter(
               builder: (context, state) => const SettingsScreen(),
             ),
           ],
+        ),
+
+        // GLOBAL LIVE (Public leagues discovery)
+        GoRoute(
+          path: 'global-live',
+          builder: (context, state) => const GlobalLiveLeaguesScreen(),
         ),
 
         // LIVE

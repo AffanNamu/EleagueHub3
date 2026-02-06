@@ -50,6 +50,27 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  void _onDestinationSelected(int i) {
+    // LIVE TAB SPECIAL BEHAVIOR (non-breaking):
+    // - Keep existing Live tab content/state intact (LiveListScreen).
+    // - Additionally, tapping the Live icon opens the new Global discovery screen.
+    if (i == 2) {
+      if (i != _index) {
+        setState(() {
+          _index = i;
+          _built[i] = true;
+        });
+      }
+
+      // Route to the NEW Global Live screen.
+      // Existing Live behavior remains available when navigating back.
+      context.push('/global-live');
+      return;
+    }
+
+    _selectTab(i);
+  }
+
   Future<bool> _handleSystemBack() async {
     // 1) If there's a pushed route (GoRouter stack), pop it.
     if (GoRouter.of(context).canPop()) {
@@ -149,7 +170,7 @@ class _HomeShellState extends State<HomeShell> {
                   backgroundColor: Colors.transparent,
                   indicatorColor: colorScheme.primary.withOpacity(0.18),
                   selectedIndex: _index,
-                  onDestinationSelected: _selectTab,
+                  onDestinationSelected: _onDestinationSelected,
                   destinations: [
                     NavigationDestination(
                       icon: const Icon(Icons.home_outlined),
@@ -161,9 +182,10 @@ class _HomeShellState extends State<HomeShell> {
                       selectedIcon: const Icon(Icons.emoji_events),
                       label: l10n.homeTabLeagues,
                     ),
+                    // LIVE (Icon changed to a global/worldwide community symbol)
                     NavigationDestination(
-                      icon: const Icon(Icons.wifi_tethering_outlined),
-                      selectedIcon: const Icon(Icons.wifi_tethering),
+                      icon: const Icon(Icons.public_outlined),
+                      selectedIcon: const Icon(Icons.public),
                       label: l10n.homeTabLive,
                     ),
                     NavigationDestination(

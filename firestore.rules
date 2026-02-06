@@ -42,6 +42,11 @@ service cloud.firestore {
         ));
     }
 
+    // Helper for safe numeric comparisons in update rules.
+    function registeredCountOrZero(d) {
+      return (d.registeredCount is int) ? d.registeredCount : 0;
+    }
+
     // --------------------------
     // User Profiles (Firebase uid is doc id)
     // --------------------------
@@ -109,7 +114,9 @@ service cloud.firestore {
       // Secure-by-default: if privacy missing/unknown -> private (owner/member only).
       allow get: if isOwner(leagueId) || isMember(leagueId) || isPublicLeague(leagueId);
 
-      // Allows .where('memberIds', 'array-contains', uid) queries
+      // Allows queries like:
+      // - .where('memberIds', 'array-contains', uid)
+      // - global discovery query for public leagues
       allow list: if signedIn();
 
       allow create: if signedIn()
@@ -121,11 +128,62 @@ service cloud.firestore {
           || (request.auth.uid in request.resource.data.memberIds)
         );
 
+      // UPDATE rules:
+      // 1) Owner can update freely (existing behavior).
+      // 2) Members can self-join by adding themselves to memberIds (+ updatedAtMs).
+      // 3) Global public-league join is allowed to ALSO update registeredCount + isFull,
+      //    but only under strict "single-user join" conditions (prevents tampering).
       allow update: if isOwner(leagueId)
+        // Existing self-join path (Join by code) — unchanged semantics
         || (signedIn()
           && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
           && (request.resource.data.memberIds is list)
-          && (request.auth.uid in request.resource.data.memberIds));
+          && (request.auth.uid in request.resource.data.memberIds))
+        // Global join path (adds auth.uid exactly once + increments count exactly once)
+        || (signedIn()
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'memberIds',
+            'updatedAtMs',
+            'registeredCount',
+            'isFull'
+          ])
+          && (request.resource.data.memberIds is list)
+          && (request.auth.uid in request.resource.data.memberIds)
+
+          // Ensure this update is a true join:
+          // - old memberIds (if any) are preserved
+          // - exactly one new member is added (the caller)
+          && (
+            // Old doc has memberIds list
+            (
+              (resource.data.memberIds is list)
+              && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+              && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+              && !(request.auth.uid in resource.data.memberIds)
+            )
+            // Backward compatibility: old doc has no memberIds yet
+            ||
+            (
+              !(resource.data.memberIds is list)
+              && request.resource.data.memberIds.size() == 1
+              && (request.auth.uid in request.resource.data.memberIds)
+            )
+          )
+
+          // registeredCount must increment by exactly 1 (supports missing old field -> treat as 0)
+          && (request.resource.data.registeredCount is int)
+          && request.resource.data.registeredCount == (registeredCountOrZero(resource.data) + 1)
+
+          // isFull must match the capacity check for the resulting registeredCount
+          && (
+            (request.resource.data.isFull is bool)
+            && (
+              request.resource.data.isFull
+              ==
+              (request.resource.data.registeredCount >= ((resource.data.maxTeams is int) ? resource.data.maxTeams : request.resource.data.maxTeams))
+            )
+          )
+        );
 
       allow delete: if isOwner(leagueId);
 
@@ -145,9 +203,22 @@ service cloud.firestore {
       }
 
       match /memberships/{membershipId} {
-        allow read: if isOwner(leagueId) || isMember(leagueId);
+        // IMPORTANT for Global Join transaction:
+        // - allow the signed-in user to read their own membership doc path
+        //   even if they are not yet a member (doc may not exist).
+        allow get: if isOwner(leagueId) || isMember(leagueId) || (signedIn() && membershipId == request.auth.uid);
+
+        // Keep list restricted to league members/admin (prevents enumeration).
+        allow list: if isOwner(leagueId) || isMember(leagueId);
+
+        // Keep existing behavior, but add a safe guard: leagueId must match.
         allow create, update: if isOwner(leagueId)
-          || (signedIn() && request.resource.data.userId == request.auth.uid);
+          || (
+            signedIn()
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.leagueId == leagueId
+          );
+
         allow delete: if isOwner(leagueId);
       }
 
