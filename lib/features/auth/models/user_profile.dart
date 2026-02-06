@@ -15,6 +15,16 @@ class UserProfile {
   /// IMPORTANT: This is NOT the internal userId. Internal userId remains Firebase uid.
   final String? shareId;
 
+  /// Premium entitlement (stored in Firestore user doc).
+  ///
+  /// Field name: isPremium: bool
+  final bool isPremium;
+
+  /// Premium-only: user-created quick messages (stored in Firestore user doc).
+  ///
+  /// Field name: quickMessagesCustom: List<String>
+  final List<String> quickMessagesCustom;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -23,6 +33,8 @@ class UserProfile {
     required this.teamName,
     required this.authProvider,
     required this.shareId,
+    required this.isPremium,
+    required this.quickMessagesCustom,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -41,6 +53,16 @@ class UserProfile {
     return deriveShareIdFromUid(userId);
   }
 
+  static List<String> _stringList(dynamic v) {
+    if (v is List) {
+      return v
+          .map((e) => (e ?? '').toString().trim())
+          .where((s) => s.isNotEmpty)
+          .toList(growable: false);
+    }
+    return const <String>[];
+  }
+
   static UserProfile fromFirestore({
     required String userId,
     required Map<String, dynamic> data,
@@ -55,6 +77,8 @@ class UserProfile {
       teamName: (data['teamName'] as String?) ?? '',
       authProvider: (data['authProvider'] as String?) ?? 'unknown',
       shareId: (data['shareId'] as String?)?.trim(),
+      isPremium: data['isPremium'] == true,
+      quickMessagesCustom: _stringList(data['quickMessagesCustom']),
       createdAt: toDate(data['createdAt']),
       updatedAt: toDate(data['updatedAt']),
     );

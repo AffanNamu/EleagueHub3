@@ -18,10 +18,10 @@ import io.flutter.plugin.common.MethodChannel
 /**
  * Summary:
  * - Foreground service used while voice is active (keeps process alive + provides controls).
- * - Notification actions: Mute/Unmute, End, Expand.
- * - Sends actions to Flutter via MethodChannel when engine is alive.
- * - Safe on Android 14+: if starting microphone-type FGS fails (missing mic permission),
- *   fallback to "no-type" foreground.
+ * - Notification actions: Toggle Mute, End, Expand.
+ * - Mute label is derived from last known mic state persisted by Flutter (overlay_prefs mic_muted).
+ * - Toggle action sends "toggle_mic" to Flutter; Flutter updates mic state and then pushes
+ *   setOverlayMicMutedState() which updates prefs and overlay icon.
  */
 class OverlayVoiceForegroundService : Service() {
 
@@ -42,11 +42,13 @@ class OverlayVoiceForegroundService : Service() {
 
         private const val DART_CHANNEL = "local_live"
         private const val DART_METHOD_OVERLAY_ACTION = "overlayAction"
+
+        private const val OVERLAY_PREFS = "overlay_prefs"
+        private const val KEY_MIC_MUTED = "mic_muted"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var isMuted: Boolean = false
     private var currentTitle: String = "Voice chat"
     private var currentText: String = "Voice chat is running"
 
@@ -66,9 +68,11 @@ class OverlayVoiceForegroundService : Service() {
             }
 
             ACTION_TOGGLE_MUTE -> {
-                isMuted = !isMuted
-                sendToDart(if (isMuted) "mute" else "unmute")
-                updateNotification()
+                // Do not guess state here; ask Flutter to toggle.
+                sendToDart("toggle_mic")
+
+                // Update notification after a short delay to pick up prefs updated by Flutter.
+                mainHandler.postDelayed({ updateNotification() }, 350)
             }
 
             ACTION_END -> {
@@ -78,7 +82,6 @@ class OverlayVoiceForegroundService : Service() {
             }
 
             ACTION_EXPAND -> {
-                // Always works even if Dart engine is gone: brings app to foreground.
                 try {
                     val launch = packageManager.getLaunchIntentForPackage(packageName)
                     if (launch != null) {
@@ -86,7 +89,6 @@ class OverlayVoiceForegroundService : Service() {
                         startActivity(launch)
                     }
                 } catch (_: Throwable) { }
-                // Also notify Dart if possible (optional).
                 sendToDart("expand")
             }
         }
@@ -99,7 +101,6 @@ class OverlayVoiceForegroundService : Service() {
 
         val notification = buildNotification()
 
-        // Try correct microphone-type FGS first; fallback to non-typed FGS if restricted.
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -111,11 +112,9 @@ class OverlayVoiceForegroundService : Service() {
                 startForeground(NOTIF_ID, notification)
             }
         } catch (_: SecurityException) {
-            // Missing mic permission or OEM restriction: keep service alive without type.
             try {
                 startForeground(NOTIF_ID, notification)
             } catch (_: Throwable) {
-                // If even this fails, stop service.
                 stopSelf()
             }
         } catch (_: Throwable) {
@@ -147,6 +146,15 @@ class OverlayVoiceForegroundService : Service() {
         }
     }
 
+    private fun isMutedFromPrefs(): Boolean {
+        return try {
+            val sp = applicationContext.getSharedPreferences(OVERLAY_PREFS, Context.MODE_PRIVATE)
+            sp.getBoolean(KEY_MIC_MUTED, true)
+        } catch (_: Throwable) {
+            true
+        }
+    }
+
     private fun buildNotification(): Notification {
         val expandIntent = PendingIntent.getService(
             this,
@@ -169,7 +177,8 @@ class OverlayVoiceForegroundService : Service() {
             pendingFlags()
         )
 
-        val muteLabel = if (isMuted) "Unmute" else "Mute"
+        val muted = isMutedFromPrefs()
+        val muteLabel = if (muted) "Unmute" else "Mute"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)

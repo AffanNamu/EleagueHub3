@@ -30,6 +30,24 @@ class OverlayPlatform {
     await _ch.invokeMethod('stopGlobalOverlay');
   }
 
+  /// Summary:
+  /// - Push the combined quick message list (defaults + custom) to Android.
+  /// - Android overlay stores this list in SharedPreferences and uses it for overlay buttons.
+  static Future<void> setOverlayQuickMessages(List<String> messages) async {
+    if (!Platform.isAndroid) return;
+
+    final cleaned = messages.map((e) => e.trim()).where((s) => s.isNotEmpty).toList(growable: false);
+    await _ch.invokeMethod('setOverlayQuickMessages', cleaned);
+  }
+
+  /// Summary:
+  /// - Push mic muted state to Android so overlay mic icon can visually reflect it.
+  /// - muted=true means show mic_off style; muted=false means show mic style.
+  static Future<void> setOverlayMicMutedState({required bool muted}) async {
+    if (!Platform.isAndroid) return;
+    await _ch.invokeMethod('setOverlayMicMutedState', <String, dynamic>{'muted': muted});
+  }
+
   static Future<void> startOverlayVoiceForegroundService({
     String title = 'Voice chat',
     String text = 'Voice chat is running',

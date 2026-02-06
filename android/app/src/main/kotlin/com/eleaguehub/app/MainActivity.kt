@@ -1,5 +1,6 @@
 package com.eleaguehub.app
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -9,6 +10,7 @@ import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
 
 private const val LOCAL_LIVE_CHANNEL = "local_live"
 
@@ -159,6 +161,73 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                // New: store quick messages for overlay (defaults + premium custom from Flutter)
+                "setOverlayQuickMessages" -> {
+                    try {
+                        val raw = call.arguments
+                        val list = mutableListOf<String>()
+
+                        if (raw is List<*>) {
+                            for (e in raw) {
+                                val s = (e ?: "").toString().trim()
+                                if (s.isNotEmpty()) list.add(s)
+                            }
+                        }
+
+                        val arr = JSONArray()
+                        for (s in list) arr.put(s)
+
+                        val sp = applicationContext.getSharedPreferences("overlay_prefs", Context.MODE_PRIVATE)
+                        sp.edit().putString("quick_messages_json", arr.toString()).apply()
+
+                        // Ask overlay to refresh if it's already running.
+                        try {
+                            val i = Intent(this, LiveOverlayBubbleService::class.java).apply {
+                                action = LiveOverlayBubbleService.ACTION_REFRESH
+                            }
+                            startService(i)
+                        } catch (_: Throwable) {
+                        }
+
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("SET_OVERLAY_QUICK_FAILED", e.toString(), null)
+                    }
+                }
+
+                // New: store mic muted state for overlay icon visual
+                "setOverlayMicMutedState" -> {
+                    try {
+                        var muted = false
+                        val raw = call.arguments
+                        if (raw is Boolean) {
+                            muted = raw
+                        } else if (raw is Map<*, *>) {
+                            val v = raw["muted"]
+                            if (v is Boolean) muted = v
+                        } else {
+                            val v = call.argument<Boolean>("muted")
+                            if (v != null) muted = v
+                        }
+
+                        val sp = applicationContext.getSharedPreferences("overlay_prefs", Context.MODE_PRIVATE)
+                        sp.edit().putBoolean("mic_muted", muted).apply()
+
+                        // Ask overlay to refresh if it's already running.
+                        try {
+                            val i = Intent(this, LiveOverlayBubbleService::class.java).apply {
+                                action = LiveOverlayBubbleService.ACTION_REFRESH
+                            }
+                            startService(i)
+                        } catch (_: Throwable) {
+                        }
+
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("SET_OVERLAY_MIC_STATE_FAILED", e.toString(), null)
+                    }
+                }
+
                 // New aliases (for global overlay UX from HomeShell/Settings)
                 "startGlobalOverlay" -> {
                     try {
@@ -184,8 +253,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // Voice-call style FGS controls (implemented later on Android side).
-                // Using class-name strings here avoids compile-break in this step.
+                // Voice-call style FGS controls
                 "startOverlayVoiceForegroundService" -> {
                     val title = call.argument<String>("title") ?: "Voice chat"
                     val text = call.argument<String>("text") ?: "Voice chat is running"

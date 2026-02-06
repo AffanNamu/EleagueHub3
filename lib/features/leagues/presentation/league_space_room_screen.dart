@@ -50,7 +50,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _micEnabled = false;
 
   /// True iff we have already caused LiveKit to create+publish the mic track once for this join.
-  /// This is the key Twitter-Spaces behavior: approval only unmutes an already-published track.
   bool _micPrimed = false;
 
   bool _requestedMicPermissionOnJoin = false;
@@ -132,7 +131,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           }
         });
       } catch (_) {
-        // ignore lookup errors
+        // ignore
       } finally {
         _displayNameLoading.remove(uid);
       }
@@ -366,7 +365,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   Future<void> _startVoiceFgs() async {
     if (_voiceFgsRunning) return;
 
-    // Safety: only start mic-type FGS if mic permission is granted.
     final mic = await Permission.microphone.status;
     if (!mic.isGranted) return;
 
@@ -472,6 +470,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _micEnabled = false;
           _micPrimed = false;
         });
+        // Best-effort: show muted icon when session ends.
+        unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
       });
 
       await room.connect(token.url, token.token);
@@ -514,10 +514,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       await _room!.localParticipant!.setMicrophoneEnabled(true);
       _micPrimed = true;
       _micEnabled = true;
+      unawaited(OverlayPlatform.setOverlayMicMutedState(muted: false));
     } catch (e) {
       debugPrint('Mic prime failed on join: $e');
       _micPrimed = false;
       _micEnabled = false;
+      unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
     }
   }
 
@@ -532,6 +534,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (shouldBeUnmuted) {
         _toastWarn(l10n.tr('league_space_mic_not_primed_toast'));
       }
+      // Keep overlay icon muted if we cannot unmute.
+      unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
       return;
     }
 
@@ -548,6 +552,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       setState(() {
         _micEnabled = enabled;
       });
+
+      // Push real mic state to Android overlay icon.
+      unawaited(OverlayPlatform.setOverlayMicMutedState(muted: !enabled));
     } catch (e) {
       debugPrint('setMicrophoneEnabled($enabled) failed: $e');
     }
@@ -556,6 +563,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   Future<void> _disconnectAudio() async {
     await _stopVoiceFgs();
     OverlayBridge.clearHandlers();
+
+    // Best-effort: when no active voice, show muted icon.
+    unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
 
     try {
       _listener?.dispose();

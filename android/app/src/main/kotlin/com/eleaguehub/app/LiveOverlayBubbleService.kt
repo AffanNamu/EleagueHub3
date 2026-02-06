@@ -1,18 +1,23 @@
 package com.eleaguehub.app
 
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.Point
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
@@ -20,7 +25,9 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
 import kotlin.math.abs
+import kotlin.math.max
 
 class LiveOverlayBubbleService : Service() {
 
@@ -28,26 +35,57 @@ class LiveOverlayBubbleService : Service() {
         const val ACTION_SHOW = "com.eleaguehub.app.LIVE_OVERLAY_SHOW"
         const val ACTION_HIDE = "com.eleaguehub.app.LIVE_OVERLAY_HIDE"
 
+        // Sent from MainActivity after quick messages / mic state update.
+        const val ACTION_REFRESH = "com.eleaguehub.app.LIVE_OVERLAY_REFRESH"
+
         private const val DART_CHANNEL = "local_live"
         private const val DART_METHOD = "overlayAction"
+
+        // SharedPreferences used by OverlayPositionStore + quick messages + mic state.
+        private const val OVERLAY_PREFS = "overlay_prefs"
+        private const val KEY_QUICK_MESSAGES_JSON = "quick_messages_json"
+        private const val KEY_MIC_MUTED = "mic_muted"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var windowManager: WindowManager? = null
+    private var params: WindowManager.LayoutParams? = null
     private var rootView: View? = null
 
-    // drag state
-    private var initialX: Int = 0
-    private var initialY: Int = 0
-    private var initialTouchX: Float = 0f
-    private var initialTouchY: Float = 0f
+    private lateinit var positionStore: OverlayPositionStore
+    private var touchSlop: Int = 10
+    private val marginPx by lazy { dp(8) }
+
+    // UI refs (so we can refresh list/state without rebuilding whole overlay)
+    private var panelView: LinearLayout? = null
+    private var stackView: LinearLayout? = null
+    private var micView: ImageView? = null
+
+    private val configReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != Intent.ACTION_CONFIGURATION_CHANGED) return
+            rootView?.post { applyStoredPositionAndClamp() }
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        positionStore = OverlayPositionStore(this)
+        touchSlop = ViewConfiguration.get(this).scaledTouchSlop.coerceAtLeast(8)
+
+        try {
+            registerReceiver(configReceiver, IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED))
+        } catch (_: Throwable) {
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_SHOW -> showOverlay()
+            ACTION_REFRESH -> refreshOverlayUi()
             ACTION_HIDE -> {
                 hideOverlay()
                 stopSelf()
@@ -74,7 +112,7 @@ class LiveOverlayBubbleService : Service() {
                 WindowManager.LayoutParams.TYPE_PHONE
             }
 
-        val params = WindowManager.LayoutParams(
+        val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutType,
@@ -84,30 +122,39 @@ class LiveOverlayBubbleService : Service() {
             PixelFormat.TRANSLUCENT
         )
 
-        params.gravity = Gravity.TOP or Gravity.END
-        params.x = dp(14)
-        params.y = dp(170)
+        // Use TOP|START so x/y are consistent and easier to persist/clamp.
+        lp.gravity = Gravity.TOP or Gravity.START
 
         val root = FrameLayout(this)
 
-        // Container: icons row + optional panel below
-        val container = LinearLayout(this).apply {
+        // Vertical stack: pill row + panel
+        val stack = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            background = ContextCompat.getDrawable(this@LiveOverlayBubbleService, android.R.drawable.dialog_holo_light_frame)
-            alpha = 0.78f
         }
+        stackView = stack
 
-        val iconRow = LinearLayout(this).apply {
+        val pill = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            alpha = 0.92f
+            isClickable = true
+            isFocusable = false
+            background = GradientDrawable().apply {
+                cornerRadius = dp(22).toFloat()
+                setColor(0xCC0B1220.toInt())
+                setStroke(dp(1), 0x33FFFFFF)
+            }
         }
 
         val mic = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_btn_speak_now)
-            alpha = 0.95f
+            alpha = 0.98f
             setPadding(dp(10), dp(10), dp(10), dp(10))
+            setColorFilter(ContextCompat.getColor(this@LiveOverlayBubbleService, android.R.color.white))
+            isClickable = true
+            contentDescription = "Voice"
             setOnClickListener {
+                // Action is handled in Flutter; Flutter will push real mic state back via setOverlayMicMutedState().
                 sendToDart(action = "toggle_mic")
             }
             setOnLongClickListener {
@@ -115,39 +162,90 @@ class LiveOverlayBubbleService : Service() {
                 true
             }
         }
+        micView = mic
 
         val msg = ImageView(this).apply {
             setImageResource(android.R.drawable.ic_dialog_email)
-            alpha = 0.95f
+            alpha = 0.98f
             setPadding(dp(10), dp(10), dp(10), dp(10))
+            setColorFilter(ContextCompat.getColor(this@LiveOverlayBubbleService, android.R.color.white))
+            isClickable = true
+            contentDescription = "Messages"
         }
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            setPadding(0, dp(8), 0, 0)
+            setPadding(dp(8), dp(10), dp(8), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(0xCC0B1220.toInt())
+                setStroke(dp(1), 0x33FFFFFF)
+            }
         }
+        panelView = panel
 
         fun togglePanel() {
             panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            root.post { clampToScreenAndUpdate(saveAfter = false) }
         }
 
         msg.setOnClickListener { togglePanel() }
 
-        // Quick messages (English defaults; Dart side may no-op if no active session)
-        val quick = listOf(
-            "Focus!",
-            "Calm down",
-            "We got this",
-            "One more goal!",
-            "Don’t give up",
-            "Sorry",
-            "Unlucky",
-            "What a goal!",
-            "Ref??"
-        )
+        pill.addView(mic)
+        pill.addView(msg)
 
-        quick.forEach { label ->
+        // Drag: drag by touching pill or icons.
+        val dragListener = DragTouchListener(onDragEnd = { snapToEdgeAndSave() })
+        pill.setOnTouchListener(dragListener)
+        mic.setOnTouchListener(dragListener)
+        msg.setOnTouchListener(dragListener)
+
+        stack.addView(pill)
+        stack.addView(panel)
+
+        root.addView(stack)
+
+        rootView = root
+        params = lp
+
+        // Populate UI now
+        rebuildPanelContents()
+        applyMicVisual()
+
+        // Measure and apply stored position
+        measureView(root)
+        applyStoredPositionAndClamp()
+
+        try {
+            windowManager?.addView(rootView, params)
+        } catch (_: Throwable) {
+            rootView = null
+            params = null
+            panelView = null
+            stackView = null
+            micView = null
+            stopSelf()
+        }
+    }
+
+    private fun refreshOverlayUi() {
+        if (rootView == null) return
+        rebuildPanelContents()
+        applyMicVisual()
+        rootView?.post {
+            measureView(rootView!!)
+            clampToScreenAndUpdate(saveAfter = false)
+        }
+    }
+
+    private fun rebuildPanelContents() {
+        val panel = panelView ?: return
+        panel.removeAllViews()
+
+        val messages = loadQuickMessages()
+
+        for (label in messages) {
             panel.addView(
                 Button(this).apply {
                     text = label
@@ -155,16 +253,18 @@ class LiveOverlayBubbleService : Service() {
                     setOnClickListener {
                         sendToDart(action = "send_quick", label = label)
                         panel.visibility = View.GONE
+                        rootView?.post { clampToScreenAndUpdate(saveAfter = false) }
                     }
                 }
             )
         }
 
+        // Action row
         panel.addView(
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
-                setPadding(0, dp(8), 0, 0)
+                setPadding(0, dp(10), 0, 0)
 
                 addView(
                     Button(this@LiveOverlayBubbleService).apply {
@@ -173,6 +273,7 @@ class LiveOverlayBubbleService : Service() {
                         setOnClickListener {
                             sendToDart(action = "end")
                             panel.visibility = View.GONE
+                            rootView?.post { clampToScreenAndUpdate(saveAfter = false) }
                         }
                     }
                 )
@@ -183,6 +284,7 @@ class LiveOverlayBubbleService : Service() {
                         setOnClickListener {
                             expandApp()
                             panel.visibility = View.GONE
+                            rootView?.post { clampToScreenAndUpdate(saveAfter = false) }
                         }
                     }
                 )
@@ -198,65 +300,219 @@ class LiveOverlayBubbleService : Service() {
                 )
             }
         )
+    }
 
-        iconRow.addView(mic)
-        iconRow.addView(msg)
-
-        // Drag handle: drag the icon row only.
-        iconRow.setOnTouchListener(object : View.OnTouchListener {
-            private var downTime: Long = 0
-
-            override fun onTouch(v: View, event: MotionEvent): Boolean {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        downTime = System.currentTimeMillis()
-                        initialX = params.x
-                        initialY = params.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        return true
-                    }
-
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = (event.rawX - initialTouchX).toInt()
-                        val dy = (event.rawY - initialTouchY).toInt()
-                        params.x = initialX - dx
-                        params.y = initialY + dy
-                        try {
-                            windowManager?.updateViewLayout(root, params)
-                        } catch (_: Throwable) {
-                        }
-                        return true
-                    }
-
-                    MotionEvent.ACTION_UP -> {
-                        val elapsed = System.currentTimeMillis() - downTime
-                        val movedX = abs(event.rawX - initialTouchX)
-                        val movedY = abs(event.rawY - initialTouchY)
-
-                        // Click-through: if user didn't drag, treat like click on row (toggle panel)
-                        if (elapsed < 200 && movedX < 10 && movedY < 10) {
-                            togglePanel()
-                        }
-                        return true
-                    }
-                }
-                return false
-            }
-        })
-
-        container.addView(iconRow)
-        container.addView(panel)
-        root.addView(container)
-
-        rootView = root
+    private fun loadQuickMessages(): List<String> {
+        // Defaults are always available.
+        val defaults = listOf(
+            "Focus!",
+            "Calm down",
+            "We got this",
+            "One more goal!",
+            "Don’t give up",
+            "Sorry",
+            "Unlucky",
+            "What a goal!",
+            "Ref??"
+        )
 
         try {
-            windowManager?.addView(rootView, params)
+            val sp = applicationContext.getSharedPreferences(OVERLAY_PREFS, Context.MODE_PRIVATE)
+            val raw = sp.getString(KEY_QUICK_MESSAGES_JSON, null) ?: return defaults
+
+            val arr = JSONArray(raw)
+            val out = ArrayList<String>(arr.length())
+            for (i in 0 until arr.length()) {
+                val s = arr.optString(i, "").trim()
+                if (s.isNotEmpty()) out.add(s)
+            }
+
+            // If Flutter sent something, use it (already combined defaults+custom).
+            return if (out.isNotEmpty()) out else defaults
         } catch (_: Throwable) {
-            rootView = null
-            stopSelf()
+            return defaults
         }
+    }
+
+    private fun loadMicMuted(): Boolean {
+        return try {
+            val sp = applicationContext.getSharedPreferences(OVERLAY_PREFS, Context.MODE_PRIVATE)
+            sp.getBoolean(KEY_MIC_MUTED, true) // default muted for safety
+        } catch (_: Throwable) {
+            true
+        }
+    }
+
+    private fun applyMicVisual() {
+        val mic = micView ?: return
+        val muted = loadMicMuted()
+
+        // Visual change when muted/unmuted (user requirement)
+        if (muted) {
+            mic.setImageResource(android.R.drawable.ic_lock_silent_mode)
+            mic.alpha = 0.75f
+        } else {
+            mic.setImageResource(android.R.drawable.ic_btn_speak_now)
+            mic.alpha = 0.98f
+        }
+    }
+
+    private inner class DragTouchListener(
+        private val onDragEnd: () -> Unit
+    ) : View.OnTouchListener {
+
+        private var dragging = false
+        private var downRawX = 0f
+        private var downRawY = 0f
+        private var startX = 0
+        private var startY = 0
+
+        override fun onTouch(v: View, event: MotionEvent): Boolean {
+            val lp = params ?: return false
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragging = false
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = lp.x
+                    startY = lp.y
+                    return true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+
+                    if (!dragging) {
+                        if (abs(dx) > touchSlop || abs(dy) > touchSlop) {
+                            dragging = true
+                        } else {
+                            return true
+                        }
+                    }
+
+                    lp.x = startX + dx.toInt()
+                    lp.y = startY + dy.toInt()
+                    clampToScreenAndUpdate(saveAfter = false)
+                    return true
+                }
+
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) {
+                        onDragEnd()
+                        return true
+                    }
+
+                    // Not a drag: let click handlers run.
+                    v.performClick()
+                    return true
+                }
+            }
+
+            return false
+        }
+    }
+
+    private fun measureView(v: View) {
+        try {
+            val wSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            val hSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            v.measure(wSpec, hSpec)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun screenSizePx(): Pair<Int, Int> {
+        val wm = windowManager ?: return Pair(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            Pair(max(1, bounds.width()), max(1, bounds.height()))
+        } else {
+            @Suppress("DEPRECATION")
+            val display = wm.defaultDisplay
+            val p = Point()
+            @Suppress("DEPRECATION")
+            display.getSize(p)
+            Pair(max(1, p.x), max(1, p.y))
+        }
+    }
+
+    private fun applyStoredPositionAndClamp() {
+        val lp = params ?: return
+        val v = rootView ?: return
+
+        measureView(v)
+
+        val (screenW, screenH) = screenSizePx()
+        val viewW = if (v.measuredWidth > 0) v.measuredWidth else dp(120)
+        val viewH = if (v.measuredHeight > 0) v.measuredHeight else dp(56)
+
+        val (xf, yf) = positionStore.load()
+        val (xPx, yPx) = positionStore.fracToPx(
+            xFrac = xf,
+            yFrac = yf,
+            screenW = screenW,
+            screenH = screenH,
+            viewW = viewW,
+            viewH = viewH,
+            marginPx = marginPx
+        )
+
+        lp.x = xPx
+        lp.y = yPx
+
+        try {
+            windowManager?.updateViewLayout(v, lp)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun clampToScreenAndUpdate(saveAfter: Boolean) {
+        val lp = params ?: return
+        val v = rootView ?: return
+
+        val (screenW, screenH) = screenSizePx()
+        val viewW = if (v.width > 0) v.width else (if (v.measuredWidth > 0) v.measuredWidth else dp(120))
+        val viewH = if (v.height > 0) v.height else (if (v.measuredHeight > 0) v.measuredHeight else dp(56))
+
+        val maxX = max(0, screenW - viewW - marginPx)
+        val maxY = max(0, screenH - viewH - marginPx)
+
+        lp.x = lp.x.coerceIn(0, maxX)
+        lp.y = lp.y.coerceIn(0, maxY)
+
+        try {
+            windowManager?.updateViewLayout(v, lp)
+        } catch (_: Throwable) {
+        }
+
+        if (saveAfter) {
+            val (xf, yf) = positionStore.pxToFrac(
+                xPx = lp.x,
+                yPx = lp.y,
+                screenW = screenW,
+                screenH = screenH,
+                viewW = viewW,
+                viewH = viewH,
+                marginPx = marginPx
+            )
+            positionStore.save(xf, yf)
+        }
+    }
+
+    private fun snapToEdgeAndSave() {
+        val lp = params ?: return
+        val v = rootView ?: return
+
+        measureView(v)
+
+        val (screenW, _) = screenSizePx()
+        val viewW = if (v.width > 0) v.width else (if (v.measuredWidth > 0) v.measuredWidth else dp(120))
+
+        lp.x = positionStore.snapToEdge(lp.x, screenW, viewW, marginPx)
+        clampToScreenAndUpdate(saveAfter = true)
     }
 
     private fun hideOverlay() {
@@ -266,11 +522,14 @@ class LiveOverlayBubbleService : Service() {
         } catch (_: Throwable) {
         } finally {
             rootView = null
+            params = null
+            panelView = null
+            stackView = null
+            micView = null
         }
     }
 
     private fun sendToDart(action: String, label: String? = null) {
-        // If engine isn't alive, best-effort: bring app to foreground so Flutter can handle it.
         val messenger = FlutterEngineHolder.messengerOrNull()
         if (messenger == null) {
             expandApp()
@@ -285,7 +544,6 @@ class LiveOverlayBubbleService : Service() {
                 if (label != null) args["label"] = label
                 ch.invokeMethod(DART_METHOD, args)
             } catch (_: Throwable) {
-                // fallback: open app
                 expandApp()
             }
         }
@@ -311,6 +569,10 @@ class LiveOverlayBubbleService : Service() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(configReceiver)
+        } catch (_: Throwable) {
+        }
         hideOverlay()
         super.onDestroy()
     }

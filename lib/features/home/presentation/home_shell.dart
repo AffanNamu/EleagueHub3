@@ -1,25 +1,36 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/persistence/prefs_service.dart';
+import '../../../core/platform/overlay_platform.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
+import '../../live/logic/quick_messages_controller.dart';
 import '../../live/presentation/live_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../social/domain/announcement.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
 
+String _trOr(AppLocalizations l10n, String key, String fallback) {
+  final v = l10n.tr(key);
+  return v == key ? fallback : v;
+}
+
 /// HomeShell: Main tabbed scaffold for the app
-class HomeShell extends StatefulWidget {
+class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
 
   @override
-  State<HomeShell> createState() => _HomeShellState();
+  ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
 
   late final List<Widget> _tabs;
@@ -28,9 +39,17 @@ class _HomeShellState extends State<HomeShell> {
   /// and then keep its state alive (prevents reload loops / re-fetching).
   late final List<bool> _built;
 
+  bool _overlayEnabled = false;
+  bool _overlayGranted = false;
+
+  // Prevent spamming platform calls from rebuilds.
+  String _lastOverlayQuickHash = '';
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _tabs = const [
       _HomeTab(),
       LeaguesListScreen(),
@@ -40,6 +59,136 @@ class _HomeShellState extends State<HomeShell> {
     ];
     _built = List<bool>.filled(_tabs.length, false);
     _built[_index] = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadOverlayStateAndMaybeStart());
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // If user went to system settings for overlay permission, refresh on resume.
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_loadOverlayStateAndMaybeStart());
+    }
+  }
+
+  Future<void> _loadOverlayStateAndMaybeStart() async {
+    final prefs = ref.read(prefsServiceProvider);
+    final enabled = prefs.liveOverlayEnabled();
+    final granted = await OverlayPlatform.isOverlayPermissionGranted();
+
+    if (!mounted) return;
+    setState(() {
+      _overlayEnabled = enabled;
+      _overlayGranted = granted;
+    });
+
+    // System-wide behavior (B): ensure overlay is running when enabled + granted.
+    if (enabled && granted) {
+      await OverlayPlatform.startGlobalOverlay();
+    }
+  }
+
+  Future<void> _toggleOverlayFromHome() async {
+    final prefs = ref.read(prefsServiceProvider);
+    final l10n = context.l10n;
+
+    if (_overlayEnabled) {
+      final sure = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(_trOr(l10n, 'live_overlay_turn_off_title', 'Turn off overlay?')),
+          content: Text(
+            _trOr(
+              l10n,
+              'live_overlay_turn_off_body',
+              'This will hide the floating voice/message controls.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(_trOr(l10n, 'common_turn_off', 'Turn off')),
+            ),
+          ],
+        ),
+      );
+
+      if (sure != true) return;
+
+      await prefs.setLiveOverlayEnabled(false);
+      await OverlayPlatform.stopGlobalOverlay();
+
+      if (!mounted) return;
+      setState(() {
+        _overlayEnabled = false;
+      });
+
+      return;
+    }
+
+    // Enabling: explicit consent + permission.
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_trOr(l10n, 'live_overlay_enable_title', 'Enable floating overlay?')),
+        content: Text(
+          _trOr(
+            l10n,
+            'live_overlay_enable_body',
+            'This shows a floating voice/message control above other apps (games, browser). Android will ask for an “Appear on top” permission.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(_trOr(l10n, 'common_continue', 'Continue')),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed != true) return;
+
+    await prefs.setLiveOverlayEnabled(true);
+
+    final granted = await OverlayPlatform.isOverlayPermissionGranted();
+    if (!mounted) return;
+
+    setState(() {
+      _overlayEnabled = true;
+      _overlayGranted = granted;
+    });
+
+    if (granted) {
+      await OverlayPlatform.startGlobalOverlay();
+      return;
+    }
+
+    await OverlayPlatform.requestOverlayPermission();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(_trOr(l10n, 'live_overlay_permission_snackbar', 'Grant the overlay permission, then return to the app.')),
+      ),
+    );
   }
 
   void _selectTab(int i) {
@@ -51,12 +200,19 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _onDestinationSelected(int i) {
-    // Requirement (B):
-    // Tapping the Live (global) icon should open Global Leagues,
-    // AND when user goes back they should return to the PREVIOUS TAB.
-    //
-    // So we DO NOT change the selected tab index here.
+    // LIVE TAB SPECIAL BEHAVIOR (non-breaking):
+    // - Keep existing Live tab content/state intact (LiveListScreen).
+    // - Additionally, tapping the Live icon opens the new Global discovery screen.
     if (i == 2) {
+      if (i != _index) {
+        setState(() {
+          _index = i;
+          _built[i] = true;
+        });
+      }
+
+      // Route to the NEW Global Live screen.
+      // Existing Live behavior remains available when navigating back.
       context.push('/global-live');
       return;
     }
@@ -105,6 +261,16 @@ class _HomeShellState extends State<HomeShell> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
+    // Keep Android overlay quick messages in sync with Firestore (premium custom) as the user changes them.
+    final overlayQuick = ref.watch(overlayQuickMessagesProvider);
+    final quickHash = overlayQuick.join('\u0001');
+    if (quickHash != _lastOverlayQuickHash) {
+      _lastOverlayQuickHash = quickHash;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(OverlayPlatform.setOverlayQuickMessages(overlayQuick));
+      });
+    }
+
     final tabTitles = [
       l10n.homeTabHome,
       l10n.homeTabLeagues,
@@ -112,6 +278,14 @@ class _HomeShellState extends State<HomeShell> {
       l10n.homeTabMarketplace,
       l10n.homeTabProfile,
     ];
+
+    final overlayIcon = !_overlayEnabled
+        ? Icons.picture_in_picture_alt_outlined
+        : (_overlayGranted ? Icons.picture_in_picture_alt : Icons.warning_amber_rounded);
+
+    final overlayIconColor = !_overlayEnabled
+        ? null
+        : (_overlayGranted ? const Color(0xFF22C55E) : const Color(0xFFF59E0B));
 
     return WillPopScope(
       onWillPop: _handleSystemBack,
@@ -128,6 +302,15 @@ class _HomeShellState extends State<HomeShell> {
             elevation: 0,
             actions: [
               IconButton(
+                tooltip: _overlayEnabled
+                    ? (_overlayGranted
+                        ? _trOr(l10n, 'live_overlay_on_tooltip', 'Overlay is ON')
+                        : _trOr(l10n, 'live_overlay_permission_needed_tooltip', 'Overlay needs permission'))
+                    : _trOr(l10n, 'live_overlay_off_tooltip', 'Overlay is OFF'),
+                onPressed: _toggleOverlayFromHome,
+                icon: Icon(overlayIcon, color: overlayIconColor),
+              ),
+              IconButton(
                 tooltip: l10n.homeSettingsTooltip,
                 onPressed: () => context.push('/settings'),
                 icon: const Icon(Icons.settings_outlined),
@@ -136,7 +319,6 @@ class _HomeShellState extends State<HomeShell> {
           ),
           body: SafeArea(
             bottom: false,
-            // Keep tabs alive without rebuilding them on every tab switch.
             child: Stack(
               children: List.generate(_tabs.length, (i) {
                 final built = _built[i];
@@ -175,7 +357,6 @@ class _HomeShellState extends State<HomeShell> {
                       selectedIcon: const Icon(Icons.emoji_events),
                       label: l10n.homeTabLeagues,
                     ),
-                    // LIVE (Icon changed to global/worldwide symbol)
                     NavigationDestination(
                       icon: const Icon(Icons.public_outlined),
                       selectedIcon: const Icon(Icons.public),
@@ -202,7 +383,6 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-/// HomeTab: Default landing tab with quick cards & announcements
 class _HomeTab extends StatelessWidget {
   const _HomeTab();
 
@@ -316,7 +496,6 @@ class _HomeTab extends StatelessWidget {
   }
 }
 
-/// QuickCard: Small card for home actions
 class _QuickCard extends StatelessWidget {
   const _QuickCard({
     required this.icon,

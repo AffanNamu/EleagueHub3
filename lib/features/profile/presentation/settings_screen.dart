@@ -11,6 +11,8 @@ import '../../../core/services/notification_service.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../live/logic/quick_message_policy.dart';
+import '../../live/logic/quick_messages_controller.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
   final v = l10n.tr(key);
@@ -32,6 +34,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
   bool _overlayEnabled = false;
   bool _overlayPermissionGranted = false;
+
+  final TextEditingController _quickInput = TextEditingController();
+  bool _savingQuick = false;
 
   /// Autonyms (language names in their own language).
   /// IMPORTANT: These should NOT be translated based on current app locale.
@@ -70,6 +75,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _quickInput.dispose();
     super.dispose();
   }
 
@@ -198,6 +204,51 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     );
   }
 
+  Future<void> _addCustomQuickMessage() async {
+    if (_savingQuick) return;
+
+    final l10n = context.l10n;
+    final input = _quickInput.text;
+
+    setState(() => _savingQuick = true);
+    try {
+      await ref.read(quickMessagesControllerProvider).addCustomMessage(input);
+      _quickInput.clear();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(_trOr(l10n, 'quick_messages_added_toast', 'Added')),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _savingQuick = false);
+    }
+  }
+
+  Future<void> _deleteCustomQuickMessage(int index) async {
+    final l10n = context.l10n;
+    try {
+      await ref.read(quickMessagesControllerProvider).deleteCustomMessageAt(index);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -230,6 +281,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
         : (_overlayPermissionGranted
             ? _trOr(l10n, 'live_overlay_status_on', 'Overlay: On')
             : _trOr(l10n, 'live_overlay_status_needs_permission', 'Overlay: Permission required'));
+
+    final premium = ref.watch(isPremiumProvider).value ?? false;
+    final customQuick = ref.watch(inAppCustomQuickMessagesProvider);
 
     return GlassScaffold(
       appBar: AppBar(
@@ -521,7 +575,193 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
                 const SizedBox(height: 12),
 
-                // APP INFO (custom text requested)
+                // QUICK MESSAGES (Premium)
+                Glass(
+                  borderRadius: 24,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _trOr(l10n, 'quick_messages_title', 'Quick messages'),
+                                style: titleStyle,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(999),
+                                color: premium ? const Color(0xFF22C55E).withOpacity(0.14) : cs.onSurface.withOpacity(0.06),
+                                border: Border.all(
+                                  color: premium ? const Color(0xFF22C55E).withOpacity(0.35) : cs.onSurface.withOpacity(0.14),
+                                ),
+                              ),
+                              child: Text(
+                                premium ? _trOr(l10n, 'common_premium', 'PREMIUM') : _trOr(l10n, 'common_locked', 'LOCKED'),
+                                style: TextStyle(
+                                  color: premium ? const Color(0xFF22C55E) : cs.onSurface.withOpacity(0.60),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _trOr(
+                            l10n,
+                            'quick_messages_hint',
+                            'Defaults are included. Premium users can add up to 15 custom quick messages (max 15 chars). Links and mentions are not allowed.',
+                          ),
+                          style: hintStyle,
+                        ),
+                        const SizedBox(height: 10),
+
+                        if (!premium) ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: cs.onSurface.withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.lock_outline, size: 18),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    _trOr(
+                                      l10n,
+                                      'quick_messages_premium_required',
+                                      'Premium required to create custom quick messages.',
+                                    ),
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: cs.onSurface.withOpacity(0.75),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        behavior: SnackBarBehavior.floating,
+                                        content: Text(
+                                          _trOr(
+                                            l10n,
+                                            'quick_messages_upgrade_soon',
+                                            'Upgrade flow not implemented yet. Set users/{uid}.isPremium=true in Firestore to test.',
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: Text(_trOr(l10n, 'common_upgrade', 'Upgrade')),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ] else ...[
+                          if (customQuick.isEmpty)
+                            Text(
+                              _trOr(l10n, 'quick_messages_none_yet', 'No custom messages yet. Add one below.'),
+                              style: textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.60),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            )
+                          else
+                            ReorderableListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: customQuick.length,
+                              onReorder: (oldIndex, newIndex) async {
+                                // ReorderableListView semantics: newIndex is "after removal"
+                                if (newIndex > oldIndex) newIndex -= 1;
+                                try {
+                                  await ref.read(quickMessagesControllerProvider).reorderCustom(oldIndex, newIndex);
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      behavior: SnackBarBehavior.floating,
+                                      content: Text(e.toString().replaceFirst('Exception: ', '')),
+                                    ),
+                                  );
+                                }
+                              },
+                              itemBuilder: (ctx, i) {
+                                final msg = customQuick[i];
+                                return Container(
+                                  key: ValueKey('custom_quick_$i:$msg'),
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  decoration: BoxDecoration(
+                                    color: cs.onSurface.withOpacity(0.04),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                                  ),
+                                  child: ListTile(
+                                    dense: true,
+                                    leading: const Icon(Icons.drag_handle),
+                                    title: Text(
+                                      msg,
+                                      style: textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    trailing: IconButton(
+                                      tooltip: _trOr(l10n, 'common_delete', 'Delete'),
+                                      onPressed: () => _deleteCustomQuickMessage(i),
+                                      icon: Icon(Icons.delete_outline, color: cs.error),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _quickInput,
+                                  maxLength: QuickMessagePolicy.maxChars,
+                                  decoration: InputDecoration(
+                                    counterText: '',
+                                    filled: true,
+                                    fillColor: cs.onSurface.withOpacity(0.04),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                    hintText: _trOr(l10n, 'quick_messages_add_hint', 'Add custom message…'),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              FilledButton(
+                                onPressed: _savingQuick ? null : _addCustomQuickMessage,
+                                child: _savingQuick
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : Text(_trOr(l10n, 'common_add', 'Add')),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // APP INFO
                 Glass(
                   borderRadius: 24,
                   child: Padding(

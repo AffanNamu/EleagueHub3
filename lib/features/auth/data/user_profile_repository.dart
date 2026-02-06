@@ -78,6 +78,59 @@ class UserProfileRepository {
     });
   }
 
+  Stream<bool> watchIsPremium(String userId) {
+    return _users.doc(userId).snapshots().map((doc) {
+      if (!doc.exists) return false;
+      final data = doc.data();
+      if (data == null) return false;
+      return data['isPremium'] == true;
+    });
+  }
+
+  Stream<List<String>> watchQuickMessagesCustom(String userId) {
+    return _users.doc(userId).snapshots().map((doc) {
+      if (!doc.exists) return const <String>[];
+      final data = doc.data();
+      if (data == null) return const <String>[];
+
+      final raw = data['quickMessagesCustom'];
+      if (raw is! List) return const <String>[];
+
+      return raw
+          .map((e) => (e ?? '').toString().trim())
+          .where((s) => s.isNotEmpty)
+          .toList(growable: false);
+    });
+  }
+
+  Future<void> updateQuickMessagesCustom({
+    required String userId,
+    required List<String> messages,
+  }) async {
+    final cleaned = messages.map((e) => e.trim()).where((s) => s.isNotEmpty).toList(growable: false);
+
+    await _users.doc(userId).set(
+      {
+        'quickMessagesCustom': cleaned,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<void> setPremium({
+    required String userId,
+    required bool isPremium,
+  }) async {
+    await _users.doc(userId).set(
+      {
+        'isPremium': isPremium,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
   Future<void> createProfileIfMissing({
     required String userId,
     required String teamName,
@@ -94,8 +147,12 @@ class UserProfileRepository {
         'userId': userId,
         'teamName': teamName,
         'authProvider': authProvider,
-        // Store short shareId at creation time
         'shareId': _generateShareId(userId),
+
+        // Defaults for new users
+        'isPremium': false,
+        'quickMessagesCustom': <String>[],
+
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
