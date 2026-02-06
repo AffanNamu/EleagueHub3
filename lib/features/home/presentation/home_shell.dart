@@ -73,7 +73,6 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // If user went to system settings for overlay permission, refresh on resume.
     if (state == AppLifecycleState.resumed) {
       unawaited(_loadOverlayStateAndMaybeStart());
     }
@@ -90,7 +89,6 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
       _overlayGranted = granted;
     });
 
-    // System-wide behavior (B): ensure overlay is running when enabled + granted.
     if (enabled && granted) {
       await OverlayPlatform.startGlobalOverlay();
     }
@@ -138,7 +136,6 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
       return;
     }
 
-    // Enabling: explicit consent + permission.
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -200,9 +197,6 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   }
 
   void _onDestinationSelected(int i) {
-    // LIVE TAB SPECIAL BEHAVIOR (non-breaking):
-    // - Keep existing Live tab content/state intact (LiveListScreen).
-    // - Additionally, tapping the Live icon opens the new Global discovery screen.
     if (i == 2) {
       if (i != _index) {
         setState(() {
@@ -211,8 +205,6 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
         });
       }
 
-      // Route to the NEW Global Live screen.
-      // Existing Live behavior remains available when navigating back.
       context.push('/global-live');
       return;
     }
@@ -221,19 +213,16 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   }
 
   Future<bool> _handleSystemBack() async {
-    // 1) If there's a pushed route (GoRouter stack), pop it.
     if (GoRouter.of(context).canPop()) {
       GoRouter.of(context).pop();
       return false;
     }
 
-    // 2) If we're on any tab other than the first tab, go back through tabs.
     if (_index > 0) {
       _selectTab(_index - 1);
       return false;
     }
 
-    // 3) Root screen: allow exit (with optional confirmation).
     final shouldExit = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -383,6 +372,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   }
 }
 
+/// HomeTab: Default landing tab with quick cards & announcements
 class _HomeTab extends StatelessWidget {
   const _HomeTab();
 
@@ -467,26 +457,39 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
+
+        // Quick actions
         Glass(
           padding: const EdgeInsets.all(12),
-          child: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: _QuickCard(
-                  icon: Icons.add_circle_outline,
-                  title: l10n.homeQuickCreateLeagueTitle,
-                  subtitle: l10n.homeQuickCreateLeagueSubtitle,
-                  onTap: () => context.push('/leagues/create'),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _QuickCard(
+                      icon: Icons.add_circle_outline,
+                      title: l10n.homeQuickCreateLeagueTitle,
+                      subtitle: l10n.homeQuickCreateLeagueSubtitle,
+                      onTap: () => context.push('/leagues/create'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _QuickCard(
+                      icon: Icons.confirmation_number_outlined,
+                      title: l10n.homeQuickJoinLiveTitle,
+                      subtitle: l10n.homeQuickJoinLiveSubtitle,
+                      onTap: () => context.push('/live/join'),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _QuickCard(
-                  icon: Icons.confirmation_number_outlined,
-                  title: l10n.homeQuickJoinLiveTitle,
-                  subtitle: l10n.homeQuickJoinLiveSubtitle,
-                  onTap: () => context.push('/live/join'),
-                ),
+              const SizedBox(height: 12),
+              _QuickCard(
+                icon: Icons.headset_mic_outlined,
+                title: _trOr(l10n, 'home_quick_voice_room_title', 'Voice Room'),
+                subtitle: _trOr(l10n, 'home_quick_voice_room_subtitle', 'Create/Join with 8-digit code'),
+                onTap: () => context.push('/call'),
               ),
             ],
           ),
@@ -496,6 +499,7 @@ class _HomeTab extends StatelessWidget {
   }
 }
 
+/// QuickCard: Small card for home actions
 class _QuickCard extends StatelessWidget {
   const _QuickCard({
     required this.icon,

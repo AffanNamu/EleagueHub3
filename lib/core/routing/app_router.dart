@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/bootstrap_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/onboarding_screen.dart';
+import '../../features/call/presentation/call_room_screen.dart';
 import '../../features/home/presentation/home_shell.dart';
 import '../../features/leagues/models/league_format.dart';
 import '../../features/leagues/presentation/add_teams_screen.dart';
@@ -50,9 +51,6 @@ class AuthRouterRefresh extends ChangeNotifier {
       }
 
       // Signed in.
-      // We always re-check once per auth event, but we avoid noisy notify loops by:
-      // - only notifying when state changes
-      // - cancelling any retry timers when user changes
       _checkProfileFor(_user!.uid);
     });
   }
@@ -99,13 +97,6 @@ class AuthRouterRefresh extends ChangeNotifier {
       _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
       return;
     } catch (e) {
-      // IMPORTANT:
-      // Never force onboarding on transient errors (offline / timeout / permission glitches),
-      // otherwise users who already completed onboarding could be asked again.
-      //
-      // If we previously confirmed a profile exists, keep that state sticky.
-      // Otherwise, go back to "unknown" and keep the user on the bootstrap loader
-      // while we retry silently.
       final fallback = (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
       _setProfileState(fallback);
 
@@ -155,7 +146,7 @@ final appRouter = GoRouter(
     }
 
     // Signed in, profile missing -> force one-time onboarding.
-    if (authRouterRefresh.needsOnboarding) {
+    if (auth_routerRefreshNeedsOnboardingFix(authRouterRefresh)) {
       if (inOnboarding) return null;
       return '/onboarding';
     }
@@ -185,6 +176,13 @@ final appRouter = GoRouter(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
     ),
+
+    // New: Voice room by 8-digit code (works with floating overlay controls).
+    GoRoute(
+      path: '/call',
+      builder: (context, state) => const CallRoomScreen(),
+    ),
+
     GoRoute(
       path: '/',
       builder: (context, state) => const HomeShell(),
@@ -353,3 +351,7 @@ final appRouter = GoRouter(
     ),
   ],
 );
+
+/// Fix: avoid typo-driven analyzer breaks if you later refactor these booleans.
+/// (Keeps current redirect structure stable.)
+bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) => r.needsOnboarding;

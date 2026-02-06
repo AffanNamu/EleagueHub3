@@ -1,0 +1,371 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:livekit_client/livekit_client.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import '../../../core/persistence/prefs_service.dart';
+import '../../../core/platform/overlay_bridge.dart';
+import '../../../core/platform/overlay_platform.dart';
+import '../../leagues/services/livekit_service.dart';
+
+final callSessionControllerProvider =
+    StateNotifierProvider<CallSessionController, CallSessionState>((ref) {
+  final prefs = ref.read(prefsServiceProvider);
+  return CallSessionController(prefs);
+});
+
+@immutable
+class CallSessionState {
+  final bool joining;
+  final bool connected;
+  final String callId;
+  final bool micEnabled;
+  final bool micPermissionGranted;
+  final String error;
+
+  // Quick message received (in-app only)
+  final String? incomingQuickText;
+  final String? incomingQuickFrom;
+  final int incomingQuickAtMs;
+
+  const CallSessionState({
+    required this.joining,
+    required this.connected,
+    required this.callId,
+    required this.micEnabled,
+    required this.micPermissionGranted,
+    required this.error,
+    required this.incomingQuickText,
+    required this.incomingQuickFrom,
+    required this.incomingQuickAtMs,
+  });
+
+  factory CallSessionState.initial() => const CallSessionState(
+        joining: false,
+        connected: false,
+        callId: '',
+        micEnabled: false,
+        micPermissionGranted: false,
+        error: '',
+        incomingQuickText: null,
+        incomingQuickFrom: null,
+        incomingQuickAtMs: 0,
+      );
+
+  CallSessionState copyWith({
+    bool? joining,
+    bool? connected,
+    String? callId,
+    bool? micEnabled,
+    bool? micPermissionGranted,
+    String? error,
+    String? incomingQuickText,
+    String? incomingQuickFrom,
+    int? incomingQuickAtMs,
+  }) {
+    return CallSessionState(
+      joining: joining ?? this.joining,
+      connected: connected ?? this.connected,
+      callId: callId ?? this.callId,
+      micEnabled: micEnabled ?? this.micEnabled,
+      micPermissionGranted: micPermissionGranted ?? this.micPermissionGranted,
+      error: error ?? this.error,
+      incomingQuickText: incomingQuickText,
+      incomingQuickFrom: incomingQuickFrom,
+      incomingQuickAtMs: incomingQuickAtMs ?? this.incomingQuickAtMs,
+    );
+  }
+}
+
+class CallSessionController extends StateNotifier<CallSessionState> {
+  CallSessionController(this._prefs) : super(CallSessionState.initial());
+
+  final PreferencesService _prefs;
+
+  Room? _room;
+  EventsListener<RoomEvent>? _listener;
+
+  String get _uid => _prefs.getCurrentUserId() ?? '';
+
+  static final RegExp _codeRe = RegExp(r'^\d{8}$');
+
+  /// Create new 8-digit numeric code (leading zeros allowed), join as host.
+  Future<String> createAndJoin() async {
+    final code = _generate8DigitCode();
+    await joinByCode(code, isHost: true);
+    return code;
+  }
+
+  /// Join existing room by 8-digit code.
+  Future<void> joinByCode(String code, {bool isHost = false}) async {
+    final uid = _uid.trim();
+    final callId = code.trim();
+
+    if (uid.isEmpty) {
+      state = state.copyWith(error: 'Missing user id');
+      return;
+    }
+
+    if (!_codeRe.hasMatch(callId)) {
+      state = state.copyWith(error: 'Room code must be exactly 8 digits');
+      return;
+    }
+
+    if (state.joining) return;
+
+    state = state.copyWith(
+      joining: true,
+      error: '',
+      incomingQuickText: null,
+      incomingQuickFrom: null,
+      incomingQuickAtMs: 0,
+      callId: callId,
+    );
+
+    try {
+      await _disconnectInternal(clearCode: false);
+
+      // Request mic permission (best-effort)
+      var micGranted = false;
+      try {
+        final st = await Permission.microphone.request();
+        micGranted = st.isGranted;
+      } catch (_) {}
+
+      state = state.copyWith(micPermissionGranted: micGranted);
+
+      final tok = await LiveKitService.fetchCallToken(
+        callId: callId,
+        userId: uid,
+        isHost: isHost,
+      );
+
+      final room = Room(
+        roomOptions: const RoomOptions(
+          adaptiveStream: true,
+          dynacast: true,
+          defaultAudioPublishOptions: AudioPublishOptions(
+            dtx: true,
+            audioBitrate: 32000,
+          ),
+        ),
+      );
+
+      _listener = room.createListener();
+
+      _listener!.on<RoomConnectedEvent>((_) {
+        state = state.copyWith(connected: true);
+      });
+
+      _listener!.on<RoomDisconnectedEvent>((_) {
+        state = state.copyWith(
+          connected: false,
+          micEnabled: false,
+        );
+        unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
+        unawaited(OverlayPlatform.stopOverlayVoiceForegroundService());
+      });
+
+      // Quick messages over data channel
+      _listener!.on<RoomEvent>((event) {
+        final type = event.runtimeType.toString().toLowerCase();
+        if (!type.contains('data')) return;
+
+        try {
+          final dyn = event as dynamic;
+          final payload = dyn.payload;
+          final participant = dyn.participant;
+
+          String? fromIdentity;
+          try {
+            fromIdentity = (participant as dynamic).identity?.toString();
+          } catch (_) {
+            fromIdentity = null;
+          }
+
+          final msg = _decodePayload(payload);
+          if (msg == null) return;
+
+          final kind = (msg['kind'] ?? '').toString().trim().toLowerCase();
+          if (kind != 'quick') return;
+
+          final label = (msg['label'] ?? '').toString().trim();
+          if (label.isEmpty) return;
+
+          state = state.copyWith(
+            incomingQuickText: label,
+            incomingQuickFrom: fromIdentity,
+            incomingQuickAtMs: DateTime.now().millisecondsSinceEpoch,
+          );
+        } catch (_) {}
+      });
+
+      await room.connect(tok.url, tok.token);
+
+      _room = room;
+
+      // Enable mic by default if permission granted; otherwise join as listener.
+      if (micGranted) {
+        try {
+          await room.localParticipant?.setMicrophoneEnabled(true);
+          state = state.copyWith(micEnabled: true);
+          unawaited(OverlayPlatform.setOverlayMicMutedState(muted: false));
+        } catch (_) {
+          state = state.copyWith(micEnabled: false);
+          unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
+        }
+      } else {
+        state = state.copyWith(micEnabled: false);
+        unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
+      }
+
+      // Register overlay handlers (so overlay mic + quick + end work while minimized/outside app)
+      _registerOverlayHandlers();
+
+      // Start voice foreground notification for background stability
+      unawaited(
+        OverlayPlatform.startOverlayVoiceForegroundService(
+          title: 'Voice room',
+          text: 'Room $callId',
+        ),
+      );
+
+      state = state.copyWith(joining: false, connected: true);
+    } catch (e) {
+      state = state.copyWith(joining: false, connected: false, error: e.toString());
+      unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
+    }
+  }
+
+  Future<void> leave() async {
+    await _disconnectInternal(clearCode: true);
+    state = CallSessionState.initial();
+    unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
+  }
+
+  Future<void> toggleMic() async {
+    final room = _room;
+    if (room == null) return;
+    if (!state.micPermissionGranted) return;
+
+    final next = !state.micEnabled;
+    await setMicEnabled(next);
+  }
+
+  Future<void> setMicEnabled(bool enabled) async {
+    final room = _room;
+    if (room == null) return;
+    if (!state.micPermissionGranted) return;
+
+    try {
+      await room.localParticipant?.setMicrophoneEnabled(enabled);
+      state = state.copyWith(micEnabled: enabled);
+      unawaited(OverlayPlatform.setOverlayMicMutedState(muted: !enabled));
+    } catch (_) {}
+  }
+
+  Future<void> sendQuick(String label) async {
+    final room = _room;
+    if (room == null) return;
+    if (!state.connected) return;
+
+    final payload = <String, dynamic>{
+      'kind': 'quick',
+      'label': label.trim(),
+      'ts': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    final bytes = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
+
+    try {
+      room.localParticipant?.publishData(bytes, reliable: true);
+    } catch (_) {
+      try {
+        room.localParticipant?.publishData(bytes);
+      } catch (_) {}
+    }
+  }
+
+  void _registerOverlayHandlers() {
+    OverlayBridge.toggleMic = () async {
+      await toggleMic();
+    };
+
+    OverlayBridge.setMicEnabled = (enabled) async {
+      await setMicEnabled(enabled);
+    };
+
+    OverlayBridge.endSession = () async {
+      await leave();
+    };
+
+    OverlayBridge.sendQuick = (label) async {
+      await sendQuick(label);
+    };
+  }
+
+  Future<void> _disconnectInternal({required bool clearCode}) async {
+    OverlayBridge.clearHandlers();
+    unawaited(OverlayPlatform.stopOverlayVoiceForegroundService());
+
+    try {
+      _listener?.dispose();
+    } catch (_) {}
+    _listener = null;
+
+    try {
+      await _room?.disconnect();
+    } catch (_) {}
+    try {
+      await _room?.dispose();
+    } catch (_) {}
+
+    _room = null;
+
+    state = state.copyWith(
+      joining: false,
+      connected: false,
+      micEnabled: false,
+      error: '',
+      callId: clearCode ? '' : state.callId,
+      incomingQuickText: null,
+      incomingQuickFrom: null,
+      incomingQuickAtMs: 0,
+    );
+  }
+
+  static Map<String, dynamic>? _decodePayload(dynamic payload) {
+    try {
+      if (payload is Uint8List) {
+        final s = utf8.decode(payload);
+        final j = jsonDecode(s);
+        if (j is Map<String, dynamic>) return j;
+        if (j is Map) return j.cast<String, dynamic>();
+      }
+      if (payload is List<int>) {
+        final s = utf8.decode(Uint8List.fromList(payload));
+        final j = jsonDecode(s);
+        if (j is Map<String, dynamic>) return j;
+        if (j is Map) return j.cast<String, dynamic>();
+      }
+      if (payload is String) {
+        final j = jsonDecode(payload);
+        if (j is Map<String, dynamic>) return j;
+        if (j is Map) return j.cast<String, dynamic>();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static String _generate8DigitCode() {
+    // Leading zeros allowed; 8 digits always.
+    final rnd = Random.secure();
+    final n = rnd.nextInt(100000000); // 0..99,999,999
+    return n.toString().padLeft(8, '0');
+  }
+}

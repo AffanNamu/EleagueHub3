@@ -40,6 +40,10 @@ function resolveRoomName(body) {
   const explicitRoomName = sanitizeRoomTokenPart(body.roomName);
   if (explicitRoomName) return explicitRoomName;
 
+  // New: callId -> call_<8digits> (or any sanitized token part)
+  const callId = sanitizeRoomTokenPart(body.callId);
+  if (callId) return `call_${callId}`;
+
   const matchId = sanitizeRoomTokenPart(body.matchId);
   if (matchId) return `match_${matchId}`;
 
@@ -53,23 +57,14 @@ function toHttpBaseUrl(livekitUrl) {
   const u = String(livekitUrl || "").trim();
   if (!u) return "";
 
-  // LiveKit Cloud commonly uses:
-  // - wss://xxxx.livekit.cloud  (client connect)
-  // - https://xxxx.livekit.cloud (server APIs)
   if (u.startsWith("wss://")) return "https://" + u.slice("wss://".length);
   if (u.startsWith("ws://")) return "http://" + u.slice("ws://".length);
 
-  // If already https/http, keep it.
   if (u.startsWith("https://") || u.startsWith("http://")) return u;
 
-  // Fallback: assume https
   return `https://${u}`;
 }
 
-/**
- * Create an admin JWT that can call LiveKit RoomService APIs.
- * We use roomAdmin: true which is required for MutePublishedTrack.
- */
 async function makeAdminJwt(env, roomName) {
   const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
     identity: "worker-admin",
@@ -84,9 +79,6 @@ async function makeAdminJwt(env, roomName) {
   return at.toJwt();
 }
 
-/**
- * Call LiveKit Twirp API: MutePublishedTrack
- */
 async function mutePublishedTrack(env, roomName, identity, muted) {
   const adminJwt = await makeAdminJwt(env, roomName);
   const httpBase = toHttpBaseUrl(env.LIVEKIT_URL);
@@ -115,9 +107,19 @@ async function mutePublishedTrack(env, roomName, identity, muted) {
   return res.json();
 }
 
+function kindFrom(body, roomName) {
+  const rn = String(roomName || "").toLowerCase();
+  if (sanitizeRoomTokenPart(body.callId)) return "call";
+  if (rn.startsWith("call_")) return "call";
+  if (sanitizeRoomTokenPart(body.matchId)) return "match";
+  if (rn.startsWith("match_")) return "match";
+  if (sanitizeRoomTokenPart(body.leagueId)) return "league";
+  if (rn.startsWith("league_")) return "league";
+  return "unknown";
+}
+
 export default {
   async fetch(request, env) {
-    // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: { ...CORS_HEADERS } });
     }
@@ -147,25 +149,30 @@ export default {
       }
 
       // Backward compatible:
-      // - Old clients used leagueId -> roomName: league_<leagueId>
-      // - New live video clients use matchId -> roomName: match_<matchId>
-      // - Also supports explicit roomName
+      // - leagueId -> roomName: league_<leagueId>
+      // - matchId  -> roomName: match_<matchId>
+      // - callId   -> roomName: call_<callId>
+      // - explicit roomName also supported
       if (!roomName) {
         return jsonResponse(
-          { error: "One of leagueId, matchId, or roomName is required" },
+          { error: "One of leagueId, matchId, callId, or roomName is required" },
           400
         );
       }
 
       const leagueId = (body.leagueId || "").toString().trim();
       const matchId = (body.matchId || "").toString().trim();
+      const callId = (body.callId || "").toString().trim();
+
+      const kind = kindFrom(body, roomName);
 
       const metadata = JSON.stringify({
         role: role || "participant",
         side: side || null,
         leagueId: leagueId || null,
         matchId: matchId || null,
-        kind: matchId ? "match" : "league",
+        callId: callId || null,
+        kind,
       });
 
       const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
@@ -174,8 +181,6 @@ export default {
         metadata,
       });
 
-      // Existing behavior: permissive publish (Spaces-like).
-      // The client decides whether to actually enable mic/camera.
       at.addGrant({
         room: roomName,
         roomJoin: true,
@@ -187,8 +192,7 @@ export default {
 
       const token = await at.toJwt();
 
-      // Return LIVEKIT_URL exactly as configured (wss://... is correct for clients)
-      return jsonResponse({ token, url: env.LIVEKIT_URL, roomName, role });
+      return jsonResponse({ token, url: env.LIVEKIT_URL, roomName, role, kind });
     }
 
     // ---- ROUTE: POST /admin  -> moderation helper (mute/unmute only) ----
@@ -210,19 +214,29 @@ export default {
 
       if (!roomName) {
         return jsonResponse(
-          { error: "One of leagueId, matchId, or roomName is required" },
+          { error: "One of leagueId, matchId, callId, or roomName is required" },
           400
         );
       }
 
       try {
         if (action === "mute") {
-          const out = await mutePublishedTrack(env, roomName, targetUserId, true);
+          const out = await mutePublishedTrack(
+            env,
+            roomName,
+            targetUserId,
+            true
+          );
           return jsonResponse({ ok: true, action, out });
         }
 
         if (action === "unmute") {
-          const out = await mutePublishedTrack(env, roomName, targetUserId, false);
+          const out = await mutePublishedTrack(
+            env,
+            roomName,
+            targetUserId,
+            false
+          );
           return jsonResponse({ ok: true, action, out });
         }
 
