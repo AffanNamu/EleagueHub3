@@ -79,7 +79,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   String _couponCode() {
     final token = List.generate(12, (_) => _couponAlphabet[_couponRnd.nextInt(_couponAlphabet.length)]).join();
-    return 'EH\$token';
+    return 'EH$token';
   }
 
   bool _isOrganizer(League league) => _currentUserId.isNotEmpty && league.organizerUserId == _currentUserId;
@@ -87,14 +87,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   String _couponSubtitle(League league) {
     if (!league.hasCoupons) return 'Not enabled';
     if (league.couponDiscountPercent >= 100) return 'Free access (100%)';
-    return '\${league.couponDiscountPercent}% discount';
+    return '${league.couponDiscountPercent}% discount';
   }
 
   String _upgradeSubtitle(League league) {
     final viewers = league.viewerCapacity;
     final coupons = league.couponCount;
-    final couponPart = league.hasCoupons ? 'Coupons: \$coupons' : 'Coupons: none';
-    return 'Viewer access: \$viewers • \$couponPart';
+    final couponPart = league.hasCoupons ? 'Coupons: $coupons' : 'Coupons: none';
+    return 'Viewer access: $viewers • $couponPart';
   }
 
   String _groupDisplayName(AppLocalizations l10n, String groupId) {
@@ -207,7 +207,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     try {
       final result = await context.push<LeagueCreationPaymentResult?>(
-        '/leagues/\${league.id}/upgrade/payment',
+        '/leagues/${league.id}/upgrade/payment',
         extra: <String, dynamic>{
           'leagueId': league.id,
           'leagueName': league.name,
@@ -278,7 +278,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Upgrade purchase failed: \$e'),
+          content: Text('Upgrade purchase failed: $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -336,9 +336,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       }
 
       if (existingTeams.length >= league.maxTeams) {
-        throw StateError(
-          '\${l10n.tr('league_admin_league_full_prefix')}\${league.maxTeams}\${l10n.tr('league_admin_league_full_suffix')}',
-        );
+        final prefix = l10n.tr('league_admin_league_full_prefix');
+        final suffix = l10n.tr('league_admin_league_full_suffix');
+        throw StateError('$prefix${league.maxTeams}$suffix');
       }
 
       final profile = await UserProfileRepository().fetchByUserId(userId);
@@ -382,9 +382,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       await _loadLeague();
 
-      final msg = groupId == null
-          ? l10n.tr('league_admin_added_participant')
-          : '\${l10n.tr('league_admin_added_participant_in_group_prefix')} \${_groupDisplayName(l10n, groupId)}.';
+      final String msg;
+      if (groupId == null) {
+        msg = l10n.tr('league_admin_added_participant');
+      } else {
+        final groupPrefix = l10n.tr('league_admin_added_participant_in_group_prefix');
+        final groupName = _groupDisplayName(l10n, groupId);
+        msg = '$groupPrefix $groupName.';
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -394,9 +399,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      final failPrefix = l10n.tr('league_admin_failed_add_participant_prefix');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('\${l10n.tr('league_admin_failed_add_participant_prefix')} \$e'),
+          content: Text('$failPrefix $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -432,9 +438,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      final prefix = l10n.tr('league_admin_export_failed_prefix');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('\${l10n.tr('league_admin_export_failed_prefix')} \$e'),
+          content: Text('$prefix $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -471,10 +478,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         throw StateError(l10n.tr('league_admin_only_organizer_start_space'));
       }
 
+      final leagueName = _league!.name;
+      final suffix = l10n.tr('league_details_space_title_suffix');
+      final spaceTitle = '$leagueName $suffix';
+
       final space = await _spaceRepo.startSpace(
         leagueId: _league!.id,
         hostUserId: currentUserId,
-        title: '\${_league!.name} \${l10n.tr('league_details_space_title_suffix')}',
+        title: spaceTitle,
       );
 
       await SyncTrigger.trySync();
@@ -490,9 +501,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      final failMsg = l10n.tr('league_details_failed_to_start_space');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('\${l10n.tr('league_details_failed_to_start_space')}: \$e'),
+          content: Text('$failMsg: $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -512,7 +524,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       return;
     }
 
-    context.push('/leagues/\${_league!.id}/space');
+    context.push('/leagues/${_league!.id}/space');
   }
 
   Future<void> _endSpace() async {
@@ -546,9 +558,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      final failMsg = l10n.tr('league_details_failed_to_end_space');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('\${l10n.tr('league_details_failed_to_end_space')}: \$e'),
+          content: Text('$failMsg: $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -683,7 +696,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              '\${league.name} • \${_couponSubtitle(league)}',
+                              '${league.name} • ${_couponSubtitle(league)}',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: onSurface.withOpacity(0.70),
                                 fontSize: 12,
@@ -707,7 +720,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                               if (!mounted) return;
                                               ScaffoldMessenger.of(context).showSnackBar(
                                                 SnackBar(
-                                                  content: Text('Coupon generated & copied: \$code'),
+                                                  content: Text('Coupon generated & copied: $code'),
                                                   behavior: SnackBarBehavior.floating,
                                                 ),
                                               );
@@ -715,7 +728,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                               if (!mounted) return;
                                               ScaffoldMessenger.of(context).showSnackBar(
                                                 SnackBar(
-                                                  content: Text('\$e'),
+                                                  content: Text('$e'),
                                                   behavior: SnackBarBehavior.floating,
                                                 ),
                                               );
@@ -821,7 +834,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                             if (!mounted) return;
                                             ScaffoldMessenger.of(context).showSnackBar(
                                               SnackBar(
-                                                content: Text('Copied: \$code'),
+                                                content: Text('Copied: $code'),
                                                 behavior: SnackBarBehavior.floating,
                                               ),
                                             );
@@ -1285,6 +1298,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
+        final runningPrefix = l10n.tr('league_admin_league_space_running_prefix');
+        final startPrefix = l10n.tr('league_admin_league_space_start_description_prefix');
+        final startSuffix = l10n.tr('league_admin_league_space_start_description_suffix');
+
+        final descText = spaceLive
+            ? '$runningPrefix $leagueName.'
+            : '$startPrefix $leagueName$startSuffix';
+
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1308,9 +1329,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          spaceLive
-                              ? '\${l10n.tr('league_admin_league_space_running_prefix')} \$leagueName.'
-                              : '\${l10n.tr('league_admin_league_space_start_description_prefix')} \$leagueName\${l10n.tr('league_admin_league_space_start_description_suffix')}',
+                          descText,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: onSurface.withOpacity(0.70),
                             fontSize: 12,
