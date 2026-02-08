@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
@@ -248,6 +249,18 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                          if (league.hasCoupons) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              'Coupons were enabled for this league. If you don’t see them yet, tap Sync in Admin or reopen Profile → Coupons after sync completes.',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.65),
+                                height: 1.35,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           Row(
                             children: [
@@ -1173,11 +1186,27 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       organizerUserId: organizerUserId,
     );
 
+    // Best-effort: immediately sync so coupons can be generated in the cloud,
+    // otherwise Profile/Admin coupon lists will be empty until the organizer taps Sync.
+    //
+    // Never blocks league creation; failures are non-fatal (offline-first).
+    // ignore: discarded_futures
+    SyncTrigger.trySync();
+
     if (!mounted) return;
     setState(() {
       _createdLeague = stored;
       _submitting = false;
     });
+
+    if (couponsEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sync started: coupons will appear in Admin/Profile after sync completes.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 }
 
