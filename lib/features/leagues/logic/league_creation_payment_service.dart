@@ -17,14 +17,11 @@ class LeagueCreationPaymentResult {
   final String provider;
   final String? errorMessage;
 
-  /// OPTIONAL add-on: viewer capacity purchased at creation time.
+  /// OPTIONAL add-on: viewer capacity purchased at creation time (or upgrade time).
   /// 0 means not enabled.
   final int viewerCapacity;
 
-  /// OPTIONAL add-on: organizer purchased coupons for participants.
-  /// If true, backend should generate league-specific coupons after:
-  /// - successful payment
-  /// - league creation
+  /// OPTIONAL add-on: organizer purchased coupons for participants/viewers.
   final bool buyCouponsForParticipants;
 
   /// Coupon discount as percentage off the league join/access charge.
@@ -106,10 +103,14 @@ abstract class LeagueCreationPaymentService {
     required String userId,
     required String leagueName,
 
+    /// When true, do NOT charge the base "createLeagueAmount".
+    /// This is used for purchasing add-ons for an existing league (upgrade).
+    bool addonsOnly,
+
     /// OPTIONAL paid add-on (viewers are separate from participants).
     int viewerCapacity,
 
-    /// OPTIONAL add-on: buy coupons for participants (generated after payment+league creation).
+    /// OPTIONAL add-on: buy coupons for participants/viewers (generated after payment+sync).
     bool buyCouponsForParticipants,
 
     /// OPTIONAL add-on: coupon percent discount (0=disabled, 100=free).
@@ -168,6 +169,7 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
     required BuildContext context,
     required String userId,
     required String leagueName,
+    bool addonsOnly = false,
     int viewerCapacity = 0,
     bool buyCouponsForParticipants = false,
     int couponDiscountPercent = 0,
@@ -184,7 +186,8 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
       final pricing = FlutterwaveConfig.pricingForLocale(locale);
       FlutterwaveConfig.assertValidPricing(pricing);
 
-      final base = double.tryParse(pricing.createLeagueAmount.trim()) ?? 0;
+      // addonsOnly (upgrade): base fee is 0.
+      final base = addonsOnly ? 0 : (double.tryParse(pricing.createLeagueAmount.trim()) ?? 0);
 
       // Viewer unit price and coupon unit price are the same, as requested.
       final unit = double.tryParse(pricing.viewLeagueAmount.trim()) ?? 0;
@@ -212,7 +215,9 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         email: email,
       );
 
-      final txRef = 'EH-CRT-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+      final txRef = addonsOnly
+          ? 'EH-UPG-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}'
+          : 'EH-CRT-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
       final viewersPart = safeViewerCapacity > 0 ? ' + viewers ($safeViewerCapacity)' : '';
       final couponsPart = buyCouponsForParticipants
@@ -223,7 +228,8 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
               : (safeCouponPercent >= 100 ? ' + coupons (free access)' : ' + coupons (${safeCouponPercent}% discount)'))
           : '';
 
-      final description = 'League creation$viewersPart$couponsPart: $leagueName';
+      final action = addonsOnly ? 'League upgrade' : 'League creation';
+      final description = '$action$viewersPart$couponsPart: $leagueName';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,

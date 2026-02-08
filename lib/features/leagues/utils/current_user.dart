@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class CurrentUser {
   static const _kKey = 'leagues.currentUserId';
 
+  /// Keep compatibility with PreferencesService.kCurrentUserIdKey as well.
+  static const _kPrefsServiceKey = 'current_user_id';
+
   /// Returns the authenticated Firebase Auth uid.
   ///
   /// Throws if no user is signed in.
@@ -19,6 +22,9 @@ class CurrentUser {
     // Keep prefs in sync (useful for offline cache layers).
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kKey, authUser.uid);
+
+    // Also set the app-wide key used by PreferencesService (sync pull uses this).
+    await prefs.setString(_kPrefsServiceKey, authUser.uid);
 
     return authUser.uid;
   }
@@ -35,6 +41,6 @@ class CurrentUser {
   /// identity if the user is signed out.
   static Future<String?> getCachedUserId() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kKey);
+    return prefs.getString(_kKey) ?? prefs.getString(_kPrefsServiceKey);
   }
 }

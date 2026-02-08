@@ -17,6 +17,7 @@ import '../../auth/data/user_profile_repository.dart';
 import '../data/league_announcements_local.dart';
 import '../data/league_spaces_local.dart';
 import '../data/leagues_repository_local.dart';
+import '../logic/league_creation_payment_service.dart';
 import '../models/league.dart';
 import '../models/league_announcement.dart';
 import '../models/league_format.dart';
@@ -56,6 +57,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   bool _showAddMeAsParticipant = false;
   bool _addingMeAsParticipant = false;
 
+  String _currentUserId = '';
+
+  bool _processingUpgradePayment = false;
+
   final Uuid _uuid = const Uuid();
 
   static const List<String> _groupNames = <String>[
@@ -81,6 +86,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     if (!league.hasCoupons) return 'Not enabled';
     if (league.couponDiscountPercent >= 100) return 'Free access (100%)';
     return '${league.couponDiscountPercent}% discount';
+  }
+
+  String _upgradeSubtitle(League league) {
+    final viewers = league.viewerCapacity;
+    final coupons = league.couponCount;
+    final couponPart = league.hasCoupons ? 'Coupons: $coupons' : 'Coupons: none';
+    return 'Viewer access: $viewers • $couponPart';
   }
 
   String _groupDisplayName(AppLocalizations l10n, String groupId) {
@@ -130,6 +142,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     return minGroups[rnd.nextInt(minGroups.length)];
   }
 
+  bool _isOrganizer(League league) => _currentUserId.isNotEmpty && league.organizerUserId == _currentUserId;
+
   @override
   void initState() {
     super.initState();
@@ -149,9 +163,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final space = await _spaceRepo.getSpace(widget.leagueId);
 
     bool showAddMe = false;
+    String currentUserId = '';
 
     try {
-      final currentUserId = await CurrentUser.getUserId();
+      currentUserId = await CurrentUser.getUserId();
       final isOrganizer = league != null && league.organizerUserId == currentUserId;
 
       if (isOrganizer) {
@@ -161,15 +176,119 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       }
     } catch (_) {
       showAddMe = false;
+      currentUserId = '';
     }
 
     if (!mounted) return;
     setState(() {
       _league = league;
       _space = space;
+      _currentUserId = currentUserId;
       _showAddMeAsParticipant = showAddMe;
       _isLeagueLoading = false;
     });
+  }
+
+  Future<void> _purchaseViewerAccessOrCoupons() async {
+    final league = _league;
+    if (league == null) return;
+
+    if (_processingUpgradePayment) return;
+
+    if (!_isOrganizer(league)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only the organizer can purchase add-ons.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _processingUpgradePayment = true);
+
+    try {
+      final result = await context.push<LeagueCreationPaymentResult?>(
+        '/leagues/${league.id}/upgrade/payment',
+        extra: <String, dynamic>{
+          'leagueId': league.id,
+          'leagueName': league.name,
+          // Payment screen can use this flag to avoid charging base creation fee.
+          'addonsOnly': true,
+          // Useful for future UI defaults
+          'existingViewerCapacity': league.viewerCapacity,
+          'existingCouponCount': league.couponCount,
+          'existingCouponDiscountPercent': league.couponDiscountPercent,
+          'existingCouponsEnabled': league.couponsEnabled,
+        },
+      );
+
+      if (!mounted) return;
+
+      if (result == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment cancelled.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      if (!result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.errorMessage ?? 'Payment failed'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      // Apply purchased add-ons as INCREMENTS.
+      final addViewers = result.viewerCapacity < 0 ? 0 : result.viewerCapacity;
+      final addCoupons = result.buyCouponsForParticipants ? (result.couponCount < 0 ? 0 : result.couponCount) : 0;
+
+      final nextViewerCapacity = league.viewerCapacity + addViewers;
+
+      final nextCouponsEnabled = league.couponsEnabled || result.buyCouponsForParticipants;
+      final nextCouponPercent = result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
+      final nextCouponCount = league.couponCount + addCoupons;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final updated = league.copyWith(
+        viewerCapacity: nextViewerCapacity,
+        couponsEnabled: nextCouponsEnabled,
+        couponDiscountPercent: nextCouponPercent,
+        couponCount: nextCouponCount,
+        updatedAtMs: now,
+      );
+
+      await _localRepo.saveLeague(updated);
+
+      await SyncTrigger.trySync();
+      await _loadLeague();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Purchase successful. Syncing updates...'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Upgrade purchase failed: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _processingUpgradePayment = false);
+    }
   }
 
   Future<void> _addMeAsParticipant() async {
@@ -826,6 +945,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     return ListView(
       children: [
+        if (league != null && _isOrganizer(league))
+          _buildSettingsTile(
+            context,
+            Icons.payments_outlined,
+            _processingUpgradePayment ? 'Processing payment...' : 'Buy viewer access / coupons',
+            _upgradeSubtitle(league),
+            onTap: _processingUpgradePayment ? null : _purchaseViewerAccessOrCoupons,
+          ),
         if (league != null && league.hasCoupons)
           _buildSettingsTile(
             context,

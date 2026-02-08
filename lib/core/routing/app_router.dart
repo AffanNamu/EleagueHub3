@@ -269,6 +269,22 @@ final appRouter = GoRouter(
                 ),
               ],
             ),
+
+            // NEW: Organizer upgrade/add-ons purchase (viewer access / coupons) for an existing league.
+            // The payment screen can read state.extra (addonsOnly, leagueId, etc) when needed.
+            GoRoute(
+              path: ':leagueId/upgrade/payment',
+              builder: (context, state) {
+                final extra = state.extra;
+                String leagueName = 'League';
+                if (extra is Map) {
+                  final map = extra.cast<dynamic, dynamic>();
+                  if (map['leagueName'] is String) leagueName = map['leagueName'] as String;
+                }
+                return LeagueCreationPaymentScreen(leagueName: leagueName);
+              },
+            ),
+
             GoRoute(
               path: 'join-scanner',
               builder: (context, state) => const QRScannerScreen(),

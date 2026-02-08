@@ -37,7 +37,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   _CouponMode _couponMode = _CouponMode.freeAccess;
   int _couponPercent = 20; // Used only when _couponMode == percentageDiscount (5..90)
 
-  // NEW: coupon quantity to purchase/cover during league creation payment.
+  // Coupon quantity to purchase/cover during league creation payment.
   int _couponCount = 0;
 
   double _parseAmount(String raw) => double.tryParse(raw.trim()) ?? 0;
@@ -75,6 +75,19 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     return raw;
   }
 
+  bool _addonsOnlyFromRouteExtra() {
+    try {
+      final extra = GoRouterState.of(context).extra;
+      if (extra is Map) {
+        final map = extra.cast<dynamic, dynamic>();
+        final v = map['addonsOnly'];
+        if (v is bool) return v;
+        if (v is int) return v == 1;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -82,14 +95,18 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     final cs = theme.colorScheme;
     final provider = ref.watch(leagueCreationPaymentServiceProvider);
 
+    final addonsOnly = _addonsOnlyFromRouteExtra();
+
     final locale = Localizations.maybeLocaleOf(context);
     final pricing = FlutterwaveConfig.pricingForLocale(locale);
 
     // Pricing:
-    // totalAmount = baseLeagueFee + (viewerCapacity × viewerUnitPrice [bulk discount]) + (couponCount × couponUnitPrice [bulk discount])
+    // totalAmount = (addonsOnly ? 0 : baseLeagueFee)
+    //            + (viewerCapacity × viewerUnitPrice [bulk discount])
+    //            + (couponCount × couponUnitPrice [bulk discount])
     //
     // Note: couponUnitPrice == viewerUnitPrice (pricing.viewLeagueAmount), as requested.
-    final baseFee = _parseAmount(pricing.createLeagueAmount);
+    final baseFee = addonsOnly ? 0 : _parseAmount(pricing.createLeagueAmount);
     final unitPrice = _parseAmount(pricing.viewLeagueAmount);
 
     final viewersAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _viewerCapacity);
@@ -118,7 +135,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Text(l10n.tr('league_creation_payment_appbar_title')),
+        title: Text(addonsOnly ? 'Upgrade payment' : l10n.tr('league_creation_payment_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -140,14 +157,14 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      l10n.tr('league_creation_payment_required_title'),
+                      addonsOnly ? 'Payment required to upgrade' : l10n.tr('league_creation_payment_required_title'),
                       style: titleStyle,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 10),
                     Text(
                       '${l10n.tr('league_creation_payment_amount_prefix')} ${_money(total)} ${pricing.currency}\n\n'
-                      '${l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
+                      '${addonsOnly ? 'Upgrade' : l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
                       '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}\n'
                       '$couponsSummary',
                       textAlign: TextAlign.center,
@@ -251,7 +268,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                     const SizedBox(height: 12),
 
                     // ----------------------------
-                    // Coupons for participants (optional)
+                    // Coupons for participants/viewers (optional)
                     // ----------------------------
                     Container(
                       width: double.infinity,
@@ -268,7 +285,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Coupons for participants (optional)',
+                                  'Coupons (optional)',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: cs.onSurface,
                                     fontWeight: FontWeight.w900,
@@ -286,7 +303,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                             _couponMode = _CouponMode.freeAccess;
                                             _couponCount = 0;
                                           } else {
-                                            // Keep it safe: if toggled on and count is 0, show 1 in UI.
                                             if (_couponCount <= 0) _couponCount = 1;
                                           }
                                         });
@@ -359,7 +375,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                               onChanged: _processing
                                   ? null
                                   : (v) {
-                                      // step of 10 for readability, but keep min 1
                                       final rounded = (v / 10).round() * 10;
                                       setState(() => _couponCount = rounded.clamp(1, 500));
                                     },
@@ -490,6 +505,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                         context: context,
                                         userId: userId,
                                         leagueName: widget.leagueName,
+                                        addonsOnly: addonsOnly,
                                         viewerCapacity: _viewerCapacity,
                                         buyCouponsForParticipants: _buyCouponsForParticipants,
                                         couponDiscountPercent: _effectiveCouponPercent(),

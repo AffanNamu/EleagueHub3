@@ -38,6 +38,9 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   bool _hasPaid = false;
   LeagueChargesReceipt? _receipt;
 
+  // Determines classic free participant access vs viewer payment gate.
+  bool _isParticipant = false;
+
   final TextEditingController _couponController = TextEditingController();
   bool _applyingCoupon = false;
   String? _couponError;
@@ -73,21 +76,52 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     final hasPaid = store.hasPaidCharges(userId: userId, leagueId: widget.leagueId);
     final receipt = store.getReceipt(userId: userId, leagueId: widget.leagueId);
 
+    bool isParticipant = false;
+    try {
+      final membership = await repo.getMembership(
+        leagueId: widget.leagueId,
+        userId: userId,
+      );
+      isParticipant = membership != null;
+    } catch (_) {
+      isParticipant = false;
+    }
+
     if (!mounted) return;
     setState(() {
       _league = league;
       _userId = userId;
       _hasPaid = hasPaid;
       _receipt = receipt;
+      _isParticipant = isParticipant;
       _loading = false;
     });
   }
 
-  bool _isClassicFree(League league) => league.format == LeagueFormat.classic;
+  bool _isClassic(League league) => league.format == LeagueFormat.classic;
 
   bool _isOrganizerAlwaysAllowed(League league) => league.organizerUserId == _userId;
 
   bool _requiresCharges(League league) => league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+
+  bool _requiresPaymentGateForUser(League league) {
+    // Organizer always allowed.
+    if (_isOrganizerAlwaysAllowed(league)) return false;
+
+    // Classic rule:
+    // - Participants (membership exists) can access for free (maxTeams remains 20).
+    // - Viewers (no membership) must pay, unless the organizer purchased viewerCapacity (league.hasViewerCapacity),
+    //   or the viewer uses a coupon.
+    if (_isClassic(league)) {
+      if (_isParticipant) return false;
+      if (league.hasViewerCapacity) return false;
+      return true;
+    }
+
+    // Paid formats:
+    // Gate access for non-organizer (participant or viewer) unless they've paid charges.
+    return _requiresCharges(league);
+  }
 
   double _parseAmount(String raw) => double.tryParse(raw.trim()) ?? 0;
 
@@ -214,12 +248,10 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       );
     }
 
-    if (_isClassicFree(league)) return widget.child;
+    // If no gate required for this user, allow.
+    if (!_requiresPaymentGateForUser(league)) return widget.child;
 
-    if (_isOrganizerAlwaysAllowed(league)) return widget.child;
-
-    if (!_requiresCharges(league)) return widget.child;
-
+    // If already paid, allow.
     if (_hasPaid) return widget.child;
 
     final pricing = FlutterwaveConfig.pricingForLocale(Localizations.maybeLocaleOf(context));
@@ -229,6 +261,10 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     final isFreeCoupon = hasCoupon && _appliedCouponDiscountPercent >= 100;
 
     final discounted = hasCoupon ? _discountedAmount(base: baseAmount, discountPercent: _appliedCouponDiscountPercent) : baseAmount;
+
+    final gateReasonText = _isClassic(league)
+        ? 'This Classic league is free for participants only (max 20). Viewers must pay unless the organizer enabled viewer access or you have a coupon.'
+        : l10n.tr('league_access_charges_explanation');
 
     return Center(
       child: Padding(
@@ -261,10 +297,10 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                       ? ('${l10n.tr('league_access_amount_prefix')} ${pricing.viewLeagueAmount} ${pricing.currency}\n'
                           'Coupon: $_appliedCouponCode (${_appliedCouponDiscountPercent}%)\n'
                           'Pay: ${_money(discounted)} ${pricing.currency}\n\n'
-                          '${l10n.tr('league_access_charges_explanation')}\n\n'
+                          '$gateReasonText\n\n'
                           '${l10n.tr('league_access_league_prefix')} ${league.name}')
                       : ('${l10n.tr('league_access_amount_prefix')} ${pricing.viewLeagueAmount} ${pricing.currency}\n\n'
-                          '${l10n.tr('league_access_charges_explanation')}\n\n'
+                          '$gateReasonText\n\n'
                           '${l10n.tr('league_access_league_prefix')} ${league.name}'),
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(
@@ -482,7 +518,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
           }
         }
 
-        // Reserve to prevent concurrent use.
         tx.set(
           docRef,
           <String, dynamic>{
@@ -541,7 +576,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     setState(() => _processingPayment = true);
 
     try {
-      // Finalize coupon first (prevents reuse).
       await _finalizeCouponUse(league: league, code: code);
 
       final prefs = ref.read(prefsServiceProvider);
@@ -630,7 +664,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
         return;
       }
 
-      // Try to finalize coupon after payment success.
       if (hasCoupon) {
         bool finalized = false;
         Object? lastError;
@@ -647,7 +680,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
         }
 
         if (!finalized) {
-          // Best-effort: don't block paid user, but warn.
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Payment succeeded, but coupon finalization failed: $lastError'),
