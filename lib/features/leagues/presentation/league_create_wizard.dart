@@ -82,10 +82,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   int get _couponPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
 
+  int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
+
   String get _couponLabel {
     if (!_couponsEnabled) return 'Coupons: None';
-    if (_couponPercent >= 100) return 'Coupons: Free access (100%)';
-    return 'Coupons: $_couponPercent% discount';
+
+    final pctLabel = _couponPercent >= 100 ? 'Free access (100%)' : '$_couponPercent% discount';
+    final countLabel = _couponCount > 0 ? ' • Qty: $_couponCount' : '';
+    return 'Coupons: $pctLabel$countLabel';
   }
 
   @override
@@ -1130,6 +1134,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
     final couponPercent = couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+    final couponCount = couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
 
     final league = League(
       id: leagueId,
@@ -1146,6 +1151,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       // optional paid add-on
       couponsEnabled: couponsEnabled,
       couponDiscountPercent: couponPercent,
+      couponCount: couponCount,
 
       format: _format,
       privacy: _privacy,

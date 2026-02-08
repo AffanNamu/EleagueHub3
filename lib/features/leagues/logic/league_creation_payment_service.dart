@@ -32,6 +32,10 @@ class LeagueCreationPaymentResult {
   /// 100 means free access.
   final int couponDiscountPercent;
 
+  /// OPTIONAL: how many coupons the organizer wants generated/covered at purchase time.
+  /// 0 means none.
+  final int couponCount;
+
   /// Amount charged (Flutterwave string format).
   final String totalAmount;
 
@@ -44,6 +48,7 @@ class LeagueCreationPaymentResult {
     required this.viewerCapacity,
     required this.buyCouponsForParticipants,
     required this.couponDiscountPercent,
+    required this.couponCount,
     required this.totalAmount,
   });
 
@@ -54,6 +59,7 @@ class LeagueCreationPaymentResult {
     required int viewerCapacity,
     required bool buyCouponsForParticipants,
     required int couponDiscountPercent,
+    required int couponCount,
     required String totalAmount,
   }) {
     return LeagueCreationPaymentResult._(
@@ -65,6 +71,7 @@ class LeagueCreationPaymentResult {
       viewerCapacity: viewerCapacity,
       buyCouponsForParticipants: buyCouponsForParticipants,
       couponDiscountPercent: couponDiscountPercent,
+      couponCount: couponCount,
       totalAmount: totalAmount,
     );
   }
@@ -75,6 +82,7 @@ class LeagueCreationPaymentResult {
     int viewerCapacity = 0,
     bool buyCouponsForParticipants = false,
     int couponDiscountPercent = 0,
+    int couponCount = 0,
     String totalAmount = '0',
   }) {
     return LeagueCreationPaymentResult._(
@@ -86,6 +94,7 @@ class LeagueCreationPaymentResult {
       viewerCapacity: viewerCapacity,
       buyCouponsForParticipants: buyCouponsForParticipants,
       couponDiscountPercent: couponDiscountPercent,
+      couponCount: couponCount,
       totalAmount: totalAmount,
     );
   }
@@ -105,6 +114,9 @@ abstract class LeagueCreationPaymentService {
 
     /// OPTIONAL add-on: coupon percent discount (0=disabled, 100=free).
     int couponDiscountPercent,
+
+    /// OPTIONAL add-on: coupon quantity to include/generate.
+    int couponCount,
   });
 
   String get providerName;
@@ -128,10 +140,27 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
   int _sanitizeCouponPercent(bool enabled, int rawPercent) {
     if (!enabled) return 0;
     if (rawPercent >= 100) return 100;
-    // Minimum 1% doesn't match UI; enforce UI constraints on backend-facing values anyway.
     if (rawPercent < 5) return 5;
     if (rawPercent > 90) return 90;
     return rawPercent;
+  }
+
+  int _sanitizeCount(int v) => v < 0 ? 0 : v;
+
+  double _discountedAddon({
+    required double unitPrice,
+    required int count,
+  }) {
+    final c = _sanitizeCount(count);
+    if (c <= 0) return 0;
+
+    final raw = unitPrice * c;
+
+    // Rule: if buyer buys above 100 viewers/coupons => 20% discount on that portion.
+    if (c > 100) {
+      return raw * 0.8;
+    }
+    return raw;
   }
 
   @override
@@ -142,8 +171,10 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
     int viewerCapacity = 0,
     bool buyCouponsForParticipants = false,
     int couponDiscountPercent = 0,
+    int couponCount = 0,
   }) async {
-    final safeViewerCapacity = viewerCapacity < 0 ? 0 : viewerCapacity;
+    final safeViewerCapacity = _sanitizeCount(viewerCapacity);
+    final safeCouponCount = buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
     final safeCouponPercent = _sanitizeCouponPercent(buyCouponsForParticipants, couponDiscountPercent);
 
     try {
@@ -154,9 +185,14 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
       FlutterwaveConfig.assertValidPricing(pricing);
 
       final base = double.tryParse(pricing.createLeagueAmount.trim()) ?? 0;
+
+      // Viewer unit price and coupon unit price are the same, as requested.
       final unit = double.tryParse(pricing.viewLeagueAmount.trim()) ?? 0;
 
-      final total = base + (safeViewerCapacity * unit);
+      final viewersAddon = _discountedAddon(unitPrice: unit, count: safeViewerCapacity);
+      final couponsAddon = _discountedAddon(unitPrice: unit, count: safeCouponCount);
+
+      final total = base + viewersAddon + couponsAddon;
       final totalAmount = _toFlutterwaveAmount(total);
 
       final authUser = FirebaseAuth.instance.currentUser;
@@ -178,15 +214,16 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
 
       final txRef = 'EH-CRT-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
+      final viewersPart = safeViewerCapacity > 0 ? ' + viewers ($safeViewerCapacity)' : '';
       final couponsPart = buyCouponsForParticipants
-          ? (safeCouponPercent >= 100
-              ? ' + coupons (free access)'
-              : ' + coupons (${safeCouponPercent}% discount)')
+          ? (safeCouponCount > 0
+              ? (safeCouponPercent >= 100
+                  ? ' + coupons ($safeCouponCount, free access)'
+                  : ' + coupons ($safeCouponCount, ${safeCouponPercent}% discount)')
+              : (safeCouponPercent >= 100 ? ' + coupons (free access)' : ' + coupons (${safeCouponPercent}% discount)'))
           : '';
 
-      final description = safeViewerCapacity > 0
-          ? 'League creation + viewers ($safeViewerCapacity)$couponsPart: $leagueName'
-          : 'League creation charges$couponsPart: $leagueName';
+      final description = 'League creation$viewersPart$couponsPart: $leagueName';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -203,7 +240,6 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         isTestMode: FlutterwaveConfig.isTestMode,
       );
 
-      // flutterwave_standard 1.1.0 requires BuildContext in charge()
       final ChargeResponse response = await flutterwave.charge(context);
 
       if (response.success == true) {
@@ -221,6 +257,7 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
           viewerCapacity: safeViewerCapacity,
           buyCouponsForParticipants: buyCouponsForParticipants,
           couponDiscountPercent: safeCouponPercent,
+          couponCount: safeCouponCount,
           totalAmount: totalAmount,
         );
       }
@@ -231,6 +268,7 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         viewerCapacity: safeViewerCapacity,
         buyCouponsForParticipants: buyCouponsForParticipants,
         couponDiscountPercent: safeCouponPercent,
+        couponCount: safeCouponCount,
         totalAmount: totalAmount,
       );
     } catch (e) {
@@ -240,6 +278,7 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         viewerCapacity: safeViewerCapacity,
         buyCouponsForParticipants: buyCouponsForParticipants,
         couponDiscountPercent: safeCouponPercent,
+        couponCount: safeCouponCount,
         totalAmount: '0',
       );
     }

@@ -37,6 +37,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   _CouponMode _couponMode = _CouponMode.freeAccess;
   int _couponPercent = 20; // Used only when _couponMode == percentageDiscount (5..90)
 
+  // NEW: coupon quantity to purchase/cover during league creation payment.
+  int _couponCount = 0;
+
   double _parseAmount(String raw) => double.tryParse(raw.trim()) ?? 0;
 
   String _money(double v) {
@@ -55,6 +58,23 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     return v;
   }
 
+  int _effectiveCouponCount() {
+    if (!_buyCouponsForParticipants) return 0;
+    // Enforce at least 1 coupon if coupons are enabled (prevents enabling coupons with 0 fee).
+    return _couponCount <= 0 ? 1 : _couponCount;
+  }
+
+  double _addonWithBulkDiscount({
+    required double unitPrice,
+    required int count,
+  }) {
+    if (count <= 0) return 0;
+    final raw = unitPrice * count;
+    // Rule: above 100 => 20% discount on that add-on portion only.
+    if (count > 100) return raw * 0.8;
+    return raw;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -66,11 +86,16 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     final pricing = FlutterwaveConfig.pricingForLocale(locale);
 
     // Pricing:
-    // totalAmount = baseLeagueFee + (viewerCapacity × viewerUnitPrice)
+    // totalAmount = baseLeagueFee + (viewerCapacity × viewerUnitPrice [bulk discount]) + (couponCount × couponUnitPrice [bulk discount])
+    //
+    // Note: couponUnitPrice == viewerUnitPrice (pricing.viewLeagueAmount), as requested.
     final baseFee = _parseAmount(pricing.createLeagueAmount);
     final unitPrice = _parseAmount(pricing.viewLeagueAmount);
-    final viewersAddon = _viewerCapacity * unitPrice;
-    final total = baseFee + viewersAddon;
+
+    final viewersAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _viewerCapacity);
+    final couponsAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _effectiveCouponCount());
+
+    final total = baseFee + viewersAddon + (_buyCouponsForParticipants ? couponsAddon : 0);
 
     final titleStyle = theme.textTheme.titleMedium?.copyWith(
       color: cs.onSurface,
@@ -87,6 +112,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     final couponsSummary = !_buyCouponsForParticipants
         ? 'Coupons: None'
         : (_effectiveCouponPercent() >= 100 ? 'Coupons: Free access (100%)' : 'Coupons: ${_effectiveCouponPercent()}% discount');
+
+    final viewerDiscountNote = _viewerCapacity > 100 ? ' (20% bulk discount applied)' : '';
+    final couponDiscountNote = (_buyCouponsForParticipants && _effectiveCouponCount() > 100) ? ' (20% bulk discount applied)' : '';
 
     return GlassScaffold(
       appBar: AppBar(
@@ -150,7 +178,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Viewers are separate from participants. This only affects price.',
+                            'Viewers are separate from participants. This only affects price. Above 100 viewers gets 20% discount.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: cs.onSurface.withOpacity(0.65),
                               fontWeight: FontWeight.w600,
@@ -164,7 +192,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  '$_viewerCapacity viewers • Unit: ${_money(unitPrice)} ${pricing.currency}',
+                                  '$_viewerCapacity viewers • Unit: ${_money(unitPrice)} ${pricing.currency}$viewerDiscountNote',
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: cs.onSurface.withOpacity(0.72),
                                     fontWeight: FontWeight.w700,
@@ -177,7 +205,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     ? null
                                     : () {
                                         setState(() {
-                                          _viewerCapacity = (_viewerCapacity - 50).clamp(0, 500);
+                                          _viewerCapacity = (_viewerCapacity - 10).clamp(0, 500);
                                         });
                                       },
                                 icon: const Icon(Icons.remove_circle_outline),
@@ -188,7 +216,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     ? null
                                     : () {
                                         setState(() {
-                                          _viewerCapacity = (_viewerCapacity + 50).clamp(0, 500);
+                                          _viewerCapacity = (_viewerCapacity + 10).clamp(0, 500);
                                         });
                                       },
                                 icon: const Icon(Icons.add_circle_outline),
@@ -199,17 +227,17 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                             value: _viewerCapacity.toDouble(),
                             min: 0,
                             max: 500,
-                            divisions: 10, // step of 50
+                            divisions: 50, // step of 10
                             label: '$_viewerCapacity',
                             onChanged: _processing
                                 ? null
                                 : (v) {
-                                    setState(() => _viewerCapacity = (v / 50).round() * 50);
+                                    setState(() => _viewerCapacity = (v / 10).round() * 10);
                                   },
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Base: ${_money(baseFee)} ${pricing.currency}  +  Add-on: ${_money(viewersAddon)} ${pricing.currency}  =  Total: ${_money(total)} ${pricing.currency}',
+                            'Add-on: ${_money(viewersAddon)} ${pricing.currency}',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: cs.onSurface.withOpacity(0.65),
                               fontWeight: FontWeight.w600,
@@ -256,6 +284,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           _buyCouponsForParticipants = v;
                                           if (!v) {
                                             _couponMode = _CouponMode.freeAccess;
+                                            _couponCount = 0;
+                                          } else {
+                                            // Keep it safe: if toggled on and count is 0, show 1 in UI.
+                                            if (_couponCount <= 0) _couponCount = 1;
                                           }
                                         });
                                       },
@@ -264,7 +296,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'If enabled, coupons will be generated after successful payment and league creation. Participants can use them on the Join League payment screen.',
+                            'Coupon unit fee equals viewer fee. Above 100 coupons gets 20% discount on the coupon portion.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: cs.onSurface.withOpacity(0.65),
                               fontWeight: FontWeight.w600,
@@ -272,6 +304,75 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                             ),
                           ),
                           if (_buyCouponsForParticipants) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              'How many coupons do you want to buy?',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(Icons.confirmation_number_outlined, color: cs.onSurface.withOpacity(0.70), size: 18),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '${_effectiveCouponCount()} coupons • Unit: ${_money(unitPrice)} ${pricing.currency}$couponDiscountNote',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: cs.onSurface.withOpacity(0.72),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Decrease',
+                                  onPressed: _processing
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            _couponCount = (_couponCount - 10).clamp(1, 500);
+                                          });
+                                        },
+                                  icon: const Icon(Icons.remove_circle_outline),
+                                ),
+                                IconButton(
+                                  tooltip: 'Increase',
+                                  onPressed: _processing
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            _couponCount = (_couponCount + 10).clamp(1, 500);
+                                          });
+                                        },
+                                  icon: const Icon(Icons.add_circle_outline),
+                                ),
+                              ],
+                            ),
+                            Slider(
+                              value: _effectiveCouponCount().toDouble(),
+                              min: 1,
+                              max: 500,
+                              divisions: 499,
+                              label: '${_effectiveCouponCount()}',
+                              onChanged: _processing
+                                  ? null
+                                  : (v) {
+                                      // step of 10 for readability, but keep min 1
+                                      final rounded = (v / 10).round() * 10;
+                                      setState(() => _couponCount = rounded.clamp(1, 500));
+                                    },
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Add-on: ${_money(couponsAddon)} ${pricing.currency}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.65),
+                                fontWeight: FontWeight.w600,
+                                height: 1.25,
+                              ),
+                            ),
                             const SizedBox(height: 12),
                             RadioListTile<_CouponMode>(
                               value: _CouponMode.freeAccess,
@@ -347,19 +448,22 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                       },
                               ),
                             ],
-                            const SizedBox(height: 6),
-                            Text(
-                              _effectiveCouponPercent() >= 100
-                                  ? 'Coupons will grant free access.'
-                                  : 'Coupons will apply ${_effectiveCouponPercent()}% discount.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.65),
-                                fontWeight: FontWeight.w600,
-                                height: 1.25,
-                              ),
-                            ),
                           ],
                         ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+                    Text(
+                      'Base: ${_money(baseFee)} ${pricing.currency}'
+                      '  +  Viewers: ${_money(viewersAddon)} ${pricing.currency}'
+                      '  +  Coupons: ${_buyCouponsForParticipants ? _money(couponsAddon) : _money(0)} ${pricing.currency}'
+                      '  =  Total: ${_money(total)} ${pricing.currency}',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.65),
+                        fontWeight: FontWeight.w600,
+                        height: 1.25,
                       ),
                     ),
 
@@ -389,6 +493,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                         viewerCapacity: _viewerCapacity,
                                         buyCouponsForParticipants: _buyCouponsForParticipants,
                                         couponDiscountPercent: _effectiveCouponPercent(),
+                                        couponCount: _effectiveCouponCount(),
                                       );
 
                                       if (!mounted) return;

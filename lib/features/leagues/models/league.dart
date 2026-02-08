@@ -33,6 +33,10 @@ class League {
   /// 100 means free access.
   final int couponDiscountPercent;
 
+  /// OPTIONAL: How many coupons were purchased/covered during league creation payment.
+  /// 0 means not specified / not purchased.
+  final int couponCount;
+
   final LeagueFormat format;
   final LeaguePrivacy privacy;
   final String region;
@@ -64,6 +68,7 @@ class League {
     this.viewerCapacity = 0,
     this.couponsEnabled = false,
     this.couponDiscountPercent = 0,
+    this.couponCount = 0,
     required this.format,
     required this.privacy,
     required this.region,
@@ -107,6 +112,7 @@ class League {
         // Coupons (optional paid add-on)
         'couponsEnabled': couponsEnabled,
         'couponDiscountPercent': couponDiscountPercent,
+        'couponCount': couponCount,
 
         'format': format.index,
         'isPrivate': isPrivate ? 1 : 0,
@@ -184,6 +190,11 @@ class League {
       fallback: 0,
     );
 
+    final couponCount = _intFromAny(
+      map['couponCount'] ?? map['couponsPurchased'] ?? map['couponQty'],
+      fallback: 0,
+    );
+
     return League(
       id: (map['id'] as String?) ?? '',
       name: (map['name'] as String?) ?? '',
@@ -193,6 +204,7 @@ class League {
       viewerCapacity: viewerCapacity,
       couponsEnabled: couponsEnabled,
       couponDiscountPercent: couponDiscountPercent,
+      couponCount: couponCount,
       format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
       privacy: (map['isPrivate'] == 1 || map['isPrivate'] == true)
           ? LeaguePrivacy.private
@@ -220,6 +232,7 @@ class League {
     int? viewerCapacity,
     bool? couponsEnabled,
     int? couponDiscountPercent,
+    int? couponCount,
     LeagueFormat? format,
     LeaguePrivacy? privacy,
     String? region,
@@ -241,6 +254,7 @@ class League {
       viewerCapacity: viewerCapacity ?? this.viewerCapacity,
       couponsEnabled: couponsEnabled ?? this.couponsEnabled,
       couponDiscountPercent: couponDiscountPercent ?? this.couponDiscountPercent,
+      couponCount: couponCount ?? this.couponCount,
       format: format ?? this.format,
       privacy: privacy ?? this.privacy,
       region: region ?? this.region,

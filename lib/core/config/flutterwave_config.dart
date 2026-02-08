@@ -6,7 +6,15 @@ class FlutterwavePricing {
   /// String number format Flutterwave accepts (e.g. "4000" or "5").
   final String createLeagueAmount;
 
-  /// String number format Flutterwave accepts (e.g. "1300" or "2").
+  /// String number format Flutterwave accepts (e.g. "1500" or "2").
+  ///
+  /// NOTE:
+  /// This amount is used in two places in the current app:
+  /// 1) League access charges (LeagueAccessGuard)
+  /// 2) Viewer capacity add-on unit price during league creation payment
+  ///
+  /// We also reuse it as the coupon unit fee during league creation payment
+  /// (as requested: coupon fee == viewer fee).
   final String viewLeagueAmount;
 
   const FlutterwavePricing({
@@ -56,16 +64,18 @@ class FlutterwaveConfig {
   static const String ngnCurrency = String.fromEnvironment('FLW_NGN_CURRENCY', defaultValue: 'NGN');
   static const String usdCurrency = String.fromEnvironment('FLW_USD_CURRENCY', defaultValue: 'USD');
 
-  /// Your business pricing defaults:
-  /// - Nigeria: NGN 4000 create, NGN 1300 view
-  /// - Outside Nigeria: USD 5 create, USD 2 view
+  /// Updated business pricing defaults (as requested):
+  /// - Nigeria: NGN 1500 create, NGN 1500 view
+  /// - Outside Nigeria: USD 2 create, USD 2 view
+  ///
+  /// You can still override via --dart-define.
   static const String ngnCreateLeagueAmount =
-      String.fromEnvironment('FLW_NGN_CREATE_LEAGUE_AMOUNT', defaultValue: '4000');
+      String.fromEnvironment('FLW_NGN_CREATE_LEAGUE_AMOUNT', defaultValue: '1500');
   static const String ngnViewLeagueAmount =
-      String.fromEnvironment('FLW_NGN_VIEW_LEAGUE_AMOUNT', defaultValue: '1300');
+      String.fromEnvironment('FLW_NGN_VIEW_LEAGUE_AMOUNT', defaultValue: '1500');
 
   static const String usdCreateLeagueAmount =
-      String.fromEnvironment('FLW_USD_CREATE_LEAGUE_AMOUNT', defaultValue: '5');
+      String.fromEnvironment('FLW_USD_CREATE_LEAGUE_AMOUNT', defaultValue: '2');
   static const String usdViewLeagueAmount =
       String.fromEnvironment('FLW_USD_VIEW_LEAGUE_AMOUNT', defaultValue: '2');
 
@@ -100,7 +110,7 @@ class FlutterwaveConfig {
         currency: usdCurrency,
         createLeagueAmount: usdCreateLeagueAmount,
         viewLeagueAmount: usdViewLeagueAmount,
-      );
+        );
     }
 
     final cc = (locale?.countryCode ?? '').trim().toUpperCase();
