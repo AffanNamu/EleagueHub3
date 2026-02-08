@@ -9,7 +9,12 @@ service cloud.firestore {
     }
 
     function isOwner(leagueId) {
-      return signedIn() && leagueDoc(leagueId).data.organizerUserId == request.auth.uid;
+      let d = leagueDoc(leagueId).data;
+      return signedIn()
+        && (
+          d.organizerUserId == request.auth.uid
+          || d.ownerId == request.auth.uid
+        );
     }
 
     function isMember(leagueId) {
