@@ -24,6 +24,15 @@ class League {
   /// 0 means not enabled / not purchased.
   final int viewerCapacity;
 
+  /// OPTIONAL: Coupons for participants enabled at creation time.
+  /// Coupons are redeemed on Join League -> Payment screen.
+  final bool couponsEnabled;
+
+  /// OPTIONAL: Coupon discount percent for this league.
+  /// 0 means coupons not enabled.
+  /// 100 means free access.
+  final int couponDiscountPercent;
+
   final LeagueFormat format;
   final LeaguePrivacy privacy;
   final String region;
@@ -53,6 +62,8 @@ class League {
     this.leagueImageUrl = '',
     this.sponsorImageUrl = '',
     this.viewerCapacity = 0,
+    this.couponsEnabled = false,
+    this.couponDiscountPercent = 0,
     required this.format,
     required this.privacy,
     required this.region,
@@ -72,6 +83,8 @@ class League {
   bool get hasSponsorImage => sponsorImageUrl.trim().isNotEmpty;
   bool get hasViewerCapacity => viewerCapacity > 0;
 
+  bool get hasCoupons => couponsEnabled && couponDiscountPercent > 0;
+
   /// Backward compatible: if old leagues have no stored QR payload,
   /// compute a stable payload from [id] + [code].
   String get qrPayload {
@@ -90,6 +103,10 @@ class League {
 
         // Viewer capacity (optional paid add-on)
         'viewerCapacity': viewerCapacity,
+
+        // Coupons (optional paid add-on)
+        'couponsEnabled': couponsEnabled,
+        'couponDiscountPercent': couponDiscountPercent,
 
         'format': format.index,
         'isPrivate': isPrivate ? 1 : 0,
@@ -125,6 +142,19 @@ class League {
     return fallback;
   }
 
+  static bool _boolFromAny(dynamic v, {bool fallback = false}) {
+    if (v == null) return fallback;
+    if (v is bool) return v;
+    if (v is int) return v == 1;
+    if (v is num) return v.toInt() == 1;
+    if (v is String) {
+      final s = v.trim().toLowerCase();
+      if (s == 'true' || s == '1' || s == 'yes') return true;
+      if (s == 'false' || s == '0' || s == 'no') return false;
+    }
+    return fallback;
+  }
+
   static League fromRemoteMap(Map<String, dynamic> map) {
     // Backward/forward compatible key resolution (some deployments may have used different keys).
     final leagueImageUrl =
@@ -144,6 +174,16 @@ class League {
       fallback: 0,
     );
 
+    final couponsEnabled = _boolFromAny(
+      map['couponsEnabled'] ?? map['hasCoupons'] ?? map['buyCouponsForParticipants'],
+      fallback: false,
+    );
+
+    final couponDiscountPercent = _intFromAny(
+      map['couponDiscountPercent'] ?? map['couponPercent'] ?? map['couponDiscount'],
+      fallback: 0,
+    );
+
     return League(
       id: (map['id'] as String?) ?? '',
       name: (map['name'] as String?) ?? '',
@@ -151,6 +191,8 @@ class League {
       leagueImageUrl: leagueImageUrl,
       sponsorImageUrl: sponsorImageUrl,
       viewerCapacity: viewerCapacity,
+      couponsEnabled: couponsEnabled,
+      couponDiscountPercent: couponDiscountPercent,
       format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
       privacy: (map['isPrivate'] == 1 || map['isPrivate'] == true)
           ? LeaguePrivacy.private
@@ -176,6 +218,8 @@ class League {
     String? leagueImageUrl,
     String? sponsorImageUrl,
     int? viewerCapacity,
+    bool? couponsEnabled,
+    int? couponDiscountPercent,
     LeagueFormat? format,
     LeaguePrivacy? privacy,
     String? region,
@@ -195,6 +239,8 @@ class League {
       leagueImageUrl: leagueImageUrl ?? this.leagueImageUrl,
       sponsorImageUrl: sponsorImageUrl ?? this.sponsorImageUrl,
       viewerCapacity: viewerCapacity ?? this.viewerCapacity,
+      couponsEnabled: couponsEnabled ?? this.couponsEnabled,
+      couponDiscountPercent: couponDiscountPercent ?? this.couponDiscountPercent,
       format: format ?? this.format,
       privacy: privacy ?? this.privacy,
       region: region ?? this.region,

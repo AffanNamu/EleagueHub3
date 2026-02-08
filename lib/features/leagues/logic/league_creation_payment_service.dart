@@ -21,6 +21,17 @@ class LeagueCreationPaymentResult {
   /// 0 means not enabled.
   final int viewerCapacity;
 
+  /// OPTIONAL add-on: organizer purchased coupons for participants.
+  /// If true, backend should generate league-specific coupons after:
+  /// - successful payment
+  /// - league creation
+  final bool buyCouponsForParticipants;
+
+  /// Coupon discount as percentage off the league join/access charge.
+  /// 0 means coupons not enabled.
+  /// 100 means free access.
+  final int couponDiscountPercent;
+
   /// Amount charged (Flutterwave string format).
   final String totalAmount;
 
@@ -31,6 +42,8 @@ class LeagueCreationPaymentResult {
     required this.provider,
     required this.errorMessage,
     required this.viewerCapacity,
+    required this.buyCouponsForParticipants,
+    required this.couponDiscountPercent,
     required this.totalAmount,
   });
 
@@ -39,6 +52,8 @@ class LeagueCreationPaymentResult {
     required int paidAtMs,
     required String provider,
     required int viewerCapacity,
+    required bool buyCouponsForParticipants,
+    required int couponDiscountPercent,
     required String totalAmount,
   }) {
     return LeagueCreationPaymentResult._(
@@ -48,6 +63,8 @@ class LeagueCreationPaymentResult {
       provider: provider,
       errorMessage: null,
       viewerCapacity: viewerCapacity,
+      buyCouponsForParticipants: buyCouponsForParticipants,
+      couponDiscountPercent: couponDiscountPercent,
       totalAmount: totalAmount,
     );
   }
@@ -56,6 +73,8 @@ class LeagueCreationPaymentResult {
     required String provider,
     required String errorMessage,
     int viewerCapacity = 0,
+    bool buyCouponsForParticipants = false,
+    int couponDiscountPercent = 0,
     String totalAmount = '0',
   }) {
     return LeagueCreationPaymentResult._(
@@ -65,6 +84,8 @@ class LeagueCreationPaymentResult {
       provider: provider,
       errorMessage: errorMessage,
       viewerCapacity: viewerCapacity,
+      buyCouponsForParticipants: buyCouponsForParticipants,
+      couponDiscountPercent: couponDiscountPercent,
       totalAmount: totalAmount,
     );
   }
@@ -78,6 +99,12 @@ abstract class LeagueCreationPaymentService {
 
     /// OPTIONAL paid add-on (viewers are separate from participants).
     int viewerCapacity,
+
+    /// OPTIONAL add-on: buy coupons for participants (generated after payment+league creation).
+    bool buyCouponsForParticipants,
+
+    /// OPTIONAL add-on: coupon percent discount (0=disabled, 100=free).
+    int couponDiscountPercent,
   });
 
   String get providerName;
@@ -98,14 +125,26 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
     return rounded.toStringAsFixed(2);
   }
 
+  int _sanitizeCouponPercent(bool enabled, int rawPercent) {
+    if (!enabled) return 0;
+    if (rawPercent >= 100) return 100;
+    // Minimum 1% doesn't match UI; enforce UI constraints on backend-facing values anyway.
+    if (rawPercent < 5) return 5;
+    if (rawPercent > 90) return 90;
+    return rawPercent;
+  }
+
   @override
   Future<LeagueCreationPaymentResult> collectLeagueCreationFee({
     required BuildContext context,
     required String userId,
     required String leagueName,
     int viewerCapacity = 0,
+    bool buyCouponsForParticipants = false,
+    int couponDiscountPercent = 0,
   }) async {
     final safeViewerCapacity = viewerCapacity < 0 ? 0 : viewerCapacity;
+    final safeCouponPercent = _sanitizeCouponPercent(buyCouponsForParticipants, couponDiscountPercent);
 
     try {
       FlutterwaveConfig.assertConfigured();
@@ -139,9 +178,15 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
 
       final txRef = 'EH-CRT-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
+      final couponsPart = buyCouponsForParticipants
+          ? (safeCouponPercent >= 100
+              ? ' + coupons (free access)'
+              : ' + coupons (${safeCouponPercent}% discount)')
+          : '';
+
       final description = safeViewerCapacity > 0
-          ? 'League creation + viewers ($safeViewerCapacity): $leagueName'
-          : 'League creation charges: $leagueName';
+          ? 'League creation + viewers ($safeViewerCapacity)$couponsPart: $leagueName'
+          : 'League creation charges$couponsPart: $leagueName';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -174,6 +219,8 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
           paidAtMs: now,
           provider: providerName,
           viewerCapacity: safeViewerCapacity,
+          buyCouponsForParticipants: buyCouponsForParticipants,
+          couponDiscountPercent: safeCouponPercent,
           totalAmount: totalAmount,
         );
       }
@@ -182,6 +229,8 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         provider: providerName,
         errorMessage: 'Payment cancelled or not successful',
         viewerCapacity: safeViewerCapacity,
+        buyCouponsForParticipants: buyCouponsForParticipants,
+        couponDiscountPercent: safeCouponPercent,
         totalAmount: totalAmount,
       );
     } catch (e) {
@@ -189,6 +238,8 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         provider: providerName,
         errorMessage: e.toString(),
         viewerCapacity: safeViewerCapacity,
+        buyCouponsForParticipants: buyCouponsForParticipants,
+        couponDiscountPercent: safeCouponPercent,
         totalAmount: '0',
       );
     }

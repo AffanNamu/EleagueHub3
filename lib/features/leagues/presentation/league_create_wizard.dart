@@ -78,6 +78,16 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   bool get _paymentCompleted => _payment?.success == true;
 
+  bool get _couponsEnabled => (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
+
+  int get _couponPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+
+  String get _couponLabel {
+    if (!_couponsEnabled) return 'Coupons: None';
+    if (_couponPercent >= 100) return 'Coupons: Free access (100%)';
+    return 'Coupons: $_couponPercent% discount';
+  }
+
   @override
   void dispose() {
     _name.dispose();
@@ -395,6 +405,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               Icons.visibility,
               'Viewers',
               '${_payment!.viewerCapacity}',
+              valueColor: cs.primary,
+            ),
+          ],
+          if (_couponsEnabled) ...[
+            _summaryRow(
+              Icons.confirmation_number_outlined,
+              'Coupons',
+              _couponLabel.replaceFirst('Coupons: ', ''),
               valueColor: cs.primary,
             ),
           ],
@@ -781,6 +799,12 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             'Viewers',
             '${_payment!.viewerCapacity}',
           ),
+        if (_couponsEnabled)
+          _reviewRow(
+            Icons.confirmation_number_outlined,
+            'Coupons',
+            _couponLabel.replaceFirst('Coupons: ', ''),
+          ),
         _reviewRow(Icons.format_list_bulleted, l10n.tr('league_create_summary_type_label'), _formatLabel(l10n)),
         _reviewRow(Icons.lock, l10n.tr('league_create_summary_privacy_label'), _privacyLabel(l10n)),
         _reviewRow(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
@@ -1104,6 +1128,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       lastPulledAtMs: 0,
     );
 
+    final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
+    final couponPercent = couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+
     final league = League(
       id: leagueId,
       name: _name.text.trim(),
@@ -1115,6 +1142,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
       // optional paid add-on
       viewerCapacity: _payment?.viewerCapacity ?? 0,
+
+      // optional paid add-on
+      couponsEnabled: couponsEnabled,
+      couponDiscountPercent: couponPercent,
 
       format: _format,
       privacy: _privacy,

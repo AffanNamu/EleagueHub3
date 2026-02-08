@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +19,170 @@ import '../../auth/models/user_profile.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
+
+  String _couponLeagueSubtitle({
+    required bool enabled,
+    required int discountPercent,
+  }) {
+    if (!enabled || discountPercent <= 0) return 'Not enabled';
+    if (discountPercent >= 100) return 'Free access (100%)';
+    return '$discountPercent% discount';
+  }
+
+  void _showLeagueCouponsSheet(
+    BuildContext context, {
+    required String leagueId,
+    required String leagueName,
+    required int discountPercent,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
+        final couponsQuery = FirebaseFirestore.instance
+            .collection('leagues')
+            .doc(leagueId)
+            .collection('coupons')
+            .orderBy('createdAtMs', descending: true)
+            .limit(100);
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'My Coupons',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: onSurface,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '$leagueName • ${_couponLeagueSubtitle(enabled: true, discountPercent: discountPercent)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: onSurface.withOpacity(0.70),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        Divider(color: onSurface.withOpacity(0.12)),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 520),
+                          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            stream: couponsQuery.snapshots(),
+                            builder: (context, snap) {
+                              if (snap.hasError) {
+                                return Center(
+                                  child: Text(
+                                    'Failed to load coupons.',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: cs.error,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              if (!snap.hasData) {
+                                return Center(child: CircularProgressIndicator(color: cs.primary));
+                              }
+
+                              final docs = snap.data!.docs;
+
+                              if (docs.isEmpty) {
+                                return Center(
+                                  child: Text(
+                                    'No coupons found yet.',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: onSurface.withOpacity(0.70),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              return ListView.separated(
+                                itemCount: docs.length,
+                                separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
+                                itemBuilder: (context, i) {
+                                  final d = docs[i].data();
+                                  final code = (d['code'] as String?)?.trim().isNotEmpty == true ? (d['code'] as String).trim() : docs[i].id;
+                                  final usedBy = (d['usedBy'] as String?)?.trim() ?? '';
+                                  final isUsed = usedBy.isNotEmpty;
+
+                                  return ListTile(
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(
+                                      isUsed ? Icons.check_circle : Icons.confirmation_number_outlined,
+                                      color: isUsed ? const Color(0xFF22C55E) : cs.primary,
+                                      size: 20,
+                                    ),
+                                    title: Text(
+                                      code,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: onSurface,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      isUsed ? 'Used' : 'Unused',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: onSurface.withOpacity(0.65),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    trailing: IconButton(
+                                      tooltip: 'Copy',
+                                      icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72), size: 18),
+                                      onPressed: () async {
+                                        await Clipboard.setData(ClipboardData(text: code));
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Copied: $code')),
+                                        );
+                                      },
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('Close'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -238,6 +403,81 @@ class ProfileScreen extends ConsumerWidget {
             ),
           ),
 
+          const SizedBox(height: 22),
+
+          /// COUPONS (organizer)
+          SectionHeader('Coupons'),
+          const SizedBox(height: 12),
+          if (uid.isEmpty)
+            Glass(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                'Sign in to view your coupons.',
+                style: t.bodyMedium?.copyWith(
+                  color: onSurface.withOpacity(0.72),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            Glass(
+              padding: const EdgeInsets.all(14),
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance.collection('leagues').where('organizerUserId', isEqualTo: uid).limit(25).snapshots(),
+                builder: (context, snap) {
+                  if (snap.hasError) {
+                    return Text(
+                      'Failed to load coupons.',
+                      style: t.bodyMedium?.copyWith(
+                        color: theme.colorScheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    );
+                  }
+
+                  if (!snap.hasData) {
+                    return Center(child: CircularProgressIndicator(color: theme.colorScheme.primary));
+                  }
+
+                  final leagues = snap.data!.docs
+                      .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
+                      .where((m) => (m['couponsEnabled'] == true || m['couponsEnabled'] == 1) && ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0) > 0)
+                      .toList();
+
+                  if (leagues.isEmpty) {
+                    return Text(
+                      'No coupons found. Enable coupons during league creation payment.',
+                      style: t.bodyMedium?.copyWith(
+                        color: onSurface.withOpacity(0.72),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      for (final m in leagues) ...[
+                        _OrganizerLeagueCouponsTile(
+                          leagueName: (m['name'] as String?) ?? 'League',
+                          subtitle: _couponLeagueSubtitle(
+                            enabled: true,
+                            discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
+                          ),
+                          onView: () => _showLeagueCouponsSheet(
+                            context,
+                            leagueId: (m['id'] as String?) ?? '',
+                            leagueName: (m['name'] as String?) ?? 'League',
+                            discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+
           const SizedBox(height: 32),
         ],
       ),
@@ -408,6 +648,63 @@ class ProfileScreen extends ConsumerWidget {
     } finally {
       controller.dispose();
     }
+  }
+}
+
+class _OrganizerLeagueCouponsTile extends StatelessWidget {
+  const _OrganizerLeagueCouponsTile({
+    required this.leagueName,
+    required this.subtitle,
+    required this.onView,
+  });
+
+  final String leagueName;
+  final String subtitle;
+  final VoidCallback onView;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Glass(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Icon(Icons.emoji_events_outlined, color: cs.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  leagueName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          FilledButton(
+            onPressed: onView,
+            child: const Text('View'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

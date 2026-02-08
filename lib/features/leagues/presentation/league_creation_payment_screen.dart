@@ -9,6 +9,11 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../utils/current_user.dart';
 
+enum _CouponMode {
+  freeAccess,
+  percentageDiscount,
+}
+
 class LeagueCreationPaymentScreen extends ConsumerStatefulWidget {
   const LeagueCreationPaymentScreen({
     super.key,
@@ -27,6 +32,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   // OPTIONAL paid add-on
   int _viewerCapacity = 0;
 
+  // OPTIONAL: coupon purchase add-on (generated after payment + league creation)
+  bool _buyCouponsForParticipants = false;
+  _CouponMode _couponMode = _CouponMode.freeAccess;
+  int _couponPercent = 20; // Used only when _couponMode == percentageDiscount (5..90)
+
   double _parseAmount(String raw) => double.tryParse(raw.trim()) ?? 0;
 
   String _money(double v) {
@@ -34,6 +44,15 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     final intVal = rounded.toInt();
     if ((rounded - intVal).abs() < 0.000001) return '$intVal';
     return rounded.toStringAsFixed(2);
+  }
+
+  int _effectiveCouponPercent() {
+    if (!_buyCouponsForParticipants) return 0;
+    if (_couponMode == _CouponMode.freeAccess) return 100;
+    final v = _couponPercent;
+    if (v < 5) return 5;
+    if (v > 90) return 90;
+    return v;
   }
 
   @override
@@ -64,6 +83,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
       fontWeight: FontWeight.w600,
       height: 1.35,
     );
+
+    final couponsSummary = !_buyCouponsForParticipants
+        ? 'Coupons: None'
+        : (_effectiveCouponPercent() >= 100 ? 'Coupons: Free access (100%)' : 'Coupons: ${_effectiveCouponPercent()}% discount');
 
     return GlassScaffold(
       appBar: AppBar(
@@ -97,7 +120,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                     Text(
                       '${l10n.tr('league_creation_payment_amount_prefix')} ${_money(total)} ${pricing.currency}\n\n'
                       '${l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
-                      '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}',
+                      '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}\n'
+                      '$couponsSummary',
                       textAlign: TextAlign.center,
                       style: bodyStyle,
                     ),
@@ -196,6 +220,149 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                       ),
                     ),
 
+                    const SizedBox(height: 12),
+
+                    // ----------------------------
+                    // Coupons for participants (optional)
+                    // ----------------------------
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: cs.onSurface.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Coupons for participants (optional)',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              Switch.adaptive(
+                                value: _buyCouponsForParticipants,
+                                onChanged: _processing
+                                    ? null
+                                    : (v) {
+                                        setState(() {
+                                          _buyCouponsForParticipants = v;
+                                          if (!v) {
+                                            _couponMode = _CouponMode.freeAccess;
+                                          }
+                                        });
+                                      },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'If enabled, coupons will be generated after successful payment and league creation. Participants can use them on the Join League payment screen.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.65),
+                              fontWeight: FontWeight.w600,
+                              height: 1.25,
+                            ),
+                          ),
+                          if (_buyCouponsForParticipants) ...[
+                            const SizedBox(height: 12),
+                            RadioListTile<_CouponMode>(
+                              value: _CouponMode.freeAccess,
+                              groupValue: _couponMode,
+                              onChanged: _processing
+                                  ? null
+                                  : (v) {
+                                      if (v == null) return;
+                                      setState(() => _couponMode = v);
+                                    },
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                'Free access (100%)',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: cs.onSurface,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            RadioListTile<_CouponMode>(
+                              value: _CouponMode.percentageDiscount,
+                              groupValue: _couponMode,
+                              onChanged: _processing
+                                  ? null
+                                  : (v) {
+                                      if (v == null) return;
+                                      setState(() => _couponMode = v);
+                                    },
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                'Percentage discount',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: cs.onSurface,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              subtitle: Text(
+                                'Slider: 5% – 90%',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: cs.onSurface.withOpacity(0.65),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (_couponMode == _CouponMode.percentageDiscount) ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(Icons.percent, color: cs.onSurface.withOpacity(0.70), size: 18),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Discount: ${_effectiveCouponPercent()}%',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: cs.onSurface.withOpacity(0.72),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Slider(
+                                value: _couponPercent.toDouble().clamp(5, 90),
+                                min: 5,
+                                max: 90,
+                                divisions: 17, // step of 5
+                                label: '${_effectiveCouponPercent()}%',
+                                onChanged: _processing
+                                    ? null
+                                    : (v) {
+                                        final rounded = (v / 5).round() * 5;
+                                        setState(() => _couponPercent = rounded.clamp(5, 90));
+                                      },
+                              ),
+                            ],
+                            const SizedBox(height: 6),
+                            Text(
+                              _effectiveCouponPercent() >= 100
+                                  ? 'Coupons will grant free access.'
+                                  : 'Coupons will apply ${_effectiveCouponPercent()}% discount.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.65),
+                                fontWeight: FontWeight.w600,
+                                height: 1.25,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
                     const SizedBox(height: 18),
                     Row(
                       children: [
@@ -220,6 +387,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                         userId: userId,
                                         leagueName: widget.leagueName,
                                         viewerCapacity: _viewerCapacity,
+                                        buyCouponsForParticipants: _buyCouponsForParticipants,
+                                        couponDiscountPercent: _effectiveCouponPercent(),
                                       );
 
                                       if (!mounted) return;

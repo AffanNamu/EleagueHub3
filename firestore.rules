@@ -18,6 +18,11 @@ service cloud.firestore {
         && (request.auth.uid in leagueDoc(leagueId).data.memberIds);
     }
 
+    function isLeagueFinished(leagueId) {
+      let d = leagueDoc(leagueId).data;
+      return (d.isFinished == true) || (d.isFinished == 1);
+    }
+
     // Public/private detection.
     //
     // Secure-by-default:
@@ -83,15 +88,8 @@ service cloud.firestore {
     // User Profiles (Firebase uid is doc id)
     // --------------------------
     match /users/{userId} {
-      // Needed for:
-      // - showing your own profile everywhere
-      // - admin lookup by uid / shareId to auto-resolve teamName
       allow read: if signedIn();
 
-      // Create profile (one-time after first login).
-      //
-      // shareId is optional for backward compatibility with any older clients,
-      // but if provided it must match the expected format.
       allow create: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.userId == userId
@@ -110,25 +108,15 @@ service cloud.firestore {
           )
         );
 
-      // Hardened update:
-      //
-      // Users can:
-      // 1) update teamName (+ updatedAt)
-      // 2) backfill shareId ONCE if it was missing (+ updatedAt)
-      // 3) update premium custom quick messages (+ updatedAt)
-      //
-      // This keeps userId/authProvider/createdAt/isPremium immutable from client.
       allow update: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.userId == userId
         && (
-          // 1) Normal edit
           request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'teamName',
             'updatedAt'
           ])
           ||
-          // 2) One-time shareId backfill
           (
             resource.data.shareId == null
             && request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -139,7 +127,6 @@ service cloud.firestore {
             && request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$')
           )
           ||
-          // 3) Quick messages update (Premium gating is handled by app + admin set isPremium).
           (
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'quickMessagesCustom',
@@ -153,18 +140,11 @@ service cloud.firestore {
     }
 
     match /leagues/{leagueId} {
-      // Secure-by-default: if privacy missing/unknown -> private (owner/member only).
       allow get: if isOwner(leagueId) || isMember(leagueId) || isPublicLeague(leagueId);
-
-      // Allows queries like:
-      // - .where('memberIds', 'array-contains', uid)
-      // - global discovery query for public leagues
       allow list: if signedIn();
 
       allow create: if signedIn()
         && request.resource.data.organizerUserId == request.auth.uid
-        // memberIds is optional for backward compatibility with older/lean league docs.
-        // If provided, it must include the creator.
         && (
           !(request.resource.data.memberIds is list)
           || (request.auth.uid in request.resource.data.memberIds)
@@ -283,6 +263,179 @@ service cloud.firestore {
           allow read: if isOwner(leagueId) || isMember(leagueId);
           allow create, update, delete: if isOwner(leagueId);
         }
+      }
+
+      // --------------------------
+      // Coupons (league-specific)
+      // --------------------------
+      match /coupons/{couponId} {
+        // Reservation TTL (server-enforced).
+        function reservationTtl() {
+          return duration.value(15, 'm');
+        }
+
+        function strEmpty(v) {
+          return !(v is string) || v == null || v == '';
+        }
+
+        function couponUnused(d) {
+          return !('usedBy' in d) || strEmpty(d.usedBy);
+        }
+
+        function reservedBy(d) {
+          return ('reservedBy' in d) ? d.reservedBy : '';
+        }
+
+        function reservedUntil(d) {
+          return ('reservedUntil' in d) ? d.reservedUntil : null;
+        }
+
+        function couponReserved(d) {
+          return !strEmpty(reservedBy(d)) && (reservedUntil(d) is timestamp);
+        }
+
+        function reservationExpired(d) {
+          return !couponReserved(d) || (reservedUntil(d) <= request.time);
+        }
+
+        function canReserveNow(d) {
+          return couponUnused(d)
+            && (
+              !couponReserved(d)
+              || reservationExpired(d)
+              || (reservedBy(d) == request.auth.uid)
+            );
+        }
+
+        // Organizer can list their coupons. Participants should not enumerate.
+        allow list: if isOwner(leagueId);
+
+        // Anyone signed-in can GET a coupon if they know its id (code).
+        // The coupon code itself is the secret; do not allow list.
+        allow get: if signedIn();
+
+        // Only organizer can create coupons for their league.
+        allow create: if isOwner(leagueId)
+          && !isLeagueFinished(leagueId)
+          && (request.resource.data.leagueId is string)
+          && request.resource.data.leagueId == leagueId
+          && (request.resource.data.code is string)
+          && request.resource.data.code == couponId
+          && (request.resource.data.organizerUserId is string)
+          && request.resource.data.organizerUserId == request.auth.uid
+          && (request.resource.data.discountPercent is int)
+          && request.resource.data.discountPercent >= 5
+          && request.resource.data.discountPercent <= 100
+          && (
+            !('usedBy' in request.resource.data)
+            || strEmpty(request.resource.data.usedBy)
+          )
+          && (
+            !('usedAtMs' in request.resource.data)
+            || (request.resource.data.usedAtMs is int && request.resource.data.usedAtMs == 0)
+          )
+          && (
+            !('reservedBy' in request.resource.data)
+            || strEmpty(request.resource.data.reservedBy)
+          );
+
+        // Organizer can update coupon docs freely.
+        // Participants:
+        // 1) Reserve: set reservedBy/reservedAt/reservedUntil (bounded to TTL)
+        // 2) Release their own reservation: clear reserved fields
+        // 3) Finalize use: set usedBy/usedAtMs and clear reservation, only if reserved by them and not expired
+        allow update: if isOwner(leagueId)
+
+          // Reserve
+          || (
+            signedIn()
+            && !isLeagueFinished(leagueId)
+            && (resource.data.leagueId == leagueId)
+            && canReserveNow(resource.data)
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'reservedBy',
+              'reservedAt',
+              'reservedUntil',
+              'updatedAtMs'
+            ])
+            && (request.resource.data.reservedBy is string)
+            && request.resource.data.reservedBy == request.auth.uid
+            && (request.resource.data.reservedAt is timestamp)
+            && (request.resource.data.reservedUntil is timestamp)
+            // keep reservedAt close to server time (prevents far-future reservations)
+            && request.resource.data.reservedAt >= request.time - duration.value(2, 'm')
+            && request.resource.data.reservedAt <= request.time + duration.value(2, 'm')
+            // enforce TTL window exactly (prevents locking coupon for long)
+            && request.resource.data.reservedUntil == request.resource.data.reservedAt + reservationTtl()
+            && request.resource.data.reservedUntil > request.time
+            // do not allow client to mark used during reserve
+            && couponUnused(request.resource.data)
+          )
+
+          // Release reservation (same user only)
+          || (
+            signedIn()
+            && !isLeagueFinished(leagueId)
+            && (resource.data.leagueId == leagueId)
+            && couponUnused(resource.data)
+            && (reservedBy(resource.data) == request.auth.uid)
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'reservedBy',
+              'reservedAt',
+              'reservedUntil',
+              'updatedAtMs'
+            ])
+            && (
+              !('reservedBy' in request.resource.data)
+              || strEmpty(request.resource.data.reservedBy)
+            )
+            && (
+              !('reservedAt' in request.resource.data)
+              || request.resource.data.reservedAt == null
+            )
+            && (
+              !('reservedUntil' in request.resource.data)
+              || request.resource.data.reservedUntil == null
+            )
+          )
+
+          // Finalize use (one-time)
+          || (
+            signedIn()
+            && !isLeagueFinished(leagueId)
+            && (resource.data.leagueId == leagueId)
+            && couponUnused(resource.data)
+            && couponReserved(resource.data)
+            && (reservedBy(resource.data) == request.auth.uid)
+            && !reservationExpired(resource.data)
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'usedBy',
+              'usedAtMs',
+              'reservedBy',
+              'reservedAt',
+              'reservedUntil',
+              'updatedAtMs'
+            ])
+            && (request.resource.data.usedBy is string)
+            && request.resource.data.usedBy == request.auth.uid
+            && (request.resource.data.usedAtMs is int)
+            && request.resource.data.usedAtMs > 0
+            // clear reservation fields when used
+            && (
+              !('reservedBy' in request.resource.data)
+              || strEmpty(request.resource.data.reservedBy)
+            )
+            && (
+              !('reservedAt' in request.resource.data)
+              || request.resource.data.reservedAt == null
+            )
+            && (
+              !('reservedUntil' in request.resource.data)
+              || request.resource.data.reservedUntil == null
+            )
+          );
+
+        allow delete: if isOwner(leagueId);
       }
     }
 
