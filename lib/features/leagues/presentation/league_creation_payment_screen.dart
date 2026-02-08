@@ -40,7 +40,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   // Coupon quantity to purchase/cover during league creation payment.
   int _couponCount = 0;
 
-  double _parseAmount(String raw) => double.tryParse(raw.trim()) ?? 0;
+  double _parseAmount(String raw) => double.tryParse(raw.trim()) ?? 0.0;
 
   String _money(double v) {
     final rounded = double.parse(v.toStringAsFixed(2));
@@ -68,7 +68,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     required double unitPrice,
     required int count,
   }) {
-    if (count <= 0) return 0;
+    if (count <= 0) return 0.0;
     final raw = unitPrice * count;
     // Rule: above 100 => 20% discount on that add-on portion only.
     if (count > 100) return raw * 0.8;
@@ -106,13 +106,13 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     //            + (couponCount × couponUnitPrice [bulk discount])
     //
     // Note: couponUnitPrice == viewerUnitPrice (pricing.viewLeagueAmount), as requested.
-    final baseFee = addonsOnly ? 0 : _parseAmount(pricing.createLeagueAmount);
-    final unitPrice = _parseAmount(pricing.viewLeagueAmount);
+    final double baseFee = addonsOnly ? 0.0 : _parseAmount(pricing.createLeagueAmount);
+    final double unitPrice = _parseAmount(pricing.viewLeagueAmount);
 
-    final viewersAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _viewerCapacity);
-    final couponsAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _effectiveCouponCount());
+    final double viewersAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _viewerCapacity);
+    final double couponsAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _effectiveCouponCount());
 
-    final total = baseFee + viewersAddon + (_buyCouponsForParticipants ? couponsAddon : 0);
+    final double total = baseFee + viewersAddon + (_buyCouponsForParticipants ? couponsAddon : 0.0);
 
     final titleStyle = theme.textTheme.titleMedium?.copyWith(
       color: cs.onSurface,
@@ -268,7 +268,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                     const SizedBox(height: 12),
 
                     // ----------------------------
-                    // Coupons for participants/viewers (optional)
+                    // Coupons (optional)
                     // ----------------------------
                     Container(
                       width: double.infinity,
@@ -472,7 +472,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                     Text(
                       'Base: ${_money(baseFee)} ${pricing.currency}'
                       '  +  Viewers: ${_money(viewersAddon)} ${pricing.currency}'
-                      '  +  Coupons: ${_buyCouponsForParticipants ? _money(couponsAddon) : _money(0)} ${pricing.currency}'
+                      '  +  Coupons: ${_buyCouponsForParticipants ? _money(couponsAddon) : _money(0.0)} ${pricing.currency}'
                       '  =  Total: ${_money(total)} ${pricing.currency}',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
