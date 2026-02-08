@@ -448,23 +448,38 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     // Try a few times in the extremely unlikely case of a code collision.
     for (int attempt = 0; attempt < 6; attempt++) {
       final code = _couponCode();
+      final couponRef = leagueRef.collection('coupons').doc(code);
+
       try {
-        await leagueRef.collection('coupons').doc(code).create(<String, dynamic>{
-          'leagueId': league.id,
-          'code': code,
-          'organizerUserId': userId,
-          'discountPercent': discountPercent,
-          'usedBy': '',
-          'usedAtMs': 0,
-          'createdAtMs': now,
-          'updatedAtMs': now,
-          'version': 1,
+        await firestore.runTransaction((tx) async {
+          final snap = await tx.get(couponRef);
+          if (snap.exists) {
+            throw StateError('collision');
+          }
+
+          tx.set(couponRef, <String, dynamic>{
+            'leagueId': league.id,
+            'code': code,
+            'organizerUserId': userId,
+            'discountPercent': discountPercent,
+            'usedBy': '',
+            'usedAtMs': 0,
+            'reservedBy': '',
+            'reservedAt': null,
+            'reservedUntil': null,
+            'createdAtMs': now,
+            'updatedAtMs': now,
+            'version': 1,
+          });
         });
+
         return code;
-      } on FirebaseException catch (e) {
-        if (e.code == 'already-exists') {
+      } on StateError catch (e) {
+        if (e.message == 'collision') {
           continue;
         }
+        rethrow;
+      } on FirebaseException {
         rethrow;
       }
     }
