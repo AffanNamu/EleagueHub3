@@ -28,15 +28,6 @@ service cloud.firestore {
       return (d.isFinished == true) || (d.isFinished == 1);
     }
 
-    // Public/private detection.
-    //
-    // Secure-by-default:
-    // - If privacy info is missing/unknown, the league is treated as private.
-    //
-    // Supports:
-    // - legacy boolean `isPrivate: false`
-    // - legacy int `isPrivate: 0` (your League.toJson writes 1/0)
-    // - optional string `privacy: 'public'`
     function isPublicLeague(leagueId) {
       let d = leagueDoc(leagueId).data;
 
@@ -52,16 +43,11 @@ service cloud.firestore {
         ));
     }
 
-    // Helper for safe numeric comparisons in update rules.
     function registeredCountOrZero(d) {
       return (d.registeredCount is int) ? d.registeredCount : 0;
     }
 
-    // --------------------------
-    // Quick messages validation (best-effort)
-    // --------------------------
     function validQuickMsg(s) {
-      // 1..15 chars, no urls, no mentions
       return (s is string)
         && (s.size() > 0)
         && (s.size() <= 15)
@@ -69,7 +55,6 @@ service cloud.firestore {
     }
 
     function validQuickMessages(list) {
-      // Firestore rules have no loops, so we unroll checks up to 15 items.
       return (list is list)
         && (list.size() <= 15)
         && (list.size() < 1  || validQuickMsg(list[0]))
@@ -89,9 +74,6 @@ service cloud.firestore {
         && (list.size() < 15 || validQuickMsg(list[14]));
     }
 
-    // --------------------------
-    // User Profiles (Firebase uid is doc id)
-    // --------------------------
     match /users/{userId} {
       allow read: if signedIn();
 
@@ -274,10 +256,7 @@ service cloud.firestore {
       // Coupons (league-specific)
       // --------------------------
       match /coupons/{couponId} {
-        // Reservation TTL (server-enforced).
-        function reservationTtl() {
-          return duration.value(15, 'm');
-        }
+        function reservationTtl() { return duration.value(15, 'm'); }
 
         function strEmpty(v) {
           return !(v is string) || v == null || v == '';
@@ -316,28 +295,42 @@ service cloud.firestore {
         allow list: if isOwner(leagueId);
 
         // Anyone signed-in can GET a coupon if they know its id (code).
-        // The coupon code itself is the secret; do not allow list.
         allow get: if signedIn();
 
-        // Only organizer can create coupons for their league.
+        // Only owner can create coupons.
+        //
+        // IMPORTANT change:
+        // - Accept discountPercent as int OR float to avoid type-related permission-denied.
+        // - organizerUserId field on the coupon doc is optional (isOwner already enforces owner).
         allow create: if isOwner(leagueId)
           && !isLeagueFinished(leagueId)
           && (request.resource.data.leagueId is string)
           && request.resource.data.leagueId == leagueId
           && (request.resource.data.code is string)
           && request.resource.data.code == couponId
-          && (request.resource.data.organizerUserId is string)
-          && request.resource.data.organizerUserId == request.auth.uid
-          && (request.resource.data.discountPercent is int)
+          && (
+            (request.resource.data.discountPercent is int)
+            || (request.resource.data.discountPercent is float)
+          )
           && request.resource.data.discountPercent >= 5
           && request.resource.data.discountPercent <= 100
+          && (
+            !('organizerUserId' in request.resource.data)
+            || (
+              (request.resource.data.organizerUserId is string)
+              && request.resource.data.organizerUserId == request.auth.uid
+            )
+          )
           && (
             !('usedBy' in request.resource.data)
             || strEmpty(request.resource.data.usedBy)
           )
           && (
             !('usedAtMs' in request.resource.data)
-            || (request.resource.data.usedAtMs is int && request.resource.data.usedAtMs == 0)
+            || (
+              ((request.resource.data.usedAtMs is int) || (request.resource.data.usedAtMs is float))
+              && request.resource.data.usedAtMs == 0
+            )
           )
           && (
             !('reservedBy' in request.resource.data)
@@ -345,10 +338,7 @@ service cloud.firestore {
           );
 
         // Organizer can update coupon docs freely.
-        // Participants:
-        // 1) Reserve: set reservedBy/reservedAt/reservedUntil (bounded to TTL)
-        // 2) Release their own reservation: clear reserved fields
-        // 3) Finalize use: set usedBy/usedAtMs and clear reservation, only if reserved by them and not expired
+        // Participants: reserve/release/finalize.
         allow update: if isOwner(leagueId)
 
           // Reserve
@@ -367,13 +357,10 @@ service cloud.firestore {
             && request.resource.data.reservedBy == request.auth.uid
             && (request.resource.data.reservedAt is timestamp)
             && (request.resource.data.reservedUntil is timestamp)
-            // keep reservedAt close to server time (prevents far-future reservations)
             && request.resource.data.reservedAt >= request.time - duration.value(2, 'm')
             && request.resource.data.reservedAt <= request.time + duration.value(2, 'm')
-            // enforce TTL window exactly (prevents locking coupon for long)
             && request.resource.data.reservedUntil == request.resource.data.reservedAt + reservationTtl()
             && request.resource.data.reservedUntil > request.time
-            // do not allow client to mark used during reserve
             && couponUnused(request.resource.data)
           )
 
@@ -423,9 +410,11 @@ service cloud.firestore {
             ])
             && (request.resource.data.usedBy is string)
             && request.resource.data.usedBy == request.auth.uid
-            && (request.resource.data.usedAtMs is int)
+            && (
+              (request.resource.data.usedAtMs is int)
+              || (request.resource.data.usedAtMs is float)
+            )
             && request.resource.data.usedAtMs > 0
-            // clear reservation fields when used
             && (
               !('reservedBy' in request.resource.data)
               || strEmpty(request.resource.data.reservedBy)

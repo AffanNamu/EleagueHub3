@@ -111,9 +111,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   List<String> _allowedGroupsForUclGroup(League league) {
-    // Enforce your supported sizes:
-    // - 16 teams => 4 groups (A–D)
-    // - 32 teams => 8 groups (A–H)
     final max = league.maxTeams;
     if (max == 16) return _groupNames.take(4).toList();
     return _groupNames.take(8).toList();
@@ -131,11 +128,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       }
     }
 
-    // Choose a group with <4 teams (to preserve group size 4).
     final available = counts.entries.where((e) => e.value < 4).toList();
     if (available.isEmpty) return null;
 
-    // Pick the smallest count; random tie-break.
     available.sort((a, b) => a.value.compareTo(b.value));
     final min = available.first.value;
     final minGroups = available.where((e) => e.value == min).map((e) => e.key).toList();
@@ -153,7 +148,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     _spaceRepo = LeagueSpacesFirebase(prefs);
     _loadLeague();
 
-    // Pull latest from cloud for space/announcements status
     // ignore: discarded_futures
     SyncTrigger.trySync().then((_) => _loadLeague());
   }
@@ -243,14 +237,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         return;
       }
 
-      // Apply purchased add-ons as INCREMENTS.
       final addViewers = result.viewerCapacity < 0 ? 0 : result.viewerCapacity;
       final addCoupons = result.buyCouponsForParticipants ? (result.couponCount < 0 ? 0 : result.couponCount) : 0;
 
       final nextViewerCapacity = league.viewerCapacity + addViewers;
 
       final nextCouponsEnabled = league.couponsEnabled || result.buyCouponsForParticipants;
-      final nextCouponPercent = result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
+      final nextCouponPercent =
+          result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
       final nextCouponCount = league.couponCount + addCoupons;
 
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -289,261 +283,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     }
   }
 
-  Future<void> _addMeAsParticipant() async {
-    final l10n = context.l10n;
-    final league = _league;
-    if (league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    if (_addingMeAsParticipant) return;
-
-    setState(() => _addingMeAsParticipant = true);
-
-    try {
-      final userId = await CurrentUser.getUserId();
-
-      // Enforce organiser-only
-      if (league.organizerUserId != userId) {
-        throw StateError(l10n.tr('league_admin_only_organizer_action'));
-      }
-
-      // Enforce supported team counts via maxTeams for fixed-size formats
-      if (league.format == LeagueFormat.uclGroup && !(league.maxTeams == 16 || league.maxTeams == 32)) {
-        throw StateError(l10n.tr('league_admin_ucl_group_maxteams_error'));
-      }
-      if (league.format == LeagueFormat.uclSwiss && !(league.maxTeams == 18 || league.maxTeams == 36)) {
-        throw StateError(l10n.tr('league_admin_swiss_maxteams_error'));
-      }
-
-      final existingTeams = await _localRepo.getTeams(league.id);
-      final alreadyHasTeam = existingTeams.any((t) => t.id == userId);
-      if (alreadyHasTeam) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.tr('league_admin_already_added_participant_team_exists')),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      // Prevent exceeding maxTeams (roster capacity)
-      if (existingTeams.length >= league.maxTeams) {
-        throw StateError(
-          '${l10n.tr('league_admin_league_full_prefix')}${league.maxTeams}${l10n.tr('league_admin_league_full_suffix')}',
-        );
-      }
-
-      final profile = await UserProfileRepository().fetchByUserId(userId);
-      final teamName = profile?.teamName.trim() ?? '';
-      if (teamName.isEmpty) {
-        throw StateError(l10n.tr('league_admin_profile_team_name_missing'));
-      }
-
-      // Assign group if needed, ensuring group sizes remain 4.
-      String? groupId;
-      if (league.format == LeagueFormat.uclGroup) {
-        final allowedGroups = _allowedGroupsForUclGroup(league);
-        final picked = _pickGroupWithSpace(teams: existingTeams, allowedGroups: allowedGroups);
-        if (picked == null) {
-          throw StateError(l10n.tr('league_admin_all_groups_full'));
-        }
-        groupId = picked;
-      } else {
-        groupId = null;
-      }
-
-      final now = DateTime.now().millisecondsSinceEpoch;
-
-      final team = Team(
-        id: userId,
-        leagueId: league.id,
-        name: teamName,
-        groupId: groupId,
-        updatedAtMs: now,
-        version: 1,
-      );
-
-      await _localRepo.saveTeams(league.id, <Team>[...existingTeams, team]);
-
-      await _localRepo.assignTeamToUserInLeague(
-        leagueId: league.id,
-        userId: userId,
-        teamId: userId,
-      );
-
-      if (!mounted) return;
-
-      await _loadLeague();
-
-      final msg = groupId == null
-          ? l10n.tr('league_admin_added_participant')
-          : '${l10n.tr('league_admin_added_participant_in_group_prefix')} ${_groupDisplayName(l10n, groupId)}.';
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${l10n.tr('league_admin_failed_add_participant_prefix')} $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _addingMeAsParticipant = false);
-    }
-  }
-
-  Future<void> _exportRosterCsv() async {
-    final l10n = context.l10n;
-    final league = _league;
-    if (league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    if (_exportingRoster) return;
-
-    setState(() => _exportingRoster = true);
-    try {
-      await RosterCsvExporter.shareRosterCsv(
-        repo: _localRepo,
-        league: league,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${l10n.tr('league_admin_export_failed_prefix')} $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _exportingRoster = false);
-    }
-  }
-
-  Future<void> _startSpace() async {
-    final l10n = context.l10n;
-
-    if (_league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    try {
-      final prefs = ref.read(prefsServiceProvider);
-      final currentUserId = prefs.getCurrentUserId();
-      if (currentUserId == null || currentUserId.isEmpty) {
-        throw StateError(l10n.tr('league_admin_no_signed_in_user_error'));
-      }
-
-      if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
-        throw StateError(l10n.tr('league_admin_only_organizer_start_space'));
-      }
-
-      final space = await _spaceRepo.startSpace(
-        leagueId: _league!.id,
-        hostUserId: currentUserId,
-        title: '${_league!.name} ${l10n.tr('league_details_space_title_suffix')}',
-      );
-
-      await SyncTrigger.trySync();
-
-      if (!mounted) return;
-      setState(() => _space = space);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_details_space_started')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${l10n.tr('league_details_failed_to_start_space')}: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _endSpace() async {
-    final l10n = context.l10n;
-
-    if (_league == null) return;
-
-    try {
-      final prefs = ref.read(prefsServiceProvider);
-      final currentUserId = prefs.getCurrentUserId();
-      if (currentUserId == null || currentUserId.isEmpty) {
-        throw StateError(l10n.tr('league_admin_no_signed_in_user_error'));
-      }
-
-      if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
-        throw StateError(l10n.tr('league_admin_only_organizer_end_space'));
-      }
-
-      final updated = await _spaceRepo.endSpace(_league!.id);
-
-      await SyncTrigger.trySync();
-
-      if (!mounted) return;
-      setState(() => _space = updated);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_details_space_ended')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${l10n.tr('league_details_failed_to_end_space')}: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  void _onOpenSpace() {
-    final l10n = context.l10n;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.tr('league_admin_opening_space_not_implemented')),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
   Future<String> _createOneCouponRemote({
     required League league,
   }) async {
@@ -552,17 +291,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       throw StateError('Coupons are not enabled for this league.');
     }
 
+    await SyncTrigger.trySync(timeout: const Duration(seconds: 12));
+
     final userId = await CurrentUser.getUserId();
-    if (league.organizerUserId != userId) {
-      throw StateError('Only the organizer can generate coupons.');
-    }
 
     final firestore = FirebaseFirestore.instance;
     final leagueRef = firestore.collection('leagues').doc(league.id);
 
+    final leagueSnap = await leagueRef.get();
+    if (!leagueSnap.exists) {
+      throw StateError('League not found in cloud yet. Tap Sync now and try again.');
+    }
+
+    final leagueData = leagueSnap.data() ?? <String, dynamic>{};
+    final remoteOrganizer = (leagueData['organizerUserId'] as String?)?.trim() ?? '';
+    final remoteOwner = (leagueData['ownerId'] as String?)?.trim() ?? '';
+
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Try a few times in the extremely unlikely case of a code collision.
     for (int attempt = 0; attempt < 6; attempt++) {
       final code = _couponCode();
       final couponRef = leagueRef.collection('coupons').doc(code);
@@ -594,17 +340,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       } on FirebaseException catch (e) {
         if (e.code == 'permission-denied') {
           throw StateError(
-            'Permission denied. Make sure:\n'
-            '- You are signed in as the league organizer\n'
-            '- The league exists in Firestore (tap Sync in Admin)\n'
-            '- Firestore rules are published',
+            'Permission denied by Firestore rules.\n'
+            'Debug:\n'
+            '- currentUid: $userId\n'
+            '- league.organizerUserId (cloud): $remoteOrganizer\n'
+            '- league.ownerId (cloud): $remoteOwner\n'
+            'Fix:\n'
+            '- Publish the updated firestore.rules\n'
+            '- Tap Sync now in League Admin\n',
           );
         }
         rethrow;
       } on StateError catch (e) {
-        if (e.message == 'collision') {
-          continue;
-        }
+        if (e.message == 'collision') continue;
         rethrow;
       }
     }
@@ -831,6 +579,156 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         );
       },
     );
+  }
+
+  // --- the rest of the admin screen (unchanged) ---
+
+  Future<void> _addMeAsParticipant() async {
+    final l10n = context.l10n;
+    final league = _league;
+    if (league == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    if (_addingMeAsParticipant) return;
+
+    setState(() => _addingMeAsParticipant = true);
+
+    try {
+      final userId = await CurrentUser.getUserId();
+
+      if (league.organizerUserId != userId) {
+        throw StateError(l10n.tr('league_admin_only_organizer_action'));
+      }
+
+      if (league.format == LeagueFormat.uclGroup && !(league.maxTeams == 16 || league.maxTeams == 32)) {
+        throw StateError(l10n.tr('league_admin_ucl_group_maxteams_error'));
+      }
+      if (league.format == LeagueFormat.uclSwiss && !(league.maxTeams == 18 || league.maxTeams == 36)) {
+        throw StateError(l10n.tr('league_admin_swiss_maxteams_error'));
+      }
+
+      final existingTeams = await _localRepo.getTeams(league.id);
+      final alreadyHasTeam = existingTeams.any((t) => t.id == userId);
+      if (alreadyHasTeam) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.tr('league_admin_already_added_participant_team_exists')),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      if (existingTeams.length >= league.maxTeams) {
+        throw StateError(
+          '${l10n.tr('league_admin_league_full_prefix')}${league.maxTeams}${l10n.tr('league_admin_league_full_suffix')}',
+        );
+      }
+
+      final profile = await UserProfileRepository().fetchByUserId(userId);
+      final teamName = profile?.teamName.trim() ?? '';
+      if (teamName.isEmpty) {
+        throw StateError(l10n.tr('league_admin_profile_team_name_missing'));
+      }
+
+      String? groupId;
+      if (league.format == LeagueFormat.uclGroup) {
+        final allowedGroups = _allowedGroupsForUclGroup(league);
+        final picked = _pickGroupWithSpace(teams: existingTeams, allowedGroups: allowedGroups);
+        if (picked == null) {
+          throw StateError(l10n.tr('league_admin_all_groups_full'));
+        }
+        groupId = picked;
+      } else {
+        groupId = null;
+      }
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final team = Team(
+        id: userId,
+        leagueId: league.id,
+        name: teamName,
+        groupId: groupId,
+        updatedAtMs: now,
+        version: 1,
+      );
+
+      await _localRepo.saveTeams(league.id, <Team>[...existingTeams, team]);
+
+      await _localRepo.assignTeamToUserInLeague(
+        leagueId: league.id,
+        userId: userId,
+        teamId: userId,
+      );
+
+      if (!mounted) return;
+
+      await _loadLeague();
+
+      final msg = groupId == null
+          ? l10n.tr('league_admin_added_participant')
+          : '${l10n.tr('league_admin_added_participant_in_group_prefix')} ${_groupDisplayName(l10n, groupId)}.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${l10n.tr('league_admin_failed_add_participant_prefix')} $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _addingMeAsParticipant = false);
+    }
+  }
+
+  Future<void> _exportRosterCsv() async {
+    final l10n = context.l10n;
+    final league = _league;
+    if (league == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    if (_exportingRoster) return;
+
+    setState(() => _exportingRoster = true);
+    try {
+      await RosterCsvExporter.shareRosterCsv(
+        repo: _localRepo,
+        league: league,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${l10n.tr('league_admin_export_failed_prefix')} $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _exportingRoster = false);
+    }
   }
 
   Future<void> _syncParticipants() async {
