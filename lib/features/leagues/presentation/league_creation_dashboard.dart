@@ -10,11 +10,14 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/remote_pricing_service.dart';
+import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../data/leagues_repository_local.dart';
+import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
 import '../models/enums.dart';
@@ -148,6 +151,18 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   }
 
   bool get _paymentCompleted => _payment?.success == true;
+
+  // Coupons (optional add-on): we repurpose couponDiscountPercent as "users pay %"
+  bool get _couponsEnabled => (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
+  int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
+  int get _userPaysPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+
+  String get _couponLabel {
+    if (!_couponsEnabled) return 'Coupons: None';
+    final pctLabel = 'Users pay $_userPaysPercent%';
+    final countLabel = _couponCount > 0 ? ' • Qty: $_couponCount' : '';
+    return 'Coupons: $pctLabel$countLabel';
+  }
 
   String get _typeLabel {
     final l10n = AppLocalizations.of(context);
@@ -320,6 +335,18 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                          if (_couponsEnabled) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              'Coupons are configured for this league. If you don’t see them yet, tap Sync in Admin after a moment.',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.65),
+                                height: 1.35,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           Row(
                             children: [
@@ -479,13 +506,14 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                 : l10n.tr('league_create_fee_free'),
             valueColor: paymentColor,
           ),
-          if ((_payment?.viewerCapacity ?? 0) > 0)
+          if (_couponsEnabled) ...[
             _summaryRow(
-              Icons.visibility,
-              'Viewers',
-              '${_payment!.viewerCapacity}',
+              Icons.confirmation_number_outlined,
+              'Coupons',
+              _couponLabel.replaceFirst('Coupons: ', ''),
               valueColor: cs.primary,
             ),
+          ],
           const SizedBox(height: 10),
           Text(
             _creationRequiresPayment
@@ -1021,15 +1049,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _sectionTitle(l10n.tr('league_create_payment_title'), Icons.payments_outlined),
         const SizedBox(height: 10),
         _infoBanner(icon: statusIcon, title: statusTitle, subtitle: statusSubtitle, accent: accent),
-        if ((_payment?.viewerCapacity ?? 0) > 0) ...[
-          const SizedBox(height: 10),
-          _infoBanner(
-            icon: Icons.visibility,
-            title: 'Viewer Capacity enabled',
-            subtitle: '${_payment!.viewerCapacity} viewers',
-            accent: cs.primary,
-          ),
-        ],
         const SizedBox(height: 14),
         FilledButton(
           onPressed: _submitting
@@ -1104,8 +1123,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
         ),
         _confirmRow(Icons.groups, l10n.tr('league_create_confirm_max_teams_label'), '$_maxTeams'),
-        if ((_payment?.viewerCapacity ?? 0) > 0)
-          _confirmRow(Icons.visibility, 'Viewers', '${_payment!.viewerCapacity}', valueColor: cs.primary),
+        if (_couponsEnabled)
+          _confirmRow(
+            Icons.confirmation_number_outlined,
+            'Coupons',
+            _couponLabel.replaceFirst('Coupons: ', ''),
+            valueColor: cs.primary,
+          ),
         _confirmRow(
           _creationRequiresPayment ? (_paymentCompleted ? Icons.verified : Icons.lock_outline) : Icons.verified,
           l10n.tr('league_create_confirm_creation_fee_label'),
@@ -1426,6 +1450,10 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
       final settings = LeagueSettings.defaultsFor(_format).copyWith(lastPulledAtMs: 0);
 
+      final couponsEnabled = _couponsEnabled;
+      final userPaysPercent = _userPaysPercent;
+      final couponCount = _couponCount;
+
       final league = League(
         id: leagueId,
         name: _name.text.trim(),
@@ -1435,8 +1463,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         leagueImageUrl: _leagueImageUrl.text.trim(),
         sponsorImageUrl: _sponsorImageUrl.text.trim(),
 
-        // optional paid add-on
-        viewerCapacity: _payment?.viewerCapacity ?? 0,
+        // viewers removed: always 0 for backward compatibility
+        viewerCapacity: 0,
+
+        // coupons (optional add-on)
+        couponsEnabled: couponsEnabled,
+        couponDiscountPercent: userPaysPercent,
+        couponCount: couponCount,
 
         format: _format,
         privacy: _privacy,
@@ -1456,32 +1489,32 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         organizerUserId: organizerUserId,
       );
 
-      if (_creatorWillParticipate && creatorTeamName != null) {
-        final existingTeams = await repo.getTeams(stored.id);
-
-        final alreadyHasTeam = existingTeams.any((t) => t.id == organizerUserId);
-        if (!alreadyHasTeam) {
-          final String? groupId =
-              stored.format == LeagueFormat.uclGroup ? _pickRandomGroupNameForMaxTeams(stored.maxTeams) : null;
-
-          final team = Team(
-            id: organizerUserId,
-            leagueId: stored.id,
-            name: creatorTeamName,
-            groupId: groupId,
-            updatedAtMs: DateTime.now().millisecondsSinceEpoch,
-            version: 1,
+      // Create/Increment coupon configuration after creation (if enabled)
+      if (couponsEnabled && couponCount > 0) {
+        try {
+          final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+          await CouponConfigService().createOrIncrementOnPurchase(
+            leagueId: leagueId,
+            organizerUserId: organizerUserId,
+            qtyPurchased: couponCount,
+            userPaysPercent: userPaysPercent,
+            plan: plan,
           );
-
-          await repo.saveTeams(stored.id, <Team>[...existingTeams, team]);
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Coupon config could not be updated now. You can sync later. ($e)'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
         }
-
-        await repo.assignTeamToUserInLeague(
-          leagueId: stored.id,
-          userId: organizerUserId,
-          teamId: organizerUserId,
-        );
       }
+
+      // Best-effort sync (does not block)
+      // ignore: discarded_futures
+      SyncTrigger.trySync();
 
       if (!mounted) return;
       setState(() {

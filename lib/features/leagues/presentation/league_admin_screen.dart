@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -17,7 +18,9 @@ import '../../auth/data/user_profile_repository.dart';
 import '../data/league_announcements_local.dart';
 import '../data/league_spaces_local.dart';
 import '../data/leagues_repository_local.dart';
+import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
+import '../logic/league_media_service.dart';
 import '../models/league.dart';
 import '../models/league_announcement.dart';
 import '../models/league_format.dart';
@@ -74,27 +77,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     'Group H',
   ];
 
-  static const String _couponAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  final Random _couponRnd = Random.secure();
-
-  String _couponCode() {
-    final token = List.generate(12, (_) => _couponAlphabet[_couponRnd.nextInt(_couponAlphabet.length)]).join();
-    return 'EH$token';
-  }
-
   bool _isOrganizer(League league) => _currentUserId.isNotEmpty && league.organizerUserId == _currentUserId;
 
-  String _couponSubtitle(League league) {
-    if (!league.hasCoupons) return 'Not enabled';
-    if (league.couponDiscountPercent >= 100) return 'Free access (100%)';
-    return '${league.couponDiscountPercent}% discount';
-  }
-
-  String _upgradeSubtitle(League league) {
-    final viewers = league.viewerCapacity;
-    final coupons = league.couponCount;
-    final couponPart = league.hasCoupons ? 'Coupons: $coupons' : 'Coupons: none';
-    return 'Viewer access: $viewers • $couponPart';
+  String _couponSubtitleFromLeague(League league) {
+    if (!league.couponsEnabled) return 'Not enabled';
+    final pct = league.couponDiscountPercent;
+    final qty = league.couponCount;
+    return 'Users pay $pct% • Purchased: $qty';
   }
 
   String _groupDisplayName(AppLocalizations l10n, String groupId) {
@@ -184,10 +173,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Purchase viewer access / coupons
+  // Purchase coupons / adjust subsidy (viewers removed)
   // ---------------------------------------------------------------------------
 
-  Future<void> _purchaseViewerAccessOrCoupons() async {
+  Future<void> _purchaseCouponsOrAdjustSubsidy() async {
     final league = _league;
     if (league == null) return;
 
@@ -212,10 +201,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           'leagueId': league.id,
           'leagueName': league.name,
           'addonsOnly': true,
-          'existingViewerCapacity': league.viewerCapacity,
-          'existingCouponCount': league.couponCount,
-          'existingCouponDiscountPercent': league.couponDiscountPercent,
           'existingCouponsEnabled': league.couponsEnabled,
+          'existingCouponCount': league.couponCount,
+          'existingCouponDiscountPercent': league.couponDiscountPercent, // users pay %
         },
       );
 
@@ -241,27 +229,47 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         return;
       }
 
-      final addViewers = result.viewerCapacity < 0 ? 0 : result.viewerCapacity;
       final addCoupons = result.buyCouponsForParticipants ? (result.couponCount < 0 ? 0 : result.couponCount) : 0;
 
-      final nextViewerCapacity = league.viewerCapacity + addViewers;
-
       final nextCouponsEnabled = league.couponsEnabled || result.buyCouponsForParticipants;
-      final nextCouponPercent =
-          result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
+      final nextUserPaysPercent = result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
       final nextCouponCount = league.couponCount + addCoupons;
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final updated = league.copyWith(
-        viewerCapacity: nextViewerCapacity,
         couponsEnabled: nextCouponsEnabled,
-        couponDiscountPercent: nextCouponPercent,
+        couponDiscountPercent: nextUserPaysPercent,
         couponCount: nextCouponCount,
         updatedAtMs: now,
       );
 
       await _localRepo.saveLeague(updated);
+
+      // Update coupon configuration in Firestore (create or increment)
+      try {
+        final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+        final userId = await CurrentUser.getUserId();
+
+        if (result.buyCouponsForParticipants && addCoupons > 0) {
+          await CouponConfigService().createOrIncrementOnPurchase(
+            leagueId: league.id,
+            organizerUserId: userId,
+            qtyPurchased: addCoupons,
+            userPaysPercent: nextUserPaysPercent,
+            plan: plan,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Coupon config update deferred: $e'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
 
       await SyncTrigger.trySync();
       await _loadLeague();
@@ -285,6 +293,190 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     } finally {
       if (mounted) setState(() => _processingUpgradePayment = false);
     }
+  }
+
+  void _showCouponsConfigSheet() {
+    final league = _league;
+    if (league == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
+        final configStream = CouponConfigService().watchConfig(league.id);
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Coupons',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: onSurface,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          league.name,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: onSurface.withOpacity(0.70),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        StreamBuilder<CouponConfig?>(
+                          stream: configStream,
+                          builder: (context, snap) {
+                            if (snap.hasError) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                child: Text(
+                                  'Failed to load coupon configuration.',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.error,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              );
+                            }
+                            if (!snap.hasData) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                child: Center(child: CircularProgressIndicator(color: cs.primary)),
+                              );
+                            }
+                            final cfg = snap.data;
+                            if (cfg == null) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      'No coupon configuration yet.',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: onSurface.withOpacity(0.70),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Use "Buy coupons / adjust subsidy" to create one.',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: onSurface.withOpacity(0.65),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            String money(double v) {
+                              final r = double.parse(v.toStringAsFixed(2));
+                              final i = r.toInt();
+                              if ((r - i).abs() < 0.000001) return '$i';
+                              return r.toStringAsFixed(2);
+                            }
+
+                            final redeemed = cfg.qtyRedeemed;
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _kv('Currency', cfg.currency, theme, cs),
+                                _kv('Unit price', '${money(cfg.unitPrice)} ${cfg.currency}', theme, cs),
+                                _kv('Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}', theme, cs),
+                                _kv('Threshold discount', '${money(cfg.thresholdDiscountPercent)}%', theme, cs),
+                                const Divider(),
+                                _kv('Users pay', '${cfg.userPaysPercent}%', theme, cs),
+                                _kv('Admin pays', '${cfg.organizerPaysPercent}%', theme, cs),
+                                const Divider(),
+                                _kv('Purchased (total)', '${cfg.qtyTotal}', theme, cs),
+                                _kv('Remaining', '${cfg.qtyRemaining}', theme, cs),
+                                _kv('Redeemed', '$redeemed', theme, cs),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.of(ctx).pop(),
+                                child: const Text('Close'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: () {
+                                  Navigator.of(ctx).pop();
+                                  _purchaseCouponsOrAdjustSubsidy();
+                                },
+                                icon: const Icon(Icons.add_shopping_cart),
+                                label: const Text('Buy more / adjust'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _kv(String k, String v, ThemeData theme, ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 160,
+            child: Text(
+              k,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              v,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.90),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -569,298 +761,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Coupons
-  // ---------------------------------------------------------------------------
-
-  Future<String> _createOneCouponRemote({
-    required League league,
-  }) async {
-    final discountPercent = league.couponDiscountPercent;
-    if (!league.hasCoupons || discountPercent <= 0) {
-      throw StateError('Coupons are not enabled for this league.');
-    }
-
-    final userId = await CurrentUser.getUserId();
-    if (league.organizerUserId != userId) {
-      throw StateError('Only the organizer can generate coupons.');
-    }
-
-    final firestore = FirebaseFirestore.instance;
-    final leagueRef = firestore.collection('leagues').doc(league.id);
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    for (int attempt = 0; attempt < 6; attempt++) {
-      final code = _couponCode();
-      final couponRef = leagueRef.collection('coupons').doc(code);
-
-      try {
-        await firestore.runTransaction((tx) async {
-          final snap = await tx.get(couponRef);
-          if (snap.exists) {
-            throw StateError('collision');
-          }
-
-          tx.set(couponRef, <String, dynamic>{
-            'leagueId': league.id,
-            'code': code,
-            'organizerUserId': userId,
-            'discountPercent': discountPercent,
-            'usedBy': '',
-            'usedAtMs': 0,
-            'reservedBy': '',
-            'reservedAt': null,
-            'reservedUntil': null,
-            'createdAtMs': now,
-            'updatedAtMs': now,
-            'version': 1,
-          });
-        });
-
-        return code;
-      } on FirebaseException catch (e) {
-        if (e.code == 'permission-denied') {
-          throw StateError(
-            'Permission denied. Make sure:\n'
-            '- You are signed in as the league organizer\n'
-            '- The league exists in Firestore (tap Sync in Admin)\n'
-            '- Firestore rules are published',
-          );
-        }
-        rethrow;
-      } on StateError catch (e) {
-        if (e.message == 'collision') {
-          continue;
-        }
-        rethrow;
-      }
-    }
-
-    throw StateError('Failed to generate a unique coupon. Try again.');
-  }
-
-  void _showCouponsSheet() {
-    final league = _league;
-    if (league == null) return;
-
-    if (!league.hasCoupons) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Coupons are not enabled for this league.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) {
-        bool generating = false;
-
-        final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
-        final onSurface = cs.onSurface;
-
-        final couponsQuery = FirebaseFirestore.instance
-            .collection('leagues')
-            .doc(league.id)
-            .collection('coupons')
-            .orderBy('createdAtMs', descending: true)
-            .limit(100);
-
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: Glass(
-                      borderRadius: 28,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Coupons',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: onSurface,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '${league.name} • ${_couponSubtitle(league)}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: onSurface.withOpacity(0.70),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: generating
-                                        ? null
-                                        : () async {
-                                            setModalState(() => generating = true);
-                                            try {
-                                              final code = await _createOneCouponRemote(league: league);
-                                              if (!mounted) return;
-                                              await Clipboard.setData(ClipboardData(text: code));
-                                              if (!mounted) return;
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                SnackBar(
-                                                  content: Text('Coupon generated & copied: $code'),
-                                                  behavior: SnackBarBehavior.floating,
-                                                ),
-                                              );
-                                            } catch (e) {
-                                              if (!mounted) return;
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                SnackBar(
-                                                  content: Text('$e'),
-                                                  behavior: SnackBarBehavior.floating,
-                                                ),
-                                              );
-                                            } finally {
-                                              setModalState(() => generating = false);
-                                            }
-                                          },
-                                    child: generating
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
-                                          )
-                                        : const Text('Generate & copy'),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed: () => Navigator.of(ctx).pop(),
-                                    child: const Text('Close'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Divider(color: onSurface.withOpacity(0.12)),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 420),
-                              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                stream: couponsQuery.snapshots(),
-                                builder: (context, snap) {
-                                  if (snap.hasError) {
-                                    return Center(
-                                      child: Text(
-                                        'Failed to load coupons.',
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                          color: cs.error,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    );
-                                  }
-
-                                  if (!snap.hasData) {
-                                    return Center(child: CircularProgressIndicator(color: cs.primary));
-                                  }
-
-                                  final docs = snap.data!.docs;
-
-                                  if (docs.isEmpty) {
-                                    return Center(
-                                      child: Text(
-                                        'No coupons yet. If you just created the league, tap Sync and try again.',
-                                        textAlign: TextAlign.center,
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: onSurface.withOpacity(0.70),
-                                          fontWeight: FontWeight.w600,
-                                          height: 1.35,
-                                        ),
-                                      ),
-                                    );
-                                  }
-
-                                  return ListView.separated(
-                                    itemCount: docs.length,
-                                    separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
-                                    itemBuilder: (context, i) {
-                                      final d = docs[i].data();
-                                      final code = (d['code'] as String?)?.trim().isNotEmpty == true
-                                          ? (d['code'] as String).trim()
-                                          : docs[i].id;
-                                      final usedBy = (d['usedBy'] as String?)?.trim() ?? '';
-                                      final isUsed = usedBy.isNotEmpty;
-
-                                      return ListTile(
-                                        dense: true,
-                                        contentPadding: EdgeInsets.zero,
-                                        leading: Icon(
-                                          isUsed ? Icons.check_circle : Icons.confirmation_number_outlined,
-                                          color: isUsed ? const Color(0xFF22C55E) : cs.primary,
-                                          size: 20,
-                                        ),
-                                        title: Text(
-                                          code,
-                                          style: theme.textTheme.bodyMedium?.copyWith(
-                                            color: onSurface,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        ),
-                                        subtitle: Text(
-                                          isUsed ? 'Used' : 'Unused',
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: onSurface.withOpacity(0.65),
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        trailing: IconButton(
-                                          tooltip: 'Copy',
-                                          icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72), size: 18),
-                                          onPressed: () async {
-                                            await Clipboard.setData(ClipboardData(text: code));
-                                            if (!mounted) return;
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text('Copied: $code'),
-                                                behavior: SnackBarBehavior.floating,
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // ---------------------------------------------------------------------------
   // Sync
   // ---------------------------------------------------------------------------
 
@@ -982,7 +882,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   Widget _buildSettingsList(BuildContext context) {
     final l10n = context.l10n;
-    final spaceLive = _space?.isLive == true;
 
     final league = _league;
 
@@ -992,17 +891,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           _buildSettingsTile(
             context,
             Icons.payments_outlined,
-            _processingUpgradePayment ? 'Processing payment...' : 'Buy viewer access / coupons',
-            _upgradeSubtitle(league),
-            onTap: _processingUpgradePayment ? null : _purchaseViewerAccessOrCoupons,
+            _processingUpgradePayment ? 'Processing payment...' : 'Buy coupons / adjust subsidy',
+            _couponSubtitleFromLeague(league),
+            onTap: _processingUpgradePayment ? null : _purchaseCouponsOrAdjustSubsidy,
           ),
-        if (league != null && league.hasCoupons)
+        if (league != null)
           _buildSettingsTile(
             context,
             Icons.confirmation_number_outlined,
             'Coupons',
-            _couponSubtitle(league),
-            onTap: _showCouponsSheet,
+            league.couponsEnabled ? _couponSubtitleFromLeague(league) : 'Not enabled',
+            onTap: _showCouponsConfigSheet,
           ),
         _buildSettingsTile(
           context,
@@ -1054,10 +953,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         _buildSettingsTile(
           context,
           Icons.spatial_audio_off,
-          spaceLive
+          _space?.isLive == true
               ? l10n.tr('league_admin_league_space_live')
               : l10n.tr('league_admin_league_space_voice_room'),
-          spaceLive
+          _space?.isLive == true
               ? l10n.tr('league_admin_league_space_live_subtitle')
               : l10n.tr('league_admin_league_space_voice_room_subtitle'),
           onTap: _showLeagueSpaceAdminSheet,

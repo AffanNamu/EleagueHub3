@@ -9,11 +9,13 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../data/leagues_repository_local.dart';
+import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
 import '../models/enums.dart';
@@ -81,14 +83,15 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   bool get _couponsEnabled => (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
 
-  int get _couponPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+  // NOTE: We repurpose couponDiscountPercent to carry "users pay %" (0..100).
+  int get _userPaysPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
 
   int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
 
   String get _couponLabel {
     if (!_couponsEnabled) return 'Coupons: None';
 
-    final pctLabel = _couponPercent >= 100 ? 'Free access (100%)' : '$_couponPercent% discount';
+    final pctLabel = 'Users pay $_userPaysPercent%';
     final countLabel = _couponCount > 0 ? ' • Qty: $_couponCount' : '';
     return 'Coupons: $pctLabel$countLabel';
   }
@@ -252,7 +255,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           if (league.hasCoupons) ...[
                             const SizedBox(height: 10),
                             Text(
-                              'Coupons were enabled for this league. If you don’t see them yet, tap Sync in Admin or reopen Profile → Coupons after sync completes.',
+                              'Coupons are configured for this league. If you don’t see them yet, tap Sync in Admin after a moment.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: cs.onSurface.withOpacity(0.65),
@@ -417,14 +420,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             _creationFeeLabel(l10n),
             valueColor: paymentColor,
           ),
-          if ((_payment?.viewerCapacity ?? 0) > 0) ...[
-            _summaryRow(
-              Icons.visibility,
-              'Viewers',
-              '${_payment!.viewerCapacity}',
-              valueColor: cs.primary,
-            ),
-          ],
           if (_couponsEnabled) ...[
             _summaryRow(
               Icons.confirmation_number_outlined,
@@ -810,12 +805,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           'Sponsor Image',
           _sponsorImageUrl.text.trim().isEmpty ? l10n.tr('common_none') : l10n.tr('common_yes'),
         ),
-        if ((_payment?.viewerCapacity ?? 0) > 0)
-          _reviewRow(
-            Icons.visibility,
-            'Viewers',
-            '${_payment!.viewerCapacity}',
-          ),
         if (_couponsEnabled)
           _reviewRow(
             Icons.confirmation_number_outlined,
@@ -1146,7 +1135,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     );
 
     final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
-    final couponPercent = couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+    final userPaysPercent = couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
     final couponCount = couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
 
     final league = League(
@@ -1158,12 +1147,12 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       leagueImageUrl: _leagueImageUrl.text.trim(),
       sponsorImageUrl: _sponsorImageUrl.text.trim(),
 
-      // optional paid add-on
-      viewerCapacity: _payment?.viewerCapacity ?? 0,
+      // viewers removed: always 0 for backward compatibility
+      viewerCapacity: 0,
 
-      // optional paid add-on
+      // coupons (optional add-on)
       couponsEnabled: couponsEnabled,
-      couponDiscountPercent: couponPercent,
+      couponDiscountPercent: userPaysPercent, // stored temporarily as "users pay %"
       couponCount: couponCount,
 
       format: _format,
@@ -1186,9 +1175,31 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       organizerUserId: organizerUserId,
     );
 
-    // Best-effort: immediately sync so coupons can be generated in the cloud,
-    // otherwise Profile/Admin coupon lists will be empty until the organizer taps Sync.
-    //
+    // Attempt to create/update coupon config immediately after league creation (network present post-payment).
+    if (couponsEnabled && couponCount > 0) {
+      try {
+        final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+        await CouponConfigService().createOrIncrementOnPurchase(
+          leagueId: leagueId,
+          organizerUserId: organizerUserId,
+          qtyPurchased: couponCount,
+          userPaysPercent: userPaysPercent,
+          plan: plan,
+        );
+      } catch (e) {
+        // Non-fatal. Organizer can tap Sync/Admin later after rules update.
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Coupon config could not be updated now. You can sync later. ($e)'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    }
+
+    // Best-effort: immediately sync so coupon config (if created) is visible in Admin/Profile.
     // Never blocks league creation; failures are non-fatal (offline-first).
     // ignore: discarded_futures
     SyncTrigger.trySync();
@@ -1202,7 +1213,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     if (couponsEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Sync started: coupons will appear in Admin/Profile after sync completes.'),
+          content: Text('Coupons configured. You can manage them in Admin.'),
           behavior: SnackBarBehavior.floating,
         ),
       );

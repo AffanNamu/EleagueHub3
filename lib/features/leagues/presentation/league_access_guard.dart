@@ -2,11 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/flutterwave_config.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../data/leagues_repository_local.dart';
+import '../logic/coupon_config_service.dart';
+import '../logic/coupon_redemption_service.dart';
 import '../logic/league_charges_payment_service.dart';
 import '../logic/league_charges_store.dart';
 import '../models/league.dart';
@@ -28,10 +30,8 @@ class LeagueAccessGuard extends ConsumerStatefulWidget {
 }
 
 class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
-  static const Duration _couponReservationTtl = Duration(minutes: 15);
-
   bool _loading = true;
-  bool _processingPayment = false;
+  bool _processing = false;
 
   League? _league;
   String _userId = '';
@@ -41,26 +41,16 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   // Determines classic free participant access vs viewer payment gate.
   bool _isParticipant = false;
 
-  final TextEditingController _couponController = TextEditingController();
-  bool _applyingCoupon = false;
-  String? _couponError;
-  String _appliedCouponCode = '';
-  int _appliedCouponDiscountPercent = 0;
+  RemotePricingPlan? _plan;
 
   @override
   void initState() {
     super.initState();
     // ignore: discarded_futures
-    _load();
+    _bootstrap();
   }
 
-  @override
-  void dispose() {
-    _couponController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
+  Future<void> _bootstrap() async {
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
 
@@ -87,6 +77,8 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       isParticipant = false;
     }
 
+    final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+
     if (!mounted) return;
     setState(() {
       _league = league;
@@ -94,6 +86,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       _hasPaid = hasPaid;
       _receipt = receipt;
       _isParticipant = isParticipant;
+      _plan = plan;
       _loading = false;
     });
   }
@@ -102,28 +95,19 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
   bool _isOrganizerAlwaysAllowed(League league) => league.organizerUserId == _userId;
 
-  bool _requiresCharges(League league) => league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
-
+  // New gating rules:
+  // - Classic: participants free; non-participants must pay.
+  // - UCL Group / Swiss: all non-organizers must pay (participants and viewers).
   bool _requiresPaymentGateForUser(League league) {
-    // Organizer always allowed.
     if (_isOrganizerAlwaysAllowed(league)) return false;
 
-    // Classic rule:
-    // - Participants (membership exists) can access for free (maxTeams remains 20).
-    // - Viewers (no membership) must pay, unless the organizer purchased viewerCapacity (league.hasViewerCapacity),
-    //   or the viewer uses a coupon.
     if (_isClassic(league)) {
-      if (_isParticipant) return false;
-      if (league.hasViewerCapacity) return false;
-      return true;
+      return !_isParticipant; // participants free; others pay
     }
 
-    // Paid formats:
-    // Gate access for non-organizer (participant or viewer) unless they've paid charges.
-    return _requiresCharges(league);
+    // Paid formats: gate everyone except organizer.
+    return true;
   }
-
-  double _parseAmount(String raw) => double.tryParse(raw.trim()) ?? 0;
 
   String _money(double v) {
     final rounded = double.parse(v.toStringAsFixed(2));
@@ -132,91 +116,131 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     return rounded.toStringAsFixed(2);
   }
 
-  double _discountedAmount({
-    required double base,
-    required int discountPercent,
-  }) {
-    final pct = discountPercent.clamp(0, 100);
-    if (pct >= 100) return 0;
-    final out = base * ((100 - pct) / 100.0);
-    return double.parse(out.toStringAsFixed(2));
-  }
+  Future<void> _payStandardAccess(League league) async {
+    final l10n = context.l10n;
+    setState(() => _processing = true);
 
-  DocumentReference<Map<String, dynamic>> _couponRef(League league, String code) {
-    return FirebaseFirestore.instance.collection('leagues').doc(league.id).collection('coupons').doc(code);
-  }
+    try {
+      final prefs = ref.read(prefsServiceProvider);
+      final payment = ref.read(leagueChargesPaymentServiceProvider);
+      final store = LeagueChargesStore(prefs);
 
-  Future<void> _releaseCouponReservation({
-    required League league,
-    required String code,
-  }) async {
-    final docRef = _couponRef(league, code);
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final snap = await tx.get(docRef);
-      if (!snap.exists) return;
-
-      final data = (snap.data() ?? <String, dynamic>{});
-      final usedBy = (data['usedBy'] as String?)?.trim() ?? '';
-      if (usedBy.isNotEmpty) return;
-
-      final reservedBy = (data['reservedBy'] as String?)?.trim() ?? '';
-      if (reservedBy != _userId) return;
-
-      tx.set(
-        docRef,
-        <String, dynamic>{
-          'reservedBy': '',
-          'reservedAt': null,
-          'reservedUntil': null,
-          'updatedAtMs': nowMs,
-        },
-        SetOptions(merge: true),
+      final result = await payment.payLeagueCharges(
+        context: context,
+        userId: _userId,
+        leagueId: league.id,
+        leagueName: league.name,
       );
-    });
-  }
 
-  Future<void> _finalizeCouponUse({
-    required League league,
-    required String code,
-  }) async {
-    final docRef = _couponRef(league, code);
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (!mounted) return;
 
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final snap = await tx.get(docRef);
-      if (!snap.exists) throw StateError('invalid');
-
-      final data = (snap.data() ?? <String, dynamic>{});
-
-      final usedBy = (data['usedBy'] as String?)?.trim() ?? '';
-      if (usedBy.isNotEmpty) throw StateError('used');
-
-      final reservedBy = (data['reservedBy'] as String?)?.trim() ?? '';
-      if (reservedBy != _userId) throw StateError('notReserved');
-
-      final reservedUntil = data['reservedUntil'];
-      if (reservedUntil is Timestamp) {
-        final nowTs = Timestamp.now();
-        if (reservedUntil.compareTo(nowTs) <= 0) throw StateError('expired');
-      } else {
-        throw StateError('notReserved');
+      if (!result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        setState(() => _processing = false);
+        return;
       }
 
-      tx.set(
-        docRef,
-        <String, dynamic>{
-          'usedBy': _userId,
-          'usedAtMs': nowMs,
-          'reservedBy': '',
-          'reservedAt': null,
-          'reservedUntil': null,
-          'updatedAtMs': nowMs,
-        },
-        SetOptions(merge: true),
+      final receipt = LeagueChargesReceipt(
+        leagueId: league.id,
+        userId: _userId,
+        receiptId: result.receiptId ?? '',
+        provider: result.provider,
+        paidAtMs: result.paidAtMs,
       );
-    });
+
+      await store.storeReceipt(receipt);
+
+      if (!mounted) return;
+      setState(() {
+        _processing = false;
+        _hasPaid = true;
+        _receipt = receipt;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.tr('league_access_charges_paid_success')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _processing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${l10n.tr('league_access_payment_failed_prefix')} $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _redeemOrganizerCoupon(League league) async {
+    final l10n = context.l10n;
+    setState(() => _processing = true);
+
+    try {
+      final prefs = ref.read(prefsServiceProvider);
+      final store = LeagueChargesStore(prefs);
+
+      final svc = CouponRedemptionService();
+      final result = await svc.redeemNow(
+        context: context,
+        league: league,
+        userId: _userId,
+      );
+
+      if (!mounted) return;
+
+      if (!result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.errorMessage ?? 'Redemption failed'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        setState(() => _processing = false);
+        return;
+      }
+
+      final receipt = LeagueChargesReceipt(
+        leagueId: league.id,
+        userId: _userId,
+        receiptId: result.receiptId ?? 'CPN',
+        provider: result.provider,
+        paidAtMs: result.paidAtMs,
+      );
+
+      await store.storeReceipt(receipt);
+
+      if (!mounted) return;
+      setState(() {
+        _processing = false;
+        _hasPaid = true;
+        _receipt = receipt;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.tr('league_access_charges_paid_success')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _processing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Redemption failed: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -254,482 +278,150 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     // If already paid, allow.
     if (_hasPaid) return widget.child;
 
-    final pricing = FlutterwaveConfig.pricingForLocale(Localizations.maybeLocaleOf(context));
-    final baseAmount = _parseAmount(pricing.viewLeagueAmount);
-
-    final hasCoupon = _appliedCouponCode.trim().isNotEmpty && _appliedCouponDiscountPercent > 0;
-    final isFreeCoupon = hasCoupon && _appliedCouponDiscountPercent >= 100;
-
-    final discounted = hasCoupon ? _discountedAmount(base: baseAmount, discountPercent: _appliedCouponDiscountPercent) : baseAmount;
+    if (_plan == null) {
+      return Center(child: CircularProgressIndicator(color: cs.primary));
+    }
+    final plan = _plan!;
+    final baseAmount = plan.accessFee;
 
     final gateReasonText = _isClassic(league)
-        ? 'This Classic league is free for participants only (max 20). Viewers must pay unless the organizer enabled viewer access or you have a coupon.'
+        ? 'This Classic league is free for participants only (max 20). Non-participants must pay to view.'
         : l10n.tr('league_access_charges_explanation');
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Glass(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.lock_outline,
-                  color: cs.primary.withOpacity(0.95),
-                  size: 44,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  l10n.tr('league_access_charges_required_title'),
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  hasCoupon
-                      ? ('${l10n.tr('league_access_amount_prefix')} ${pricing.viewLeagueAmount} ${pricing.currency}\n'
-                          'Coupon: $_appliedCouponCode (${_appliedCouponDiscountPercent}%)\n'
-                          'Pay: ${_money(discounted)} ${pricing.currency}\n\n'
-                          '$gateReasonText\n\n'
-                          '${l10n.tr('league_access_league_prefix')} ${league.name}')
-                      : ('${l10n.tr('league_access_amount_prefix')} ${pricing.viewLeagueAmount} ${pricing.currency}\n\n'
-                          '$gateReasonText\n\n'
-                          '${l10n.tr('league_access_league_prefix')} ${league.name}'),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withOpacity(0.72),
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (_receipt != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    '${l10n.tr('league_access_receipt_prefix')} ${_receipt!.receiptId}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.80),
-                      fontWeight: FontWeight.w700,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-                const SizedBox(height: 12),
+    // Load coupon config to determine if organizer-subsidized redemption is available.
+    return FutureBuilder<CouponConfig?>(
+      future: CouponConfigService().getConfig(league.id),
+      builder: (context, snap) {
+        final hasCfg = snap.hasData && snap.data != null;
+        final cfg = snap.data;
 
-                // Coupon input (optional)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: cs.onSurface.withOpacity(0.04),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: cs.onSurface.withOpacity(0.10)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Have a coupon?',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface,
-                          fontWeight: FontWeight.w900,
-                        ),
+        // Compute redemption price if config exists.
+        final double redeemPay = hasCfg
+            ? double.parse((cfg!.effectiveUnit * (cfg.userPaysPercent / 100.0)).toStringAsFixed(2))
+            : 0.0;
+        final String redeemCurrency = hasCfg ? cfg!.currency : plan.currency;
+
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Glass(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.lock_outline,
+                      color: cs.primary.withOpacity(0.95),
+                      size: 44,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.tr('league_access_charges_required_title'),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
                       ),
-                      const SizedBox(height: 8),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${l10n.tr('league_access_amount_prefix')} ${_money(baseAmount)} ${plan.currency}\n\n'
+                      '$gateReasonText\n\n'
+                      '${l10n.tr('league_access_league_prefix')} ${league.name}',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurface.withOpacity(0.72),
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (_receipt != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        '${l10n.tr('league_access_receipt_prefix')} ${_receipt!.receiptId}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.80),
+                          fontWeight: FontWeight.w700,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+
+                    // Primary action: if organizer configured coupons, allow redemption.
+                    if (hasCfg) ...[
                       Row(
                         children: [
                           Expanded(
-                            child: TextField(
-                              controller: _couponController,
-                              enabled: !_applyingCoupon && !_processingPayment && !hasCoupon,
-                              textCapitalization: TextCapitalization.characters,
-                              decoration: InputDecoration(
-                                labelText: 'Coupon code',
-                                prefixIcon: const Icon(Icons.confirmation_number_outlined),
-                                helperText: hasCoupon ? 'Coupon reserved.' : null,
+                            child: FilledButton.icon(
+                              onPressed: _processing ? null : () => _redeemOrganizerCoupon(league),
+                              icon: const Icon(Icons.confirmation_number_outlined),
+                              label: Text(
+                                redeemPay <= 0
+                                    ? 'Redeem organizer coupon (Free)'
+                                    : 'Redeem organizer coupon • ${_money(redeemPay)} $redeemCurrency',
                               ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          if (!hasCoupon)
-                            FilledButton(
-                              onPressed: (_applyingCoupon || _processingPayment) ? null : () => _applyCoupon(league),
-                              child: _applyingCoupon
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    )
-                                  : const Text('Apply'),
-                            )
-                          else
-                            OutlinedButton(
-                              onPressed: (_processingPayment || _applyingCoupon)
-                                  ? null
-                                  : () async {
-                                      final code = _appliedCouponCode.trim().toUpperCase();
-                                      try {
-                                        await _releaseCouponReservation(league: league, code: code);
-                                      } catch (_) {
-                                        // non-fatal
-                                      }
-                                      if (!mounted) return;
-                                      setState(() {
-                                        _appliedCouponCode = '';
-                                        _appliedCouponDiscountPercent = 0;
-                                        _couponError = null;
-                                      });
-                                    },
-                              child: const Text('Clear'),
-                            ),
                         ],
                       ),
-                      if (_couponError != null) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          _couponError!,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.error,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 10),
                       Text(
-                        'Coupons are applied only on this payment step. Reservation expires after ${_couponReservationTtl.inMinutes} minutes if not completed.',
+                        'Your organizer enabled coupons for this league. Redeem once to unlock viewing.',
+                        textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: cs.onSurface.withOpacity(0.60),
                           fontWeight: FontWeight.w600,
                           height: 1.25,
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      Divider(color: cs.onSurface.withOpacity(0.10)),
                     ],
-                  ),
-                ),
 
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _processingPayment || isFreeCoupon ? null : () => _pay(context, league, discounted),
-                        child: _processingPayment
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : Text(
-                                hasCoupon
-                                    ? 'Pay ${_money(discounted)} ${pricing.currency}'
-                                    : l10n.tr('league_access_pay_charges'),
-                              ),
+                    // Fallback: standard access fee (when no coupon config).
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: _processing ? null : () => _payStandardAccess(league),
+                            child: _processing
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : Text(
+                                    hasCfg
+                                        ? 'Or pay ${_money(baseAmount)} ${plan.currency}'
+                                        : l10n.tr('league_access_pay_charges'),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 8),
+                    Text(
+                      l10n.tr('league_access_note_classic_free'),
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.55),
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
-                if (isFreeCoupon) ...[
-                  const SizedBox(height: 10),
-                  FilledButton.icon(
-                    onPressed: (_processingPayment || _applyingCoupon) ? null : () => _completeFreeAccessWithCoupon(league),
-                    icon: const Icon(Icons.verified),
-                    label: const Text('Continue (Free)'),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Text(
-                  l10n.tr('league_access_note_classic_free'),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.55),
-                    fontSize: 12,
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
-  }
-
-  Future<void> _applyCoupon(League league) async {
-    final theme = Theme.of(context);
-
-    final raw = _couponController.text.trim().toUpperCase();
-    if (raw.isEmpty) {
-      setState(() => _couponError = 'Paste a coupon code.');
-      return;
-    }
-
-    setState(() {
-      _applyingCoupon = true;
-      _couponError = null;
-    });
-
-    try {
-      final docRef = _couponRef(league, raw);
-
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final reservedAt = Timestamp.now();
-      final reservedUntil = Timestamp.fromDate(DateTime.now().add(_couponReservationTtl));
-
-      final int discountPercent = await FirebaseFirestore.instance.runTransaction((tx) async {
-        final snap = await tx.get(docRef);
-        if (!snap.exists) {
-          throw StateError('invalid');
-        }
-
-        final data = (snap.data() ?? <String, dynamic>{});
-
-        final usedBy = (data['usedBy'] as String?)?.trim() ?? '';
-        if (usedBy.isNotEmpty) {
-          throw StateError('used');
-        }
-
-        final storedLeagueId = (data['leagueId'] as String?)?.trim() ?? '';
-        if (storedLeagueId.isNotEmpty && storedLeagueId != league.id) {
-          throw StateError('wrongLeague');
-        }
-
-        final pct = (data['discountPercent'] as num?)?.toInt() ?? 0;
-        if (pct <= 0 || pct > 100) {
-          throw StateError('invalid');
-        }
-
-        final reservedBy = (data['reservedBy'] as String?)?.trim() ?? '';
-        final reservedUntilExisting = data['reservedUntil'];
-
-        if (reservedBy.isNotEmpty && reservedBy != _userId) {
-          if (reservedUntilExisting is Timestamp) {
-            if (reservedUntilExisting.compareTo(Timestamp.now()) > 0) {
-              throw StateError('reserved');
-            }
-          } else {
-            throw StateError('reserved');
-          }
-        }
-
-        tx.set(
-          docRef,
-          <String, dynamic>{
-            'reservedBy': _userId,
-            'reservedAt': reservedAt,
-            'reservedUntil': reservedUntil,
-            'updatedAtMs': nowMs,
-          },
-          SetOptions(merge: true),
-        );
-
-        return pct;
-      });
-
-      if (!mounted) return;
-
-      setState(() {
-        _appliedCouponCode = raw;
-        _appliedCouponDiscountPercent = discountPercent;
-        _couponError = null;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(discountPercent >= 100 ? 'Coupon reserved: free access.' : 'Coupon reserved: $discountPercent% discount.'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: theme.colorScheme.primary,
-        ),
-      );
-    } on FirebaseException catch (e) {
-      final msg = (e.code == 'permission-denied')
-          ? 'Coupon cannot be reserved (expired or not allowed).'
-          : 'Failed to apply coupon: ${e.message ?? e.code}';
-      if (!mounted) return;
-      setState(() => _couponError = msg);
-    } on StateError catch (e) {
-      String msg = 'Invalid coupon.';
-      if (e.message == 'used') msg = 'Coupon already used.';
-      if (e.message == 'reserved') msg = 'Coupon is currently reserved by someone else. Try again later.';
-      if (e.message == 'wrongLeague') msg = 'Coupon does not match this league.';
-      if (!mounted) return;
-      setState(() => _couponError = msg);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _couponError = 'Failed to apply coupon: $e');
-    } finally {
-      if (mounted) setState(() => _applyingCoupon = false);
-    }
-  }
-
-  Future<void> _completeFreeAccessWithCoupon(League league) async {
-    final l10n = context.l10n;
-    final code = _appliedCouponCode.trim().toUpperCase();
-    if (code.isEmpty || _appliedCouponDiscountPercent < 100) return;
-
-    setState(() => _processingPayment = true);
-
-    try {
-      await _finalizeCouponUse(league: league, code: code);
-
-      final prefs = ref.read(prefsServiceProvider);
-      final store = LeagueChargesStore(prefs);
-
-      final now = DateTime.now().millisecondsSinceEpoch;
-
-      final receipt = LeagueChargesReceipt(
-        leagueId: league.id,
-        userId: _userId,
-        receiptId: 'CPN-$code',
-        provider: 'coupon',
-        paidAtMs: now,
-      );
-
-      await store.storeReceipt(receipt);
-
-      if (!mounted) return;
-      setState(() {
-        _processingPayment = false;
-        _hasPaid = true;
-        _receipt = receipt;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_access_charges_paid_success')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _processingPayment = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to complete free access: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _pay(BuildContext context, League league, double discountedAmount) async {
-    final l10n = context.l10n;
-
-    setState(() => _processingPayment = true);
-
-    final hasCoupon = _appliedCouponCode.trim().isNotEmpty && _appliedCouponDiscountPercent > 0;
-    final code = hasCoupon ? _appliedCouponCode.trim().toUpperCase() : '';
-
-    try {
-      final prefs = ref.read(prefsServiceProvider);
-      final payment = ref.read(leagueChargesPaymentServiceProvider);
-      final store = LeagueChargesStore(prefs);
-
-      final amountOverride = hasCoupon ? _money(discountedAmount) : null;
-
-      final result = await payment.payLeagueCharges(
-        context: context,
-        userId: _userId,
-        leagueId: league.id,
-        leagueName: league.name,
-        amountOverride: amountOverride,
-        couponCode: hasCoupon ? code : null,
-        couponDiscountPercent: hasCoupon ? _appliedCouponDiscountPercent : null,
-      );
-
-      if (!mounted) return;
-
-      if (!result.success) {
-        if (hasCoupon) {
-          try {
-            await _releaseCouponReservation(league: league, code: code);
-          } catch (_) {
-            // non-fatal
-          }
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        setState(() => _processingPayment = false);
-        return;
-      }
-
-      if (hasCoupon) {
-        bool finalized = false;
-        Object? lastError;
-
-        for (int i = 0; i < 3; i++) {
-          try {
-            await _finalizeCouponUse(league: league, code: code);
-            finalized = true;
-            break;
-          } catch (e) {
-            lastError = e;
-            await Future<void>.delayed(const Duration(milliseconds: 250));
-          }
-        }
-
-        if (!finalized) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Payment succeeded, but coupon finalization failed: $lastError'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      }
-
-      final receipt = LeagueChargesReceipt(
-        leagueId: league.id,
-        userId: _userId,
-        receiptId: result.receiptId ?? '',
-        provider: result.provider,
-        paidAtMs: result.paidAtMs,
-      );
-
-      await store.storeReceipt(receipt);
-
-      if (!mounted) return;
-      setState(() {
-        _processingPayment = false;
-        _hasPaid = true;
-        _receipt = receipt;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_access_charges_paid_success')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      if (hasCoupon && code.isNotEmpty) {
-        try {
-          await _releaseCouponReservation(league: league, code: code);
-        } catch (_) {
-          // non-fatal
-        }
-      }
-
-      setState(() => _processingPayment = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${l10n.tr('league_access_payment_failed_prefix')} $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
   }
 }

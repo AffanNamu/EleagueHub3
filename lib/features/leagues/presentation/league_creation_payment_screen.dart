@@ -2,17 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/config/flutterwave_config.dart';
+import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../utils/current_user.dart';
-
-enum _CouponMode {
-  freeAccess,
-  percentageDiscount,
-}
 
 class LeagueCreationPaymentScreen extends ConsumerStatefulWidget {
   const LeagueCreationPaymentScreen({
@@ -29,51 +24,15 @@ class LeagueCreationPaymentScreen extends ConsumerStatefulWidget {
 class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaymentScreen> {
   bool _processing = false;
 
-  // OPTIONAL paid add-on
-  int _viewerCapacity = 0;
+  // Coupons add-on
+  bool _buyCoupons = false;
+  int _couponCount = 1;
 
-  // OPTIONAL: coupon purchase add-on (generated after payment + league creation)
-  bool _buyCouponsForParticipants = false;
-  _CouponMode _couponMode = _CouponMode.freeAccess;
-  int _couponPercent = 20; // Used only when _couponMode == percentageDiscount (5..90)
+  // Admin subsidy: what percentage end users will pay (0..100).
+  // Organizer pays the remainder at creation/upgrade time.
+  int _userPaysPercent = 50;
 
-  // Coupon quantity to purchase/cover during league creation payment.
-  int _couponCount = 0;
-
-  double _parseAmount(String raw) => double.tryParse(raw.trim()) ?? 0.0;
-
-  String _money(double v) {
-    final rounded = double.parse(v.toStringAsFixed(2));
-    final intVal = rounded.toInt();
-    if ((rounded - intVal).abs() < 0.000001) return '$intVal';
-    return rounded.toStringAsFixed(2);
-  }
-
-  int _effectiveCouponPercent() {
-    if (!_buyCouponsForParticipants) return 0;
-    if (_couponMode == _CouponMode.freeAccess) return 100;
-    final v = _couponPercent;
-    if (v < 5) return 5;
-    if (v > 90) return 90;
-    return v;
-  }
-
-  int _effectiveCouponCount() {
-    if (!_buyCouponsForParticipants) return 0;
-    // Enforce at least 1 coupon if coupons are enabled (prevents enabling coupons with 0 fee).
-    return _couponCount <= 0 ? 1 : _couponCount;
-  }
-
-  double _addonWithBulkDiscount({
-    required double unitPrice,
-    required int count,
-  }) {
-    if (count <= 0) return 0.0;
-    final raw = unitPrice * count;
-    // Rule: above 100 => 20% discount on that add-on portion only.
-    if (count > 100) return raw * 0.8;
-    return raw;
-  }
+  bool _initializedFromRoute = false;
 
   bool _addonsOnlyFromRouteExtra() {
     try {
@@ -88,50 +47,54 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     return false;
   }
 
+  void _maybeInitFromRoute() {
+    if (_initializedFromRoute) return;
+    _initializedFromRoute = true;
+    try {
+      final extra = GoRouterState.of(context).extra;
+      if (extra is Map) {
+        final map = extra.cast<dynamic, dynamic>();
+        // If organizer previously enabled coupons, reflect that in the toggle and quantity.
+        final existingCouponsEnabled = map['existingCouponsEnabled'];
+        if (existingCouponsEnabled is bool && existingCouponsEnabled) {
+          _buyCoupons = true;
+        }
+        final existingCouponCount = map['existingCouponCount'];
+        if (existingCouponCount is int && existingCouponCount > 0) {
+          _couponCount = existingCouponCount;
+          _buyCoupons = true;
+        }
+        // If previously set, try to reuse as a seed for "users pay %" (best-effort).
+        final existingPct = map['existingCouponDiscountPercent'];
+        if (existingPct is int) {
+          _userPaysPercent = existingPct.clamp(0, 100);
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+    // Ensure sane defaults
+    if (_couponCount <= 0) _couponCount = 1;
+    _userPaysPercent = _userPaysPercent.clamp(0, 100);
+  }
+
+  String _money(double v) {
+    final rounded = double.parse(v.toStringAsFixed(2));
+    final intVal = rounded.toInt();
+    if ((rounded - intVal).abs() < 0.000001) return '$intVal';
+    return rounded.toStringAsFixed(2);
+  }
+
   @override
   Widget build(BuildContext context) {
+    _maybeInitFromRoute();
+
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final provider = ref.watch(leagueCreationPaymentServiceProvider);
 
     final addonsOnly = _addonsOnlyFromRouteExtra();
-
-    final locale = Localizations.maybeLocaleOf(context);
-    final pricing = FlutterwaveConfig.pricingForLocale(locale);
-
-    // Pricing:
-    // totalAmount = (addonsOnly ? 0 : baseLeagueFee)
-    //            + (viewerCapacity × viewerUnitPrice [bulk discount])
-    //            + (couponCount × couponUnitPrice [bulk discount])
-    //
-    // Note: couponUnitPrice == viewerUnitPrice (pricing.viewLeagueAmount), as requested.
-    final double baseFee = addonsOnly ? 0.0 : _parseAmount(pricing.createLeagueAmount);
-    final double unitPrice = _parseAmount(pricing.viewLeagueAmount);
-
-    final double viewersAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _viewerCapacity);
-    final double couponsAddon = _addonWithBulkDiscount(unitPrice: unitPrice, count: _effectiveCouponCount());
-
-    final double total = baseFee + viewersAddon + (_buyCouponsForParticipants ? couponsAddon : 0.0);
-
-    final titleStyle = theme.textTheme.titleMedium?.copyWith(
-      color: cs.onSurface,
-      fontWeight: FontWeight.w900,
-      fontSize: 18,
-    );
-
-    final bodyStyle = theme.textTheme.bodyMedium?.copyWith(
-      color: cs.onSurface.withOpacity(0.72),
-      fontWeight: FontWeight.w600,
-      height: 1.35,
-    );
-
-    final couponsSummary = !_buyCouponsForParticipants
-        ? 'Coupons: None'
-        : (_effectiveCouponPercent() >= 100 ? 'Coupons: Free access (100%)' : 'Coupons: ${_effectiveCouponPercent()}% discount');
-
-    final viewerDiscountNote = _viewerCapacity > 100 ? ' (20% bulk discount applied)' : '';
-    final couponDiscountNote = (_buyCouponsForParticipants && _effectiveCouponCount() > 100) ? ' (20% bulk discount applied)' : '';
 
     return GlassScaffold(
       appBar: AppBar(
@@ -140,423 +103,436 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
         elevation: 0,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Glass(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.payments_outlined,
-                      color: cs.primary.withOpacity(0.95),
-                      size: 46,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      addonsOnly ? 'Payment required to upgrade' : l10n.tr('league_creation_payment_required_title'),
-                      style: titleStyle,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '${l10n.tr('league_creation_payment_amount_prefix')} ${_money(total)} ${pricing.currency}\n\n'
-                      '${addonsOnly ? 'Upgrade' : l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
-                      '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}\n'
-                      '$couponsSummary',
-                      textAlign: TextAlign.center,
-                      style: bodyStyle,
-                    ),
-                    const SizedBox(height: 16),
+        child: FutureBuilder<RemotePricingPlan>(
+          future: RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context)),
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return Center(
+                child: Text(
+                  'Failed to load pricing. Please try again.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.error,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+            }
 
-                    // ----------------------------
-                    // Viewer Capacity (optional)
-                    // ----------------------------
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.onSurface.withOpacity(0.04),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Viewer Capacity (optional)',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: cs.onSurface,
-                              fontWeight: FontWeight.w900,
-                            ),
+            if (!snap.hasData) {
+              return Center(child: CircularProgressIndicator(color: cs.primary));
+            }
+
+            final plan = snap.data!;
+            final currency = plan.currency;
+
+            // Pricing math:
+            // baseFee = addonsOnly ? 0 : plan.createLeagueFee
+            // couponSubtotal = plan.couponUnit * qty
+            // if (couponSubtotal >= plan.couponThreshold && threshold != null) apply plan.couponDiscountPercent
+            // organizerShare = discountedCouponSubtotal * (1 - userPays%)
+            // total = baseFee + organizerShare
+            final baseFee = addonsOnly ? 0.0 : plan.createLeagueFee;
+
+            final int qty = (_buyCoupons ? _couponCount : 0).clamp(0, 100000);
+            final rawCouponSubtotal = plan.couponUnit * qty;
+
+            final bool thresholdConfigured = plan.couponThreshold != null && plan.couponThreshold! > 0;
+            final bool discountApplies = thresholdConfigured && rawCouponSubtotal >= (plan.couponThreshold!);
+
+            final double discountedCouponSubtotal = discountApplies
+                ? (rawCouponSubtotal * ((100.0 - plan.couponDiscountPercent) / 100.0))
+                : rawCouponSubtotal;
+
+            final organizerPaysPercent = 100 - _userPaysPercent;
+            final organizerShare = discountedCouponSubtotal * (organizerPaysPercent / 100.0);
+
+            final total = baseFee + organizerShare;
+
+            final titleStyle = theme.textTheme.titleMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+            );
+
+            final bodyStyle = theme.textTheme.bodyMedium?.copyWith(
+              color: cs.onSurface.withOpacity(0.72),
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            );
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: Glass(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.payments_outlined,
+                          color: cs.primary.withOpacity(0.95),
+                          size: 46,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          addonsOnly ? 'Payment required to upgrade' : l10n.tr('league_creation_payment_required_title'),
+                          style: titleStyle,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Total: ${_money(total)} $currency\n\n'
+                          '${addonsOnly ? 'Upgrade' : l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
+                          '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}',
+                          textAlign: TextAlign.center,
+                          style: bodyStyle,
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ----------------------------
+                        // Coupons (optional)
+                        // ----------------------------
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: cs.onSurface.withOpacity(0.04),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Viewers are separate from participants. This only affects price. Above 100 viewers gets 20% discount.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.65),
-                              fontWeight: FontWeight.w600,
-                              height: 1.25,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(Icons.visibility, color: cs.onSurface.withOpacity(0.70), size: 18),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '$_viewerCapacity viewers • Unit: ${_money(unitPrice)} ${pricing.currency}$viewerDiscountNote',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: cs.onSurface.withOpacity(0.72),
-                                    fontWeight: FontWeight.w700,
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Coupons (optional)',
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: cs.onSurface,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
                                   ),
+                                  Switch.adaptive(
+                                    value: _buyCoupons,
+                                    onChanged: _processing
+                                        ? null
+                                        : (v) {
+                                            setState(() {
+                                              _buyCoupons = v;
+                                              if (!v) {
+                                                _couponCount = 1;
+                                              }
+                                            });
+                                          },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Coupon unit: ${_money(plan.couponUnit)} $currency. '
+                                '${thresholdConfigured ? '30% discount when subtotal ≥ ${_money(plan.couponThreshold!)} $currency.' : 'Bulk discount not configured.'}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: cs.onSurface.withOpacity(0.65),
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.25,
                                 ),
                               ),
-                              IconButton(
-                                tooltip: 'Decrease',
-                                onPressed: _processing
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _viewerCapacity = (_viewerCapacity - 10).clamp(0, 500);
-                                        });
-                                      },
-                                icon: const Icon(Icons.remove_circle_outline),
-                              ),
-                              IconButton(
-                                tooltip: 'Increase',
-                                onPressed: _processing
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _viewerCapacity = (_viewerCapacity + 10).clamp(0, 500);
-                                        });
-                                      },
-                                icon: const Icon(Icons.add_circle_outline),
-                              ),
-                            ],
-                          ),
-                          Slider(
-                            value: _viewerCapacity.toDouble(),
-                            min: 0,
-                            max: 500,
-                            divisions: 50, // step of 10
-                            label: '$_viewerCapacity',
-                            onChanged: _processing
-                                ? null
-                                : (v) {
-                                    setState(() => _viewerCapacity = (v / 10).round() * 10);
-                                  },
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Add-on: ${_money(viewersAddon)} ${pricing.currency}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.65),
-                              fontWeight: FontWeight.w600,
-                              height: 1.25,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // ----------------------------
-                    // Coupons (optional)
-                    // ----------------------------
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.onSurface.withOpacity(0.04),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Coupons (optional)',
+                              if (_buyCoupons) ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  'How many coupons do you want to buy?',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: cs.onSurface,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
-                              ),
-                              Switch.adaptive(
-                                value: _buyCouponsForParticipants,
-                                onChanged: _processing
-                                    ? null
-                                    : (v) {
-                                        setState(() {
-                                          _buyCouponsForParticipants = v;
-                                          if (!v) {
-                                            _couponMode = _CouponMode.freeAccess;
-                                            _couponCount = 0;
-                                          } else {
-                                            if (_couponCount <= 0) _couponCount = 1;
-                                          }
-                                        });
-                                      },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Coupon unit fee equals viewer fee. Above 100 coupons gets 20% discount on the coupon portion.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.65),
-                              fontWeight: FontWeight.w600,
-                              height: 1.25,
-                            ),
-                          ),
-                          if (_buyCouponsForParticipants) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              'How many coupons do you want to buy?',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: cs.onSurface,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(Icons.confirmation_number_outlined, color: cs.onSurface.withOpacity(0.70), size: 18),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    '${_effectiveCouponCount()} coupons • Unit: ${_money(unitPrice)} ${pricing.currency}$couponDiscountNote',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: cs.onSurface.withOpacity(0.72),
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Decrease',
-                                  onPressed: _processing
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _couponCount = (_couponCount - 10).clamp(1, 500);
-                                          });
-                                        },
-                                  icon: const Icon(Icons.remove_circle_outline),
-                                ),
-                                IconButton(
-                                  tooltip: 'Increase',
-                                  onPressed: _processing
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _couponCount = (_couponCount + 10).clamp(1, 500);
-                                          });
-                                        },
-                                  icon: const Icon(Icons.add_circle_outline),
-                                ),
-                              ],
-                            ),
-                            Slider(
-                              value: _effectiveCouponCount().toDouble(),
-                              min: 1,
-                              max: 500,
-                              divisions: 499,
-                              label: '${_effectiveCouponCount()}',
-                              onChanged: _processing
-                                  ? null
-                                  : (v) {
-                                      final rounded = (v / 10).round() * 10;
-                                      setState(() => _couponCount = rounded.clamp(1, 500));
-                                    },
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Add-on: ${_money(couponsAddon)} ${pricing.currency}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.65),
-                                fontWeight: FontWeight.w600,
-                                height: 1.25,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            RadioListTile<_CouponMode>(
-                              value: _CouponMode.freeAccess,
-                              groupValue: _couponMode,
-                              onChanged: _processing
-                                  ? null
-                                  : (v) {
-                                      if (v == null) return;
-                                      setState(() => _couponMode = v);
-                                    },
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                'Free access (100%)',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: cs.onSurface,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                            RadioListTile<_CouponMode>(
-                              value: _CouponMode.percentageDiscount,
-                              groupValue: _couponMode,
-                              onChanged: _processing
-                                  ? null
-                                  : (v) {
-                                      if (v == null) return;
-                                      setState(() => _couponMode = v);
-                                    },
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                'Percentage discount',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: cs.onSurface,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              subtitle: Text(
-                                'Slider: 5% – 90%',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: cs.onSurface.withOpacity(0.65),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            if (_couponMode == _CouponMode.percentageDiscount) ...[
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  Icon(Icons.percent, color: cs.onSurface.withOpacity(0.70), size: 18),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Discount: ${_effectiveCouponPercent()}%',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.72),
-                                        fontWeight: FontWeight.w700,
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Icon(Icons.confirmation_number_outlined, color: cs.onSurface.withOpacity(0.70), size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        '$_couponCount coupons • Unit: ${_money(plan.couponUnit)} $currency'
+                                        '${discountApplies ? ' • 30% discount applied' : ''}',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: cs.onSurface.withOpacity(0.72),
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ),
+                                    IconButton(
+                                      tooltip: 'Decrease',
+                                      onPressed: _processing
+                                          ? null
+                                          : () {
+                                              setState(() {
+                                                _couponCount = (_couponCount - 10).clamp(1, 100000);
+                                              });
+                                            },
+                                      icon: const Icon(Icons.remove_circle_outline),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Increase',
+                                      onPressed: _processing
+                                          ? null
+                                          : () {
+                                              setState(() {
+                                                _couponCount = (_couponCount + 10).clamp(1, 100000);
+                                              });
+                                            },
+                                      icon: const Icon(Icons.add_circle_outline),
+                                    ),
+                                  ],
+                                ),
+                                Slider(
+                                  value: _couponCount.toDouble().clamp(1, 100000),
+                                  min: 1,
+                                  max: 100000,
+                                  divisions: 1000,
+                                  label: '$_couponCount',
+                                  onChanged: _processing
+                                      ? null
+                                      : (v) {
+                                          final rounded = v.round();
+                                          setState(() => _couponCount = rounded.clamp(1, 100000));
+                                        },
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Admin subsidy (who pays what)',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w900,
                                   ),
-                                ],
-                              ),
-                              Slider(
-                                value: _couponPercent.toDouble().clamp(5, 90),
-                                min: 5,
-                                max: 90,
-                                divisions: 17, // step of 5
-                                label: '${_effectiveCouponPercent()}%',
-                                onChanged: _processing
-                                    ? null
-                                    : (v) {
-                                        final rounded = (v / 5).round() * 5;
-                                        setState(() => _couponPercent = rounded.clamp(5, 90));
-                                      },
-                              ),
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(Icons.account_balance_wallet_outlined, color: cs.onSurface.withOpacity(0.70), size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Users pay: $_userPaysPercent% • Admin pays: ${100 - _userPaysPercent}%',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: cs.onSurface.withOpacity(0.72),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Slider(
+                                  value: _userPaysPercent.toDouble(),
+                                  min: 0,
+                                  max: 100,
+                                  divisions: 20, // steps of 5%
+                                  label: '$_userPaysPercent%',
+                                  onChanged: _processing
+                                      ? null
+                                      : (v) {
+                                          final rounded = (v / 5).round() * 5;
+                                          setState(() => _userPaysPercent = rounded.clamp(0, 100));
+                                        },
+                                ),
+                              ],
                             ],
-                          ],
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-                    Text(
-                      'Base: ${_money(baseFee)} ${pricing.currency}'
-                      '  +  Viewers: ${_money(viewersAddon)} ${pricing.currency}'
-                      '  +  Coupons: ${_buyCouponsForParticipants ? _money(couponsAddon) : _money(0.0)} ${pricing.currency}'
-                      '  =  Total: ${_money(total)} ${pricing.currency}',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.65),
-                        fontWeight: FontWeight.w600,
-                        height: 1.25,
-                      ),
-                    ),
-
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: _processing ? null : () => context.pop<LeagueCreationPaymentResult?>(null),
-                            child: Text(l10n.tr('common_cancel')),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: _processing
-                                ? null
-                                : () async {
-                                    setState(() => _processing = true);
-                                    try {
-                                      final userId = await CurrentUser.getOrCreateUserId();
 
-                                      final result = await provider.collectLeagueCreationFee(
-                                        context: context,
-                                        userId: userId,
-                                        leagueName: widget.leagueName,
-                                        addonsOnly: addonsOnly,
-                                        viewerCapacity: _viewerCapacity,
-                                        buyCouponsForParticipants: _buyCouponsForParticipants,
-                                        couponDiscountPercent: _effectiveCouponPercent(),
-                                        couponCount: _effectiveCouponCount(),
-                                      );
+                        const SizedBox(height: 12),
 
-                                      if (!mounted) return;
-
-                                      if (result.success) {
-                                        context.pop<LeagueCreationPaymentResult>(result);
-                                        return;
-                                      }
-
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
-                                          backgroundColor: cs.error,
-                                        ),
-                                      );
-                                    } catch (e) {
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text('${l10n.tr('league_creation_payment_failed_prefix')} $e'),
-                                          backgroundColor: cs.error,
-                                        ),
-                                      );
-                                    } finally {
-                                      if (mounted) setState(() => _processing = false);
-                                    }
-                                  },
-                            child: _processing
-                                ? SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: cs.onPrimary,
-                                    ),
-                                  )
-                                : Text(l10n.tr('league_creation_payment_pay_continue')),
+                        // ----------------------------
+                        // Breakdown
+                        // ----------------------------
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: cs.onSurface.withOpacity(0.04),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
                           ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Summary',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: cs.onSurface,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              _kv(
+                                context,
+                                'League creation fee',
+                                '${_money(baseFee)} $currency',
+                              ),
+                              _kv(
+                                context,
+                                'Coupons subtotal',
+                                '${_money(rawCouponSubtotal)} $currency',
+                              ),
+                              _kv(
+                                context,
+                                discountApplies ? 'Threshold discount (30%)' : 'Threshold discount',
+                                discountApplies ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
+                              ),
+                              _kv(
+                                context,
+                                'Organizer share (${100 - _userPaysPercent}%)',
+                                '${_money(organizerShare)} $currency',
+                              ),
+                              const Divider(),
+                              _kvStrong(
+                                context,
+                                'Total payable now',
+                                '${_money(total)} $currency',
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: _processing ? null : () => context.pop<LeagueCreationPaymentResult?>(null),
+                                child: Text(l10n.tr('common_cancel')),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: _processing
+                                    ? null
+                                    : () async {
+                                        setState(() => _processing = true);
+                                        try {
+                                          final userId = await CurrentUser.getOrCreateUserId();
+
+                                          final result = await provider.collectLeagueCreationFee(
+                                            context: context,
+                                            userId: userId,
+                                            leagueName: widget.leagueName,
+                                            addonsOnly: addonsOnly,
+                                            // viewers removed: keep 0 for backward compatibility
+                                            viewerCapacity: 0,
+                                            buyCouponsForParticipants: _buyCoupons,
+                                            // TEMP: pass "users pay %" in couponDiscountPercent until model/UI migration completes
+                                            couponDiscountPercent: _userPaysPercent,
+                                            couponCount: _buyCoupons ? _couponCount : 0,
+                                          );
+
+                                          if (!mounted) return;
+
+                                          if (result.success) {
+                                            context.pop<LeagueCreationPaymentResult>(result);
+                                            return;
+                                          }
+
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(result.errorMessage ?? l10n.tr('leagues_payment_failed')),
+                                              backgroundColor: cs.error,
+                                            ),
+                                          );
+                                        } catch (e) {
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('${l10n.tr('league_creation_payment_failed_prefix')} $e'),
+                                              backgroundColor: cs.error,
+                                            ),
+                                          );
+                                        } finally {
+                                          if (mounted) setState(() => _processing = false);
+                                        }
+                                      },
+                                child: _processing
+                                    ? SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: cs.onPrimary,
+                                        ),
+                                      )
+                                    : Text(l10n.tr('league_creation_payment_pay_continue')),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _kv(BuildContext context, String k, String v) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              k,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
-        ),
+          Text(
+            v,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.85),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _kvStrong(BuildContext context, String k, String v) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              k,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          Text(
+            v,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }

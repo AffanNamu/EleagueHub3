@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/admin/pricing_admin_screen.dart';
+import '../../features/admin/pricing_admins_screen.dart';
 import '../../features/auth/presentation/bootstrap_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/onboarding_screen.dart';
@@ -31,6 +33,7 @@ import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
 import '../../features/auth/data/user_profile_repository.dart';
+import '../services/app_admins_service.dart';
 
 enum _ProfileState { unknown, checking, missing, exists }
 
@@ -42,6 +45,9 @@ class AuthRouterRefresh extends ChangeNotifier {
 
       _retryTimer?.cancel();
       _retryTimer = null;
+
+      // Start admins watcher as soon as we have a session context.
+      AppAdminsService.instance.ensureStarted();
 
       // Signed out.
       if (_user == null) {
@@ -123,15 +129,26 @@ class AuthRouterRefresh extends ChangeNotifier {
 
 final AuthRouterRefresh authRouterRefresh = AuthRouterRefresh();
 
+bool _isPricingAdminUidSync(String uid) {
+  if (uid.isEmpty) return false;
+  // Combine static + dynamic admins (dynamic loaded via AppAdminsService).
+  return AppAdminsService.instance.isPricingAdminUid(uid);
+}
+
 final appRouter = GoRouter(
   initialLocation: '/bootstrap',
   refreshListenable: authRouterRefresh,
   redirect: (context, state) {
+    // Make sure our admins watcher is active even if auth state did not change recently.
+    AppAdminsService.instance.ensureStarted();
+
     final loc = state.matchedLocation;
 
     final inLogin = loc == '/login';
     final inOnboarding = loc == '/onboarding';
     final inBootstrap = loc == '/bootstrap';
+    final inPricingAdmin = loc == '/admin/pricing';
+    final inPricingAdmins = loc == '/admin/pricing-admins';
 
     // Not signed in -> force login.
     if (!authRouterRefresh.isSignedIn) {
@@ -149,6 +166,14 @@ final appRouter = GoRouter(
     if (auth_routerRefreshNeedsOnboardingFix(authRouterRefresh)) {
       if (inOnboarding) return null;
       return '/onboarding';
+    }
+
+    // Restrict pricing admin screens to whitelisted UIDs (static + dynamic).
+    if (inPricingAdmin || inPricingAdmins) {
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (!_isPricingAdminUidSync(uid)) {
+        return '/';
+      }
     }
 
     // Signed in + profile exists -> keep them out of auth screens.
@@ -181,6 +206,16 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/call',
       builder: (context, state) => const CallRoomScreen(),
+    ),
+
+    // Pricing Admin (owner/dynamic-admin only)
+    GoRoute(
+      path: '/admin/pricing',
+      builder: (context, state) => const PricingAdminScreen(),
+    ),
+    GoRoute(
+      path: '/admin/pricing-admins',
+      builder: (context, state) => const PricingAdminsScreen(),
     ),
 
     GoRoute(
@@ -270,8 +305,7 @@ final appRouter = GoRouter(
               ],
             ),
 
-            // NEW: Organizer upgrade/add-ons purchase (viewer access / coupons) for an existing league.
-            // The payment screen can read state.extra (addonsOnly, leagueId, etc) when needed.
+            // Organizer upgrade/add-ons purchase (coupons/subsidy) for an existing league.
             GoRoute(
               path: ':leagueId/upgrade/payment',
               builder: (context, state) {

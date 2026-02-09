@@ -5,6 +5,8 @@ import 'package:flutterwave_standard/flutterwave.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/config/flutterwave_config.dart';
+import '../../../core/services/remote_pricing_service.dart';
+import '../../../core/services/app_analytics_service.dart';
 
 final leagueCreationPaymentServiceProvider = Provider<LeagueCreationPaymentService>((ref) {
   return FlutterwaveLeagueCreationPaymentService();
@@ -17,23 +19,22 @@ class LeagueCreationPaymentResult {
   final String provider;
   final String? errorMessage;
 
-  /// OPTIONAL add-on: viewer capacity purchased at creation time (or upgrade time).
-  /// 0 means not enabled.
+  // LEGACY FIELDS (kept for backward compatibility in callers):
+  // Viewers are fully removed from pricing; this stays 0.
   final int viewerCapacity;
 
-  /// OPTIONAL add-on: organizer purchased coupons for participants/viewers.
+  // Coupons were enabled as an add-on during creation time (still supported).
   final bool buyCouponsForParticipants;
 
-  /// Coupon discount as percentage off the league join/access charge.
-  /// 0 means coupons not enabled.
-  /// 100 means free access.
+  // LEGACY name retained:
+  // Historically used as "percent-off access". We now pass the "user pays %" here
+  // until the UI and data model are migrated. Range 0..100.
   final int couponDiscountPercent;
 
-  /// OPTIONAL: how many coupons the organizer wants generated/covered at purchase time.
-  /// 0 means none.
+  // How many coupons organizer wants to buy.
   final int couponCount;
 
-  /// Amount charged (Flutterwave string format).
+  // Amount charged (Flutterwave string format).
   final String totalAmount;
 
   const LeagueCreationPaymentResult._({
@@ -103,20 +104,20 @@ abstract class LeagueCreationPaymentService {
     required String userId,
     required String leagueName,
 
-    /// When true, do NOT charge the base "createLeagueAmount".
-    /// This is used for purchasing add-ons for an existing league (upgrade).
+    // When true, do NOT charge the base "createLeagueAmount".
+    // This is used for purchasing add-ons for an existing league (upgrade).
     bool addonsOnly,
 
-    /// OPTIONAL paid add-on (viewers are separate from participants).
+    // DEPRECATED: viewers are removed. This parameter is ignored (kept for compatibility).
     int viewerCapacity,
 
-    /// OPTIONAL add-on: buy coupons for participants/viewers (generated after payment+sync).
+    // OPTIONAL add-on: buy coupons for participants (single configuration per league).
     bool buyCouponsForParticipants,
 
-    /// OPTIONAL add-on: coupon percent discount (0=disabled, 100=free).
+    // LEGACY name retained. We now pass "userPaysPercent" here (0..100) until UI/model migration.
     int couponDiscountPercent,
 
-    /// OPTIONAL add-on: coupon quantity to include/generate.
+    // OPTIONAL add-on: coupon quantity to purchase.
     int couponCount,
   });
 
@@ -130,38 +131,18 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
   String get providerName => 'flutterwave';
 
   String _toFlutterwaveAmount(double v) {
-    // Flutterwave accepts string numbers; keep it clean.
     final rounded = double.parse(v.toStringAsFixed(2));
     final intVal = rounded.toInt();
     if ((rounded - intVal).abs() < 0.000001) return '$intVal';
-    // Avoid locale commas, etc.
     return rounded.toStringAsFixed(2);
-  }
-
-  int _sanitizeCouponPercent(bool enabled, int rawPercent) {
-    if (!enabled) return 0;
-    if (rawPercent >= 100) return 100;
-    if (rawPercent < 5) return 5;
-    if (rawPercent > 90) return 90;
-    return rawPercent;
   }
 
   int _sanitizeCount(int v) => v < 0 ? 0 : v;
 
-  double _discountedAddon({
-    required double unitPrice,
-    required int count,
-  }) {
-    final c = _sanitizeCount(count);
-    if (c <= 0) return 0;
-
-    final raw = unitPrice * c;
-
-    // Rule: if buyer buys above 100 viewers/coupons => 20% discount on that portion.
-    if (c > 100) {
-      return raw * 0.8;
-    }
-    return raw;
+  int _sanitizePercent(int v) {
+    if (v < 0) return 0;
+    if (v > 100) return 100;
+    return v;
   }
 
   @override
@@ -170,34 +151,54 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
     required String userId,
     required String leagueName,
     bool addonsOnly = false,
-    int viewerCapacity = 0,
+    int viewerCapacity = 0, // ignored
     bool buyCouponsForParticipants = false,
-    int couponDiscountPercent = 0,
+    int couponDiscountPercent = 0, // carry "userPaysPercent"
     int couponCount = 0,
   }) async {
-    final safeViewerCapacity = _sanitizeCount(viewerCapacity);
     final safeCouponCount = buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
-    final safeCouponPercent = _sanitizeCouponPercent(buyCouponsForParticipants, couponDiscountPercent);
+    final userPaysPercent = _sanitizePercent(couponDiscountPercent);
 
     try {
       FlutterwaveConfig.assertConfigured();
 
-      final locale = Localizations.maybeLocaleOf(context);
-      final pricing = FlutterwaveConfig.pricingForLocale(locale);
-      FlutterwaveConfig.assertValidPricing(pricing);
+      // Resolve pricing from Firestore (with safe defaults).
+      final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
 
-      // addonsOnly (upgrade): base fee is 0.
-      final base = addonsOnly ? 0 : (double.tryParse(pricing.createLeagueAmount.trim()) ?? 0);
+      // Base fee: required unless this is an upgrade purchase.
+      final base = addonsOnly ? 0.0 : plan.createLeagueFee;
 
-      // Viewer unit price and coupon unit price are the same, as requested.
-      final unit = double.tryParse(pricing.viewLeagueAmount.trim()) ?? 0;
+      // Coupon add-on:
+      // - Unit price from Firestore plan.couponUnit
+      // - If subtotal >= configured threshold, apply percentage discount (e.g., 30%)
+      // - IMPORTANT: viewers are removed; viewerCapacity is ignored.
+      final couponSubtotalDiscounted = buyCouponsForParticipants
+          ? RemotePricingService.instance.couponSubtotalWithThresholdDiscount(
+              plan: plan,
+              couponCount: safeCouponCount,
+            )
+          : 0.0;
 
-      final viewersAddon = _discountedAddon(unitPrice: unit, count: safeViewerCapacity);
-      final couponsAddon = _discountedAddon(unitPrice: unit, count: safeCouponCount);
+      // ADMIN SUBSIDY: Charge only the ORGANIZER share at creation/upgrade time.
+      final organizerPaysPercent = 100 - userPaysPercent;
+      final organizerShare = couponSubtotalDiscounted * (organizerPaysPercent / 100.0);
 
-      final total = base + viewersAddon + couponsAddon;
+      final total = base + organizerShare;
       final totalAmount = _toFlutterwaveAmount(total);
 
+      // Log attempt (best-effort)
+      // No leagueId yet at creation time → leave empty string or 'draft'
+      await AppAnalyticsService.instance.logPaymentAttempt(
+        kind: 'creation',
+        leagueId: '',
+        leagueName: leagueName,
+        provider: providerName,
+        currency: plan.currency,
+        amount: totalAmount,
+        userId: userId,
+      );
+
+      // Build Flutterwave payload
       final authUser = FirebaseAuth.instance.currentUser;
       final String email = (authUser?.email?.trim().isNotEmpty ?? false)
           ? authUser!.email!.trim()
@@ -219,21 +220,16 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
           ? 'EH-UPG-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}'
           : 'EH-CRT-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
-      final viewersPart = safeViewerCapacity > 0 ? ' + viewers ($safeViewerCapacity)' : '';
       final couponsPart = buyCouponsForParticipants
-          ? (safeCouponCount > 0
-              ? (safeCouponPercent >= 100
-                  ? ' + coupons ($safeCouponCount, free access)'
-                  : ' + coupons ($safeCouponCount, ${safeCouponPercent}% discount)')
-              : (safeCouponPercent >= 100 ? ' + coupons (free access)' : ' + coupons (${safeCouponPercent}% discount)'))
+          ? ' + coupons: $safeCouponCount (users pay $userPaysPercent%)'
           : '';
 
       final action = addonsOnly ? 'League upgrade' : 'League creation';
-      final description = '$action$viewersPart$couponsPart: $leagueName';
+      final description = '$action$couponsPart: $leagueName';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
-        currency: pricing.currency,
+        currency: plan.currency,
         redirectUrl: FlutterwaveConfig.redirectUrl,
         txRef: txRef,
         amount: totalAmount,
@@ -256,34 +252,83 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
                 ? 'FLW-${response.txRef}'
                 : 'FLW-$txRef';
 
+        // Log success
+        await AppAnalyticsService.instance.logPaymentResult(
+          kind: 'creation',
+          leagueId: '',
+          leagueName: leagueName,
+          success: true,
+          provider: providerName,
+          currency: plan.currency,
+          amount: totalAmount,
+          receiptId: receipt,
+          errorMessage: null,
+          userId: userId,
+        );
+
+        // NOTE: viewerCapacity is deprecated => always zero.
         return LeagueCreationPaymentResult.paid(
           receiptId: receipt,
           paidAtMs: now,
           provider: providerName,
-          viewerCapacity: safeViewerCapacity,
+          viewerCapacity: 0,
           buyCouponsForParticipants: buyCouponsForParticipants,
-          couponDiscountPercent: safeCouponPercent,
+          // We temporarily store "userPaysPercent" in couponDiscountPercent until UI/model migration.
+          couponDiscountPercent: userPaysPercent,
           couponCount: safeCouponCount,
           totalAmount: totalAmount,
         );
       }
 
+      // Log failure
+      await AppAnalyticsService.instance.logPaymentResult(
+        kind: 'creation',
+        leagueId: '',
+        leagueName: leagueName,
+        success: false,
+        provider: providerName,
+        currency: plan.currency,
+        amount: totalAmount,
+        receiptId: null,
+        errorMessage: 'Payment cancelled or not successful',
+        userId: userId,
+      );
+
       return LeagueCreationPaymentResult.failed(
         provider: providerName,
         errorMessage: 'Payment cancelled or not successful',
-        viewerCapacity: safeViewerCapacity,
+        viewerCapacity: 0,
         buyCouponsForParticipants: buyCouponsForParticipants,
-        couponDiscountPercent: safeCouponPercent,
+        couponDiscountPercent: userPaysPercent,
         couponCount: safeCouponCount,
         totalAmount: totalAmount,
       );
     } catch (e) {
+      // Log failure
+      try {
+        final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+        await AppAnalyticsService.instance.logPaymentResult(
+          kind: 'creation',
+          leagueId: '',
+          leagueName: leagueName,
+          success: false,
+          provider: providerName,
+          currency: plan.currency,
+          amount: '0',
+          receiptId: null,
+          errorMessage: e.toString(),
+          userId: userId,
+        );
+      } catch (_) {
+        // ignore: best-effort
+      }
+
       return LeagueCreationPaymentResult.failed(
         provider: providerName,
         errorMessage: e.toString(),
-        viewerCapacity: safeViewerCapacity,
+        viewerCapacity: 0,
         buyCouponsForParticipants: buyCouponsForParticipants,
-        couponDiscountPercent: safeCouponPercent,
+        couponDiscountPercent: userPaysPercent,
         couponCount: safeCouponCount,
         totalAmount: '0',
       );

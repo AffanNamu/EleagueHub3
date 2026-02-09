@@ -13,9 +13,11 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/league_switcher.dart';
 import '../../../core/widgets/section_header.dart';
+import '../../../core/services/app_admins_service.dart';
 import '../../auth/data/auth_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../leagues/logic/coupon_config_service.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -25,15 +27,13 @@ class ProfileScreen extends ConsumerWidget {
     required int discountPercent,
   }) {
     if (!enabled || discountPercent <= 0) return 'Not enabled';
-    if (discountPercent >= 100) return 'Free access (100%)';
-    return '$discountPercent% discount';
+    return 'Users pay $discountPercent%';
   }
 
-  void _showLeagueCouponsSheet(
+  void _showCouponConfigSheet(
     BuildContext context, {
     required String leagueId,
     required String leagueName,
-    required int discountPercent,
   }) {
     showModalBottomSheet(
       context: context,
@@ -44,19 +44,27 @@ class ProfileScreen extends ConsumerWidget {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
-        final couponsQuery = FirebaseFirestore.instance
+        final cfgStream = CouponConfigService().watchConfig(leagueId);
+        final redemptionsQuery = FirebaseFirestore.instance
             .collection('leagues')
             .doc(leagueId)
-            .collection('coupons')
-            .orderBy('createdAtMs', descending: true)
-            .limit(100);
+            .collection('couponRedemptions')
+            .orderBy('paidAtMs', descending: true)
+            .limit(150);
+
+        String money(double v) {
+          final r = double.parse(v.toStringAsFixed(2));
+          final i = r.toInt();
+          if ((r - i).abs() < 0.000001) return '$i';
+          return r.toStringAsFixed(2);
+        }
 
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
+                constraints: const BoxConstraints(maxWidth: 620),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
@@ -65,7 +73,7 @@ class ProfileScreen extends ConsumerWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'My Coupons',
+                          'Coupons',
                           style: theme.textTheme.titleMedium?.copyWith(
                             color: onSurface,
                             fontSize: 16,
@@ -74,7 +82,7 @@ class ProfileScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '$leagueName • ${_couponLeagueSubtitle(enabled: true, discountPercent: discountPercent)}',
+                          leagueName,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: onSurface.withOpacity(0.70),
                             fontSize: 12,
@@ -83,94 +91,203 @@ class ProfileScreen extends ConsumerWidget {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 12),
-                        Divider(color: onSurface.withOpacity(0.12)),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 520),
-                          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                            stream: couponsQuery.snapshots(),
-                            builder: (context, snap) {
-                              if (snap.hasError) {
-                                return Center(
-                                  child: Text(
-                                    'Failed to load coupons.',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: cs.error,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                        StreamBuilder<CouponConfig?>(
+                          stream: cfgStream,
+                          builder: (context, snap) {
+                            if (snap.hasError) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                child: Text(
+                                  'Failed to load coupon configuration.',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.error,
+                                    fontWeight: FontWeight.w700,
                                   ),
-                                );
-                              }
-
-                              if (!snap.hasData) {
-                                return Center(child: CircularProgressIndicator(color: cs.primary));
-                              }
-
-                              final docs = snap.data!.docs;
-
-                              if (docs.isEmpty) {
-                                return Center(
-                                  child: Text(
-                                    'No coupons found yet.',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: onSurface.withOpacity(0.70),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                );
-                              }
-
-                              return ListView.separated(
-                                itemCount: docs.length,
-                                separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
-                                itemBuilder: (context, i) {
-                                  final d = docs[i].data();
-                                  final code = (d['code'] as String?)?.trim().isNotEmpty == true ? (d['code'] as String).trim() : docs[i].id;
-                                  final usedBy = (d['usedBy'] as String?)?.trim() ?? '';
-                                  final isUsed = usedBy.isNotEmpty;
-
-                                  return ListTile(
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: Icon(
-                                      isUsed ? Icons.check_circle : Icons.confirmation_number_outlined,
-                                      color: isUsed ? const Color(0xFF22C55E) : cs.primary,
-                                      size: 20,
-                                    ),
-                                    title: Text(
-                                      code,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: onSurface,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      isUsed ? 'Used' : 'Unused',
+                                ),
+                              );
+                            }
+                            if (!snap.hasData) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                child: Center(child: CircularProgressIndicator(color: cs.primary)),
+                              );
+                            }
+                            final cfg = snap.data;
+                            if (cfg == null) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      'No coupon configuration yet.',
                                       style: theme.textTheme.bodySmall?.copyWith(
-                                        color: onSurface.withOpacity(0.65),
+                                        color: onSurface.withOpacity(0.70),
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                    trailing: IconButton(
-                                      tooltip: 'Copy',
-                                      icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72), size: 18),
-                                      onPressed: () async {
-                                        await Clipboard.setData(ClipboardData(text: code));
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Copied: $code')),
-                                        );
-                                      },
+                                    const SizedBox(height: 8),
+                                    FilledButton.icon(
+                                      onPressed: () => Navigator.of(ctx).pop(),
+                                      icon: const Icon(Icons.check),
+                                      label: const Text('Close'),
                                     ),
-                                  );
-                                },
+                                  ],
+                                ),
                               );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                          onPressed: () => Navigator.of(ctx).pop(),
-                          child: const Text('Close'),
+                            }
+
+                            final redeemed = cfg.qtyRedeemed;
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _kv(context, 'Currency', cfg.currency),
+                                _kv(context, 'Unit price', '${money(cfg.unitPrice)} ${cfg.currency}'),
+                                _kv(context, 'Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}'),
+                                _kv(context, 'Threshold',
+                                    cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}'),
+                                _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
+                                const Divider(),
+                                _kv(context, 'Users pay', '${cfg.userPaysPercent}%'),
+                                _kv(context, 'Admin pays', '${cfg.organizerPaysPercent}%'),
+                                const Divider(),
+                                _kv(context, 'Purchased (total)', '${cfg.qtyTotal}'),
+                                _kv(context, 'Remaining', '${cfg.qtyRemaining}'),
+                                _kv(context, 'Redeemed', '$redeemed'),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => Navigator.of(ctx).pop(),
+                                        icon: const Icon(Icons.close),
+                                        label: const Text('Close'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: () {
+                                          Navigator.of(ctx).pop();
+                                          // Open upgrade/payment to buy more or adjust subsidy
+                                          GoRouter.of(context).push('/leagues/$leagueId/upgrade/payment', extra: {
+                                            'leagueId': leagueId,
+                                            'leagueName': leagueName,
+                                            'addonsOnly': true,
+                                            'existingCouponsEnabled': true,
+                                            'existingCouponCount': cfg.qtyRemaining,
+                                            'existingCouponDiscountPercent': cfg.userPaysPercent,
+                                          });
+                                        },
+                                        icon: const Icon(Icons.add_shopping_cart),
+                                        label: const Text('Buy more / adjust'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  'Recent redemptions',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: onSurface,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(maxHeight: 320),
+                                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                    stream: redemptionsQuery.snapshots(),
+                                    builder: (context, rs) {
+                                      if (rs.hasError) {
+                                        return Center(
+                                          child: Text(
+                                            'Failed to load redemptions.',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: cs.error,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      if (!rs.hasData) {
+                                        return Center(child: CircularProgressIndicator(color: cs.primary));
+                                      }
+                                      final docs = rs.data!.docs;
+                                      if (docs.isEmpty) {
+                                        return Center(
+                                          child: Text(
+                                            'No redemptions yet.',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: onSurface.withOpacity(0.70),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      return ListView.separated(
+                                        itemCount: docs.length,
+                                        separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
+                                        itemBuilder: (context, i) {
+                                          final d = docs[i].data();
+                                          final userId = (d['userId'] as String?) ?? '';
+                                          final status = (d['status'] as String?) ?? 'pending';
+                                          final paidAtMs = (d['paidAtMs'] as num?)?.toInt() ?? 0;
+                                          final provider = (d['provider'] as String?) ?? '';
+                                          final expected = (d['expectedAmount'] as num?)?.toDouble() ?? 0.0;
+                                          final currency = (d['currency'] as String?) ?? cfg.currency;
+
+                                          final isPaid = status == 'paid';
+                                          final when = paidAtMs > 0
+                                              ? DateTime.fromMillisecondsSinceEpoch(paidAtMs).toLocal().toString()
+                                              : '—';
+
+                                          return ListTile(
+                                            dense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            leading: Icon(
+                                              isPaid ? Icons.verified : Icons.pending,
+                                              color: isPaid ? const Color(0xFF22C55E) : cs.primary,
+                                              size: 20,
+                                            ),
+                                            title: Text(
+                                              userId.isEmpty
+                                                  ? '(unknown user)'
+                                                  : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
+                                              style: theme.textTheme.bodyMedium?.copyWith(
+                                                color: onSurface,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              isPaid
+                                                  ? 'Paid • $provider • $when'
+                                                  : 'Pending • ${money(expected)} $currency',
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                color: onSurface.withOpacity(0.65),
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            trailing: IconButton(
+                                              tooltip: 'Copy user id',
+                                              icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72), size: 18),
+                                              onPressed: () async {
+                                                await Clipboard.setData(ClipboardData(text: userId));
+                                                if (!context.mounted) return;
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Copied: $userId')),
+                                                );
+                                              },
+                                            ),
+                                          );
+                                        },
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -186,6 +303,9 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Ensure dynamic admins watcher runs (safe if called multiple times).
+    AppAdminsService.instance.ensureStarted();
+
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final t = theme.textTheme;
@@ -197,6 +317,8 @@ class ProfileScreen extends ConsumerWidget {
 
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid ?? '';
+
+    final isPricingAdmin = AppAdminsService.instance.isPricingAdminUid(uid);
 
     final repo = UserProfileRepository();
 
@@ -423,7 +545,11 @@ class ProfileScreen extends ConsumerWidget {
             Glass(
               padding: const EdgeInsets.all(14),
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance.collection('leagues').where('organizerUserId', isEqualTo: uid).limit(25).snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('leagues')
+                    .where('organizerUserId', isEqualTo: uid)
+                    .limit(25)
+                    .snapshots(),
                 builder: (context, snap) {
                   if (snap.hasError) {
                     return Text(
@@ -441,7 +567,9 @@ class ProfileScreen extends ConsumerWidget {
 
                   final leagues = snap.data!.docs
                       .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
-                      .where((m) => (m['couponsEnabled'] == true || m['couponsEnabled'] == 1) && ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0) > 0)
+                      .where((m) =>
+                          (m['couponsEnabled'] == true || m['couponsEnabled'] == 1) &&
+                          ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0) >= 0)
                       .toList();
 
                   if (leagues.isEmpty) {
@@ -463,11 +591,10 @@ class ProfileScreen extends ConsumerWidget {
                             enabled: true,
                             discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
                           ),
-                          onView: () => _showLeagueCouponsSheet(
+                          onView: () => _showCouponConfigSheet(
                             context,
                             leagueId: (m['id'] as String?) ?? '',
                             leagueName: (m['name'] as String?) ?? 'League',
-                            discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -478,7 +605,91 @@ class ProfileScreen extends ConsumerWidget {
               ),
             ),
 
+          const SizedBox(height: 22),
+
+          /// PRICING ADMIN (owner/dynamic-admin only)
+          if (isPricingAdmin) ...[
+            SectionHeader('Admin'),
+            const SizedBox(height: 12),
+            Glass(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(Icons.admin_panel_settings, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Pricing Admin',
+                      style: t.bodyMedium?.copyWith(
+                        color: onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  FilledButton(
+                    onPressed: () => GoRouter.of(context).push('/admin/pricing'),
+                    child: const Text('Open'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Glass(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(Icons.group_add, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Manage pricing admins',
+                      style: t.bodyMedium?.copyWith(
+                        color: onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  FilledButton(
+                    onPressed: () => GoRouter.of(context).push('/admin/pricing-admins'),
+                    child: const Text('Open'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _kv(BuildContext context, String k, String v) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 170,
+            child: Text(
+              k,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              v,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.90),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
         ],
       ),
     );

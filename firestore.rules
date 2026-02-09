@@ -28,9 +28,9 @@ service cloud.firestore {
       return (d.isFinished == true) || (d.isFinished == 1);
     }
 
+    // Public/private detection (secure by default)
     function isPublicLeague(leagueId) {
       let d = leagueDoc(leagueId).data;
-
       return
         ((d.isPrivate is bool) && (d.isPrivate == false))
         ||
@@ -43,10 +43,14 @@ service cloud.firestore {
         ));
     }
 
+    // Helper for safe numeric comparisons in update rules.
     function registeredCountOrZero(d) {
       return (d.registeredCount is int) ? d.registeredCount : 0;
     }
 
+    // --------------------------
+    // Quick messages validation (best-effort)
+    // --------------------------
     function validQuickMsg(s) {
       return (s is string)
         && (s.size() > 0)
@@ -74,6 +78,9 @@ service cloud.firestore {
         && (list.size() < 15 || validQuickMsg(list[14]));
     }
 
+    // --------------------------
+    // Users
+    // --------------------------
     match /users/{userId} {
       allow read: if signedIn();
 
@@ -126,6 +133,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // --------------------------
+    // Leagues
+    // --------------------------
     match /leagues/{leagueId} {
       allow get: if isOwner(leagueId) || isMember(leagueId) || isPublicLeague(leagueId);
       allow list: if signedIn();
@@ -151,7 +161,6 @@ service cloud.firestore {
           ])
           && (request.resource.data.memberIds is list)
           && (request.auth.uid in request.resource.data.memberIds)
-
           && (
             (
               (resource.data.memberIds is list)
@@ -166,17 +175,11 @@ service cloud.firestore {
               && (request.auth.uid in request.resource.data.memberIds)
             )
           )
-
           && (request.resource.data.registeredCount is int)
           && request.resource.data.registeredCount == (registeredCountOrZero(resource.data) + 1)
-
           && (
             (request.resource.data.isFull is bool)
-            && (
-              request.resource.data.isFull
-              ==
-              (request.resource.data.registeredCount >= ((resource.data.maxTeams is int) ? resource.data.maxTeams : request.resource.data.maxTeams))
-            )
+            && (request.resource.data.isFull == (request.resource.data.registeredCount >= ((resource.data.maxTeams is int) ? resource.data.maxTeams : request.resource.data.maxTeams)))
           )
         );
 
@@ -253,186 +256,142 @@ service cloud.firestore {
       }
 
       // --------------------------
-      // Coupons (league-specific)
+      // Coupon config + redemptions (new model)
       // --------------------------
-      match /coupons/{couponId} {
-        function reservationTtl() { return duration.value(15, 'm'); }
 
-        function strEmpty(v) {
-          return !(v is string) || v == null || v == '';
-        }
+      function cfgCurrent(leagueId) {
+        return get(/databases/$(database)/documents/leagues/$(leagueId)/couponConfig/config);
+      }
+      function cfgAfter(leagueId) {
+        return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponConfig/config);
+      }
+      function redemptionAfter(leagueId, uid) {
+        return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponRedemptions/$(uid));
+      }
 
-        function couponUnused(d) {
-          return !('usedBy' in d) || strEmpty(d.usedBy);
-        }
+      match /couponConfig/{docId} {
+        allow list, get: if isOwner(leagueId);
 
-        function reservedBy(d) {
-          return ('reservedBy' in d) ? d.reservedBy : '';
-        }
-
-        function reservedUntil(d) {
-          return ('reservedUntil' in d) ? d.reservedUntil : null;
-        }
-
-        function couponReserved(d) {
-          return !strEmpty(reservedBy(d)) && (reservedUntil(d) is timestamp);
-        }
-
-        function reservationExpired(d) {
-          return !couponReserved(d) || (reservedUntil(d) <= request.time);
-        }
-
-        function canReserveNow(d) {
-          return couponUnused(d)
-            && (
-              !couponReserved(d)
-              || reservationExpired(d)
-              || (reservedBy(d) == request.auth.uid)
-            );
-        }
-
-        // Organizer can list their coupons. Participants should not enumerate.
-        allow list: if isOwner(leagueId);
-
-        // Anyone signed-in can GET a coupon if they know its id (code).
-        allow get: if signedIn();
-
-        // Only owner can create coupons.
-        //
-        // IMPORTANT change:
-        // - Accept discountPercent as int OR float to avoid type-related permission-denied.
-        // - organizerUserId field on the coupon doc is optional (isOwner already enforces owner).
         allow create: if isOwner(leagueId)
-          && !isLeagueFinished(leagueId)
+          && (docId == 'config')
           && (request.resource.data.leagueId is string)
           && request.resource.data.leagueId == leagueId
-          && (request.resource.data.code is string)
-          && request.resource.data.code == couponId
-          && (
-            (request.resource.data.discountPercent is int)
-            || (request.resource.data.discountPercent is float)
-          )
-          && request.resource.data.discountPercent >= 5
-          && request.resource.data.discountPercent <= 100
-          && (
-            !('organizerUserId' in request.resource.data)
-            || (
-              (request.resource.data.organizerUserId is string)
-              && request.resource.data.organizerUserId == request.auth.uid
-            )
-          )
-          && (
-            !('usedBy' in request.resource.data)
-            || strEmpty(request.resource.data.usedBy)
-          )
-          && (
-            !('usedAtMs' in request.resource.data)
-            || (
-              ((request.resource.data.usedAtMs is int) || (request.resource.data.usedAtMs is float))
-              && request.resource.data.usedAtMs == 0
-            )
-          )
-          && (
-            !('reservedBy' in request.resource.data)
-            || strEmpty(request.resource.data.reservedBy)
-          );
+          && (request.resource.data.organizerUserId is string)
+          && request.resource.data.organizerUserId == request.auth.uid
+          && (request.resource.data.currency is string)
+          && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
+          && (request.resource.data.unitPrice is number) && (request.resource.data.unitPrice > 0)
+          && (request.resource.data.effectiveUnit is number) && (request.resource.data.effectiveUnit > 0)
+          && (!('threshold' in request.resource.data) || (request.resource.data.threshold == null) || (request.resource.data.threshold is number && request.resource.data.threshold >= 0))
+          && (request.resource.data.thresholdDiscountPercent is number)
+          && (request.resource.data.thresholdDiscountPercent >= 0) && (request.resource.data.thresholdDiscountPercent <= 100)
+          && (request.resource.data.userPaysPercent is int) && (request.resource.data.userPaysPercent >= 0) && (request.resource.data.userPaysPercent <= 100)
+          && (request.resource.data.organizerPaysPercent is int)
+          && (request.resource.data.organizerPaysPercent == (100 - request.resource.data.userPaysPercent))
+          && (request.resource.data.qtyTotal is int) && (request.resource.data.qtyTotal >= 0)
+          && (request.resource.data.qtyRemaining is int) && (request.resource.data.qtyRemaining == request.resource.data.qtyTotal)
+          && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
+          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > 0)
+          && (request.resource.data.version is int) && (request.resource.data.version >= 1);
 
-        // Organizer can update coupon docs freely.
-        // Participants: reserve/release/finalize.
-        allow update: if isOwner(leagueId)
-
-          // Reserve
-          || (
-            signedIn()
-            && !isLeagueFinished(leagueId)
-            && (resource.data.leagueId == leagueId)
-            && canReserveNow(resource.data)
+        allow update: if
+          (
+            isOwner(leagueId)
             && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'reservedBy',
-              'reservedAt',
-              'reservedUntil',
+              'currency',
+              'unitPrice',
+              'effectiveUnit',
+              'threshold',
+              'thresholdDiscountPercent',
+              'userPaysPercent',
+              'organizerPaysPercent',
+              'qtyTotal',
+              'qtyRemaining',
               'updatedAtMs'
             ])
-            && (request.resource.data.reservedBy is string)
-            && request.resource.data.reservedBy == request.auth.uid
-            && (request.resource.data.reservedAt is timestamp)
-            && (request.resource.data.reservedUntil is timestamp)
-            && request.resource.data.reservedAt >= request.time - duration.value(2, 'm')
-            && request.resource.data.reservedAt <= request.time + duration.value(2, 'm')
-            && request.resource.data.reservedUntil == request.resource.data.reservedAt + reservationTtl()
-            && request.resource.data.reservedUntil > request.time
-            && couponUnused(request.resource.data)
+            && (request.resource.data.currency is string)
+            && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
+            && (request.resource.data.unitPrice is number) && (request.resource.data.unitPrice > 0)
+            && (request.resource.data.effectiveUnit is number) && (request.resource.data.effectiveUnit > 0)
+            && (!('threshold' in request.resource.data) || (request.resource.data.threshold == null) || (request.resource.data.threshold is number && request.resource.data.threshold >= 0))
+            && (request.resource.data.thresholdDiscountPercent is number)
+            && (request.resource.data.thresholdDiscountPercent >= 0) && (request.resource.data.thresholdDiscountPercent <= 100)
+            && (request.resource.data.userPaysPercent is int) && (request.resource.data.userPaysPercent >= 0) && (request.resource.data.userPaysPercent <= 100)
+            && (request.resource.data.organizerPaysPercent is int)
+            && (request.resource.data.organizerPaysPercent == (100 - request.resource.data.userPaysPercent))
+            && (request.resource.data.qtyTotal is int) && (request.resource.data.qtyRemaining is int)
+            && (request.resource.data.qtyTotal >= resource.data.qtyTotal)
+            && (request.resource.data.qtyRemaining >= resource.data.qtyRemaining)
+            && ((request.resource.data.qtyTotal - resource.data.qtyTotal) == (request.resource.data.qtyRemaining - resource.data.qtyRemaining))
+            && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > resource.data.updatedAtMs)
           )
-
-          // Release reservation (same user only)
-          || (
+          ||
+          (
             signedIn()
-            && !isLeagueFinished(leagueId)
-            && (resource.data.leagueId == leagueId)
-            && couponUnused(resource.data)
-            && (reservedBy(resource.data) == request.auth.uid)
             && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'reservedBy',
-              'reservedAt',
-              'reservedUntil',
+              'qtyRemaining',
               'updatedAtMs'
             ])
+            && (request.resource.data.qtyRemaining is int)
+            && (request.resource.data.qtyRemaining == (resource.data.qtyRemaining - 1))
+            && (request.resource.data.qtyRemaining >= 0)
+            && (request.resource.data.updatedAtMs is int)
             && (
-              !('reservedBy' in request.resource.data)
-              || strEmpty(request.resource.data.reservedBy)
-            )
-            && (
-              !('reservedAt' in request.resource.data)
-              || request.resource.data.reservedAt == null
-            )
-            && (
-              !('reservedUntil' in request.resource.data)
-              || request.resource.data.reservedUntil == null
-            )
-          )
-
-          // Finalize use (one-time)
-          || (
-            signedIn()
-            && !isLeagueFinished(leagueId)
-            && (resource.data.leagueId == leagueId)
-            && couponUnused(resource.data)
-            && couponReserved(resource.data)
-            && (reservedBy(resource.data) == request.auth.uid)
-            && !reservationExpired(resource.data)
-            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'usedBy',
-              'usedAtMs',
-              'reservedBy',
-              'reservedAt',
-              'reservedUntil',
-              'updatedAtMs'
-            ])
-            && (request.resource.data.usedBy is string)
-            && request.resource.data.usedBy == request.auth.uid
-            && (
-              (request.resource.data.usedAtMs is int)
-              || (request.resource.data.usedAtMs is float)
-            )
-            && request.resource.data.usedAtMs > 0
-            && (
-              !('reservedBy' in request.resource.data)
-              || strEmpty(request.resource.data.reservedBy)
-            )
-            && (
-              !('reservedAt' in request.resource.data)
-              || request.resource.data.reservedAt == null
-            )
-            && (
-              !('reservedUntil' in request.resource.data)
-              || request.resource.data.reservedUntil == null
+              redemptionAfter(leagueId, request.auth.uid).exists()
+              && redemptionAfter(leagueId, request.auth.uid).data.status == 'paid'
             )
           );
 
-        allow delete: if isOwner(leagueId);
+        allow delete: if false;
+      }
+
+      match /couponRedemptions/{uid} {
+        allow list: if isOwner(leagueId);
+        allow get: if isOwner(leagueId) || (signedIn() && uid == request.auth.uid);
+
+        allow create: if signedIn()
+          && uid == request.auth.uid
+          && request.resource.data.leagueId == leagueId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.status == 'pending'
+          && (request.resource.data.currency is string)
+          && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
+          && (request.resource.data.expectedAmount is number) && (request.resource.data.expectedAmount >= 0)
+          && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
+          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs >= request.resource.data.createdAtMs)
+          && (request.resource.data.expiresAt is timestamp)
+          && cfgCurrent(leagueId).exists()
+          && ((cfgCurrent(leagueId).data.qtyRemaining is int) && (cfgCurrent(leagueId).data.qtyRemaining >= 0));
+
+        allow update: if signedIn()
+          && uid == request.auth.uid
+          && resource.data.userId == request.auth.uid
+          && resource.data.leagueId == leagueId
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'status',
+            'provider',
+            'receiptId',
+            'paidAtMs',
+            'updatedAtMs'
+          ])
+          && (resource.data.status == 'pending')
+          && (request.resource.data.status == 'paid')
+          && (request.resource.data.paidAtMs is int) && (request.resource.data.paidAtMs > 0)
+          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs >= request.resource.data.paidAtMs)
+          && cfgAfter(leagueId).exists()
+          && (cfgAfter(leagueId).data.qtyRemaining == (cfgCurrent(leagueId).data.qtyRemaining - 1));
+
+        allow delete: if false;
+      }
+
+      match /coupons/{couponId} {
+        allow read, write: if false;
       }
     }
 
+    // --------------------------
+    // league_spaces (legacy)
+    // --------------------------
     match /league_spaces/{spaceId} {
       allow read: if signedIn()
         && (resource.data.leagueId is string)
@@ -445,6 +404,46 @@ service cloud.firestore {
       allow update, delete: if signedIn()
         && (resource.data.leagueId is string)
         && isOwner(resource.data.leagueId);
+    }
+
+    // --------------------------
+    // Pricing admins + pricing doc + analytics
+    // --------------------------
+
+    function adminsDoc() {
+      return get(/databases/$(database)/documents/app/admins);
+    }
+
+    function isPricingAdmin() {
+      return signedIn() && (
+        request.auth.uid == 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'
+        ||
+        (adminsDoc().exists()
+         && (adminsDoc().data.pricingAdmins is list)
+         && (request.auth.uid in adminsDoc().data.pricingAdmins))
+      );
+    }
+
+    match /app/{docId} {
+      // Public read of pricing; signed-in read of admins list for UI
+      allow get, list: if (docId == 'pricing') || (docId == 'admins' && signedIn());
+
+      // Allow pricing updates and admins list updates to pricing admins
+      allow create, update: if ((docId == 'pricing' || docId == 'admins') && isPricingAdmin());
+
+      allow delete: if false;
+    }
+
+    match /analytics_events/{eventId} {
+      allow create: if signedIn()
+        && (request.resource.data.eventName is string)
+        && (request.resource.data.createdAtMs is int)
+        && (request.resource.data.userId is string)
+        && (request.resource.data.userId == request.auth.uid);
+
+      allow get, list: if isPricingAdmin();
+
+      allow update, delete: if false;
     }
   }
 }
