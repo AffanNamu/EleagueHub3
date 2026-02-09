@@ -43,10 +43,11 @@ class RemotePricingPlan {
     );
   }
 
+  // Defaults MUST match your intended business numbers (used when /app/pricing is missing).
   factory RemotePricingPlan.defaultsUsd() => const RemotePricingPlan(
         currency: 'USD',
         createLeagueFee: 5.0,
-        accessFee: 2.0,
+        accessFee: 1.5,
         couponUnit: 1.5,
         couponThreshold: 20.0, // apply discount at >= $20 subtotal
         couponDiscountPercent: 30.0,
@@ -56,7 +57,7 @@ class RemotePricingPlan {
   factory RemotePricingPlan.defaultsNgn() => const RemotePricingPlan(
         currency: 'NGN',
         createLeagueFee: 4000.0,
-        accessFee: 1500.0,
+        accessFee: 1000.0,
         couponUnit: 1000.0,
         couponThreshold: null, // set in Firestore; if null, no auto-discount until configured
         couponDiscountPercent: 30.0,
@@ -125,26 +126,6 @@ class RemotePricingService {
 
   _RemotePricingCache? _cache;
 
-  // Firestore doc layout (public read-only):
-  // Collection: app
-  //   Doc: pricing
-  //     Fields:
-  //       ngn: {
-  //         createFee: 4000,
-  //         accessFee: 1500,
-  //         couponUnit: 1000,
-  //         couponThreshold: <number or null>,
-  //         couponDiscountPercent: 30,
-  //         viewersEnabled: false
-  //       }
-  //       usd: {
-  //         createFee: 5,
-  //         accessFee: 2,
-  //         couponUnit: 1.5,
-  //         couponThreshold: 20,
-  //         couponDiscountPercent: 30,
-  //         viewersEnabled: false
-  //       }
   Future<_RemotePricingCache> _fetch() async {
     try {
       final doc = await _firestore.collection('app').doc('pricing').get();
@@ -211,6 +192,12 @@ class RemotePricingService {
     return _cache!.usd;
   }
 
+  double _roundMoney(String currency, double v) {
+    final c = currency.trim().toUpperCase();
+    if (c == 'NGN') return v.roundToDouble();
+    return _round2(v);
+  }
+
   // Helper to compute discounted coupon subtotal (applies discount only when threshold is set and reached).
   double couponSubtotalWithThresholdDiscount({
     required RemotePricingPlan plan,
@@ -221,15 +208,15 @@ class RemotePricingService {
 
     final subtotal = plan.couponUnit * qty;
     final threshold = plan.couponThreshold;
-    if (threshold == null) return _round2(subtotal);
+    if (threshold == null) return _roundMoney(plan.currency, subtotal);
 
     if (subtotal >= threshold) {
       final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
       final discounted = subtotal * ((100.0 - pct) / 100.0);
-      return _round2(discounted);
+      return _roundMoney(plan.currency, discounted);
     }
 
-    return _round2(subtotal);
+    return _roundMoney(plan.currency, subtotal);
   }
 
   static double _round2(double v) => double.parse(v.toStringAsFixed(2));

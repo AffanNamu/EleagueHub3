@@ -81,11 +81,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   bool _isOrganizer(League league) => _currentUserId.isNotEmpty && league.organizerUserId == _currentUserId;
 
+  // IMPORTANT: league.couponDiscountPercent is now DISCOUNT percent (0..100),
+  // not "users pay percent".
   String _couponSubtitleFromLeague(League league) {
     if (!league.couponsEnabled) return 'Not enabled';
     final pct = league.couponDiscountPercent;
     final qty = league.couponCount;
-    return 'Users pay $pct% • Purchased: $qty';
+    return 'Discount $pct% • Purchased: $qty';
   }
 
   String _groupDisplayName(AppLocalizations l10n, String groupId) {
@@ -175,7 +177,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Purchase coupons / adjust subsidy (viewers removed)
+  // Purchase coupons / set discount (viewers removed)
   // ---------------------------------------------------------------------------
 
   Future<void> _purchaseCouponsOrAdjustSubsidy() async {
@@ -205,7 +207,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           'addonsOnly': true,
           'existingCouponsEnabled': league.couponsEnabled,
           'existingCouponCount': league.couponCount,
-          'existingCouponDiscountPercent': league.couponDiscountPercent, // users pay %
+          'existingCouponDiscountPercent': league.couponDiscountPercent, // discount %
         },
       );
 
@@ -234,14 +236,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       final addCoupons = result.buyCouponsForParticipants ? (result.couponCount < 0 ? 0 : result.couponCount) : 0;
 
       final nextCouponsEnabled = league.couponsEnabled || result.buyCouponsForParticipants;
-      final nextUserPaysPercent = result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
+      final nextDiscountPercent = result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
       final nextCouponCount = league.couponCount + addCoupons;
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final updated = league.copyWith(
         couponsEnabled: nextCouponsEnabled,
-        couponDiscountPercent: nextUserPaysPercent,
+        couponDiscountPercent: nextDiscountPercent, // discount %
         couponCount: nextCouponCount,
         updatedAtMs: now,
       );
@@ -259,7 +261,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             leagueId: league.id,
             organizerUserId: organizerAuthUid,
             qtyPurchased: addCoupons,
-            userPaysPercent: nextUserPaysPercent,
+            discountPercent: nextDiscountPercent,
             plan: plan,
           );
         }
@@ -422,6 +424,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             }
 
                             final redeemed = cfg.qtyRedeemed;
+                            final usersPay = (100 - cfg.discountPercent).clamp(0, 100);
 
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -432,8 +435,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 _kv('Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}', theme, cs),
                                 _kv('Threshold discount', '${money(cfg.thresholdDiscountPercent)}%', theme, cs),
                                 const Divider(),
-                                _kv('Users pay', '${cfg.userPaysPercent}%', theme, cs),
-                                _kv('Admin pays', '${cfg.organizerPaysPercent}%', theme, cs),
+                                _kv('Discount', '${cfg.discountPercent}%', theme, cs),
+                                _kv('Users pay (at redemption)', '$usersPay%', theme, cs),
                                 const Divider(),
                                 _kv('Purchased (total)', '${cfg.qtyTotal}', theme, cs),
                                 _kv('Remaining', '${cfg.qtyRemaining}', theme, cs),
@@ -1159,7 +1162,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           _buildSettingsTile(
             context,
             Icons.payments_outlined,
-            _processingUpgradePayment ? 'Processing payment...' : 'Buy coupons / adjust subsidy',
+            _processingUpgradePayment ? 'Processing payment...' : 'Buy coupons / set discount',
             _couponSubtitleFromLeague(league),
             onTap: _processingUpgradePayment ? null : _purchaseCouponsOrAdjustSubsidy,
           ),

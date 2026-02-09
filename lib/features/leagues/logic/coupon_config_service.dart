@@ -13,9 +13,13 @@ class CouponConfig {
   final double? threshold; // subtotal threshold to apply discount; null if not configured
   final double thresholdDiscountPercent; // e.g., 30
 
-  // Admin subsidy split (0..100)
-  final int userPaysPercent; // end users pay this percent at redemption time
-  final int organizerPaysPercent; // organizer paid this percent up-front
+  // NEW semantics (preferred):
+  // discountPercent = % discount applied to ACCESS FEE at redemption.
+  final int discountPercent; // 0..100
+
+  // Legacy/back-compat fields (keep reading/writing so old UI doesn't break)
+  final int userPaysPercent; // derived = 100 - discountPercent
+  final int organizerPaysPercent; // legacy (unused in new model)
 
   // Quantities
   final int qtyTotal; // total purchased over time
@@ -34,6 +38,7 @@ class CouponConfig {
     required this.effectiveUnit,
     required this.threshold,
     required this.thresholdDiscountPercent,
+    required this.discountPercent,
     required this.userPaysPercent,
     required this.organizerPaysPercent,
     required this.qtyTotal,
@@ -46,6 +51,9 @@ class CouponConfig {
   int get qtyRedeemed => qtyTotal - qtyRemaining;
 
   Map<String, dynamic> toMap() {
+    final int disc = discountPercent.clamp(0, 100);
+    final int usersPay = (100 - disc).clamp(0, 100);
+
     return <String, dynamic>{
       'leagueId': leagueId,
       'organizerUserId': organizerUserId,
@@ -54,8 +62,14 @@ class CouponConfig {
       'effectiveUnit': effectiveUnit,
       'threshold': threshold, // can be null
       'thresholdDiscountPercent': thresholdDiscountPercent,
-      'userPaysPercent': userPaysPercent,
-      'organizerPaysPercent': organizerPaysPercent,
+
+      // preferred
+      'discountPercent': disc,
+
+      // legacy/back-compat (keep)
+      'userPaysPercent': usersPay,
+      'organizerPaysPercent': 100,
+
       'qtyTotal': qtyTotal,
       'qtyRemaining': qtyRemaining,
       'createdAtMs': createdAtMs,
@@ -86,6 +100,14 @@ class CouponConfig {
     final rawThreshold = hasThresholdKey ? map['threshold'] : null;
     final threshold = rawThreshold == null ? null : _toDouble(rawThreshold);
 
+    // Prefer discountPercent, else derive from legacy userPaysPercent.
+    final bool hasDisc = map.containsKey('discountPercent') && map['discountPercent'] is num;
+    final int disc = hasDisc
+        ? _toInt(map['discountPercent'], fallback: 0).clamp(0, 100)
+        : (100 - _toInt(map['userPaysPercent'], fallback: 0)).clamp(0, 100);
+
+    final int usersPayDerived = (100 - disc).clamp(0, 100);
+
     return CouponConfig(
       leagueId: leagueId,
       organizerUserId: _toStr(map['organizerUserId']),
@@ -94,8 +116,13 @@ class CouponConfig {
       effectiveUnit: _toDouble(map['effectiveUnit'], fallback: _toDouble(map['unitPrice'])),
       threshold: threshold,
       thresholdDiscountPercent: _toDouble(map['thresholdDiscountPercent'], fallback: 30.0),
-      userPaysPercent: _toInt(map['userPaysPercent'], fallback: 0).clamp(0, 100),
+
+      discountPercent: disc,
+
+      // keep legacy values readable
+      userPaysPercent: _toInt(map['userPaysPercent'], fallback: usersPayDerived).clamp(0, 100),
       organizerPaysPercent: _toInt(map['organizerPaysPercent'], fallback: 100).clamp(0, 100),
+
       qtyTotal: _toInt(map['qtyTotal'], fallback: 0),
       qtyRemaining: _toInt(map['qtyRemaining'], fallback: 0),
       createdAtMs: _toInt(map['createdAtMs'], fallback: 0),
@@ -133,16 +160,24 @@ class CouponConfigService {
 
   // Create or increment configuration atomically after payment ---------------
 
+  /// Backward compatible:
+  /// - preferred: pass discountPercent
+  /// - legacy: pass userPaysPercent (we derive discountPercent = 100 - userPaysPercent)
   Future<void> createOrIncrementOnPurchase({
     required String leagueId,
     required String organizerUserId,
     required int qtyPurchased,
-    required int userPaysPercent,
+    int? discountPercent,
+    int? userPaysPercent,
     required RemotePricingPlan plan,
   }) async {
     final int qty = qtyPurchased < 0 ? 0 : qtyPurchased;
-    final int usersPay = userPaysPercent.clamp(0, 100);
-    final int adminPays = 100 - usersPay;
+
+    final int disc = (discountPercent != null)
+        ? discountPercent.clamp(0, 100)
+        : (100 - (userPaysPercent ?? 0)).clamp(0, 100);
+
+    final int usersPay = (100 - disc).clamp(0, 100);
 
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final ref = _configRef(leagueId);
@@ -161,7 +196,6 @@ class CouponConfigService {
       final snap = await tx.get(ref);
 
       if (!snap.exists) {
-        // Create brand new config
         final data = <String, dynamic>{
           'leagueId': leagueId,
           'organizerUserId': organizerUserId,
@@ -170,8 +204,14 @@ class CouponConfigService {
           'effectiveUnit': _round2(batchEffectiveUnit),
           'threshold': plan.couponThreshold, // can be null
           'thresholdDiscountPercent': plan.couponDiscountPercent,
+
+          // preferred
+          'discountPercent': disc,
+
+          // legacy/back-compat (keep)
           'userPaysPercent': usersPay,
-          'organizerPaysPercent': adminPays,
+          'organizerPaysPercent': 100,
+
           'qtyTotal': qty,
           'qtyRemaining': qty,
           'createdAtMs': nowMs,
@@ -185,33 +225,41 @@ class CouponConfigService {
       final existing = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       final existingOrganizer = (existing['organizerUserId'] as String?) ?? '';
       if (existingOrganizer.isNotEmpty && existingOrganizer != organizerUserId) {
-        // Only the organizer can maintain/update coupon config.
         throw StateError('notOrganizer');
       }
 
       final int prevTotal = (existing['qtyTotal'] as num?)?.toInt() ?? 0;
       final int prevRemaining = (existing['qtyRemaining'] as num?)?.toInt() ?? 0;
+
       final double prevEffectiveUnit = (existing['effectiveUnit'] is num)
           ? (existing['effectiveUnit'] as num).toDouble()
           : (existing['unitPrice'] is num)
               ? (existing['unitPrice'] as num).toDouble()
               : plan.couponUnit;
 
+      final int newTotal = prevTotal + qty;
       final int newRemaining = prevRemaining + qty;
-      final double newEffectiveUnit = newRemaining > 0
-          ? _round2(((prevEffectiveUnit * prevRemaining) + (batchEffectiveUnit * qty)) / newRemaining)
+
+      // Weighted average across TOTAL purchased (more correct for reporting)
+      final double newEffectiveUnit = newTotal > 0
+          ? _round2(((prevEffectiveUnit * prevTotal) + (batchEffectiveUnit * qty)) / newTotal)
           : _round2(prevEffectiveUnit);
 
-      final Map<String, dynamic> update = <String, dynamic>{
-        // Keep pricing snapshot aligned with the latest purchase (organizer can change future subsidy via new purchase)
+      final update = <String, dynamic>{
         'currency': plan.currency,
         'unitPrice': _round2(plan.couponUnit),
         'effectiveUnit': newEffectiveUnit,
-        'threshold': plan.couponThreshold, // may be null
+        'threshold': plan.couponThreshold,
         'thresholdDiscountPercent': plan.couponDiscountPercent,
+
+        // preferred
+        'discountPercent': disc,
+
+        // legacy/back-compat (keep)
         'userPaysPercent': usersPay,
-        'organizerPaysPercent': adminPays,
-        'qtyTotal': prevTotal + qty,
+        'organizerPaysPercent': 100,
+
+        'qtyTotal': newTotal,
         'qtyRemaining': newRemaining,
         'updatedAtMs': nowMs,
       };

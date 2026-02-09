@@ -127,6 +127,47 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     return rounded.toStringAsFixed(2);
   }
 
+  Future<double?> _accessFeeForCurrency(String currency) async {
+    final c = currency.trim().toUpperCase();
+    if (c != 'NGN' && c != 'USD') return null;
+
+    try {
+      final snap = await FirebaseFirestore.instance.collection('app').doc('pricing').get();
+      final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final plan = (c == 'NGN')
+          ? (data['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{}
+          : (data['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+
+      final v = plan['accessFee'];
+      if (v is num) return v.toDouble();
+      if (v is String) return double.tryParse(v.trim());
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<double?> _expectedCouponRedemptionAmount({
+    required CouponConfig cfg,
+    required RemotePricingPlan localePlan,
+  }) async {
+    final currency = cfg.currency.trim().toUpperCase();
+    final disc = cfg.discountPercent.clamp(0, 100);
+
+    double? accessFee;
+    if (currency == localePlan.currency.trim().toUpperCase()) {
+      accessFee = localePlan.accessFee;
+    } else {
+      accessFee = await _accessFeeForCurrency(currency);
+    }
+
+    if (accessFee == null || accessFee <= 0) return null;
+
+    final raw = accessFee * ((100 - disc) / 100.0);
+    if (currency == 'NGN') return raw.roundToDouble();
+    return double.parse(raw.toStringAsFixed(2));
+  }
+
   Future<void> _payStandardAccess(League league) async {
     final l10n = context.l10n;
     setState(() => _processing = true);
@@ -368,193 +409,197 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
         final hasCfg = snap.hasData && snap.data != null;
         final cfg = snap.data;
 
-        final double redeemPay = hasCfg
-            ? double.parse(((cfg!.effectiveUnit) * (cfg.userPaysPercent / 100.0)).toStringAsFixed(2))
-            : 0.0;
-        final String redeemCurrency = hasCfg ? cfg!.currency : plan.currency;
+        final redeemCurrency = hasCfg ? (cfg!.currency) : plan.currency;
 
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Glass(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.lock_outline,
-                      color: cs.primary.withOpacity(0.95),
-                      size: 44,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      l10n.tr('league_access_charges_required_title'),
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        color: cs.onSurface,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 18,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '${l10n.tr('league_access_amount_prefix')} ${_money(baseAmount)} ${plan.currency}\n\n'
-                      '$gateReasonText\n\n'
-                      '${l10n.tr('league_access_league_prefix')} ${league.name}',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurface.withOpacity(0.72),
-                        height: 1.35,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (_receipt != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        '${l10n.tr('league_access_receipt_prefix')} ${_receipt!.receiptId}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.80),
-                          fontWeight: FontWeight.w700,
+        return FutureBuilder<double?>(
+          future: (hasCfg && cfg != null)
+              ? _expectedCouponRedemptionAmount(cfg: cfg, localePlan: plan)
+              : Future<double?>.value(null),
+          builder: (context, redeemSnap) {
+            final redeemPay = redeemSnap.data;
+
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: Glass(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.lock_outline,
+                          color: cs.primary.withOpacity(0.95),
+                          size: 44,
                         ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-
-                    if (hasCfg) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: _processing ? null : () => _redeemOrganizerCoupon(league),
-                              icon: const Icon(Icons.verified),
-                              label: Text(
-                                redeemPay <= 0
-                                    ? 'Redeem organizer coupon (Free)'
-                                    : 'Redeem organizer coupon • ${_money(redeemPay)} $redeemCurrency',
-                              ),
+                        const SizedBox(height: 12),
+                        Text(
+                          l10n.tr('league_access_charges_required_title'),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '${l10n.tr('league_access_amount_prefix')} ${_money(baseAmount)} ${plan.currency}\n\n'
+                          '$gateReasonText\n\n'
+                          '${l10n.tr('league_access_league_prefix')} ${league.name}',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: cs.onSurface.withOpacity(0.72),
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (_receipt != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            '${l10n.tr('league_access_receipt_prefix')} ${_receipt!.receiptId}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.80),
+                              fontWeight: FontWeight.w700,
                             ),
+                            textAlign: TextAlign.center,
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Organizer enabled coupons. Redeem once to unlock viewing.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.60),
-                          fontWeight: FontWeight.w600,
-                          height: 1.25,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Divider(color: cs.onSurface.withOpacity(0.10)),
-                    ],
+                        const SizedBox(height: 16),
 
-                    // Code redemption UI
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.onSurface.withOpacity(0.04),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Have a coupon code?',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: cs.onSurface,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
+                        if (hasCfg) ...[
                           Row(
                             children: [
                               Expanded(
-                                child: TextField(
-                                  controller: _codeController,
-                                  enabled: !_redeemingCode && !_processing,
-                                  textCapitalization: TextCapitalization.characters,
-                                  decoration: InputDecoration(
-                                    labelText: 'Enter code',
-                                    prefixIcon: const Icon(Icons.confirmation_number_outlined),
+                                child: FilledButton.icon(
+                                  onPressed: _processing ? null : () => _redeemOrganizerCoupon(league),
+                                  icon: const Icon(Icons.verified),
+                                  label: Text(
+                                    redeemPay == null
+                                        ? 'Redeem organizer coupon'
+                                        : (redeemPay <= 0
+                                            ? 'Redeem organizer coupon (Free)'
+                                            : 'Redeem organizer coupon • ${_money(redeemPay)} $redeemCurrency'),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 10),
-                              FilledButton(
-                                onPressed: (_redeemingCode || _processing)
-                                    ? null
-                                    : () => _redeemWithCode(league),
-                                child: _redeemingCode
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Organizer enabled coupons. Redeem once to unlock viewing.',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.60),
+                              fontWeight: FontWeight.w600,
+                              height: 1.25,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Divider(color: cs.onSurface.withOpacity(0.10)),
+                        ],
+
+                        // Code redemption UI
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: cs.onSurface.withOpacity(0.04),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Have a coupon code?',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: cs.onSurface,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _codeController,
+                                      enabled: !_redeemingCode && !_processing,
+                                      textCapitalization: TextCapitalization.characters,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Enter code',
+                                        prefixIcon: Icon(Icons.confirmation_number_outlined),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  FilledButton(
+                                    onPressed: (_redeemingCode || _processing) ? null : () => _redeemWithCode(league),
+                                    child: _redeemingCode
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                          )
+                                        : const Text('Redeem'),
+                                  ),
+                                ],
+                              ),
+                              if (_codeError != null) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  _codeError!,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: cs.error,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // Fallback: standard access fee (when no coupon config or by choice).
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: _processing ? null : () => _payStandardAccess(league),
+                                child: _processing
                                     ? const SizedBox(
                                         width: 18,
                                         height: 18,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        child: CircularProgressIndicator(strokeWidth: 2),
                                       )
-                                    : const Text('Redeem'),
-                              ),
-                            ],
-                          ),
-                          if (_codeError != null) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              _codeError!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.error,
-                                fontWeight: FontWeight.w700,
+                                    : Text(
+                                        hasCfg ? 'Or pay ${_money(baseAmount)} ${plan.currency}' : l10n.tr('league_access_pay_charges'),
+                                      ),
                               ),
                             ),
                           ],
-                        ],
-                      ),
-                    ),
+                        ),
 
-                    const SizedBox(height: 16),
-
-                    // Fallback: standard access fee (when no coupon config or by choice).
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: _processing ? null : () => _payStandardAccess(league),
-                            child: _processing
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : Text(
-                                    hasCfg
-                                        ? 'Or pay ${_money(baseAmount)} ${plan.currency}'
-                                        : l10n.tr('league_access_pay_charges'),
-                                  ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.tr('league_access_note_classic_free'),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.55),
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
-
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.tr('league_access_note_classic_free'),
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.55),
-                        fontSize: 12,
-                        height: 1.35,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );

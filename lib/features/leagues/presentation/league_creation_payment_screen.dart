@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/league_creation_payment_service.dart';
@@ -28,9 +28,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   bool _buyCoupons = false;
   int _couponCount = 1;
 
-  // Admin subsidy: what percentage end users will pay (0..100).
-  // Organizer pays the remainder at creation/upgrade time.
-  int _userPaysPercent = 50;
+  // NEW semantics: DISCOUNT percent (0..100)
+  int _discountPercent = 50;
 
   bool _initializedFromRoute = false;
 
@@ -64,10 +63,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
           _couponCount = existingCouponCount;
           _buyCoupons = true;
         }
-        // If previously set, try to reuse as a seed for "users pay %" (best-effort).
+        // Seed discount percent (best-effort)
         final existingPct = map['existingCouponDiscountPercent'];
         if (existingPct is int) {
-          _userPaysPercent = existingPct.clamp(0, 100);
+          _discountPercent = existingPct.clamp(0, 100);
         }
       }
     } catch (_) {
@@ -75,7 +74,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     }
     // Ensure sane defaults
     if (_couponCount <= 0) _couponCount = 1;
-    _userPaysPercent = _userPaysPercent.clamp(0, 100);
+    _discountPercent = _discountPercent.clamp(0, 100);
   }
 
   String _money(double v) {
@@ -84,6 +83,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     if ((rounded - intVal).abs() < 0.000001) return '$intVal';
     return rounded.toStringAsFixed(2);
   }
+
+  double _round2(double v) => double.parse(v.toStringAsFixed(2));
 
   @override
   Widget build(BuildContext context) {
@@ -125,12 +126,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
             final plan = snap.data!;
             final currency = plan.currency;
 
-            // Pricing math:
-            // baseFee = addonsOnly ? 0 : plan.createLeagueFee
-            // couponSubtotal = plan.couponUnit * qty
-            // if (couponSubtotal >= plan.couponThreshold && threshold != null) apply plan.couponDiscountPercent
-            // organizerShare = discountedCouponSubtotal * (1 - userPays%)
-            // total = baseFee + organizerShare
+            // Correct pricing math:
+            // total = baseFee + discountedCouponSubtotal (organizer pays full coupon cost)
             final baseFee = addonsOnly ? 0.0 : plan.createLeagueFee;
 
             final int qty = (_buyCoupons ? _couponCount : 0).clamp(0, 100000);
@@ -143,10 +140,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                 ? (rawCouponSubtotal * ((100.0 - plan.couponDiscountPercent) / 100.0))
                 : rawCouponSubtotal;
 
-            final organizerPaysPercent = 100 - _userPaysPercent;
-            final organizerShare = discountedCouponSubtotal * (organizerPaysPercent / 100.0);
+            final total = baseFee + discountedCouponSubtotal;
 
-            final total = baseFee + organizerShare;
+            // Display: what users pay at redemption (accessFee × (1 - discount%))
+            final userPaysAtRedemption = plan.accessFee * ((100 - _discountPercent.clamp(0, 100)) / 100.0);
 
             final titleStyle = theme.textTheme.titleMedium?.copyWith(
               color: cs.onSurface,
@@ -234,7 +231,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                               const SizedBox(height: 6),
                               Text(
                                 'Coupon unit: ${_money(plan.couponUnit)} $currency. '
-                                '${thresholdConfigured ? '30% discount when subtotal ≥ ${_money(plan.couponThreshold!)} $currency.' : 'Bulk discount not configured.'}',
+                                '${thresholdConfigured ? '${_money(plan.couponDiscountPercent)}% discount when subtotal ≥ ${_money(plan.couponThreshold!)} $currency.' : 'Bulk discount not configured.'}',
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: cs.onSurface.withOpacity(0.65),
                                   fontWeight: FontWeight.w600,
@@ -258,7 +255,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     Expanded(
                                       child: Text(
                                         '$_couponCount coupons • Unit: ${_money(plan.couponUnit)} $currency'
-                                        '${discountApplies ? ' • 30% discount applied' : ''}',
+                                        '${discountApplies ? ' • Bulk discount applied' : ''}',
                                         style: theme.textTheme.bodySmall?.copyWith(
                                           color: cs.onSurface.withOpacity(0.72),
                                           fontWeight: FontWeight.w700,
@@ -304,7 +301,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
-                                  'Admin subsidy (who pays what)',
+                                  'Discount percent (for users)',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: cs.onSurface,
                                     fontWeight: FontWeight.w900,
@@ -313,11 +310,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                 const SizedBox(height: 6),
                                 Row(
                                   children: [
-                                    Icon(Icons.account_balance_wallet_outlined, color: cs.onSurface.withOpacity(0.70), size: 18),
+                                    Icon(Icons.percent, color: cs.onSurface.withOpacity(0.70), size: 18),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        'Users pay: $_userPaysPercent% • Admin pays: ${100 - _userPaysPercent}%',
+                                        'Discount: $_discountPercent% • Users pay at redemption: ${_money(_round2(userPaysAtRedemption))} $currency',
                                         style: theme.textTheme.bodySmall?.copyWith(
                                           color: cs.onSurface.withOpacity(0.72),
                                           fontWeight: FontWeight.w700,
@@ -327,16 +324,16 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                   ],
                                 ),
                                 Slider(
-                                  value: _userPaysPercent.toDouble(),
+                                  value: _discountPercent.toDouble(),
                                   min: 0,
                                   max: 100,
                                   divisions: 20, // steps of 5%
-                                  label: '$_userPaysPercent%',
+                                  label: '$_discountPercent%',
                                   onChanged: _processing
                                       ? null
                                       : (v) {
                                           final rounded = (v / 5).round() * 5;
-                                          setState(() => _userPaysPercent = rounded.clamp(0, 100));
+                                          setState(() => _discountPercent = rounded.clamp(0, 100));
                                         },
                                 ),
                               ],
@@ -380,13 +377,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                               ),
                               _kv(
                                 context,
-                                discountApplies ? 'Threshold discount (30%)' : 'Threshold discount',
+                                discountApplies ? 'Threshold discount (${_money(plan.couponDiscountPercent)}%)' : 'Threshold discount',
                                 discountApplies ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
-                              ),
-                              _kv(
-                                context,
-                                'Organizer share (${100 - _userPaysPercent}%)',
-                                '${_money(organizerShare)} $currency',
                               ),
                               const Divider(),
                               _kvStrong(
@@ -425,8 +417,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                             // viewers removed: keep 0 for backward compatibility
                                             viewerCapacity: 0,
                                             buyCouponsForParticipants: _buyCoupons,
-                                            // TEMP: pass "users pay %" in couponDiscountPercent until model/UI migration completes
-                                            couponDiscountPercent: _userPaysPercent,
+                                            // NEW: pass DISCOUNT percent
+                                            couponDiscountPercent: _discountPercent,
                                             couponCount: _buyCoupons ? _couponCount : 0,
                                           );
 

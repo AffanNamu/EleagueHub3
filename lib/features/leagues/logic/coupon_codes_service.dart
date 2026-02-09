@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-import '../../../core/services/remote_pricing_service.dart';
 import 'league_charges_payment_service.dart';
 
 class CouponCodeRedeemResult {
@@ -94,7 +93,10 @@ class CouponCodesService {
   }
 
   double _round2(double v) => double.parse(v.toStringAsFixed(2));
-  String _moneyStr(double v) {
+
+  String _moneyStr(String currency, double v) {
+    final c = currency.trim().toUpperCase();
+    if (c == 'NGN') return '${v.round()}';
     final r = _round2(v);
     final i = r.toInt();
     if ((r - i).abs() < 0.000001) return '$i';
@@ -109,6 +111,35 @@ class CouponCodesService {
 
   DocumentReference<Map<String, dynamic>> _redeemRef(String leagueId, String uid) =>
       _firestore.collection('leagues').doc(leagueId).collection('couponRedemptions').doc(uid);
+
+  DocumentReference<Map<String, dynamic>> _pricingRef() =>
+      _firestore.collection('app').doc('pricing');
+
+  int _discountPercentFromConfig(Map<String, dynamic> cfg) {
+    // Preferred: discountPercent
+    if (cfg.containsKey('discountPercent') && cfg['discountPercent'] is num) {
+      return (cfg['discountPercent'] as num).toInt().clamp(0, 100);
+    }
+    // Backward compat: userPaysPercent -> discount = 100 - userPaysPercent
+    final up = (cfg['userPaysPercent'] as num?)?.toInt() ?? 0;
+    return (100 - up).clamp(0, 100);
+  }
+
+  double _accessFeeForCurrency(Map<String, dynamic> pricing, String currency) {
+    try {
+      final c = currency.toUpperCase();
+      final plan = (c == 'NGN')
+          ? (pricing['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{}
+          : (pricing['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+
+      final v = plan['accessFee'];
+      if (v is num) return v.toDouble();
+      if (v is String) return double.tryParse(v.trim()) ?? 0.0;
+      return 0.0;
+    } catch (_) {
+      return 0.0;
+    }
+  }
 
   // Generate 'count' new codes; each code decrements qtyRemaining by 1 atomically with rules.
   // organizerAuthUid must be the Firebase UID of the organizer (rules check).
@@ -139,15 +170,29 @@ class CouponCodesService {
             if (!cfgSnap.exists) {
               throw StateError('noConfig');
             }
+
             final cfg = cfgSnap.data() ?? <String, dynamic>{};
             final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
-            final currency = (cfg['currency'] as String?) ?? 'USD';
-            final usersPayPercent = (cfg['userPaysPercent'] as num?)?.toInt() ?? 0;
-            final effectiveUnit = (cfg['effectiveUnit'] as num?)?.toDouble() ?? 0.0;
+            final currency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
 
             if (remaining <= 0) {
               throw StateError('noRemaining');
             }
+
+            final discountPercent = _discountPercentFromConfig(cfg);
+
+            // Get access fee from /app/pricing (same transaction) and compute expectedAmount:
+            // expectedAmount = accessFee × (1 - discountPercent/100)
+            final pricingSnap = await tx.get(_pricingRef());
+            final pricingMap = (pricingSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+            final accessFee = _accessFeeForCurrency(pricingMap, currency);
+            if (accessFee <= 0) {
+              // Safety: do not mint codes if pricing doc is missing.
+              throw StateError('pricingMissing');
+            }
+
+            final expectedRaw = accessFee * ((100 - discountPercent) / 100.0);
+            final expectedAmount = (currency == 'NGN') ? expectedRaw.roundToDouble() : _round2(expectedRaw);
 
             // Check collision
             final codeSnap = await tx.get(docRef);
@@ -155,12 +200,12 @@ class CouponCodesService {
               throw StateError('collision');
             }
 
-            final expectedAmount = _round2(effectiveUnit * (usersPayPercent / 100.0));
-
+            // Write code doc
             tx.set(docRef, <String, dynamic>{
               'leagueId': leagueId,
               'organizerUserId': organizerAuthUid,
               'currency': currency,
+              'discountPercent': discountPercent,
               'expectedAmount': expectedAmount,
               'usedBy': '',
               'usedAtMs': 0,
@@ -169,6 +214,7 @@ class CouponCodesService {
               'version': 1,
             });
 
+            // Decrement config remaining
             tx.update(_cfgRef(leagueId), <String, dynamic>{
               'qtyRemaining': remaining - 1,
               'updatedAtMs': nowMs,
@@ -218,28 +264,30 @@ class CouponCodesService {
         return CouponCodeRedeemResult.failed(errorMessage: 'Code does not belong to this league');
       }
 
-      final currency = (data['currency'] as String?) ?? 'USD';
+      final currency = ((data['currency'] as String?) ?? 'USD').toUpperCase();
       final expectedAmount = (data['expectedAmount'] as num?)?.toDouble() ?? 0.0;
 
       int paidAtMs = 0;
       String provider = 'coupon';
       String? receiptId;
 
-      // If user share > 0, collect payment
       if (expectedAmount > 0) {
         final pay = await _payment.payLeagueCharges(
           context: context,
           userId: userId,
           leagueId: leagueId,
           leagueName: leagueName,
-          amountOverride: _moneyStr(expectedAmount),
+          amountOverride: _moneyStr(currency, expectedAmount),
           couponCode: codeId,
           couponDiscountPercent: null,
           currencyOverride: currency,
         );
 
         if (!pay.success) {
-          return CouponCodeRedeemResult.failed(errorMessage: pay.errorMessage ?? 'Payment failed', currency: currency);
+          return CouponCodeRedeemResult.failed(
+            errorMessage: pay.errorMessage ?? 'Payment failed',
+            currency: currency,
+          );
         }
         paidAtMs = pay.paidAtMs;
         provider = pay.provider;
@@ -250,7 +298,7 @@ class CouponCodesService {
         receiptId = 'CPN-CODE-FREE';
       }
 
-      // Atomically: mark code used and create redemption document (status 'paid')
+      // Atomic: mark code used + create redemption paid
       await _firestore.runTransaction((tx) async {
         final codeSnap = await tx.get(codeRef);
         if (!codeSnap.exists) throw StateError('invalid');
@@ -258,10 +306,12 @@ class CouponCodesService {
         final wasUsed = (d['usedBy'] as String?) ?? '';
         if (wasUsed.isNotEmpty) throw StateError('used');
 
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+
         tx.update(codeRef, <String, dynamic>{
           'usedBy': userId,
           'usedAtMs': paidAtMs,
-          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+          'updatedAtMs': nowMs,
         });
 
         final rRef = _redeemRef(leagueId, userId);
@@ -272,8 +322,8 @@ class CouponCodesService {
           'provider': provider,
           'receiptId': receiptId ?? '',
           'paidAtMs': paidAtMs,
-          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-          'createdAtMs': DateTime.now().millisecondsSinceEpoch,
+          'updatedAtMs': nowMs,
+          'createdAtMs': nowMs,
           'currency': currency,
           'expectedAmount': expectedAmount,
           'code': codeId,

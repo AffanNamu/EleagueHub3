@@ -88,7 +88,10 @@ class League {
   bool get hasSponsorImage => sponsorImageUrl.trim().isNotEmpty;
   bool get hasViewerCapacity => viewerCapacity > 0;
 
-  bool get hasCoupons => couponsEnabled && couponDiscountPercent > 0;
+  /// Safer coupon detection:
+  /// - New data: couponsEnabled && couponCount > 0
+  /// - Backward compat: some old records may not have couponCount but have discountPercent.
+  bool get hasCoupons => couponsEnabled && (couponCount > 0 || couponDiscountPercent > 0);
 
   /// Backward compatible: if old leagues have no stored QR payload,
   /// compute a stable payload from [id] + [code].
@@ -188,12 +191,13 @@ class League {
     final couponDiscountPercent = _intFromAny(
       map['couponDiscountPercent'] ?? map['couponPercent'] ?? map['couponDiscount'],
       fallback: 0,
-    );
+    ).clamp(0, 100);
 
     final couponCount = _intFromAny(
       map['couponCount'] ?? map['couponsPurchased'] ?? map['couponQty'],
       fallback: 0,
     );
+    final safeCouponCount = couponCount < 0 ? 0 : couponCount;
 
     return League(
       id: (map['id'] as String?) ?? '',
@@ -204,7 +208,7 @@ class League {
       viewerCapacity: viewerCapacity,
       couponsEnabled: couponsEnabled,
       couponDiscountPercent: couponDiscountPercent,
-      couponCount: couponCount,
+      couponCount: safeCouponCount,
       format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
       privacy: (map['isPrivate'] == 1 || map['isPrivate'] == true)
           ? LeaguePrivacy.private

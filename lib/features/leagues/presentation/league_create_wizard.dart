@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -83,15 +84,15 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   bool get _couponsEnabled => (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
 
-  // NOTE: We repurpose couponDiscountPercent to carry "users pay %" (0..100).
-  int get _userPaysPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+  // IMPORTANT: couponDiscountPercent is now DISCOUNT percent (0..100)
+  int get _discountPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
 
   int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
 
   String get _couponLabel {
     if (!_couponsEnabled) return 'Coupons: None';
 
-    final pctLabel = 'Users pay $_userPaysPercent%';
+    final pctLabel = 'Discount $_discountPercent%';
     final countLabel = _couponCount > 0 ? ' • Qty: $_couponCount' : '';
     return 'Coupons: $pctLabel$countLabel';
   }
@@ -613,8 +614,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _basicsStep({Key? key}) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     return Column(
       key: key,
@@ -843,7 +843,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                     final leagueName = _name.text.trim();
                     final result = await context.push<LeagueCreationPaymentResult?>(
                       '/leagues/create/payment',
-                      extra: {'leagueName': leagueName},
+                      extra: <String, dynamic>{
+                        'leagueId': _draftLeagueId,
+                        'leagueName': leagueName,
+                        'addonsOnly': false,
+                        'existingCouponsEnabled': _couponsEnabled,
+                        'existingCouponCount': _couponCount,
+                        'existingCouponDiscountPercent': _discountPercent, // discount %
+                      },
                     );
                     if (!mounted) return;
 
@@ -1034,8 +1041,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _buildFooterActions(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final isLast = _step == 2;
 
@@ -1135,7 +1141,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     );
 
     final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
-    final userPaysPercent = couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+    final discountPercent = couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
     final couponCount = couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
 
     final league = League(
@@ -1152,7 +1158,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
       // coupons (optional add-on)
       couponsEnabled: couponsEnabled,
-      couponDiscountPercent: userPaysPercent, // stored temporarily as "users pay %"
+      couponDiscountPercent: discountPercent, // DISCOUNT percent
       couponCount: couponCount,
 
       format: _format,
@@ -1176,14 +1182,20 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     );
 
     // Attempt to create/update coupon config immediately after league creation (network present post-payment).
+    // IMPORTANT: use FirebaseAuth UID for Firestore rules.
     if (couponsEnabled && couponCount > 0) {
       try {
         final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+        final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        if (organizerAuthUid.trim().isEmpty) {
+          throw StateError('Not signed in (no Firebase UID).');
+        }
+
         await CouponConfigService().createOrIncrementOnPurchase(
           leagueId: leagueId,
-          organizerUserId: organizerUserId,
+          organizerUserId: organizerAuthUid,
           qtyPurchased: couponCount,
-          userPaysPercent: userPaysPercent,
+          discountPercent: discountPercent,
           plan: plan,
         );
       } catch (e) {

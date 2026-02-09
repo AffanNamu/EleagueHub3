@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -152,14 +153,16 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   bool get _paymentCompleted => _payment?.success == true;
 
-  // Coupons (optional add-on): we repurpose couponDiscountPercent as "users pay %"
+  // Coupons (optional add-on):
+  // IMPORTANT: couponDiscountPercent is now DISCOUNT percent (0..100),
+  // not "users pay percent".
   bool get _couponsEnabled => (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
   int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
-  int get _userPaysPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+  int get _discountPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
 
   String get _couponLabel {
     if (!_couponsEnabled) return 'Coupons: None';
-    final pctLabel = 'Users pay $_userPaysPercent%';
+    final pctLabel = 'Discount $_discountPercent%';
     final countLabel = _couponCount > 0 ? ' • Qty: $_couponCount' : '';
     return 'Coupons: $pctLabel$countLabel';
   }
@@ -236,7 +239,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
       if (url == null || url.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Image not selected or upload failed.'),
             behavior: SnackBarBehavior.floating,
           ),
@@ -467,9 +470,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final paymentColor = _creationRequiresPayment
-        ? (_paymentCompleted ? cs.primary : _premiumAmber)
-        : cs.primary;
+    final paymentColor = _creationRequiresPayment ? (_paymentCompleted ? cs.primary : _premiumAmber) : cs.primary;
 
     return Glass(
       padding: const EdgeInsets.all(16),
@@ -516,9 +517,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           ],
           const SizedBox(height: 10),
           Text(
-            _creationRequiresPayment
-                ? l10n.tr('league_create_fee_note_requires_payment')
-                : l10n.tr('league_create_fee_note_free'),
+            _creationRequiresPayment ? l10n.tr('league_create_fee_note_requires_payment') : l10n.tr('league_create_fee_note_free'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurface.withOpacity(0.60),
               height: 1.35,
@@ -1055,10 +1054,19 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               ? null
               : () async {
                   final name = _name.text.trim().isEmpty ? l10n.tr('common_league_placeholder') : _name.text.trim();
+
                   final result = await context.push<LeagueCreationPaymentResult?>(
                     '/leagues/create/payment',
-                    extra: {'leagueName': name},
+                    extra: <String, dynamic>{
+                      'leagueId': _draftLeagueId,
+                      'leagueName': name,
+                      'addonsOnly': false,
+                      'existingCouponsEnabled': _couponsEnabled,
+                      'existingCouponCount': _couponCount,
+                      'existingCouponDiscountPercent': _discountPercent, // discount %
+                    },
                   );
+
                   if (!mounted) return;
 
                   if (result != null && result.success) {
@@ -1136,9 +1144,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           _creationRequiresPayment
               ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
               : l10n.tr('league_create_fee_free'),
-          valueColor: _creationRequiresPayment
-              ? (_paymentCompleted ? cs.primary : _premiumAmber)
-              : cs.primary,
+          valueColor: _creationRequiresPayment ? (_paymentCompleted ? cs.primary : _premiumAmber) : cs.primary,
         ),
         const SizedBox(height: 12),
         Container(
@@ -1451,7 +1457,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       final settings = LeagueSettings.defaultsFor(_format).copyWith(lastPulledAtMs: 0);
 
       final couponsEnabled = _couponsEnabled;
-      final userPaysPercent = _userPaysPercent;
+      final discountPercent = _discountPercent.clamp(0, 100);
       final couponCount = _couponCount;
 
       final league = League(
@@ -1468,7 +1474,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
         // coupons (optional add-on)
         couponsEnabled: couponsEnabled,
-        couponDiscountPercent: userPaysPercent,
+        couponDiscountPercent: discountPercent, // DISCOUNT percent
         couponCount: couponCount,
 
         format: _format,
@@ -1490,14 +1496,20 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       );
 
       // Create/Increment coupon configuration after creation (if enabled)
+      // IMPORTANT: use FirebaseAuth UID for Firestore rules.
       if (couponsEnabled && couponCount > 0) {
         try {
           final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+          final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+          if (organizerAuthUid.trim().isEmpty) {
+            throw StateError('Not signed in (no Firebase UID).');
+          }
+
           await CouponConfigService().createOrIncrementOnPurchase(
             leagueId: leagueId,
-            organizerUserId: organizerUserId,
+            organizerUserId: organizerAuthUid,
             qtyPurchased: couponCount,
-            userPaysPercent: userPaysPercent,
+            discountPercent: discountPercent,
             plan: plan,
           );
         } catch (e) {

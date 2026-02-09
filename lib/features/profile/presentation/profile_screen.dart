@@ -26,8 +26,8 @@ class ProfileScreen extends ConsumerWidget {
     required bool enabled,
     required int discountPercent,
   }) {
-    if (!enabled || discountPercent <= 0) return 'Not enabled';
-    return 'Users pay $discountPercent%';
+    if (!enabled) return 'Not enabled';
+    return 'Discount $discountPercent%';
   }
 
   void _showCouponConfigSheet(
@@ -151,7 +151,7 @@ class ProfileScreen extends ConsumerWidget {
                                               'addonsOnly': true,
                                               'existingCouponsEnabled': false,
                                               'existingCouponCount': 0,
-                                              'existingCouponDiscountPercent': 0,
+                                              'existingCouponDiscountPercent': 0, // discount %
                                             });
                                           },
                                           icon: const Icon(Icons.add_shopping_cart),
@@ -165,6 +165,7 @@ class ProfileScreen extends ConsumerWidget {
                             }
 
                             final redeemed = cfg.qtyRedeemed;
+                            final usersPay = (100 - cfg.discountPercent).clamp(0, 100);
 
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,8 +176,8 @@ class ProfileScreen extends ConsumerWidget {
                                 _kv(context, 'Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}'),
                                 _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
                                 const Divider(),
-                                _kv(context, 'Users pay', '${cfg.userPaysPercent}%'),
-                                _kv(context, 'Admin pays', '${cfg.organizerPaysPercent}%'),
+                                _kv(context, 'Discount', '${cfg.discountPercent}%'),
+                                _kv(context, 'Users pay (at redemption)', '$usersPay%'),
                                 const Divider(),
                                 _kv(context, 'Purchased (total)', '${cfg.qtyTotal}'),
                                 _kv(context, 'Remaining', '${cfg.qtyRemaining}'),
@@ -202,7 +203,7 @@ class ProfileScreen extends ConsumerWidget {
                                             'addonsOnly': true,
                                             'existingCouponsEnabled': true,
                                             'existingCouponCount': cfg.qtyRemaining,
-                                            'existingCouponDiscountPercent': cfg.userPaysPercent,
+                                            'existingCouponDiscountPercent': cfg.discountPercent, // discount %
                                           });
                                         },
                                         icon: const Icon(Icons.add_shopping_cart),
