@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,7 @@ import '../../auth/data/user_profile_repository.dart';
 import '../data/league_announcements_local.dart';
 import '../data/league_spaces_local.dart';
 import '../data/leagues_repository_local.dart';
+import '../logic/coupon_codes_service.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
@@ -249,12 +251,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       // Update coupon configuration in Firestore (create or increment)
       try {
         final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
-        final userId = await CurrentUser.getUserId();
+        // IMPORTANT: Firestore rules require organizerUserId to equal request.auth.uid on writes
+        final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
         if (result.buyCouponsForParticipants && addCoupons > 0) {
           await CouponConfigService().createOrIncrementOnPurchase(
             leagueId: league.id,
-            organizerUserId: userId,
+            organizerUserId: organizerAuthUid,
             qtyPurchased: addCoupons,
             userPaysPercent: nextUserPaysPercent,
             plan: plan,
@@ -294,6 +297,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       if (mounted) setState(() => _processingUpgradePayment = false);
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Coupon Config sheet
+  // ---------------------------------------------------------------------------
 
   void _showCouponsConfigSheet() {
     final league = _league;
@@ -365,7 +372,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               );
                             }
 
-                            // Show loader only while waiting for the first response.
                             if (snap.connectionState == ConnectionState.waiting) {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -373,7 +379,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               );
                             }
 
-                            // If stream is active but data is null => no config doc exists yet.
                             final cfg = snap.data;
                             if (cfg == null) {
                               return Column(
@@ -455,6 +460,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 10),
+                                FilledButton.icon(
+                                  onPressed: () {
+                                    Navigator.of(ctx).pop();
+                                    _showCouponCodesSheet();
+                                  },
+                                  icon: const Icon(Icons.confirmation_number_outlined),
+                                  label: const Text('Manage coupon codes'),
+                                ),
                               ],
                             );
                           },
@@ -466,6 +480,239 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               ),
             ),
           ),
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Coupon Codes sheet
+  // ---------------------------------------------------------------------------
+
+  void _showCouponCodesSheet() {
+    final league = _league;
+    if (league == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
+        final codesQuery = FirebaseFirestore.instance
+            .collection('leagues')
+            .doc(league.id)
+            .collection('couponCodes')
+            .orderBy('createdAtMs', descending: true)
+            .limit(300);
+
+        final countCtrl = TextEditingController(text: '10');
+        bool generating = false;
+        String? errorText;
+
+        return StatefulBuilder(
+          builder: (ctx, setStateSheet) {
+            Future<void> _generate() async {
+              if (generating) return;
+              setStateSheet(() {
+                generating = true;
+                errorText = null;
+              });
+              try {
+                final cnt = int.tryParse(countCtrl.text.trim()) ?? 0;
+                if (cnt <= 0) {
+                  setStateSheet(() => errorText = 'Enter a positive number');
+                  return;
+                }
+                final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                await CouponCodesService().generateCodes(
+                  leagueId: league.id,
+                  organizerAuthUid: organizerAuthUid,
+                  count: cnt.clamp(1, 500),
+                );
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Generated ${cnt.clamp(1, 500)} codes'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              } on StateError catch (e) {
+                setStateSheet(() => errorText = e.message ?? e.toString());
+              } catch (e) {
+                setStateSheet(() => errorText = e.toString());
+              } finally {
+                setStateSheet(() => generating = false);
+              }
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 620),
+                    child: Glass(
+                      borderRadius: 28,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Coupon Codes',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: onSurface,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              league.name,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: onSurface.withOpacity(0.70),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: countCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'How many codes?',
+                                      prefixIcon: Icon(Icons.numbers),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                FilledButton.icon(
+                                  onPressed: generating ? null : _generate,
+                                  icon: generating
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        )
+                                      : const Icon(Icons.add),
+                                  label: const Text('Generate'),
+                                ),
+                              ],
+                            ),
+                            if (errorText != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                errorText!,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: cs.error,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Divider(color: onSurface.withOpacity(0.12)),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 440),
+                              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                stream: codesQuery.snapshots(),
+                                builder: (context, snap) {
+                                  if (snap.hasError) {
+                                    return Center(
+                                      child: Text(
+                                        'Failed to load codes.',
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: cs.error,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  if (!snap.hasData) {
+                                    return Center(child: CircularProgressIndicator(color: cs.primary));
+                                  }
+                                  final docs = snap.data!.docs;
+                                  if (docs.isEmpty) {
+                                    return Center(
+                                      child: Text(
+                                        'No codes yet.',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: onSurface.withOpacity(0.70),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  return ListView.separated(
+                                    itemCount: docs.length,
+                                    separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
+                                    itemBuilder: (context, i) {
+                                      final d = docs[i].data();
+                                      final code = docs[i].id;
+                                      final usedBy = (d['usedBy'] as String?) ?? '';
+                                      final isUsed = usedBy.trim().isNotEmpty;
+                                      return ListTile(
+                                        dense: true,
+                                        contentPadding: EdgeInsets.zero,
+                                        leading: Icon(
+                                          isUsed ? Icons.verified : Icons.confirmation_number_outlined,
+                                          color: isUsed ? const Color(0xFF22C55E) : cs.primary,
+                                        ),
+                                        title: Text(
+                                          code,
+                                          style: theme.textTheme.bodyMedium?.copyWith(
+                                            color: onSurface,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          isUsed ? 'Used' : 'Unused',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: onSurface.withOpacity(0.65),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        trailing: IconButton(
+                                          tooltip: 'Copy',
+                                          icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72)),
+                                          onPressed: () async {
+                                            await Clipboard.setData(ClipboardData(text: code));
+                                            if (!context.mounted) return;
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Copied: $code'),
+                                                behavior: SnackBarBehavior.floating,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            FilledButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              child: const Text('Close'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -923,6 +1170,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             'Coupons',
             league.couponsEnabled ? _couponSubtitleFromLeague(league) : 'Not enabled',
             onTap: _showCouponsConfigSheet,
+          ),
+        if (league != null && _isOrganizer(league))
+          _buildSettingsTile(
+            context,
+            Icons.qr_code,
+            'Coupon Codes',
+            'Generate and manage one-time codes',
+            onTap: _showCouponCodesSheet,
           ),
         _buildSettingsTile(
           context,
@@ -1537,8 +1792,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             style: TextStyle(
                               color: onSurface.withOpacity(0.55),
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
+                              fontWeight: FontWeight.w600),
                           ),
                           onTap: () {
                             Navigator.of(ctx).pop();

@@ -7,6 +7,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../data/leagues_repository_local.dart';
+import '../logic/coupon_codes_service.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/coupon_redemption_service.dart';
 import '../logic/league_charges_payment_service.dart';
@@ -38,16 +39,26 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   bool _hasPaid = false;
   LeagueChargesReceipt? _receipt;
 
-  // Determines classic free participant access vs viewer payment gate.
   bool _isParticipant = false;
 
   RemotePricingPlan? _plan;
+
+  // Code redemption
+  final TextEditingController _codeController = TextEditingController();
+  bool _redeemingCode = false;
+  String? _codeError;
 
   @override
   void initState() {
     super.initState();
     // ignore: discarded_futures
     _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    super.dispose();
   }
 
   Future<void> _bootstrap() async {
@@ -243,6 +254,71 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     }
   }
 
+  Future<void> _redeemWithCode(League league) async {
+    final l10n = context.l10n;
+    final raw = _codeController.text.trim().toUpperCase();
+    if (raw.isEmpty) {
+      setState(() => _codeError = 'Enter a code');
+      return;
+    }
+
+    setState(() {
+      _redeemingCode = true;
+      _codeError = null;
+    });
+
+    try {
+      final prefs = ref.read(prefsServiceProvider);
+      final store = LeagueChargesStore(prefs);
+
+      final svc = CouponCodesService();
+      final result = await svc.redeemWithCode(
+        context: context,
+        leagueId: league.id,
+        leagueName: league.name,
+        userId: _userId,
+        code: raw,
+      );
+
+      if (!mounted) return;
+
+      if (!result.success) {
+        setState(() => _codeError = result.errorMessage ?? 'Redemption failed');
+        setState(() => _redeemingCode = false);
+        return;
+      }
+
+      final receipt = LeagueChargesReceipt(
+        leagueId: league.id,
+        userId: _userId,
+        receiptId: result.receiptId ?? 'CPN-CODE',
+        provider: result.provider,
+        paidAtMs: result.paidAtMs,
+      );
+
+      await store.storeReceipt(receipt);
+
+      setState(() {
+        _redeemingCode = false;
+        _hasPaid = true;
+        _receipt = receipt;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.tr('league_access_charges_paid_success')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _redeemingCode = false;
+        _codeError = 'Failed: $e';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -272,10 +348,8 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       );
     }
 
-    // If no gate required for this user, allow.
     if (!_requiresPaymentGateForUser(league)) return widget.child;
 
-    // If already paid, allow.
     if (_hasPaid) return widget.child;
 
     if (_plan == null) {
@@ -288,16 +362,14 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
         ? 'This Classic league is free for participants only (max 20). Non-participants must pay to view.'
         : l10n.tr('league_access_charges_explanation');
 
-    // Load coupon config to determine if organizer-subsidized redemption is available.
     return FutureBuilder<CouponConfig?>(
       future: CouponConfigService().getConfig(league.id),
       builder: (context, snap) {
         final hasCfg = snap.hasData && snap.data != null;
         final cfg = snap.data;
 
-        // Compute redemption price if config exists.
         final double redeemPay = hasCfg
-            ? double.parse((cfg!.effectiveUnit * (cfg.userPaysPercent / 100.0)).toStringAsFixed(2))
+            ? double.parse(((cfg!.effectiveUnit) * (cfg.userPaysPercent / 100.0)).toStringAsFixed(2))
             : 0.0;
         final String redeemCurrency = hasCfg ? cfg!.currency : plan.currency;
 
@@ -351,14 +423,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                     ],
                     const SizedBox(height: 16),
 
-                    // Primary action: if organizer configured coupons, allow redemption.
                     if (hasCfg) ...[
                       Row(
                         children: [
                           Expanded(
                             child: FilledButton.icon(
                               onPressed: _processing ? null : () => _redeemOrganizerCoupon(league),
-                              icon: const Icon(Icons.confirmation_number_outlined),
+                              icon: const Icon(Icons.verified),
                               label: Text(
                                 redeemPay <= 0
                                     ? 'Redeem organizer coupon (Free)'
@@ -370,7 +441,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Your organizer enabled coupons for this league. Redeem once to unlock viewing.',
+                        'Organizer enabled coupons. Redeem once to unlock viewing.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: cs.onSurface.withOpacity(0.60),
@@ -382,7 +453,71 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                       Divider(color: cs.onSurface.withOpacity(0.10)),
                     ],
 
-                    // Fallback: standard access fee (when no coupon config).
+                    // Code redemption UI
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: cs.onSurface.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Have a coupon code?',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: cs.onSurface,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _codeController,
+                                  enabled: !_redeemingCode && !_processing,
+                                  textCapitalization: TextCapitalization.characters,
+                                  decoration: InputDecoration(
+                                    labelText: 'Enter code',
+                                    prefixIcon: const Icon(Icons.confirmation_number_outlined),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              FilledButton(
+                                onPressed: (_redeemingCode || _processing)
+                                    ? null
+                                    : () => _redeemWithCode(league),
+                                child: _redeemingCode
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Text('Redeem'),
+                              ),
+                            ],
+                          ),
+                          if (_codeError != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              _codeError!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.error,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Fallback: standard access fee (when no coupon config or by choice).
                     Row(
                       children: [
                         Expanded(

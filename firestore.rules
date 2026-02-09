@@ -8,12 +8,27 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/leagues/$(leagueId));
     }
 
+    // Load current user's profile (to resolve legacy shareId ownership)
+    function userProfile(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    // Organizer/Owner detection with backward-compat:
+    // - organizerUserId == Firebase UID (new model)
+    // - ownerId == Firebase UID (older deployments)
+    // - organizerUserId == users/{uid}.shareId (legacy local id stored as shareId)
     function isOwner(leagueId) {
       let d = leagueDoc(leagueId).data;
+
+      // Resolve shareId safely (may not exist)
+      let up = userProfile(request.auth.uid);
+      let share = (up.exists() && (up.data.shareId is string)) ? up.data.shareId : '';
+
       return signedIn()
         && (
           d.organizerUserId == request.auth.uid
           || d.ownerId == request.auth.uid
+          || (share != '' && d.organizerUserId == share)
         );
     }
 
@@ -31,6 +46,7 @@ service cloud.firestore {
     // Public/private detection (secure by default)
     function isPublicLeague(leagueId) {
       let d = leagueDoc(leagueId).data;
+
       return
         ((d.isPrivate is bool) && (d.isPrivate == false))
         ||
@@ -256,7 +272,7 @@ service cloud.firestore {
       }
 
       // --------------------------
-      // Coupon config + redemptions (new model)
+      // Coupon config + redemptions + CODE-BASED COUPONS
       // --------------------------
 
       function cfgCurrent(leagueId) {
@@ -268,16 +284,27 @@ service cloud.firestore {
       function redemptionAfter(leagueId, uid) {
         return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponRedemptions/$(uid));
       }
+      function codeAfter(leagueId, codeId) {
+        return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponCodes/$(codeId));
+      }
 
+      // Coupon Configuration (single doc)
       match /couponConfig/{docId} {
-        allow list, get: if isOwner(leagueId);
+        // Organizer can get; also allow get when the config itself is owned by the caller (organizerUserId == uid)
+        allow get: if isOwner(leagueId)
+          || (signedIn() && resource.data.organizerUserId == request.auth.uid);
+        // Do not allow list/enumeration (keep hidden)
+        allow list: if false;
 
-        allow create: if isOwner(leagueId)
-          && (docId == 'config')
+        // Create by organizer (owner or explicit organizerUserId == uid)
+        allow create: if (docId == 'config')
           && (request.resource.data.leagueId is string)
           && request.resource.data.leagueId == leagueId
           && (request.resource.data.organizerUserId is string)
-          && request.resource.data.organizerUserId == request.auth.uid
+          && (
+            isOwner(leagueId)
+            || request.resource.data.organizerUserId == request.auth.uid
+          )
           && (request.resource.data.currency is string)
           && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
           && (request.resource.data.unitPrice is number) && (request.resource.data.unitPrice > 0)
@@ -296,7 +323,7 @@ service cloud.firestore {
 
         allow update: if
           (
-            isOwner(leagueId)
+            (isOwner(leagueId) || (signedIn() && resource.data.organizerUserId == request.auth.uid))
             && request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'currency',
               'unitPrice',
@@ -345,24 +372,88 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // CODE-BASED COUPONS
+      match /couponCodes/{codeId} {
+        // Organizer can list; allow get by anyone signed-in who knows the code (secret acts as capability).
+        allow list: if isOwner(leagueId);
+        allow get: if signedIn();
+
+        // Create a code (single code per write) and decrement qtyRemaining atomically.
+        allow create: if signedIn()
+          && (request.resource.data.leagueId is string)
+          && request.resource.data.leagueId == leagueId
+          && (request.resource.data.organizerUserId is string)
+          && request.resource.data.organizerUserId == request.auth.uid
+          && (request.resource.data.currency is string)
+          && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
+          && (request.resource.data.expectedAmount is number) && (request.resource.data.expectedAmount >= 0)
+          && (request.resource.data.usedBy is string) && (request.resource.data.usedBy == '')
+          && (request.resource.data.usedAtMs is int) && (request.resource.data.usedAtMs == 0)
+          && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
+          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > 0)
+          && (request.resource.data.version is int) && (request.resource.data.version >= 1)
+          // Atomic coupling with config: decrement remaining by exactly 1 on the same request
+          && cfgAfter(leagueId).exists()
+          && (cfgAfter(leagueId).data.qtyRemaining == (cfgCurrent(leagueId).data.qtyRemaining - 1));
+
+        // Mark code as used (one-time), atomically coupled with a 'paid' redemption create.
+        allow update: if signedIn()
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'usedBy',
+            'usedAtMs',
+            'updatedAtMs'
+          ])
+          && (resource.data.usedBy is string) && (resource.data.usedBy == '')
+          && (request.resource.data.usedBy is string) && (request.resource.data.usedBy == request.auth.uid)
+          && (request.resource.data.usedAtMs is int) && (request.resource.data.usedAtMs > 0)
+          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > resource.data.updatedAtMs)
+          // Require the redemption doc to be created in the same write and to reference this code
+          && redemptionAfter(leagueId, request.auth.uid).exists()
+          && (redemptionAfter(leagueId, request.auth.uid).data.status == 'paid')
+          && (redemptionAfter(leagueId, request.auth.uid).data.code is string)
+          && (redemptionAfter(leagueId, request.auth.uid).data.code == codeId);
+
+        allow delete: if false;
+      }
+
+      // One redemption document per user (doc id == user uid)
       match /couponRedemptions/{uid} {
+        // Organizer can list; user can read their own doc (get).
         allow list: if isOwner(leagueId);
         allow get: if isOwner(leagueId) || (signedIn() && uid == request.auth.uid);
 
+        // Create:
+        // A) pending intent (pool-based flow)
+        // B) direct 'paid' creation when redeeming a CODE (must be coupled with code update in same request)
         allow create: if signedIn()
           && uid == request.auth.uid
           && request.resource.data.leagueId == leagueId
           && request.resource.data.userId == request.auth.uid
-          && request.resource.data.status == 'pending'
-          && (request.resource.data.currency is string)
-          && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
-          && (request.resource.data.expectedAmount is number) && (request.resource.data.expectedAmount >= 0)
           && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
           && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs >= request.resource.data.createdAtMs)
-          && (request.resource.data.expiresAt is timestamp)
-          && cfgCurrent(leagueId).exists()
-          && ((cfgCurrent(leagueId).data.qtyRemaining is int) && (cfgCurrent(leagueId).data.qtyRemaining >= 0));
+          && (
+            // A) PENDING path (pool-based)
+            (
+              request.resource.data.status == 'pending'
+              && (request.resource.data.currency is string)
+              && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
+              && (request.resource.data.expectedAmount is number) && (request.resource.data.expectedAmount >= 0)
+              && (request.resource.data.expiresAt is timestamp)
+              && cfgCurrent(leagueId).exists()
+              && ((cfgCurrent(leagueId).data.qtyRemaining is int) && (cfgCurrent(leagueId).data.qtyRemaining >= 0))
+            )
+            ||
+            // B) DIRECT PAID path (code-based): require code doc updated to usedBy==uid in same request
+            (
+              request.resource.data.status == 'paid'
+              && (request.resource.data.code is string)
+              && codeAfter(leagueId, request.resource.data.code).exists()
+              && (codeAfter(leagueId, request.resource.data.code).data.usedBy is string)
+              && (codeAfter(leagueId, request.resource.data.code).data.usedBy == request.auth.uid)
+            )
+          );
 
+        // Update to 'paid' (pool-based flow), atomically coupled with config decrement in the same request.
         allow update: if signedIn()
           && uid == request.auth.uid
           && resource.data.userId == request.auth.uid
@@ -378,12 +469,14 @@ service cloud.firestore {
           && (request.resource.data.status == 'paid')
           && (request.resource.data.paidAtMs is int) && (request.resource.data.paidAtMs > 0)
           && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs >= request.resource.data.paidAtMs)
+          // atomic coupling: require config.qtyRemaining to decrement by exactly 1 in this same request
           && cfgAfter(leagueId).exists()
           && (cfgAfter(leagueId).data.qtyRemaining == (cfgCurrent(leagueId).data.qtyRemaining - 1));
 
         allow delete: if false;
       }
 
+      // Legacy coupons collection is deprecated. Deny all access explicitly.
       match /coupons/{couponId} {
         allow read, write: if false;
       }
