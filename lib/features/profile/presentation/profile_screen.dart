@@ -106,33 +106,61 @@ class ProfileScreen extends ConsumerWidget {
                                 ),
                               );
                             }
-                            if (!snap.hasData) {
+
+                            if (snap.connectionState == ConnectionState.waiting) {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 child: Center(child: CircularProgressIndicator(color: cs.primary)),
                               );
                             }
+
                             final cfg = snap.data;
                             if (cfg == null) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                child: Column(
-                                  children: [
-                                    Text(
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Text(
                                       'No coupon configuration yet.',
+                                      textAlign: TextAlign.center,
                                       style: theme.textTheme.bodySmall?.copyWith(
                                         color: onSurface.withOpacity(0.70),
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    FilledButton.icon(
-                                      onPressed: () => Navigator.of(ctx).pop(),
-                                      icon: const Icon(Icons.check),
-                                      label: const Text('Close'),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () => Navigator.of(ctx).pop(),
+                                          icon: const Icon(Icons.close),
+                                          label: const Text('Close'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: FilledButton.icon(
+                                          onPressed: () {
+                                            Navigator.of(ctx).pop();
+                                            GoRouter.of(context).push('/leagues/$leagueId/upgrade/payment', extra: {
+                                              'leagueId': leagueId,
+                                              'leagueName': leagueName,
+                                              'addonsOnly': true,
+                                              'existingCouponsEnabled': false,
+                                              'existingCouponCount': 0,
+                                              'existingCouponDiscountPercent': 0,
+                                            });
+                                          },
+                                          icon: const Icon(Icons.add_shopping_cart),
+                                          label: const Text('Buy / enable'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               );
                             }
 
@@ -144,8 +172,7 @@ class ProfileScreen extends ConsumerWidget {
                                 _kv(context, 'Currency', cfg.currency),
                                 _kv(context, 'Unit price', '${money(cfg.unitPrice)} ${cfg.currency}'),
                                 _kv(context, 'Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}'),
-                                _kv(context, 'Threshold',
-                                    cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}'),
+                                _kv(context, 'Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}'),
                                 _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
                                 const Divider(),
                                 _kv(context, 'Users pay', '${cfg.userPaysPercent}%'),
@@ -169,7 +196,6 @@ class ProfileScreen extends ConsumerWidget {
                                       child: FilledButton.icon(
                                         onPressed: () {
                                           Navigator.of(ctx).pop();
-                                          // Open upgrade/payment to buy more or adjust subsidy
                                           GoRouter.of(context).push('/leagues/$leagueId/upgrade/payment', extra: {
                                             'leagueId': leagueId,
                                             'leagueName': leagueName,
@@ -577,8 +603,7 @@ class ProfileScreen extends ConsumerWidget {
                       'No coupons found. Enable coupons during league creation payment.',
                       style: t.bodyMedium?.copyWith(
                         color: onSurface.withOpacity(0.72),
-                        fontWeight: FontWeight.w600,
-                      ),
+                        fontWeight: FontWeight.w600),
                     );
                   }
 
@@ -755,8 +780,7 @@ class ProfileScreen extends ConsumerWidget {
                       l10n.tr('profile_logout_dialog_message'),
                       style: t.bodyMedium?.copyWith(
                         color: dialogOnSurface.withOpacity(0.72),
-                        height: 1.35,
-                      ),
+                        height: 1.35),
                     ),
                   ),
                   const SizedBox(height: 16),

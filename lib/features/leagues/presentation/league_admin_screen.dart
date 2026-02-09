@@ -310,6 +310,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
         final configStream = CouponConfigService().watchConfig(league.id);
 
+        String money(double v) {
+          final r = double.parse(v.toStringAsFixed(2));
+          final i = r.toInt();
+          if ((r - i).abs() < 0.000001) return '$i';
+          return r.toStringAsFixed(2);
+        }
+
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -357,43 +364,56 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 ),
                               );
                             }
-                            if (!snap.hasData) {
+
+                            // Show loader only while waiting for the first response.
+                            if (snap.connectionState == ConnectionState.waiting) {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
                                 child: Center(child: CircularProgressIndicator(color: cs.primary)),
                               );
                             }
+
+                            // If stream is active but data is null => no config doc exists yet.
                             final cfg = snap.data;
                             if (cfg == null) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                child: Column(
-                                  children: [
-                                    Text(
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Text(
                                       'No coupon configuration yet.',
+                                      textAlign: TextAlign.center,
                                       style: theme.textTheme.bodySmall?.copyWith(
                                         color: onSurface.withOpacity(0.70),
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'Use "Buy coupons / adjust subsidy" to create one.',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: onSurface.withOpacity(0.65),
-                                        fontWeight: FontWeight.w600,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton(
+                                          onPressed: () => Navigator.of(ctx).pop(),
+                                          child: const Text('Close'),
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: FilledButton.icon(
+                                          onPressed: () {
+                                            Navigator.of(ctx).pop();
+                                            _purchaseCouponsOrAdjustSubsidy();
+                                          },
+                                          icon: const Icon(Icons.add_shopping_cart),
+                                          label: const Text('Buy / enable'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               );
-                            }
-
-                            String money(double v) {
-                              final r = double.parse(v.toStringAsFixed(2));
-                              final i = r.toInt();
-                              if ((r - i).abs() < 0.000001) return '$i';
-                              return r.toStringAsFixed(2);
                             }
 
                             final redeemed = cfg.qtyRedeemed;
@@ -403,6 +423,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               children: [
                                 _kv('Currency', cfg.currency, theme, cs),
                                 _kv('Unit price', '${money(cfg.unitPrice)} ${cfg.currency}', theme, cs),
+                                _kv('Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}', theme, cs),
                                 _kv('Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}', theme, cs),
                                 _kv('Threshold discount', '${money(cfg.thresholdDiscountPercent)}%', theme, cs),
                                 const Divider(),
@@ -412,31 +433,31 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 _kv('Purchased (total)', '${cfg.qtyTotal}', theme, cs),
                                 _kv('Remaining', '${cfg.qtyRemaining}', theme, cs),
                                 _kv('Redeemed', '$redeemed', theme, cs),
+                                const SizedBox(height: 16),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: () => Navigator.of(ctx).pop(),
+                                        child: const Text('Close'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: () {
+                                          Navigator.of(ctx).pop();
+                                          _purchaseCouponsOrAdjustSubsidy();
+                                        },
+                                        icon: const Icon(Icons.add_shopping_cart),
+                                        label: const Text('Buy more / adjust'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ],
                             );
                           },
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('Close'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: () {
-                                  Navigator.of(ctx).pop();
-                                  _purchaseCouponsOrAdjustSubsidy();
-                                },
-                                icon: const Icon(Icons.add_shopping_cart),
-                                label: const Text('Buy more / adjust'),
-                              ),
-                            ),
-                          ],
                         ),
                       ],
                     ),
@@ -1122,8 +1143,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 style: TextStyle(
                                   color: onSurface.withOpacity(0.65),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                  fontWeight: FontWeight.w600),
                               ),
                             ),
                             SwitchListTile.adaptive(
@@ -1139,8 +1159,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 style: TextStyle(
                                   color: onSurface.withOpacity(0.65),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                  fontWeight: FontWeight.w600),
                               ),
                             ),
                             Align(
