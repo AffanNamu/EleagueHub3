@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../core/services/remote_pricing_service.dart';
 
@@ -54,10 +55,13 @@ class CouponConfig {
     final int disc = discountPercent.clamp(0, 100);
     final int usersPay = (100 - disc).clamp(0, 100);
 
+    // Always store canonical currency format.
+    final String c = currency.trim().toUpperCase();
+
     return <String, dynamic>{
       'leagueId': leagueId,
       'organizerUserId': organizerUserId,
-      'currency': currency,
+      'currency': c,
       'unitPrice': unitPrice,
       'effectiveUnit': effectiveUnit,
       'threshold': threshold, // can be null
@@ -108,15 +112,16 @@ class CouponConfig {
 
     final int usersPayDerived = (100 - disc).clamp(0, 100);
 
+    final currency = _toStr(map['currency']).trim().toUpperCase();
+
     return CouponConfig(
       leagueId: leagueId,
       organizerUserId: _toStr(map['organizerUserId']),
-      currency: _toStr(map['currency']),
+      currency: currency,
       unitPrice: _toDouble(map['unitPrice']),
       effectiveUnit: _toDouble(map['effectiveUnit'], fallback: _toDouble(map['unitPrice'])),
       threshold: threshold,
       thresholdDiscountPercent: _toDouble(map['thresholdDiscountPercent'], fallback: 30.0),
-
       discountPercent: disc,
 
       // keep legacy values readable
@@ -158,11 +163,36 @@ class CouponConfigService {
     });
   }
 
+  // Internal helpers ----------------------------------------------------------
+
+  String _requireAuthUid() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.trim().isEmpty) {
+      throw StateError('Not signed in (no Firebase UID).');
+    }
+    return uid.trim();
+  }
+
+  String _normalizeCurrency(String raw) {
+    final c = raw.trim().toUpperCase();
+    if (c != 'NGN' && c != 'USD') {
+      throw StateError('Invalid currency "$raw" (must be NGN or USD).');
+    }
+    return c;
+  }
+
+  double _round2(double v) => double.parse(v.toStringAsFixed(2));
+
   // Create or increment configuration atomically after payment ---------------
 
   /// Backward compatible:
   /// - preferred: pass discountPercent
   /// - legacy: pass userPaysPercent (we derive discountPercent = 100 - userPaysPercent)
+  ///
+  /// IMPORTANT:
+  /// - Firestore rules require organizerUserId on the config doc to match request.auth.uid
+  ///   (or legacy shareId, depending on deployment).
+  /// - This service enforces organizerUserId = FirebaseAuth UID for all writes.
   Future<void> createOrIncrementOnPurchase({
     required String leagueId,
     required String organizerUserId,
@@ -171,6 +201,12 @@ class CouponConfigService {
     int? userPaysPercent,
     required RemotePricingPlan plan,
   }) async {
+    final authUid = _requireAuthUid();
+
+    // Enforce canonical auth UID for writes (rules compatibility).
+    // We keep the param for call-site compatibility, but do not trust it.
+    final String organizerUidForWrite = authUid;
+
     final int qty = qtyPurchased < 0 ? 0 : qtyPurchased;
 
     final int disc = (discountPercent != null)
@@ -182,15 +218,20 @@ class CouponConfigService {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final ref = _configRef(leagueId);
 
-    double _round2(double v) => double.parse(v.toStringAsFixed(2));
+    final currency = _normalizeCurrency(plan.currency);
+    final couponUnit = plan.couponUnit;
+
+    if (couponUnit <= 0) {
+      throw StateError('Pricing misconfigured: couponUnit must be > 0.');
+    }
 
     // Compute discounted subtotal for this batch and effective unit for the batch
-    double batchSubtotal = plan.couponUnit * qty;
-    if (qty > 0 && plan.couponThreshold != null && batchSubtotal >= plan.couponThreshold!) {
+    double batchSubtotal = couponUnit * qty;
+    if (qty > 0 && plan.couponThreshold != null && plan.couponThreshold! > 0 && batchSubtotal >= plan.couponThreshold!) {
       final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
       batchSubtotal = batchSubtotal * ((100.0 - pct) / 100.0);
     }
-    final double batchEffectiveUnit = qty > 0 ? _round2(batchSubtotal / qty) : _round2(plan.couponUnit);
+    final double batchEffectiveUnit = qty > 0 ? _round2(batchSubtotal / qty) : _round2(couponUnit);
 
     await _firestore.runTransaction((tx) async {
       final snap = await tx.get(ref);
@@ -198,9 +239,9 @@ class CouponConfigService {
       if (!snap.exists) {
         final data = <String, dynamic>{
           'leagueId': leagueId,
-          'organizerUserId': organizerUserId,
-          'currency': plan.currency,
-          'unitPrice': _round2(plan.couponUnit),
+          'organizerUserId': organizerUidForWrite,
+          'currency': currency,
+          'unitPrice': _round2(couponUnit),
           'effectiveUnit': _round2(batchEffectiveUnit),
           'threshold': plan.couponThreshold, // can be null
           'thresholdDiscountPercent': plan.couponDiscountPercent,
@@ -224,7 +265,10 @@ class CouponConfigService {
 
       final existing = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       final existingOrganizer = (existing['organizerUserId'] as String?) ?? '';
-      if (existingOrganizer.isNotEmpty && existingOrganizer != organizerUserId) {
+
+      // If config exists and is owned by someone else, do not allow mutation.
+      // This is an extra safety net in addition to Firestore rules.
+      if (existingOrganizer.isNotEmpty && existingOrganizer != organizerUidForWrite) {
         throw StateError('notOrganizer');
       }
 
@@ -235,7 +279,7 @@ class CouponConfigService {
           ? (existing['effectiveUnit'] as num).toDouble()
           : (existing['unitPrice'] is num)
               ? (existing['unitPrice'] as num).toDouble()
-              : plan.couponUnit;
+              : couponUnit;
 
       final int newTotal = prevTotal + qty;
       final int newRemaining = prevRemaining + qty;
@@ -246,8 +290,8 @@ class CouponConfigService {
           : _round2(prevEffectiveUnit);
 
       final update = <String, dynamic>{
-        'currency': plan.currency,
-        'unitPrice': _round2(plan.couponUnit),
+        'currency': currency,
+        'unitPrice': _round2(couponUnit),
         'effectiveUnit': newEffectiveUnit,
         'threshold': plan.couponThreshold,
         'thresholdDiscountPercent': plan.couponDiscountPercent,
