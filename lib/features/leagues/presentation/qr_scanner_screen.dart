@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -44,7 +45,12 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   bool _torchOn = false;
   CameraFacing _facing = CameraFacing.back;
 
-  String _currentUserId = '';
+  /// Firebase Auth UID (required by Firestore rules for memberships/coupons).
+  String _authUid = '';
+
+  /// Local/offline user id (backward compatibility for local store/receipts).
+  String _localUserId = '';
+
   bool _chargesPaid = false;
 
   LeagueJoinMode? _joinedMode;
@@ -251,6 +257,66 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     );
   }
 
+  Future<_JoinUserIds> _resolveUserIds() async {
+    final prefs = ref.read(prefsServiceProvider);
+
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    String localUserId = prefs.getCurrentUserId() ?? '';
+    if (localUserId.trim().isEmpty) {
+      localUserId = await CurrentUser.getOrCreateUserId();
+    }
+
+    return _JoinUserIds(
+      authUid: authUid.trim(),
+      localUserId: localUserId.trim(),
+    );
+  }
+
+  bool _requiresCharges(League league) {
+    return league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+  }
+
+  bool _isCreator(League league, {required String authUid, required String localUserId}) {
+    final org = league.organizerUserId.trim();
+    if (org.isEmpty) return false;
+    if (authUid.trim().isNotEmpty && org == authUid.trim()) return true;
+    if (localUserId.trim().isNotEmpty && org == localUserId.trim()) return true;
+    return false;
+  }
+
+  Future<void> _storeReceiptBoth({
+    required LeagueChargesStore store,
+    required LeagueChargesReceipt receipt,
+    required String authUid,
+    required String localUserId,
+  }) async {
+    // Store under auth UID (preferred for rules consistency).
+    if (authUid.trim().isNotEmpty) {
+      await store.storeReceipt(
+        LeagueChargesReceipt(
+          leagueId: receipt.leagueId,
+          userId: authUid.trim(),
+          receiptId: receipt.receiptId,
+          provider: receipt.provider,
+          paidAtMs: receipt.paidAtMs,
+        ),
+      );
+    }
+
+    // Store under local/offline ID too (backward compatibility).
+    if (localUserId.trim().isNotEmpty && localUserId.trim() != authUid.trim()) {
+      await store.storeReceipt(
+        LeagueChargesReceipt(
+          leagueId: receipt.leagueId,
+          userId: localUserId.trim(),
+          receiptId: receipt.receiptId,
+          provider: receipt.provider,
+          paidAtMs: receipt.paidAtMs,
+        ),
+      );
+    }
+  }
+
   Future<void> _handleScan(String payload) async {
     if (_joining) return;
 
@@ -292,13 +358,27 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
 
-    // Firebase Auth uid (immutable userId). No extra UI prompts.
-    final currentUserId = await CurrentUser.getUserId();
+    final ids = await _resolveUserIds();
+    final authUid = ids.authUid;
+    final localUserId = ids.localUserId;
+
+    // Joining/memberships require Firebase auth in Firestore rules.
+    if (authUid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _joining = false;
+        _error = 'Sign in required to join this league.';
+        _isScanned = false;
+      });
+      await _startScannerSafely();
+      return;
+    }
 
     try {
       final league = await repo.joinLeagueLocallyByCode(
         joinCode: joinCode,
-        userId: currentUserId,
+        // IMPORTANT: use Firebase UID for membership/rules consistency.
+        userId: authUid,
         mode: selectedMode,
         placeholderBuilder: (generatedLeagueId) {
           final now = DateTime.now().millisecondsSinceEpoch;
@@ -326,7 +406,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       // because:
       // - participant join may be blocked when the league is full
       // - admin may have already added the user (membership exists in cloud)
-      final Membership? membership = await repo.getMembership(leagueId: league.id, userId: currentUserId);
+      final Membership? membership = await repo.getMembership(leagueId: league.id, userId: authUid);
       final effectiveMode = (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
 
       String? notice;
@@ -356,13 +436,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       if (!mounted) return;
 
       final store = LeagueChargesStore(prefs);
-      final paid = store.hasPaidCharges(userId: currentUserId, leagueId: league.id);
+      final paidAuth = store.hasPaidCharges(userId: authUid, leagueId: league.id);
+      final paidLocal = localUserId.isEmpty ? false : store.hasPaidCharges(userId: localUserId, leagueId: league.id);
 
       setState(() {
         _joinedLeague = league;
         _joining = false;
-        _currentUserId = currentUserId;
-        _chargesPaid = paid;
+        _authUid = authUid;
+        _localUserId = localUserId;
+        _chargesPaid = paidAuth || paidLocal;
         _joinedMode = effectiveMode;
         _joinNotice = notice;
       });
@@ -370,7 +452,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       await _maybePromptChargesAfterJoin(
         context,
         joinedLeague: league,
-        userId: currentUserId,
+        authUid: authUid,
+        localUserId: localUserId,
       );
     } catch (e) {
       if (!mounted) return;
@@ -383,30 +466,25 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     }
   }
 
-  bool _requiresCharges(League league) {
-    return league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
-  }
-
-  bool _isCreator(League league, String userId) {
-    return league.organizerUserId == userId;
-  }
-
   Future<void> _maybePromptChargesAfterJoin(
     BuildContext context, {
     required League joinedLeague,
-    required String userId,
+    required String authUid,
+    required String localUserId,
   }) async {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
     if (!_requiresCharges(joinedLeague)) return;
-    if (_isCreator(joinedLeague, userId)) return;
+    if (_isCreator(joinedLeague, authUid: authUid, localUserId: localUserId)) return;
 
     final prefs = ref.read(prefsServiceProvider);
     final store = LeagueChargesStore(prefs);
 
-    final alreadyPaid = store.hasPaidCharges(userId: userId, leagueId: joinedLeague.id);
+    final alreadyPaid = store.hasPaidCharges(userId: authUid, leagueId: joinedLeague.id) ||
+        (localUserId.isNotEmpty && store.hasPaidCharges(userId: localUserId, leagueId: joinedLeague.id));
+
     if (alreadyPaid) {
       if (!mounted) return;
       setState(() => _chargesPaid = true);
@@ -445,20 +523,23 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
     if (shouldPay != true) return;
 
-    await _unlockNow(context, league: joinedLeague, userId: userId);
+    await _unlockNow(context, league: joinedLeague, authUid: authUid, localUserId: localUserId);
   }
 
   Future<void> _unlockNow(
     BuildContext context, {
     required League league,
-    required String userId,
+    required String authUid,
+    required String localUserId,
   }) async {
     final l10n = context.l10n;
 
     final prefs = ref.read(prefsServiceProvider);
     final store = LeagueChargesStore(prefs);
 
-    final alreadyPaid = store.hasPaidCharges(userId: userId, leagueId: league.id);
+    final alreadyPaid = store.hasPaidCharges(userId: authUid, leagueId: league.id) ||
+        (localUserId.isNotEmpty && store.hasPaidCharges(userId: localUserId, leagueId: league.id));
+
     if (alreadyPaid) {
       if (!mounted) return;
       setState(() => _chargesPaid = true);
@@ -475,7 +556,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
       final result = await paymentService.payLeagueCharges(
         context: context,
-        userId: userId,
+        // IMPORTANT: use auth uid (stable identity + aligns with Firestore rules).
+        userId: authUid,
         leagueId: league.id,
         leagueName: league.name,
       );
@@ -492,13 +574,18 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
       final receipt = LeagueChargesReceipt(
         leagueId: league.id,
-        userId: userId,
+        userId: authUid,
         receiptId: result.receiptId ?? '',
         provider: result.provider,
         paidAtMs: result.paidAtMs,
       );
 
-      await store.storeReceipt(receipt);
+      await _storeReceiptBoth(
+        store: store,
+        receipt: receipt,
+        authUid: authUid,
+        localUserId: localUserId,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -676,7 +763,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       final isWide = screenWidth > 600;
 
       final requiresCharges = _requiresCharges(league);
-      final isCreator = _currentUserId.isNotEmpty && _isCreator(league, _currentUserId);
+      final isCreator = _isCreator(league, authUid: _authUid, localUserId: _localUserId);
       final showUnlock = requiresCharges && !isCreator && !_chargesPaid;
 
       final mode = _joinedMode;
@@ -771,7 +858,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                     : () => _unlockNow(
                                           context,
                                           league: league,
-                                          userId: _currentUserId,
+                                          authUid: _authUid,
+                                          localUserId: _localUserId,
                                         ),
                                 icon: _joining
                                     ? const SizedBox(
@@ -1147,6 +1235,16 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 class _JoinParse {
   final String code;
   const _JoinParse({required this.code});
+}
+
+class _JoinUserIds {
+  final String authUid;
+  final String localUserId;
+
+  const _JoinUserIds({
+    required this.authUid,
+    required this.localUserId,
+  });
 }
 
 class _JoinModeTile extends StatelessWidget {

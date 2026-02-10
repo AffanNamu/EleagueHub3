@@ -67,10 +67,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   int get _maxTeams {
+    // IMPORTANT: Must match other parts of app validation.
+    // UCL Group: 16 or 32 (this wizard uses default 32)
+    // UCL Swiss: 18 or 36 (this wizard uses default 36)
     switch (_format) {
       case LeagueFormat.classic:
         return 20;
       case LeagueFormat.uclGroup:
+        return 32;
       case LeagueFormat.uclSwiss:
         return 36;
     }
@@ -909,7 +913,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         ),
         const SizedBox(height: 8),
         Text(
-          l10n.tr('league_create_fee_note_free'),
+          _unlockNote(l10n),
           style: theme.textTheme.bodySmall?.copyWith(
             color: cs.onSurface.withOpacity(0.55),
             height: 1.35,
@@ -1105,6 +1109,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   Future<void> _create(BuildContext context) async {
     final l10n = context.l10n;
 
+    if (_submitting) return;
+
     if (_name.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1127,105 +1133,122 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     setState(() => _submitting = true);
 
-    final prefs = ref.read(prefsServiceProvider);
-    final repo = LocalLeaguesRepository(prefs);
+    try {
+      final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (authUid.trim().isEmpty) {
+        throw StateError('Not signed in (no Firebase UID).');
+      }
 
-    final organizerUserId = await CurrentUser.getOrCreateUserId();
+      // Ensure local user context exists for offline-first features.
+      // (This does not affect Firestore rules, which use Firebase UID.)
+      // ignore: unused_local_variable
+      final localUserId = await CurrentUser.getOrCreateUserId();
 
-    final leagueId = _draftLeagueId;
-    final now = DateTime.now().millisecondsSinceEpoch;
+      final prefs = ref.read(prefsServiceProvider);
+      final repo = LocalLeaguesRepository(prefs);
 
-    final settings = LeagueSettings.defaultsFor(_format).copyWith(
-      doubleRoundRobin: _doubleRoundRobin,
-      lastPulledAtMs: 0,
-    );
+      final leagueId = _draftLeagueId;
+      final now = DateTime.now().millisecondsSinceEpoch;
 
-    final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
-    final discountPercent = couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
-    final couponCount = couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
+      final settings = LeagueSettings.defaultsFor(_format).copyWith(
+        doubleRoundRobin: _doubleRoundRobin,
+        lastPulledAtMs: 0,
+      );
 
-    final league = League(
-      id: leagueId,
-      name: _name.text.trim(),
-      description: _description.text.trim(),
+      final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
+      final discountPercent = (couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0).clamp(0, 100);
+      final couponCount = (couponsEnabled ? (_payment?.couponCount ?? 0) : 0);
+      final safeCouponCount = couponCount < 0 ? 0 : couponCount;
 
-      // optional images
-      leagueImageUrl: _leagueImageUrl.text.trim(),
-      sponsorImageUrl: _sponsorImageUrl.text.trim(),
+      // IMPORTANT: store Firebase UID as organizerUserId to match security rules & coupon flows.
+      final organizerUserId = authUid;
 
-      // viewers removed: always 0 for backward compatibility
-      viewerCapacity: 0,
+      final league = League(
+        id: leagueId,
+        name: _name.text.trim(),
+        description: _description.text.trim(),
 
-      // coupons (optional add-on)
-      couponsEnabled: couponsEnabled,
-      couponDiscountPercent: discountPercent, // DISCOUNT percent
-      couponCount: couponCount,
+        // optional images
+        leagueImageUrl: _leagueImageUrl.text.trim(),
+        sponsorImageUrl: _sponsorImageUrl.text.trim(),
 
-      format: _format,
-      privacy: _privacy,
-      region: l10n.tr('common_region_global'),
-      maxTeams: _maxTeams,
-      season: '2026',
-      organizerUserId: organizerUserId,
-      code: '',
-      qrPayloadOverride: '',
-      settings: settings,
-      updatedAtMs: now,
-      version: 1,
-    );
+        // viewers removed: always 0 for backward compatibility
+        viewerCapacity: 0,
 
-    await Future.delayed(const Duration(milliseconds: 250));
+        // coupons (optional add-on)
+        couponsEnabled: couponsEnabled,
+        couponDiscountPercent: discountPercent, // DISCOUNT percent
+        couponCount: safeCouponCount,
 
-    final stored = await repo.createLeagueLocally(
-      league: league,
-      organizerUserId: organizerUserId,
-    );
+        format: _format,
+        privacy: _privacy,
+        region: l10n.tr('common_region_global'),
+        maxTeams: _maxTeams,
+        season: '2026',
+        organizerUserId: organizerUserId,
+        code: '',
+        qrPayloadOverride: '',
+        settings: settings,
+        updatedAtMs: now,
+        version: 1,
+      );
 
-    // Attempt to create/update coupon config immediately after league creation (network present post-payment).
-    // IMPORTANT: use FirebaseAuth UID for Firestore rules.
-    if (couponsEnabled && couponCount > 0) {
-      try {
-        final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
-        final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-        if (organizerAuthUid.trim().isEmpty) {
-          throw StateError('Not signed in (no Firebase UID).');
-        }
+      final stored = await repo.createLeagueLocally(
+        league: league,
+        organizerUserId: organizerUserId,
+      );
 
-        await CouponConfigService().createOrIncrementOnPurchase(
-          leagueId: leagueId,
-          organizerUserId: organizerAuthUid,
-          qtyPurchased: couponCount,
-          discountPercent: discountPercent,
-          plan: plan,
-        );
-      } catch (e) {
-        // Non-fatal. Organizer can tap Sync/Admin later after rules update.
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Coupon config could not be updated now. You can sync later. ($e)'),
-              behavior: SnackBarBehavior.floating,
-            ),
+      // Attempt to create/update coupon config immediately after league creation (network present post-payment).
+      // IMPORTANT: use FirebaseAuth UID for Firestore rules.
+      if (couponsEnabled && safeCouponCount > 0) {
+        try {
+          final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+
+          await CouponConfigService().createOrIncrementOnPurchase(
+            leagueId: leagueId,
+            organizerUserId: authUid,
+            qtyPurchased: safeCouponCount,
+            discountPercent: discountPercent,
+            plan: plan,
           );
+        } catch (e) {
+          // Non-fatal. Organizer can tap Sync/Admin later.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Coupon config could not be updated now. You can sync later. ($e)'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
         }
       }
-    }
 
-    // Best-effort: immediately sync so coupon config (if created) is visible in Admin/Profile.
-    // Never blocks league creation; failures are non-fatal (offline-first).
-    // ignore: discarded_futures
-    SyncTrigger.trySync();
+      // Best-effort: sync so coupon config (if created) is visible in Admin/Profile.
+      // Never blocks league creation; failures are non-fatal (offline-first).
+      // ignore: discarded_futures
+      SyncTrigger.trySync();
 
-    if (!mounted) return;
-    setState(() {
-      _createdLeague = stored;
-      _submitting = false;
-    });
+      if (!mounted) return;
+      setState(() {
+        _createdLeague = stored;
+        _submitting = false;
+      });
 
-    if (couponsEnabled) {
+      if (couponsEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Coupons configured. You can manage them in Admin.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Coupons configured. You can manage them in Admin.'),
+        SnackBar(
+          content: Text('Failed to create league: $e'),
           behavior: SnackBarBehavior.floating,
         ),
       );

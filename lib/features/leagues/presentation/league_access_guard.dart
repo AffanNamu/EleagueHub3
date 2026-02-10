@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -35,7 +36,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   bool _processing = false;
 
   League? _league;
-  String _userId = '';
+
+  /// Legacy/local offline user id (may be a shareId in older deployments).
+  String _localUserId = '';
+
+  /// Firebase Auth UID (required by Firestore rules for memberships/coupons/redemptions).
+  String _authUid = '';
+
   bool _hasPaid = false;
   LeagueChargesReceipt? _receipt;
 
@@ -67,23 +74,43 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
     final league = await repo.getLeagueById(widget.leagueId);
 
-    String userId = prefs.getCurrentUserId() ?? '';
-    if (userId.trim().isEmpty) {
-      userId = await CurrentUser.getOrCreateUserId();
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+    String localUserId = prefs.getCurrentUserId() ?? '';
+    if (localUserId.trim().isEmpty) {
+      localUserId = await CurrentUser.getOrCreateUserId();
     }
 
     final store = LeagueChargesStore(prefs);
 
-    final hasPaid = store.hasPaidCharges(userId: userId, leagueId: widget.leagueId);
-    final receipt = store.getReceipt(userId: userId, leagueId: widget.leagueId);
+    // Backward compatible: check both auth uid and local id for stored receipts.
+    final paidAuth = authUid.trim().isNotEmpty
+        ? store.hasPaidCharges(userId: authUid, leagueId: widget.leagueId)
+        : false;
+    final paidLocal = localUserId.trim().isNotEmpty
+        ? store.hasPaidCharges(userId: localUserId, leagueId: widget.leagueId)
+        : false;
+
+    final receipt = (authUid.trim().isNotEmpty ? store.getReceipt(userId: authUid, leagueId: widget.leagueId) : null) ??
+        (localUserId.trim().isNotEmpty ? store.getReceipt(userId: localUserId, leagueId: widget.leagueId) : null);
 
     bool isParticipant = false;
     try {
-      final membership = await repo.getMembership(
-        leagueId: widget.leagueId,
-        userId: userId,
-      );
-      isParticipant = membership != null;
+      // IMPORTANT: Firestore membership rules are based on request.auth.uid.
+      // Use auth uid first. Fall back to local id only for legacy/local-only leagues.
+      if (authUid.trim().isNotEmpty) {
+        final membershipAuth = await repo.getMembership(
+          leagueId: widget.leagueId,
+          userId: authUid,
+        );
+        isParticipant = membershipAuth != null;
+      } else {
+        final membershipLocal = await repo.getMembership(
+          leagueId: widget.leagueId,
+          userId: localUserId,
+        );
+        isParticipant = membershipLocal != null;
+      }
     } catch (_) {
       isParticipant = false;
     }
@@ -93,8 +120,9 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     if (!mounted) return;
     setState(() {
       _league = league;
-      _userId = userId;
-      _hasPaid = hasPaid;
+      _authUid = authUid;
+      _localUserId = localUserId;
+      _hasPaid = paidAuth || paidLocal;
       _receipt = receipt;
       _isParticipant = isParticipant;
       _plan = plan;
@@ -104,7 +132,11 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
   bool _isClassic(League league) => league.format == LeagueFormat.classic;
 
-  bool _isOrganizerAlwaysAllowed(League league) => league.organizerUserId == _userId;
+  bool _isOrganizerAlwaysAllowed(League league) {
+    final org = league.organizerUserId.trim();
+    if (org.isEmpty) return false;
+    return (org == _authUid.trim() && _authUid.trim().isNotEmpty) || (org == _localUserId.trim() && _localUserId.trim().isNotEmpty);
+  }
 
   // New gating rules:
   // - Classic: participants free; non-participants must pay.
@@ -168,6 +200,25 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     return double.parse(raw.toStringAsFixed(2));
   }
 
+  String _bestUserIdForPaymentsAndReceipts() {
+    // Firestore rules and most stable identity is Firebase UID.
+    // Fall back to local id only if user is somehow not signed in.
+    final u = _authUid.trim();
+    if (u.isNotEmpty) return u;
+    return _localUserId.trim();
+  }
+
+  Future<void> _storeReceiptBothIds(LeagueChargesStore store, LeagueChargesReceipt receipt) async {
+    // Store under auth uid if available.
+    if (_authUid.trim().isNotEmpty) {
+      await store.storeReceipt(receipt.copyWith(userId: _authUid.trim()));
+    }
+    // Also store under local id for backward compatibility.
+    if (_localUserId.trim().isNotEmpty && _localUserId.trim() != _authUid.trim()) {
+      await store.storeReceipt(receipt.copyWith(userId: _localUserId.trim()));
+    }
+  }
+
   Future<void> _payStandardAccess(League league) async {
     final l10n = context.l10n;
     setState(() => _processing = true);
@@ -177,9 +228,11 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       final payment = ref.read(leagueChargesPaymentServiceProvider);
       final store = LeagueChargesStore(prefs);
 
+      final payUserId = _bestUserIdForPaymentsAndReceipts();
+
       final result = await payment.payLeagueCharges(
         context: context,
-        userId: _userId,
+        userId: payUserId,
         leagueId: league.id,
         leagueName: league.name,
       );
@@ -199,13 +252,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
       final receipt = LeagueChargesReceipt(
         leagueId: league.id,
-        userId: _userId,
+        userId: payUserId,
         receiptId: result.receiptId ?? '',
         provider: result.provider,
         paidAtMs: result.paidAtMs,
       );
 
-      await store.storeReceipt(receipt);
+      await _storeReceiptBothIds(store, receipt);
 
       if (!mounted) return;
       setState(() {
@@ -240,11 +293,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       final prefs = ref.read(prefsServiceProvider);
       final store = LeagueChargesStore(prefs);
 
+      final redeemUserId = _bestUserIdForPaymentsAndReceipts();
+
       final svc = CouponRedemptionService();
       final result = await svc.redeemNow(
         context: context,
         league: league,
-        userId: _userId,
+        userId: redeemUserId,
       );
 
       if (!mounted) return;
@@ -262,13 +317,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
       final receipt = LeagueChargesReceipt(
         leagueId: league.id,
-        userId: _userId,
+        userId: redeemUserId,
         receiptId: result.receiptId ?? 'CPN',
         provider: result.provider,
         paidAtMs: result.paidAtMs,
       );
 
-      await store.storeReceipt(receipt);
+      await _storeReceiptBothIds(store, receipt);
 
       if (!mounted) return;
       setState(() {
@@ -312,12 +367,14 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       final prefs = ref.read(prefsServiceProvider);
       final store = LeagueChargesStore(prefs);
 
+      final redeemUserId = _bestUserIdForPaymentsAndReceipts();
+
       final svc = CouponCodesService();
       final result = await svc.redeemWithCode(
         context: context,
         leagueId: league.id,
         leagueName: league.name,
-        userId: _userId,
+        userId: redeemUserId,
         code: raw,
       );
 
@@ -331,13 +388,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
       final receipt = LeagueChargesReceipt(
         leagueId: league.id,
-        userId: _userId,
+        userId: redeemUserId,
         receiptId: result.receiptId ?? 'CPN-CODE',
         provider: result.provider,
         paidAtMs: result.paidAtMs,
       );
 
-      await store.storeReceipt(receipt);
+      await _storeReceiptBothIds(store, receipt);
 
       setState(() {
         _redeemingCode = false;
@@ -390,8 +447,46 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     }
 
     if (!_requiresPaymentGateForUser(league)) return widget.child;
-
     if (_hasPaid) return widget.child;
+
+    // Payment/coupon flows require Firebase Auth in production (rules + redemptions).
+    if (_authUid.trim().isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Glass(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.login, color: cs.primary, size: 42),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Sign in required',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Please sign in to pay or redeem coupons for this league.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface.withOpacity(0.70),
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     if (_plan == null) {
       return Center(child: CircularProgressIndicator(color: cs.primary));
@@ -602,6 +697,24 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
           },
         );
       },
+    );
+  }
+}
+
+extension on LeagueChargesReceipt {
+  LeagueChargesReceipt copyWith({
+    String? leagueId,
+    String? userId,
+    String? receiptId,
+    String? provider,
+    int? paidAtMs,
+  }) {
+    return LeagueChargesReceipt(
+      leagueId: leagueId ?? this.leagueId,
+      userId: userId ?? this.userId,
+      receiptId: receiptId ?? this.receiptId,
+      provider: provider ?? this.provider,
+      paidAtMs: paidAtMs ?? this.paidAtMs,
     );
   }
 }

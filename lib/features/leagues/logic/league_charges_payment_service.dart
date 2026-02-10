@@ -118,6 +118,14 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
     return planCurrency;
   }
 
+  String _resolveEffectiveUserId(String userId) {
+    final u = userId.trim();
+    if (u.isNotEmpty) return u;
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (authUid.trim().isNotEmpty) return authUid.trim();
+    return 'anonymous';
+  }
+
   @override
   Future<LeagueChargesPaymentResult> payLeagueCharges({
     required BuildContext context,
@@ -132,6 +140,9 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
     String currencyUsed = '';
     String totalAmount = '0';
     String analyticsKind = 'access';
+
+    final effectiveUserId = _resolveEffectiveUserId(userId);
+
     try {
       FlutterwaveConfig.assertConfigured();
 
@@ -149,7 +160,7 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
 
       // Determine analytics kind
       final cpn = (couponCode ?? '').trim().toUpperCase();
-      analyticsKind = (cpn == 'POOL') ? 'redemption' : 'access';
+      analyticsKind = cpn.isNotEmpty ? 'redemption' : 'access';
       final int pct = (couponDiscountPercent ?? 0) < 0 ? 0 : (couponDiscountPercent ?? 0);
 
       // Log attempt (best-effort)
@@ -160,12 +171,12 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         provider: providerName,
         currency: currencyUsed,
         amount: totalAmount,
-        userId: userId,
+        userId: effectiveUserId,
       );
 
       final String email = (FirebaseAuth.instance.currentUser?.email?.trim().isNotEmpty ?? false)
           ? FirebaseAuth.instance.currentUser!.email!.trim()
-          : 'user_$userId@eleaguehub.app';
+          : 'user_$effectiveUserId@eleaguehub.app';
       final String phone = (FirebaseAuth.instance.currentUser?.phoneNumber?.trim().isNotEmpty ?? false)
           ? FirebaseAuth.instance.currentUser!.phoneNumber!.trim()
           : '0000000000';
@@ -219,7 +230,7 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
           amount: totalAmount,
           receiptId: receipt,
           errorMessage: null,
-          userId: userId,
+          userId: effectiveUserId,
         );
 
         return LeagueChargesPaymentResult.paid(
@@ -241,7 +252,7 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         amount: totalAmount,
         receiptId: null,
         errorMessage: 'Payment cancelled or not successful',
-        userId: userId,
+        userId: effectiveUserId,
       );
 
       return LeagueChargesPaymentResult.failed(
@@ -266,7 +277,7 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
           amount: totalAmount,
           receiptId: null,
           errorMessage: e.toString(),
-          userId: userId,
+          userId: effectiveUserId,
         );
       } catch (_) {
         // ignore: best-effort
@@ -275,7 +286,7 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
       return LeagueChargesPaymentResult.failed(
         provider: providerName,
         errorMessage: e.toString(),
-        totalAmount: '0',
+        totalAmount: totalAmount,
       );
     }
   }

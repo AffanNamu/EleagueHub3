@@ -44,6 +44,8 @@ class League {
   final String season;
 
   /// Owner/organiser user id (admin/owner)
+  /// IMPORTANT: New deployments should store Firebase Auth UID here for consistent Firestore rules.
+  /// Backward compatible: old deployments may store a shareId/local id.
   final String organizerUserId;
 
   /// Join/invite code (Join ID).
@@ -199,9 +201,27 @@ class League {
     );
     final safeCouponCount = couponCount < 0 ? 0 : couponCount;
 
+    // Backward compatible organizer id resolution:
+    // - organizerUserId (preferred/current)
+    // - ownerId (older deployments)
+    // - organizerId (just in case)
+    final organizerUserId = (map['organizerUserId'] as String?) ??
+        (map['ownerId'] as String?) ??
+        (map['organizerId'] as String?) ??
+        '';
+
+    // Backward compatible id/name resolution (some sources may omit explicit id fields)
+    final id = (map['id'] as String?) ??
+        (map['leagueId'] as String?) ??
+        '';
+
+    final name = (map['name'] as String?) ??
+        (map['leagueName'] as String?) ??
+        '';
+
     return League(
-      id: (map['id'] as String?) ?? '',
-      name: (map['name'] as String?) ?? '',
+      id: id,
+      name: name,
       description: (map['description'] as String?) ?? '',
       leagueImageUrl: leagueImageUrl,
       sponsorImageUrl: sponsorImageUrl,
@@ -216,7 +236,7 @@ class League {
       region: map['region'] as String? ?? 'Global',
       maxTeams: (map['maxTeams'] as num?)?.toInt() ?? 20,
       season: map['season'] as String? ?? '2026',
-      organizerUserId: map['organizerUserId'] as String? ?? '',
+      organizerUserId: organizerUserId,
       code: map['code'] as String? ?? '',
       qrPayloadOverride: map['qrPayload'] as String? ?? '',
       settings: LeagueSettings.fromMap(

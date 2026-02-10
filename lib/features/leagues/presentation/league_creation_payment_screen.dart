@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -57,16 +58,25 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
         final existingCouponsEnabled = map['existingCouponsEnabled'];
         if (existingCouponsEnabled is bool && existingCouponsEnabled) {
           _buyCoupons = true;
+        } else if (existingCouponsEnabled is int && existingCouponsEnabled == 1) {
+          _buyCoupons = true;
         }
+
         final existingCouponCount = map['existingCouponCount'];
         if (existingCouponCount is int && existingCouponCount > 0) {
           _couponCount = existingCouponCount;
           _buyCoupons = true;
+        } else if (existingCouponCount is num && existingCouponCount.toInt() > 0) {
+          _couponCount = existingCouponCount.toInt();
+          _buyCoupons = true;
         }
+
         // Seed discount percent (best-effort)
         final existingPct = map['existingCouponDiscountPercent'];
         if (existingPct is int) {
           _discountPercent = existingPct.clamp(0, 100);
+        } else if (existingPct is num) {
+          _discountPercent = existingPct.toInt().clamp(0, 100);
         }
       }
     } catch (_) {
@@ -85,6 +95,18 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   }
 
   double _round2(double v) => double.parse(v.toStringAsFixed(2));
+
+  Future<String> _bestUserIdForPayment() async {
+    // Prefer Firebase UID (consistent with Firestore rules).
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.trim().isNotEmpty) return uid.trim();
+
+    // Fallback to local/offline id for legacy flows (payment provider may still accept it).
+    final local = await CurrentUser.getOrCreateUserId();
+    if (local.trim().isNotEmpty) return local.trim();
+
+    throw StateError('Not signed in.');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -407,7 +429,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     : () async {
                                         setState(() => _processing = true);
                                         try {
-                                          final userId = await CurrentUser.getOrCreateUserId();
+                                          final userId = await _bestUserIdForPayment();
 
                                           final result = await provider.collectLeagueCreationFee(
                                             context: context,
