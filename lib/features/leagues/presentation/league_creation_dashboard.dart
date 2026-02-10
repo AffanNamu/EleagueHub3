@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -25,8 +24,6 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
-import '../models/team.dart';
-import '../utils/current_user.dart';
 
 enum LeagueCreationType {
   series,
@@ -73,29 +70,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   static const Color _premiumAmber = Color(0xFFF59E0B);
 
-  static const List<String> _groupNames = <String>[
-    'Group A',
-    'Group B',
-    'Group C',
-    'Group D',
-    'Group E',
-    'Group F',
-    'Group G',
-    'Group H',
-  ];
-
   @override
   void initState() {
     super.initState();
     // Stable ID so any uploaded media is associated with the league we end up creating.
     _draftLeagueId = _uuid.v4();
-  }
-
-  String _pickRandomGroupNameForMaxTeams(int maxTeams) {
-    final rnd = Random.secure();
-    final groupCount = (maxTeams ~/ 4).clamp(1, 8);
-    final names = _groupNames.take(groupCount).toList();
-    return names[rnd.nextInt(names.length)];
   }
 
   @override
@@ -1436,10 +1415,17 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     setState(() => _submitting = true);
 
     try {
+      final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (organizerAuthUid.trim().isEmpty) {
+        throw StateError('Not signed in (no Firebase UID).');
+      }
+
+      // Production: store Firebase UID in league.organizerUserId for new leagues.
+      // (Rules support legacy values for older leagues, but UID is safest.)
+      final organizerUserId = organizerAuthUid;
+
       final prefs = ref.read(prefsServiceProvider);
       final repo = LocalLeaguesRepository(prefs);
-
-      final organizerUserId = await CurrentUser.getUserId();
 
       String? creatorTeamName;
       if (_creatorWillParticipate) {
@@ -1500,10 +1486,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       if (couponsEnabled && couponCount > 0) {
         try {
           final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
-          final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-          if (organizerAuthUid.trim().isEmpty) {
-            throw StateError('Not signed in (no Firebase UID).');
-          }
 
           await CouponConfigService().createOrIncrementOnPurchase(
             leagueId: leagueId,

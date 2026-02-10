@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'league_charges_payment_service.dart';
@@ -76,9 +77,14 @@ class CouponCodeRedeemResult {
 class CouponCodesService {
   CouponCodesService({
     LeagueChargesPaymentService? paymentService,
-  }) : _payment = paymentService ?? FlutterwaveLeagueChargesPaymentService();
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance,
+        _payment = paymentService ?? FlutterwaveLeagueChargesPaymentService();
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
   final LeagueChargesPaymentService _payment;
 
   static const String _alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -112,8 +118,7 @@ class CouponCodesService {
   DocumentReference<Map<String, dynamic>> _redeemRef(String leagueId, String uid) =>
       _firestore.collection('leagues').doc(leagueId).collection('couponRedemptions').doc(uid);
 
-  DocumentReference<Map<String, dynamic>> _pricingRef() =>
-      _firestore.collection('app').doc('pricing');
+  DocumentReference<Map<String, dynamic>> _pricingRef() => _firestore.collection('app').doc('pricing');
 
   int _discountPercentFromConfig(Map<String, dynamic> cfg) {
     // Preferred: discountPercent
@@ -141,14 +146,33 @@ class CouponCodesService {
     }
   }
 
-  // Generate 'count' new codes; each code decrements qtyRemaining by 1 atomically with rules.
-  // organizerAuthUid must be the Firebase UID of the organizer (rules check).
+  /// Generate `count` new one-time codes.
+  ///
+  /// IMPORTANT (rules):
+  /// - Must be signed in.
+  /// - Must create couponCodes/{codeId} AND decrement couponConfig/config.qtyRemaining by 1
+  ///   in the SAME transaction.
+  /// - Must ensure couponConfig/config.updatedAtMs increases (>) on each decrement.
+  ///
+  /// NOTE: `organizerAuthUid` is kept for backward compatibility with existing call sites,
+  /// but Firestore writes use the currently signed-in Firebase UID to satisfy security rules
+  /// consistently across legacy/local ids.
   Future<List<String>> generateCodes({
     required String leagueId,
-    required String organizerAuthUid,
+    String? organizerAuthUid,
     required int count,
   }) async {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (count <= 0) return <String>[];
+
+    final authUid = _auth.currentUser?.uid ?? '';
+    if (authUid.trim().isEmpty) {
+      throw StateError('Not signed in (no Firebase UID).');
+    }
+
+    // Only accept organizerAuthUid when it exactly matches the current auth uid.
+    // This prevents accidental passing of legacy/local IDs that would fail rules.
+    final organizerUidForWrite = (organizerAuthUid != null && organizerAuthUid.trim() == authUid) ? authUid : authUid;
+
     final List<String> out = [];
 
     for (int i = 0; i < count; i++) {
@@ -156,9 +180,10 @@ class CouponCodesService {
       int attempts = 0;
 
       while (true) {
-        if (attempts > 8) {
+        if (attempts > 10) {
           throw StateError('Could not allocate a unique code after several attempts.');
         }
+
         code = 'EH${_genCode(10)}';
         attempts++;
 
@@ -166,12 +191,14 @@ class CouponCodesService {
 
         try {
           await _firestore.runTransaction((tx) async {
+            // READS (must happen before WRITES in a Firestore transaction)
             final cfgSnap = await tx.get(_cfgRef(leagueId));
             if (!cfgSnap.exists) {
               throw StateError('noConfig');
             }
 
-            final cfg = cfgSnap.data() ?? <String, dynamic>{};
+            final cfg = (cfgSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+
             final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
             final currency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
 
@@ -181,43 +208,46 @@ class CouponCodesService {
 
             final discountPercent = _discountPercentFromConfig(cfg);
 
-            // Get access fee from /app/pricing (same transaction) and compute expectedAmount:
-            // expectedAmount = accessFee × (1 - discountPercent/100)
+            // Pricing doc must exist to compute expectedAmount consistently
             final pricingSnap = await tx.get(_pricingRef());
             final pricingMap = (pricingSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
             final accessFee = _accessFeeForCurrency(pricingMap, currency);
             if (accessFee <= 0) {
-              // Safety: do not mint codes if pricing doc is missing.
               throw StateError('pricingMissing');
             }
 
             final expectedRaw = accessFee * ((100 - discountPercent) / 100.0);
             final expectedAmount = (currency == 'NGN') ? expectedRaw.roundToDouble() : _round2(expectedRaw);
 
-            // Check collision
+            // Collision check
             final codeSnap = await tx.get(docRef);
             if (codeSnap.exists) {
               throw StateError('collision');
             }
 
-            // Write code doc
+            // Ensure updatedAtMs strictly increases to satisfy rules.
+            final prevUpdatedAtMs = (cfg['updatedAtMs'] as num?)?.toInt() ?? 0;
+            final wallNowMs = DateTime.now().millisecondsSinceEpoch;
+            final writeNowMs = (wallNowMs > prevUpdatedAtMs) ? wallNowMs : (prevUpdatedAtMs + 1);
+
+            // WRITES (atomic commit)
             tx.set(docRef, <String, dynamic>{
               'leagueId': leagueId,
-              'organizerUserId': organizerAuthUid,
+              'organizerUserId': organizerUidForWrite,
               'currency': currency,
               'discountPercent': discountPercent,
               'expectedAmount': expectedAmount,
               'usedBy': '',
               'usedAtMs': 0,
-              'createdAtMs': nowMs,
-              'updatedAtMs': nowMs,
+              'createdAtMs': writeNowMs,
+              'updatedAtMs': writeNowMs,
               'version': 1,
             });
 
-            // Decrement config remaining
+            // Decrement config remaining (must be in same transaction as code creation)
             tx.update(_cfgRef(leagueId), <String, dynamic>{
               'qtyRemaining': remaining - 1,
-              'updatedAtMs': nowMs,
+              'updatedAtMs': writeNowMs,
             });
           });
 
@@ -235,7 +265,14 @@ class CouponCodesService {
     return out;
   }
 
-  // Redeem a code: pay expectedAmount if > 0, then atomically mark code used and create 'paid' redemption.
+  /// Redeem a code:
+  /// - If expectedAmount > 0 => collect payment
+  /// - Atomically mark code used + create redemption doc (status=paid)
+  ///
+  /// IMPORTANT (rules):
+  /// - Writes must use Firebase Auth UID for:
+  ///   - couponCodes/{code}.usedBy
+  ///   - couponRedemptions/{uid} doc id and data.userId
   Future<CouponCodeRedeemResult> redeemWithCode({
     required BuildContext context,
     required String leagueId,
@@ -243,6 +280,11 @@ class CouponCodesService {
     required String userId,
     required String code,
   }) async {
+    final authUid = _auth.currentUser?.uid ?? '';
+    if (authUid.trim().isEmpty) {
+      return CouponCodeRedeemResult.failed(errorMessage: 'Not signed in');
+    }
+
     final codeId = code.trim().toUpperCase();
     if (codeId.isEmpty) {
       return CouponCodeRedeemResult.failed(errorMessage: 'Empty code');
@@ -253,7 +295,7 @@ class CouponCodesService {
       final snap = await codeRef.get();
       if (!snap.exists) return CouponCodeRedeemResult.failed(errorMessage: 'Invalid code');
 
-      final data = snap.data() ?? <String, dynamic>{};
+      final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       final usedBy = (data['usedBy'] as String?) ?? '';
       if (usedBy.isNotEmpty) {
         return CouponCodeRedeemResult.failed(errorMessage: 'Code already used');
@@ -272,6 +314,8 @@ class CouponCodesService {
       String? receiptId;
 
       if (expectedAmount > 0) {
+        // Keep using the passed `userId` for payment metadata (if your payment layer expects it),
+        // but Firestore writes will use authUid to satisfy rules.
         final pay = await _payment.payLeagueCharges(
           context: context,
           userId: userId,
@@ -302,22 +346,25 @@ class CouponCodesService {
       await _firestore.runTransaction((tx) async {
         final codeSnap = await tx.get(codeRef);
         if (!codeSnap.exists) throw StateError('invalid');
-        final d = codeSnap.data() ?? <String, dynamic>{};
+
+        final d = (codeSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final wasUsed = (d['usedBy'] as String?) ?? '';
         if (wasUsed.isNotEmpty) throw StateError('used');
 
         final nowMs = DateTime.now().millisecondsSinceEpoch;
 
+        // Must be authUid to satisfy rules (usedBy == request.auth.uid)
         tx.update(codeRef, <String, dynamic>{
-          'usedBy': userId,
+          'usedBy': authUid,
           'usedAtMs': paidAtMs,
           'updatedAtMs': nowMs,
         });
 
-        final rRef = _redeemRef(leagueId, userId);
+        // Must be docId == authUid and data.userId == authUid to satisfy rules
+        final rRef = _redeemRef(leagueId, authUid);
         tx.set(rRef, <String, dynamic>{
           'leagueId': leagueId,
-          'userId': userId,
+          'userId': authUid,
           'status': 'paid',
           'provider': provider,
           'receiptId': receiptId ?? '',

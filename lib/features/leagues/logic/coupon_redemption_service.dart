@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/league.dart';
@@ -75,9 +76,14 @@ class CouponRedemptionResult {
 class CouponRedemptionService {
   CouponRedemptionService({
     LeagueChargesPaymentService? paymentService,
-  }) : _payment = paymentService ?? FlutterwaveLeagueChargesPaymentService();
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance,
+        _payment = paymentService ?? FlutterwaveLeagueChargesPaymentService();
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
   final LeagueChargesPaymentService _payment;
 
   DocumentReference<Map<String, dynamic>> _cfgRef(String leagueId) =>
@@ -86,8 +92,15 @@ class CouponRedemptionService {
   DocumentReference<Map<String, dynamic>> _redeemRef(String leagueId, String uid) =>
       _firestore.collection('leagues').doc(leagueId).collection('couponRedemptions').doc(uid);
 
-  DocumentReference<Map<String, dynamic>> _pricingRef() =>
-      _firestore.collection('app').doc('pricing');
+  DocumentReference<Map<String, dynamic>> _pricingRef() => _firestore.collection('app').doc('pricing');
+
+  String _requireAuthUid() {
+    final uid = _auth.currentUser?.uid ?? '';
+    if (uid.trim().isEmpty) {
+      throw StateError('Not signed in (no Firebase UID).');
+    }
+    return uid;
+  }
 
   double _round2(double v) => double.parse(v.toStringAsFixed(2));
 
@@ -129,7 +142,7 @@ class CouponRedemptionService {
   Future<_ExpectedPoolCharge> _computeExpectedFromConfigTx(Transaction tx, String leagueId) async {
     final cfgSnap = await tx.get(_cfgRef(leagueId));
     if (!cfgSnap.exists) throw StateError('noConfig');
-    final cfg = cfgSnap.data() ?? <String, dynamic>{};
+    final cfg = (cfgSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
 
     final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
     if (remaining <= 0) throw StateError('noRemaining');
@@ -153,23 +166,71 @@ class CouponRedemptionService {
     );
   }
 
-  /// Create/refresh a pending redemption intent.
-  /// Rules usually require: status='pending', currency, expectedAmount, expiresAt(timestamp).
+  Future<_ExpectedPoolCharge> _computeExpectedFromConfig(String leagueId) async {
+    final cfgSnap = await _cfgRef(leagueId).get();
+    if (!cfgSnap.exists) throw StateError('noConfig');
+    final cfg = (cfgSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+
+    final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
+    if (remaining <= 0) throw StateError('noRemaining');
+
+    final currency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
+    final discountPercent = _discountPercentFromConfig(cfg);
+
+    final pricingSnap = await _pricingRef().get();
+    final pricingMap = (pricingSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    final accessFee = _accessFeeForCurrency(pricingMap, currency);
+    if (accessFee <= 0) throw StateError('pricingMissing');
+
+    final raw = accessFee * ((100 - discountPercent) / 100.0);
+    final expected = (currency == 'NGN') ? raw.roundToDouble() : _round2(raw);
+
+    return _ExpectedPoolCharge(
+      currency: currency,
+      expectedAmount: expected,
+      discountPercent: discountPercent,
+      remaining: remaining,
+    );
+  }
+
+  /// Create a pending redemption intent IF MISSING.
+  ///
+  /// IMPORTANT (rules):
+  /// - couponRedemptions/{uid} doc id must equal request.auth.uid
+  /// - request.resource.data.userId must equal request.auth.uid
+  /// - Rules typically do NOT allow updating an existing pending intent (only pending->paid),
+  ///   so this method must NOT write if the doc already exists.
   Future<void> preparePoolRedemption({
     required String leagueId,
     required String userId,
     Duration ttl = const Duration(minutes: 10),
   }) async {
+    final authUid = _requireAuthUid();
+
     final now = DateTime.now();
     final nowMs = now.millisecondsSinceEpoch;
 
-    // We compute expected using a transaction so it matches pricing+config at that moment.
     await _firestore.runTransaction((tx) async {
+      // If doc already exists, do not update it (updates are usually denied by rules).
+      final rRef = _redeemRef(leagueId, authUid);
+      final rSnap = await tx.get(rRef);
+
+      if (rSnap.exists) {
+        final rd = (rSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final status = (rd['status'] as String?) ?? '';
+        if (status == 'paid') {
+          throw StateError('alreadyPaid');
+        }
+        // status == 'pending' or anything else: leave as-is to avoid permission denied.
+        return;
+      }
+
+      // Compute expected using a transaction so it matches pricing+config at that moment.
       final exp = await _computeExpectedFromConfigTx(tx, leagueId);
 
-      tx.set(_redeemRef(leagueId, userId), <String, dynamic>{
+      tx.set(rRef, <String, dynamic>{
         'leagueId': leagueId,
-        'userId': userId,
+        'userId': authUid,
         'status': 'pending',
         'currency': exp.currency,
         'expectedAmount': exp.expectedAmount,
@@ -180,11 +241,12 @@ class CouponRedemptionService {
         'createdAtMs': nowMs,
         'updatedAtMs': nowMs,
         'version': 1,
-      }, SetOptions(merge: true));
+      });
     });
   }
 
   /// Backward-compatible entry used by your current UI.
+  /// `userId` is kept for payment metadata, but Firestore writes use Firebase UID.
   Future<CouponRedemptionResult> redeemNow({
     required BuildContext context,
     required League league,
@@ -206,18 +268,33 @@ class CouponRedemptionService {
     required String leagueName,
     required String userId,
   }) async {
+    String authUid;
     try {
-      // 1) Prepare pending intent (rules-friendly)
+      authUid = _requireAuthUid();
+    } on StateError catch (e) {
+      return CouponRedemptionResult.failed(errorMessage: e.message ?? 'Not signed in');
+    }
+
+    try {
+      // 1) Create pending intent if missing (rules-friendly)
       await preparePoolRedemption(leagueId: leagueId, userId: userId);
 
-      // 2) Read pending
-      final rSnap = await _redeemRef(leagueId, userId).get();
-      if (!rSnap.exists) {
-        return CouponRedemptionResult.failed(errorMessage: 'Could not prepare redemption');
+      // 2) Read pending (by auth UID to satisfy rules)
+      final rSnap = await _redeemRef(leagueId, authUid).get();
+
+      String currency = 'USD';
+      double expectedAmount = 0.0;
+
+      if (rSnap.exists) {
+        final r = (rSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        currency = ((r['currency'] as String?) ?? 'USD').toUpperCase();
+        expectedAmount = (r['expectedAmount'] as num?)?.toDouble() ?? 0.0;
+      } else {
+        // If the doc couldn't be created (e.g., due to a transient issue), compute expected directly.
+        final exp = await _computeExpectedFromConfig(leagueId);
+        currency = exp.currency;
+        expectedAmount = exp.expectedAmount;
       }
-      final r = (rSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final currency = ((r['currency'] as String?) ?? 'USD').toUpperCase();
-      final expectedAmount = (r['expectedAmount'] as num?)?.toDouble() ?? 0.0;
 
       int paidAtMs;
       String provider;
@@ -227,7 +304,7 @@ class CouponRedemptionService {
       if (expectedAmount > 0) {
         final pay = await _payment.payLeagueCharges(
           context: context,
-          userId: userId,
+          userId: userId, // payment layer may expect legacy/local id
           leagueId: leagueId,
           leagueName: leagueName,
           amountOverride: _moneyStr(currency, expectedAmount),
@@ -257,16 +334,17 @@ class CouponRedemptionService {
       await _firestore.runTransaction((tx) async {
         final cfgSnap = await tx.get(_cfgRef(leagueId));
         if (!cfgSnap.exists) throw StateError('noConfig');
-        final cfg = cfgSnap.data() ?? <String, dynamic>{};
+        final cfg = (cfgSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
         if (remaining <= 0) throw StateError('noRemaining');
 
-        final rRef = _redeemRef(leagueId, userId);
+        final rRef = _redeemRef(leagueId, authUid);
         final r2 = await tx.get(rRef);
         if (!r2.exists) throw StateError('noPending');
-        final rd = r2.data() ?? <String, dynamic>{};
+        final rd = (r2.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         if ((rd['status'] as String?) != 'pending') throw StateError('notPending');
 
+        // Rules: changed keys only status/provider/receiptId/paidAtMs/updatedAtMs
         tx.update(rRef, <String, dynamic>{
           'status': 'paid',
           'provider': provider,
@@ -275,6 +353,7 @@ class CouponRedemptionService {
           'updatedAtMs': nowMs,
         });
 
+        // Rules: config decrement must happen in same request
         tx.update(_cfgRef(leagueId), <String, dynamic>{
           'qtyRemaining': remaining - 1,
           'updatedAtMs': nowMs,
@@ -289,7 +368,8 @@ class CouponRedemptionService {
         currency: currency,
       );
     } on StateError catch (e) {
-      return CouponRedemptionResult.failed(errorMessage: e.message ?? 'Redemption failed');
+      final msg = e.message ?? 'Redemption failed';
+      return CouponRedemptionResult.failed(errorMessage: msg);
     } catch (e) {
       return CouponRedemptionResult.failed(errorMessage: e.toString());
     }

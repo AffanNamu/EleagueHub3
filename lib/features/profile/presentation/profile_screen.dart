@@ -8,12 +8,12 @@ import 'package:go_router/go_router.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/routing/league_mode_provider.dart';
+import '../../../core/services/app_admins_service.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/league_switcher.dart';
 import '../../../core/widgets/section_header.dart';
-import '../../../core/services/app_admins_service.dart';
 import '../../auth/data/auth_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
@@ -173,7 +173,11 @@ class ProfileScreen extends ConsumerWidget {
                                 _kv(context, 'Currency', cfg.currency),
                                 _kv(context, 'Unit price', '${money(cfg.unitPrice)} ${cfg.currency}'),
                                 _kv(context, 'Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}'),
-                                _kv(context, 'Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}'),
+                                _kv(
+                                  context,
+                                  'Threshold',
+                                  cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}',
+                                ),
                                 _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
                                 const Divider(),
                                 _kv(context, 'Discount', '${cfg.discountPercent}%'),
@@ -202,7 +206,8 @@ class ProfileScreen extends ConsumerWidget {
                                             'leagueName': leagueName,
                                             'addonsOnly': true,
                                             'existingCouponsEnabled': true,
-                                            'existingCouponCount': cfg.qtyRemaining,
+                                            // IMPORTANT: total purchased, not remaining.
+                                            'existingCouponCount': cfg.qtyTotal,
                                             'existingCouponDiscountPercent': cfg.discountPercent, // discount %
                                           });
                                         },
@@ -571,61 +576,82 @@ class ProfileScreen extends ConsumerWidget {
           else
             Glass(
               padding: const EdgeInsets.all(14),
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('leagues')
-                    .where('organizerUserId', isEqualTo: uid)
-                    .limit(25)
-                    .snapshots(),
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Text(
-                      'Failed to load coupons.',
-                      style: t.bodyMedium?.copyWith(
-                        color: theme.colorScheme.error,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    );
-                  }
+              child: StreamBuilder<UserProfile?>(
+                stream: repo.watchByUserId(uid),
+                builder: (context, psnap) {
+                  // Support legacy leagues where organizerUserId stored as shareId.
+                  final shareId = (psnap.data?.effectiveShareId.trim().isNotEmpty ?? false)
+                      ? psnap.data!.effectiveShareId.trim()
+                      : UserProfile.deriveShareIdFromUid(uid);
 
-                  if (!snap.hasData) {
-                    return Center(child: CircularProgressIndicator(color: theme.colorScheme.primary));
-                  }
+                  final organizerIds = <String>{
+                    uid.trim(),
+                    shareId.trim(),
+                  }.where((s) => s.isNotEmpty).toList();
 
-                  final leagues = snap.data!.docs
-                      .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
-                      .where((m) =>
-                          (m['couponsEnabled'] == true || m['couponsEnabled'] == 1) &&
-                          ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0) >= 0)
-                      .toList();
+                  final leaguesStream = FirebaseFirestore.instance
+                      .collection('leagues')
+                      .where('organizerUserId', whereIn: organizerIds)
+                      .limit(25)
+                      .snapshots();
 
-                  if (leagues.isEmpty) {
-                    return Text(
-                      'No coupons found. Enable coupons during league creation payment.',
-                      style: t.bodyMedium?.copyWith(
-                        color: onSurface.withOpacity(0.72),
-                        fontWeight: FontWeight.w600),
-                    );
-                  }
-
-                  return Column(
-                    children: [
-                      for (final m in leagues) ...[
-                        _OrganizerLeagueCouponsTile(
-                          leagueName: (m['name'] as String?) ?? 'League',
-                          subtitle: _couponLeagueSubtitle(
-                            enabled: true,
-                            discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
+                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: leaguesStream,
+                    builder: (context, snap) {
+                      if (snap.hasError) {
+                        return Text(
+                          'Failed to load coupons.',
+                          style: t.bodyMedium?.copyWith(
+                            color: theme.colorScheme.error,
+                            fontWeight: FontWeight.w700,
                           ),
-                          onView: () => _showCouponConfigSheet(
-                            context,
-                            leagueId: (m['id'] as String?) ?? '',
-                            leagueName: (m['name'] as String?) ?? 'League',
+                        );
+                      }
+
+                      if (!snap.hasData) {
+                        return Center(child: CircularProgressIndicator(color: theme.colorScheme.primary));
+                      }
+
+                      final leagues = snap.data!.docs
+                          .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
+                          .where((m) {
+                            final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
+                            if (!enabled) return false;
+                            final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
+                            return dp >= 0;
+                          })
+                          .toList();
+
+                      if (leagues.isEmpty) {
+                        return Text(
+                          'No coupons found. Enable coupons during league creation payment.',
+                          style: t.bodyMedium?.copyWith(
+                            color: onSurface.withOpacity(0.72),
+                            fontWeight: FontWeight.w600,
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                    ],
+                        );
+                      }
+
+                      return Column(
+                        children: [
+                          for (final m in leagues) ...[
+                            _OrganizerLeagueCouponsTile(
+                              leagueName: (m['name'] as String?) ?? 'League',
+                              subtitle: _couponLeagueSubtitle(
+                                enabled: true,
+                                discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
+                              ),
+                              onView: () => _showCouponConfigSheet(
+                                context,
+                                leagueId: (m['id'] as String?) ?? '',
+                                leagueName: (m['name'] as String?) ?? 'League',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                        ],
+                      );
+                    },
                   );
                 },
               ),
@@ -725,7 +751,6 @@ class ProfileScreen extends ConsumerWidget {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final t = theme.textTheme;
-    final onSurface = theme.colorScheme.onSurface;
 
     final res = await showDialog<bool>(
       context: context,
@@ -781,7 +806,8 @@ class ProfileScreen extends ConsumerWidget {
                       l10n.tr('profile_logout_dialog_message'),
                       style: t.bodyMedium?.copyWith(
                         color: dialogOnSurface.withOpacity(0.72),
-                        height: 1.35),
+                        height: 1.35,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),

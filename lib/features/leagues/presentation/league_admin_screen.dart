@@ -64,7 +64,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   bool _processingUpgradePayment = false;
 
+  /// Legacy/local user id (may be a shareId in older deployments).
   String _currentUserId = '';
+
+  /// Firebase Auth UID (required by Firestore rules for coupons/codes).
+  String _currentAuthUid = '';
 
   final Uuid _uuid = const Uuid();
 
@@ -79,7 +83,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     'Group H',
   ];
 
-  bool _isOrganizer(League league) => _currentUserId.isNotEmpty && league.organizerUserId == _currentUserId;
+  /// Organizer detection must support both:
+  /// - new leagues storing organizerUserId as Firebase UID
+  /// - legacy leagues storing organizerUserId as local/shareId
+  bool _isOrganizer(League league) {
+    final org = league.organizerUserId.trim();
+    if (org.isEmpty) return false;
+
+    final local = _currentUserId.trim();
+    final auth = _currentAuthUid.trim();
+
+    return (local.isNotEmpty && org == local) || (auth.isNotEmpty && org == auth);
+  }
 
   // IMPORTANT: league.couponDiscountPercent is now DISCOUNT percent (0..100),
   // not "users pay percent".
@@ -151,10 +166,16 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     bool showAddMe = false;
     String currentUserId = '';
+    String currentAuthUid = '';
 
     try {
+      currentAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
       currentUserId = await CurrentUser.getUserId();
-      final isOrganizer = league != null && league.organizerUserId == currentUserId;
+
+      final isOrganizer = league != null && (
+          (league.organizerUserId.trim().isNotEmpty && league.organizerUserId == currentUserId) ||
+          (currentAuthUid.trim().isNotEmpty && league.organizerUserId == currentAuthUid)
+      );
 
       if (isOrganizer) {
         final teams = await _localRepo.getTeams(widget.leagueId);
@@ -164,6 +185,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     } catch (_) {
       showAddMe = false;
       currentUserId = '';
+      currentAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     }
 
     if (!mounted) return;
@@ -171,6 +193,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       _league = league;
       _space = space;
       _currentUserId = currentUserId;
+      _currentAuthUid = currentAuthUid;
       _showAddMeAsParticipant = showAddMe;
       _isLeagueLoading = false;
     });
@@ -251,12 +274,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       await _localRepo.saveLeague(updated);
 
       // Update coupon configuration in Firestore (create or increment)
+      // IMPORTANT: Firestore rules require organizerUserId to equal request.auth.uid on writes
       try {
         final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
-        // IMPORTANT: Firestore rules require organizerUserId to equal request.auth.uid on writes
         final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-        if (result.buyCouponsForParticipants && addCoupons > 0) {
+        if (organizerAuthUid.trim().isEmpty) {
+          throw StateError('Not signed in (no Firebase UID).');
+        }
+
+        // Sync config whenever coupons are being managed, even if addCoupons == 0 (discount-only change).
+        if (result.buyCouponsForParticipants) {
           await CouponConfigService().createOrIncrementOnPurchase(
             leagueId: league.id,
             organizerUserId: organizerAuthUid,
@@ -530,16 +558,23 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                   setStateSheet(() => errorText = 'Enter a positive number');
                   return;
                 }
+
                 final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-                await CouponCodesService().generateCodes(
+                if (organizerAuthUid.trim().isEmpty) {
+                  throw StateError('Not signed in (no Firebase UID).');
+                }
+
+                final requested = cnt.clamp(1, 500);
+                final generated = await CouponCodesService().generateCodes(
                   leagueId: league.id,
                   organizerAuthUid: organizerAuthUid,
-                  count: cnt.clamp(1, 500),
+                  count: requested,
                 );
+
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Generated ${cnt.clamp(1, 500)} codes'),
+                    content: Text('Generated ${generated.length} codes'),
                     behavior: SnackBarBehavior.floating,
                   ),
                 );
@@ -774,7 +809,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     try {
       final userId = await CurrentUser.getUserId();
 
-      if (league.organizerUserId != userId) {
+      // Keep legacy behavior here because local team IDs are tied to CurrentUser.getUserId()
+      if (league.organizerUserId != userId && league.organizerUserId != (FirebaseAuth.instance.currentUser?.uid ?? '')) {
         throw StateError(l10n.tr('league_admin_only_organizer_action'));
       }
 
@@ -938,6 +974,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       }
 
       if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
+        // Keep legacy behavior (space host uses local user id in current architecture).
         throw StateError(l10n.tr('league_admin_only_organizer_start_space'));
       }
 
@@ -1003,6 +1040,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       }
 
       if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
+        // Keep legacy behavior (space host uses local user id in current architecture).
         throw StateError(l10n.tr('league_admin_only_organizer_end_space'));
       }
 
@@ -1401,7 +1439,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 style: TextStyle(
                                   color: onSurface.withOpacity(0.65),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600),
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             SwitchListTile.adaptive(
@@ -1417,7 +1456,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 style: TextStyle(
                                   color: onSurface.withOpacity(0.65),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600),
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             Align(
@@ -1795,7 +1835,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             style: TextStyle(
                               color: onSurface.withOpacity(0.55),
                               fontSize: 12,
-                              fontWeight: FontWeight.w600),
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           onTap: () {
                             Navigator.of(ctx).pop();
