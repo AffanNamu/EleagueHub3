@@ -26,10 +26,17 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
   // Coupons add-on
   bool _buyCoupons = false;
+
+  /// Coupon count in this screen always means:
+  /// - creation flow: number of coupons to buy
+  /// - upgrade flow (addonsOnly): number of *additional* coupons to buy
   int _couponCount = 1;
 
-  // NEW semantics: DISCOUNT percent (0..100)
+  // DISCOUNT percent (0..100) for users at redemption
   int _discountPercent = 50;
+
+  // Route seed (informational only in upgrade mode, and prefill in creation mode)
+  int _existingCouponCount = 0;
 
   bool _initializedFromRoute = false;
 
@@ -49,11 +56,15 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   void _maybeInitFromRoute() {
     if (_initializedFromRoute) return;
     _initializedFromRoute = true;
+
+    final addonsOnly = _addonsOnlyFromRouteExtra();
+
     try {
       final extra = GoRouterState.of(context).extra;
       if (extra is Map) {
         final map = extra.cast<dynamic, dynamic>();
-        // If organizer previously enabled coupons, reflect that in the toggle and quantity.
+
+        // If organizer previously enabled coupons, reflect that in the toggle.
         final existingCouponsEnabled = map['existingCouponsEnabled'];
         if (existingCouponsEnabled is bool && existingCouponsEnabled) {
           _buyCoupons = true;
@@ -61,13 +72,14 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
           _buyCoupons = true;
         }
 
+        // existingCouponCount:
+        // - creation route uses it to prefill previous selection
+        // - upgrade route uses it as informational only ("Already purchased")
         final existingCouponCount = map['existingCouponCount'];
         if (existingCouponCount is int && existingCouponCount > 0) {
-          _couponCount = existingCouponCount;
-          _buyCoupons = true;
+          _existingCouponCount = existingCouponCount;
         } else if (existingCouponCount is num && existingCouponCount.toInt() > 0) {
-          _couponCount = existingCouponCount.toInt();
-          _buyCoupons = true;
+          _existingCouponCount = existingCouponCount.toInt();
         }
 
         // Seed discount percent (best-effort)
@@ -77,12 +89,31 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
         } else if (existingPct is num) {
           _discountPercent = existingPct.toInt().clamp(0, 100);
         }
+
+        // Quantity defaults:
+        // - creation: reuse previous selection if present, else 1
+        // - upgrade: additional coupons => default 0 (prevents double-charging)
+        if (addonsOnly) {
+          _couponCount = 0;
+        } else {
+          if (_existingCouponCount > 0) {
+            _couponCount = _existingCouponCount;
+            _buyCoupons = true;
+          } else {
+            _couponCount = 1;
+          }
+        }
+
+        // If buying coupons (>0), enforce a non-zero discount so couponConfig.unitPrice stays > 0 (rules-safe).
+        if (_buyCoupons && _couponCount > 0 && _discountPercent <= 0) {
+          _discountPercent = 50;
+        }
       }
     } catch (_) {
       // ignore
     }
-    // Ensure sane defaults
-    if (_couponCount <= 0) _couponCount = 1;
+
+    _couponCount = _couponCount.clamp(0, 100000);
     _discountPercent = _discountPercent.clamp(0, 100);
   }
 
@@ -96,7 +127,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   double _round2(double v) => double.parse(v.toStringAsFixed(2));
 
   Future<String> _requireAuthUidForPayment() async {
-    // REQUIRED: Firebase UID is authoritative for Firestore writes after payment.
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.trim().isNotEmpty) return uid.trim();
     throw StateError('Sign in required.');
@@ -113,7 +143,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
     final addonsOnly = _addonsOnlyFromRouteExtra();
 
-    // Require auth (otherwise the paid flow cannot complete Firestore writes under rules)
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (authUid.trim().isEmpty) {
       return GlassScaffold(
@@ -196,24 +225,28 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
             final plan = snap.data!;
             final currency = plan.currency;
 
-            // Correct pricing math:
-            // total = baseFee + discountedCouponSubtotal (organizer pays full coupon cost)
             final baseFee = addonsOnly ? 0.0 : plan.createLeagueFee;
 
             final int qty = (_buyCoupons ? _couponCount : 0).clamp(0, 100000);
-            final rawCouponSubtotal = plan.couponUnit * qty;
+            final int disc = _discountPercent.clamp(0, 100);
 
-            final bool thresholdConfigured = plan.couponThreshold != null && plan.couponThreshold! > 0;
-            final bool discountApplies = thresholdConfigured && rawCouponSubtotal >= (plan.couponThreshold!);
+            // If buying coupons (>0 qty), discount must be > 0 to avoid 0-cost purchases + rules conflicts.
+            final int discForPurchase = (qty > 0 && disc <= 0) ? 50 : disc;
 
-            final double discountedCouponSubtotal = discountApplies
-                ? (rawCouponSubtotal * ((100.0 - plan.couponDiscountPercent) / 100.0))
-                : rawCouponSubtotal;
+            final pricing = RemotePricingService.instance.computeOrganizerCouponPricing(
+              plan: plan,
+              couponCount: qty,
+              discountPercent: discForPurchase,
+            );
+
+            final rawCouponSubtotal = pricing.rawSubtotal;
+            final discountedCouponSubtotal = pricing.discountedSubtotal;
+            final bool bulkDiscountApplied = pricing.bulkDiscountApplied;
 
             final total = baseFee + discountedCouponSubtotal;
 
-            // Display: what users pay at redemption (accessFee × (1 - discount%))
-            final userPaysAtRedemption = plan.accessFee * ((100 - _discountPercent.clamp(0, 100)) / 100.0);
+            // Display: what users pay at redemption
+            final userPaysAtRedemption = plan.accessFee * ((100 - discForPurchase) / 100.0);
 
             final titleStyle = theme.textTheme.titleMedium?.copyWith(
               color: cs.onSurface,
@@ -226,6 +259,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
               fontWeight: FontWeight.w600,
               height: 1.35,
             );
+
+            final qtyLabel = addonsOnly ? 'Additional coupons' : 'Coupons';
+
+            final bool thresholdConfigured = plan.couponThreshold != null && plan.couponThreshold! > 0;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -258,9 +295,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                         ),
                         const SizedBox(height: 16),
 
-                        // ----------------------------
                         // Coupons (optional)
-                        // ----------------------------
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
@@ -291,19 +326,44 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                             setState(() {
                                               _buyCoupons = v;
                                               if (!v) {
-                                                _couponCount = 1;
+                                                _couponCount = addonsOnly ? 0 : 1;
+                                              } else {
+                                                if (_couponCount > 0 && _discountPercent <= 0) {
+                                                  _discountPercent = 50;
+                                                }
                                               }
                                             });
                                           },
                                   ),
                                 ],
                               ),
+                              if (addonsOnly && _existingCouponCount > 0) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Already purchased: $_existingCouponCount',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.70),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 6),
                               Text(
-                                'Coupon unit: ${_money(plan.couponUnit)} $currency. '
-                                '${thresholdConfigured ? '${_money(plan.couponDiscountPercent)}% discount when subtotal ≥ ${_money(plan.couponThreshold!)} $currency.' : 'Bulk discount not configured.'}',
+                                'Full coupon unit (access fee): ${_money(plan.couponUnit)} $currency.\n'
+                                'You pay only the discount portion now: unit × (discount%).',
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: cs.onSurface.withOpacity(0.65),
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.25,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                thresholdConfigured
+                                    ? 'Bulk discount: ${_money(plan.couponDiscountPercent)}% when coupon subtotal ≥ ${_money(plan.couponThreshold!)} $currency.'
+                                    : 'Bulk discount not configured.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: cs.onSurface.withOpacity(0.60),
                                   fontWeight: FontWeight.w600,
                                   height: 1.25,
                                 ),
@@ -324,8 +384,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        '$_couponCount coupons • Unit: ${_money(plan.couponUnit)} $currency'
-                                        '${discountApplies ? ' • Bulk discount applied' : ''}',
+                                        '$qtyLabel: $_couponCount'
+                                        '${bulkDiscountApplied ? ' • Bulk discount applied' : ''}',
                                         style: theme.textTheme.bodySmall?.copyWith(
                                           color: cs.onSurface.withOpacity(0.72),
                                           fontWeight: FontWeight.w700,
@@ -338,7 +398,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           ? null
                                           : () {
                                               setState(() {
-                                                _couponCount = (_couponCount - 10).clamp(1, 100000);
+                                                final next = (_couponCount - 10);
+                                                _couponCount = next.clamp(addonsOnly ? 0 : 1, 100000);
+                                                if (_couponCount > 0 && _discountPercent <= 0) _discountPercent = 50;
                                               });
                                             },
                                       icon: const Icon(Icons.remove_circle_outline),
@@ -349,7 +411,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           ? null
                                           : () {
                                               setState(() {
-                                                _couponCount = (_couponCount + 10).clamp(1, 100000);
+                                                final next = (_couponCount + 10);
+                                                _couponCount = next.clamp(addonsOnly ? 0 : 1, 100000);
+                                                if (_couponCount > 0 && _discountPercent <= 0) _discountPercent = 50;
                                               });
                                             },
                                       icon: const Icon(Icons.add_circle_outline),
@@ -357,8 +421,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                   ],
                                 ),
                                 Slider(
-                                  value: _couponCount.toDouble().clamp(1, 100000),
-                                  min: 1,
+                                  value: _couponCount.toDouble().clamp(addonsOnly ? 0 : 1, 100000),
+                                  min: (addonsOnly ? 0 : 1).toDouble(),
                                   max: 100000,
                                   divisions: 1000,
                                   label: '$_couponCount',
@@ -366,7 +430,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                       ? null
                                       : (v) {
                                           final rounded = v.round();
-                                          setState(() => _couponCount = rounded.clamp(1, 100000));
+                                          setState(() {
+                                            _couponCount = rounded.clamp(addonsOnly ? 0 : 1, 100000);
+                                            if (_couponCount > 0 && _discountPercent <= 0) _discountPercent = 50;
+                                          });
                                         },
                                 ),
                                 const SizedBox(height: 12),
@@ -384,7 +451,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        'Discount: $_discountPercent% • Users pay at redemption: ${_money(_round2(userPaysAtRedemption))} $currency',
+                                        'Discount: $discForPurchase% • Users pay at redemption: ${_money(_round2(userPaysAtRedemption))} $currency',
                                         style: theme.textTheme.bodySmall?.copyWith(
                                           color: cs.onSurface.withOpacity(0.72),
                                           fontWeight: FontWeight.w700,
@@ -394,8 +461,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                   ],
                                 ),
                                 Slider(
+                                  // Allow 0% only when NOT buying additional coupons (upgrade discount-only adjustment).
                                   value: _discountPercent.toDouble(),
-                                  min: 0,
+                                  min: (_couponCount > 0) ? 5 : 0,
                                   max: 100,
                                   divisions: 20,
                                   label: '$_discountPercent%',
@@ -413,9 +481,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
                         const SizedBox(height: 12),
 
-                        // ----------------------------
                         // Breakdown
-                        // ----------------------------
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
@@ -436,11 +502,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                               ),
                               const SizedBox(height: 6),
                               _kv(context, 'League creation fee', '${_money(baseFee)} $currency'),
-                              _kv(context, 'Coupons subtotal', '${_money(rawCouponSubtotal)} $currency'),
+                              _kv(context, 'Coupons subtotal (organizer pays)', '${_money(rawCouponSubtotal)} $currency'),
                               _kv(
                                 context,
-                                discountApplies ? 'Threshold discount (${_money(plan.couponDiscountPercent)}%)' : 'Threshold discount',
-                                discountApplies ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
+                                bulkDiscountApplied ? 'Bulk discount (${_money(plan.couponDiscountPercent)}%)' : 'Bulk discount',
+                                bulkDiscountApplied ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
                               ),
                               const Divider(),
                               _kvStrong(context, 'Total payable now', '${_money(total)} $currency'),
@@ -463,6 +529,16 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                 onPressed: _processing
                                     ? null
                                     : () async {
+                                        if (_buyCoupons && _couponCount > 0 && _discountPercent <= 0) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Set a discount above 0% to buy coupons.'),
+                                              backgroundColor: cs.error,
+                                            ),
+                                          );
+                                          return;
+                                        }
+
                                         setState(() => _processing = true);
                                         try {
                                           final userId = await _requireAuthUidForPayment();

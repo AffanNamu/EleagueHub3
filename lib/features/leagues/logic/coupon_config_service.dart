@@ -183,6 +183,159 @@ class CouponConfigService {
 
   double _round2(double v) => double.parse(v.toStringAsFixed(2));
 
+  bool _boolAny(dynamic v) {
+    if (v is bool) return v;
+    if (v is num) return v.toInt() != 0;
+    if (v is String) {
+      final s = v.trim().toLowerCase();
+      if (s == 'true' || s == '1' || s == 'yes') return true;
+      if (s == 'false' || s == '0' || s == 'no') return false;
+    }
+    return false;
+  }
+
+  int _intAny(dynamic v, {int fallback = 0}) {
+    if (v == null) return fallback;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim()) ?? fallback;
+    return fallback;
+  }
+
+  String _strAny(dynamic v, {String fallback = ''}) => (v is String) ? v : fallback;
+
+  Map<String, dynamic>? _mapAny(dynamic v) => (v is Map) ? v.cast<String, dynamic>() : null;
+
+  /// Auto-initialize (or repair) `leagues/{leagueId}/couponConfig/config`.
+  ///
+  /// Why this exists:
+  /// - Your business rule requires `qtyRemaining` to exist (mandatory).
+  /// - Some leagues may exist with coupons enabled but missing the config doc (legacy or deleted).
+  ///
+  /// Safety:
+  /// - Only the organizer (by Firebase UID) can initialize/repair.
+  /// - If league has `couponsEnabled` and `couponCount`, we seed qtyRemaining/qtyTotal from it.
+  /// - If config exists but missing `qtyRemaining`, we merge in a safe default (0).
+  Future<void> ensureConfigInitializedFromLeague(String leagueId) async {
+    final authUid = _requireAuthUid();
+    final ref = _configRef(leagueId);
+
+    await _firestore.runTransaction((tx) async {
+      final nowWallMs = DateTime.now().millisecondsSinceEpoch;
+
+      final cfgSnap = await tx.get(ref);
+      if (cfgSnap.exists) {
+        final cfg = (cfgSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+
+        // Repair missing mandatory field(s) without changing semantics.
+        if (!cfg.containsKey('qtyRemaining') || cfg['qtyRemaining'] == null) {
+          final int prevUpdatedAtMs = (cfg['updatedAtMs'] as num?)?.toInt() ?? 0;
+          final int writeNowMs = (nowWallMs > prevUpdatedAtMs) ? nowWallMs : (prevUpdatedAtMs + 1);
+
+          final int disc = (cfg['discountPercent'] is num)
+              ? (cfg['discountPercent'] as num).toInt().clamp(0, 100)
+              : (100 - ((cfg['userPaysPercent'] as num?)?.toInt() ?? 0)).clamp(0, 100);
+
+          tx.set(ref, <String, dynamic>{
+            'leagueId': leagueId,
+            'organizerUserId': (cfg['organizerUserId'] as String?) ?? authUid,
+            'currency': (_strAny(cfg['currency'], fallback: 'USD')).trim().toUpperCase(),
+            'unitPrice': (cfg['unitPrice'] is num) ? (cfg['unitPrice'] as num).toDouble() : 0.0,
+            'effectiveUnit': (cfg['effectiveUnit'] is num)
+                ? (cfg['effectiveUnit'] as num).toDouble()
+                : ((cfg['unitPrice'] is num) ? (cfg['unitPrice'] as num).toDouble() : 0.0),
+            'threshold': cfg['threshold'],
+            'thresholdDiscountPercent': (cfg['thresholdDiscountPercent'] is num)
+                ? (cfg['thresholdDiscountPercent'] as num).toDouble()
+                : 30.0,
+            'discountPercent': disc,
+            'userPaysPercent': (100 - disc).clamp(0, 100),
+            'organizerPaysPercent': 100,
+            'qtyTotal': (cfg['qtyTotal'] as num?)?.toInt() ?? 0,
+            'qtyRemaining': 0, // mandatory, safe fallback
+            'createdAtMs': (cfg['createdAtMs'] as num?)?.toInt() ?? writeNowMs,
+            'updatedAtMs': writeNowMs,
+            'version': (cfg['version'] as num?)?.toInt() ?? 1,
+          }, SetOptions(merge: true));
+        }
+        return;
+      }
+
+      // Config is missing → verify league ownership before creating anything.
+      final leagueSnap = await tx.get(_leagueRef(leagueId));
+      if (!leagueSnap.exists) throw StateError('leagueMissing');
+
+      final ld = (leagueSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+
+      bool isLeagueOwner = false;
+      final orgUid = _strAny(ld['organizerUid']);
+      final ownerUid = _strAny(ld['ownerUid']);
+      final orgUserId = _strAny(ld['organizerUserId']);
+      final ownerId = _strAny(ld['ownerId']);
+
+      if (orgUid == authUid) isLeagueOwner = true;
+      if (ownerUid == authUid) isLeagueOwner = true;
+
+      // Backward compat (ONLY if those happen to be Firebase UIDs in older deployments)
+      if (orgUserId == authUid) isLeagueOwner = true;
+      if (ownerId == authUid) isLeagueOwner = true;
+
+      if (!isLeagueOwner) throw StateError('notOrganizer');
+
+      // Support multiple possible locations for league settings (top-level or nested).
+      final settings = _mapAny(ld['settings']) ?? <String, dynamic>{};
+
+      final bool couponsEnabled = _boolAny(ld['couponsEnabled']) || _boolAny(settings['couponsEnabled']);
+      final int couponCount = _intAny(ld['couponCount'], fallback: _intAny(settings['couponCount'], fallback: 0));
+
+      // Try to seed discountPercent from league (legacy compatibility).
+      final int seededDiscount = (() {
+        final int d1 = _intAny(ld['couponDiscountPercent'], fallback: -1);
+        final int d2 = _intAny(settings['couponDiscountPercent'], fallback: -1);
+        if (d1 >= 0) return d1.clamp(0, 100);
+        if (d2 >= 0) return d2.clamp(0, 100);
+
+        // Legacy: userPaysPercent -> discount = 100 - userPaysPercent
+        final int up1 = _intAny(ld['userPaysPercent'], fallback: -1);
+        final int up2 = _intAny(settings['userPaysPercent'], fallback: -1);
+        if (up1 >= 0) return (100 - up1).clamp(0, 100);
+        if (up2 >= 0) return (100 - up2).clamp(0, 100);
+
+        return 0;
+      })();
+
+      // Currency hint (best-effort): keep valid values only.
+      String currency = _strAny(ld['currency'], fallback: _strAny(settings['currency'], fallback: 'USD'));
+      currency = currency.trim().toUpperCase();
+      if (currency != 'NGN' && currency != 'USD') currency = 'USD';
+
+      final int seedQty = (couponsEnabled && couponCount > 0) ? couponCount : 0;
+      final int createdAtMs = nowWallMs > 0 ? nowWallMs : 1;
+
+      tx.set(ref, <String, dynamic>{
+        'leagueId': leagueId,
+        'organizerUserId': authUid, // informational; rules should rely on league.organizerUid
+        'currency': currency,
+
+        // Pricing fields unknown at this stage → safe defaults (they'll be overwritten on purchase).
+        'unitPrice': _round2(0.0),
+        'effectiveUnit': _round2(0.0),
+        'threshold': null,
+        'thresholdDiscountPercent': 30.0,
+
+        'discountPercent': seededDiscount,
+        'userPaysPercent': (100 - seededDiscount).clamp(0, 100),
+        'organizerPaysPercent': 100,
+
+        'qtyTotal': seedQty,
+        'qtyRemaining': seedQty, // mandatory field (and key gating field)
+        'createdAtMs': createdAtMs,
+        'updatedAtMs': createdAtMs,
+        'version': 1,
+      });
+    });
+  }
+
   // Create or increment configuration atomically after payment ---------------
 
   /// IMPORTANT:

@@ -99,7 +99,7 @@ class CouponRedemptionService {
     if (uid.trim().isEmpty) {
       throw StateError('Not signed in (no Firebase UID).');
     }
-    return uid;
+    return uid.trim();
   }
 
   double _round2(double v) => double.parse(v.toStringAsFixed(2));
@@ -139,6 +139,17 @@ class CouponRedemptionService {
     }
   }
 
+  _ResolvedAccessFee _resolveAccessFeeWithFallback(Map<String, dynamic> pricing, String preferredCurrency) {
+    final pref = preferredCurrency.toUpperCase();
+    double fee = _accessFeeForCurrency(pricing, pref);
+    if (fee > 0) return _ResolvedAccessFee(currency: pref, accessFee: fee);
+
+    // Fallback to the other currency if misconfigured (resilience)
+    final other = (pref == 'NGN') ? 'USD' : 'NGN';
+    fee = _accessFeeForCurrency(pricing, other);
+    return _ResolvedAccessFee(currency: other, accessFee: fee);
+  }
+
   Future<_ExpectedPoolCharge> _computeExpectedFromConfigTx(Transaction tx, String leagueId) async {
     final cfgSnap = await tx.get(_cfgRef(leagueId));
     if (!cfgSnap.exists) throw StateError('noConfig');
@@ -147,19 +158,20 @@ class CouponRedemptionService {
     final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
     if (remaining <= 0) throw StateError('noRemaining');
 
-    final currency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
+    final cfgCurrency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
     final discountPercent = _discountPercentFromConfig(cfg);
 
     final pricingSnap = await tx.get(_pricingRef());
     final pricingMap = (pricingSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    final accessFee = _accessFeeForCurrency(pricingMap, currency);
-    if (accessFee <= 0) throw StateError('pricingMissing');
 
-    final raw = accessFee * ((100 - discountPercent) / 100.0);
-    final expected = (currency == 'NGN') ? raw.roundToDouble() : _round2(raw);
+    final resolved = _resolveAccessFeeWithFallback(pricingMap, cfgCurrency);
+    if (resolved.accessFee <= 0) throw StateError('pricingMissing');
+
+    final raw = resolved.accessFee * ((100 - discountPercent) / 100.0);
+    final expected = (resolved.currency == 'NGN') ? raw.roundToDouble() : _round2(raw);
 
     return _ExpectedPoolCharge(
-      currency: currency,
+      currency: resolved.currency, // may differ from cfg currency if pricing is misconfigured
       expectedAmount: expected,
       discountPercent: discountPercent,
       remaining: remaining,
@@ -174,19 +186,20 @@ class CouponRedemptionService {
     final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
     if (remaining <= 0) throw StateError('noRemaining');
 
-    final currency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
+    final cfgCurrency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
     final discountPercent = _discountPercentFromConfig(cfg);
 
     final pricingSnap = await _pricingRef().get();
     final pricingMap = (pricingSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    final accessFee = _accessFeeForCurrency(pricingMap, currency);
-    if (accessFee <= 0) throw StateError('pricingMissing');
 
-    final raw = accessFee * ((100 - discountPercent) / 100.0);
-    final expected = (currency == 'NGN') ? raw.roundToDouble() : _round2(raw);
+    final resolved = _resolveAccessFeeWithFallback(pricingMap, cfgCurrency);
+    if (resolved.accessFee <= 0) throw StateError('pricingMissing');
+
+    final raw = resolved.accessFee * ((100 - discountPercent) / 100.0);
+    final expected = (resolved.currency == 'NGN') ? raw.roundToDouble() : _round2(raw);
 
     return _ExpectedPoolCharge(
-      currency: currency,
+      currency: resolved.currency,
       expectedAmount: expected,
       discountPercent: discountPercent,
       remaining: remaining,
@@ -211,21 +224,18 @@ class CouponRedemptionService {
     final nowMs = now.millisecondsSinceEpoch;
 
     await _firestore.runTransaction((tx) async {
-      // If doc already exists, do not update it (updates are usually denied by rules).
       final rRef = _redeemRef(leagueId, authUid);
       final rSnap = await tx.get(rRef);
 
       if (rSnap.exists) {
         final rd = (rSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final status = (rd['status'] as String?) ?? '';
-        if (status == 'paid') {
-          throw StateError('alreadyPaid');
-        }
-        // status == 'pending' or anything else: leave as-is to avoid permission denied.
+        if (status == 'paid') throw StateError('alreadyPaid');
+        // Leave pending as-is to avoid permission denied.
         return;
       }
 
-      // Compute expected using a transaction so it matches pricing+config at that moment.
+      // Compute expected inside tx so it matches config+pricing at that moment.
       final exp = await _computeExpectedFromConfigTx(tx, leagueId);
 
       tx.set(rRef, <String, dynamic>{
@@ -260,7 +270,7 @@ class CouponRedemptionService {
     );
   }
 
-  /// Correct pool redemption:
+  /// Pool redemption:
   /// expectedAmount = accessFee × (1 - discountPercent/100)
   Future<CouponRedemptionResult> redeemFromPool({
     required BuildContext context,
@@ -279,7 +289,7 @@ class CouponRedemptionService {
       // 1) Create pending intent if missing (rules-friendly)
       await preparePoolRedemption(leagueId: leagueId, userId: userId);
 
-      // 2) Read pending (by auth UID to satisfy rules)
+      // 2) Read pending (doc id == auth uid)
       final rSnap = await _redeemRef(leagueId, authUid).get();
 
       String currency = 'USD';
@@ -290,7 +300,7 @@ class CouponRedemptionService {
         currency = ((r['currency'] as String?) ?? 'USD').toUpperCase();
         expectedAmount = (r['expectedAmount'] as num?)?.toDouble() ?? 0.0;
       } else {
-        // If the doc couldn't be created (e.g., due to a transient issue), compute expected directly.
+        // If doc couldn't be created (transient), compute directly.
         final exp = await _computeExpectedFromConfig(leagueId);
         currency = exp.currency;
         expectedAmount = exp.expectedAmount;
@@ -304,7 +314,7 @@ class CouponRedemptionService {
       if (expectedAmount > 0) {
         final pay = await _payment.payLeagueCharges(
           context: context,
-          userId: userId, // payment layer may expect legacy/local id
+          userId: userId, // legacy/local id may be used by the payment provider
           leagueId: leagueId,
           leagueName: leagueName,
           amountOverride: _moneyStr(currency, expectedAmount),
@@ -330,7 +340,6 @@ class CouponRedemptionService {
       }
 
       // 4) Atomic write: mark redemption paid + decrement qtyRemaining
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
       await _firestore.runTransaction((tx) async {
         final cfgSnap = await tx.get(_cfgRef(leagueId));
         if (!cfgSnap.exists) throw StateError('noConfig');
@@ -344,19 +353,25 @@ class CouponRedemptionService {
         final rd = (r2.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         if ((rd['status'] as String?) != 'pending') throw StateError('notPending');
 
+        // Keep updatedAtMs monotonic (nice-to-have; rules already allow this path).
+        final prevCfgUpdated = (cfg['updatedAtMs'] as num?)?.toInt() ?? 0;
+        final wallNowMs = DateTime.now().millisecondsSinceEpoch;
+        final baseNow = wallNowMs > paidAtMs ? wallNowMs : paidAtMs;
+        final writeNowMs = baseNow > prevCfgUpdated ? baseNow : (prevCfgUpdated + 1);
+
         // Rules: changed keys only status/provider/receiptId/paidAtMs/updatedAtMs
         tx.update(rRef, <String, dynamic>{
           'status': 'paid',
           'provider': provider,
           'receiptId': receiptId,
           'paidAtMs': paidAtMs,
-          'updatedAtMs': nowMs,
+          'updatedAtMs': writeNowMs,
         });
 
         // Rules: config decrement must happen in same request
         tx.update(_cfgRef(leagueId), <String, dynamic>{
           'qtyRemaining': remaining - 1,
-          'updatedAtMs': nowMs,
+          'updatedAtMs': writeNowMs,
         });
       });
 
@@ -368,8 +383,7 @@ class CouponRedemptionService {
         currency: currency,
       );
     } on StateError catch (e) {
-      final msg = e.message ?? 'Redemption failed';
-      return CouponRedemptionResult.failed(errorMessage: msg);
+      return CouponRedemptionResult.failed(errorMessage: e.message ?? 'Redemption failed');
     } catch (e) {
       return CouponRedemptionResult.failed(errorMessage: e.toString());
     }
@@ -387,5 +401,15 @@ class _ExpectedPoolCharge {
     required this.expectedAmount,
     required this.discountPercent,
     required this.remaining,
+  });
+}
+
+class _ResolvedAccessFee {
+  final String currency;
+  final double accessFee;
+
+  _ResolvedAccessFee({
+    required this.currency,
+    required this.accessFee,
   });
 }

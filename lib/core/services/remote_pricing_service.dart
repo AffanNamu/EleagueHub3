@@ -8,7 +8,7 @@ class RemotePricingPlan {
   final String currency; // 'NGN' or 'USD'
   final double createLeagueFee; // mandatory league creation fee
   final double accessFee; // paywall fee when no coupons apply (kept for guard)
-  final double couponUnit; // price per coupon unit
+  final double couponUnit; // full access-fee equivalent per coupon (before partial-payment)
   final double? couponThreshold; // subtotal threshold to apply discount
   final double couponDiscountPercent; // discount percent when threshold is met
   final bool viewersEnabled; // legacy switch
@@ -102,6 +102,28 @@ class RemotePricingPlan {
       viewersEnabled: _boolFromAny(map['viewersEnabled'], fallback: defaults.viewersEnabled),
     );
   }
+}
+
+/// Shared breakdown for "organizer coupon purchase" pricing.
+///
+/// Business rule implemented:
+/// - Organizer pays only the discount portion of couponUnit:
+///   organizerUnit = couponUnit * (discountPercent / 100)
+/// - Bulk/threshold discount applies to that organizer subtotal (what is actually paid).
+class OrganizerCouponPricing {
+  final double organizerUnit; // unrounded per-coupon organizer unit
+  final int qty;
+  final double rawSubtotal; // rounded for currency
+  final double discountedSubtotal; // rounded for currency
+  final bool bulkDiscountApplied;
+
+  const OrganizerCouponPricing({
+    required this.organizerUnit,
+    required this.qty,
+    required this.rawSubtotal,
+    required this.discountedSubtotal,
+    required this.bulkDiscountApplied,
+  });
 }
 
 class _RemotePricingCache {
@@ -216,6 +238,50 @@ class RemotePricingService {
     }
 
     return _roundMoney(plan.currency, subtotal);
+  }
+
+  /// New helper used by coupon purchase flows:
+  /// organizer pays only the discount portion of couponUnit.
+  OrganizerCouponPricing computeOrganizerCouponPricing({
+    required RemotePricingPlan plan,
+    required int couponCount,
+    required int discountPercent,
+  }) {
+    final qty = couponCount < 0 ? 0 : couponCount;
+    final disc = discountPercent.clamp(0, 100);
+
+    if (qty == 0) {
+      return const OrganizerCouponPricing(
+        organizerUnit: 0.0,
+        qty: 0,
+        rawSubtotal: 0.0,
+        discountedSubtotal: 0.0,
+        bulkDiscountApplied: false,
+      );
+    }
+
+    final organizerUnit = plan.couponUnit * (disc / 100.0);
+    final rawSubtotalUnrounded = organizerUnit * qty;
+
+    final threshold = plan.couponThreshold;
+    final thresholdConfigured = threshold != null && threshold > 0;
+    final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
+
+    bool bulkApplied = false;
+    double discountedSubtotalUnrounded = rawSubtotalUnrounded;
+
+    if (thresholdConfigured && rawSubtotalUnrounded >= threshold!) {
+      bulkApplied = true;
+      discountedSubtotalUnrounded = rawSubtotalUnrounded * ((100.0 - pct) / 100.0);
+    }
+
+    return OrganizerCouponPricing(
+      organizerUnit: organizerUnit,
+      qty: qty,
+      rawSubtotal: _roundMoney(plan.currency, rawSubtotalUnrounded),
+      discountedSubtotal: _roundMoney(plan.currency, discountedSubtotalUnrounded),
+      bulkDiscountApplied: bulkApplied,
+    );
   }
 
   static double _round2(double v) => double.parse(v.toStringAsFixed(2));

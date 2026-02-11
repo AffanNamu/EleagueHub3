@@ -552,14 +552,15 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     return FutureBuilder<CouponConfig?>(
       future: CouponConfigService().getConfig(league.id),
       builder: (context, snap) {
-        final hasCfg = snap.hasData && snap.data != null;
         final cfg = snap.data;
+        final bool hasCfg = cfg != null;
+        final bool poolAvailable = hasCfg && (cfg!.qtyRemaining > 0); // qtyRemaining is the gating rule
 
-        final redeemCurrency = hasCfg ? (cfg!.currency) : plan.currency;
+        final redeemCurrency = hasCfg ? cfg!.currency : plan.currency;
 
         return FutureBuilder<double?>(
-          future: (hasCfg && cfg != null)
-              ? _expectedCouponRedemptionAmount(cfg: cfg, localePlan: plan)
+          future: poolAvailable
+              ? _expectedCouponRedemptionAmount(cfg: cfg!, localePlan: plan)
               : Future<double?>.value(null),
           builder: (context, redeemSnap) {
             final redeemPay = redeemSnap.data;
@@ -614,7 +615,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                         ],
                         const SizedBox(height: 16),
 
-                        if (hasCfg) ...[
+                        if (poolAvailable) ...[
                           Row(
                             children: [
                               Expanded(
@@ -640,6 +641,19 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                               color: cs.onSurface.withOpacity(0.60),
                               fontWeight: FontWeight.w600,
                               height: 1.25,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Divider(color: cs.onSurface.withOpacity(0.10)),
+                        ] else if (hasCfg) ...[
+                          // Config exists but qtyRemaining == 0 -> show a clear message instead of failing after tap.
+                          const SizedBox(height: 6),
+                          Text(
+                            'Organizer coupons are sold out for this league.',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.error,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                           const SizedBox(height: 16),

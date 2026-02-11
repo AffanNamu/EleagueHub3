@@ -601,6 +601,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   // Coupon Codes sheet
   // ---------------------------------------------------------------------------
 
+  
+  
+  // ---------------------------------------------------------------------------
+  // Coupon Codes sheet
+  // ---------------------------------------------------------------------------
+
   void _showCouponCodesSheet() {
     final league = _league;
     if (league == null) return;
@@ -625,6 +631,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
+        final cfgStream = CouponConfigService().watchConfig(league.id);
+
         final codesQuery = FirebaseFirestore.instance
             .collection('leagues')
             .doc(league.id)
@@ -632,32 +640,85 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             .orderBy('createdAtMs', descending: true)
             .limit(300);
 
+        // Random batch input
         final countCtrl = TextEditingController(text: '10');
+
+        // Custom code input (single code)
+        final customCtrl = TextEditingController();
+
+        bool customMode = false; // false => random batch, true => custom single
         bool generating = false;
         String? errorText;
 
         return StatefulBuilder(
           builder: (ctx, setStateSheet) {
+            Future<void> _initConfigIfMissing() async {
+              try {
+                // Rules-safe initializer: creates leagues/{leagueId}/couponConfig/config with qtyRemaining.
+                await CouponConfigService().ensureConfigInitializedFromLeague(league.id);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Coupon config initialized.'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              } catch (e) {
+                setStateSheet(() => errorText = 'Init failed: $e');
+              }
+            }
+
             Future<void> _generate() async {
               if (generating) return;
+
               setStateSheet(() {
                 generating = true;
                 errorText = null;
               });
+
               try {
+                final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+                if (organizerAuthUid.isEmpty) {
+                  throw StateError('Not signed in (no Firebase UID).');
+                }
+
+                final svc = CouponCodesService();
+
+                if (customMode) {
+                  final raw = customCtrl.text.trim();
+                  if (raw.isEmpty) {
+                    setStateSheet(() => errorText = 'Enter a custom code');
+                    return;
+                  }
+
+                  // Custom mode always creates exactly 1 code.
+                  final generated = await svc.generateCodes(
+                    leagueId: league.id,
+                    organizerAuthUid: organizerAuthUid,
+                    count: 1,
+                    customCode: raw,
+                  );
+
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(generated.isEmpty ? 'No code generated' : 'Generated: ${generated.first}'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                  return;
+                }
+
+                // Random batch mode
                 final cnt = int.tryParse(countCtrl.text.trim()) ?? 0;
                 if (cnt <= 0) {
                   setStateSheet(() => errorText = 'Enter a positive number');
                   return;
                 }
 
-                final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-                if (organizerAuthUid.isEmpty) {
-                  throw StateError('Not signed in (no Firebase UID).');
-                }
-
                 final requested = cnt.clamp(1, 500);
-                final generated = await CouponCodesService().generateCodes(
+
+                final generated = await svc.generateCodes(
                   leagueId: league.id,
                   organizerAuthUid: organizerAuthUid,
                   count: requested,
@@ -677,6 +738,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               } finally {
                 setStateSheet(() => generating = false);
               }
+            }
+
+            Widget _modeChip({
+              required String label,
+              required bool selected,
+              required VoidCallback onTap,
+            }) {
+              return ChoiceChip(
+                label: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+                selected: selected,
+                onSelected: generating ? null : (_) => onTap(),
+                selectedColor: cs.primary.withOpacity(0.18),
+                backgroundColor: cs.onSurface.withOpacity(0.06),
+                labelStyle: TextStyle(
+                  color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
+                  fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+                ),
+              );
             }
 
             return SafeArea(
@@ -710,35 +789,216 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               ),
                               textAlign: TextAlign.center,
                             ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: countCtrl,
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(
-                                      labelText: 'How many codes?',
-                                      prefixIcon: Icon(Icons.numbers),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                FilledButton.icon(
-                                  onPressed: generating ? null : _generate,
-                                  icon: generating
-                                      ? const SizedBox(
+                            const SizedBox(height: 10),
+
+                            // Config/remaining indicator + init helper
+                            StreamBuilder<CouponConfig?>(
+                              stream: cfgStream,
+                              builder: (context, snap) {
+                                final cfg = snap.data;
+
+                                if (snap.connectionState == ConnectionState.waiting) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Row(
+                                      children: [
+                                        const SizedBox(
                                           width: 16,
                                           height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                        )
-                                      : const Icon(Icons.add),
-                                  label: const Text('Generate'),
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          'Loading coupon config...',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: onSurface.withOpacity(0.70),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+
+                                if (cfg == null) {
+                                  return Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(14),
+                                      color: cs.onSurface.withOpacity(0.04),
+                                      border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Coupon config missing',
+                                          style: theme.textTheme.bodyMedium?.copyWith(
+                                            color: onSurface,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Initialize config to enable code generation (organizer only).',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: onSurface.withOpacity(0.65),
+                                            fontWeight: FontWeight.w600,
+                                            height: 1.25,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: FilledButton.icon(
+                                            onPressed: generating ? null : _initConfigIfMissing,
+                                            icon: const Icon(Icons.build_circle_outlined),
+                                            label: const Text('Initialize'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+
+                                final remaining = cfg.qtyRemaining;
+                                final total = cfg.qtyTotal;
+                                final soldOut = remaining <= 0;
+
+                                return Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(14),
+                                    color: cs.onSurface.withOpacity(0.04),
+                                    border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        soldOut ? Icons.block : Icons.confirmation_number_outlined,
+                                        color: soldOut ? cs.error : cs.primary,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          soldOut
+                                              ? 'No coupons remaining (sold out)'
+                                              : 'Remaining: $remaining (Total purchased: $total)',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: soldOut ? cs.error : onSurface.withOpacity(0.80),
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+
+                            // Mode selector: Random vs Custom
+                            Row(
+                              children: [
+                                _modeChip(
+                                  label: 'Random',
+                                  selected: !customMode,
+                                  onTap: () => setStateSheet(() {
+                                    customMode = false;
+                                    errorText = null;
+                                  }),
+                                ),
+                                const SizedBox(width: 10),
+                                _modeChip(
+                                  label: 'Custom',
+                                  selected: customMode,
+                                  onTap: () => setStateSheet(() {
+                                    customMode = true;
+                                    errorText = null;
+                                  }),
                                 ),
                               ],
                             ),
-                            if (errorText != null) ...[
+
+                            const SizedBox(height: 10),
+
+                            if (!customMode) ...[
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: countCtrl,
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(
+                                        labelText: 'How many random codes?',
+                                        prefixIcon: Icon(Icons.numbers),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  FilledButton.icon(
+                                    onPressed: generating ? null : _generate,
+                                    icon: generating
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                          )
+                                        : const Icon(Icons.add),
+                                    label: const Text('Generate'),
+                                  ),
+                                ],
+                              ),
                               const SizedBox(height: 6),
+                              Text(
+                                'Random codes are one-time use and reduce qtyRemaining by 1 per code.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: onSurface.withOpacity(0.60),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ] else ...[
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: customCtrl,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Custom code (single)',
+                                        prefixIcon: Icon(Icons.edit),
+                                        hintText: 'ESL_BARCA_50%',
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  FilledButton.icon(
+                                    onPressed: generating ? null : _generate,
+                                    icon: generating
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                          )
+                                        : const Icon(Icons.check),
+                                    label: const Text('Create'),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Custom codes cannot contain "/". Creating one consumes 1 remaining coupon.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: onSurface.withOpacity(0.60),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+
+                            if (errorText != null) ...[
+                              const SizedBox(height: 8),
                               Text(
                                 errorText!,
                                 style: theme.textTheme.bodySmall?.copyWith(
@@ -747,6 +1007,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 ),
                               ),
                             ],
+
                             const SizedBox(height: 12),
                             Divider(color: onSurface.withOpacity(0.12)),
                             ConstrainedBox(
@@ -848,7 +1109,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
   }
 
-  Widget _kv(String k, String v, ThemeData theme, ColorScheme cs) {
+Widget _kv(String k, String v, ThemeData theme, ColorScheme cs) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
