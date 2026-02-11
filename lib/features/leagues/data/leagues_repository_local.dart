@@ -439,6 +439,75 @@ class LocalLeaguesRepository {
     return null;
   }
 
+
+
+  // ------------------------------------------------------
+  // Assign team to user in league (compat restore)
+  // ------------------------------------------------------
+  ///
+  /// Some screens (AddTeamsScreen, LeagueAdminScreen) depend on this method to:
+  /// - create/update a Membership for a user
+  /// - set teamId so "My Matches" works
+  ///
+  /// ID POLICY:
+  /// - userId/teamId are expected to be Firebase UIDs (canonical).
+  /// - shareId is display/input only; never store shareId in Membership.userId.
+  Future<void> assignTeamToUserInLeague({
+    required String leagueId,
+    required String userId,
+    required String teamId,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final all = await _getAllMemberships();
+
+    // Choose the most recently updated membership if duplicates exist.
+    final matches = all.where((m) => m.leagueId == leagueId && m.userId == userId).toList();
+    Membership? existing;
+    if (matches.isNotEmpty) {
+      existing = matches.reduce((a, b) => a.updatedAtMs >= b.updatedAtMs ? a : b);
+    }
+
+    // Remove any duplicates; we'll re-add a single canonical record.
+    all.removeWhere((m) => m.leagueId == leagueId && m.userId == userId);
+
+    final Membership updated = (existing != null)
+        ? Membership(
+            id: existing.id,
+            leagueId: existing.leagueId,
+            userId: existing.userId,
+            teamId: teamId,
+            role: existing.role, // preserve role
+            updatedAtMs: now,
+            version: existing.version + 1,
+          )
+        : Membership(
+            id: _uuid.v4(),
+            leagueId: leagueId,
+            userId: userId,
+            teamId: teamId,
+            role: LeagueRole.member,
+            updatedAtMs: now,
+            version: 1,
+          );
+
+    all.add(updated);
+
+    await _prefs.setStringList(
+      kMembershipsKey,
+      all.map((m) => jsonEncode(m.toRemoteMap())).toList(),
+    );
+
+    await _queue.enqueue(
+      id: _uuid.v4(),
+      entityType: 'membership',
+      entityId: updated.id,
+      action: (existing != null) ? 'update' : 'create',
+      lastModified: now,
+      payload: updated.toRemoteMap(),
+    );
+  }
+
   // ------------------------------------------------------
   // Teams
   // ------------------------------------------------------
