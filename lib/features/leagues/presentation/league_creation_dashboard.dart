@@ -24,6 +24,7 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import '../utils/current_user.dart';
 
 enum LeagueCreationType {
   series,
@@ -265,6 +266,61 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth >= 900;
+
+    // REQUIRED: League creation must be tied to Firebase Auth UID so Firestore rules
+    // can authorize organizer-only actions (coupon config / coupon codes).
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (authUid.trim().isEmpty) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: Text(l10n.tr('league_create_appbar_title')),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Glass(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.login, color: cs.primary, size: 44),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Sign in required',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Please sign in to create a league. Organizer permissions and coupons require Firebase Authentication.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: cs.onSurface.withOpacity(0.70),
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: () => context.pop(),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     if (_createdLeague != null) {
       final league = _createdLeague!;
@@ -676,6 +732,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     }
   }
 
+  // ---- UI step widgets unchanged from your original (below) ----
+
   Widget _stepLeagueType(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
@@ -879,8 +937,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           ),
         ),
         const SizedBox(height: 12),
-
-        // Optional images (URL or Upload)
         _sectionTitle('Images (optional)', Icons.image_outlined),
         const SizedBox(height: 10),
         _OptionalImageField(
@@ -898,7 +954,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
           onClear: () => setState(() => _sponsorImageUrl.text = ''),
         ),
-
         const SizedBox(height: 12),
         _infoBanner(
           icon: _typeIcon,
@@ -1011,8 +1066,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       );
     }
 
-    final statusTitle =
-        _paymentCompleted ? l10n.tr('league_create_payment_completed_title') : l10n.tr('league_create_payment_required_title');
+    final statusTitle = _paymentCompleted
+        ? l10n.tr('league_create_payment_completed_title')
+        : l10n.tr('league_create_payment_required_title');
     final statusSubtitle = _paymentCompleted
         ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}'
         : l10n.tr('league_create_payment_required_subtitle');
@@ -1090,7 +1146,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final canCreate = _type != null && _name.text.trim().isNotEmpty && (!_creationRequiresPayment || _paymentCompleted);
+    final canCreate = _type != null &&
+        _name.text.trim().isNotEmpty &&
+        (!_creationRequiresPayment || _paymentCompleted);
 
     return Column(
       key: key,
@@ -1420,21 +1478,20 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         throw StateError('Not signed in (no Firebase UID).');
       }
 
-      // Production: store Firebase UID in league.organizerUserId for new leagues.
-      // (Rules support legacy values for older leagues, but UID is safest.)
-      final organizerUserId = organizerAuthUid;
+      // Keep local short/offline id for UI + offline identity
+      final localUserId = await CurrentUser.getOrCreateUserId();
+      final organizerUserId = localUserId.trim().isNotEmpty ? localUserId.trim() : organizerAuthUid.trim();
 
       final prefs = ref.read(prefsServiceProvider);
       final repo = LocalLeaguesRepository(prefs);
 
-      String? creatorTeamName;
       if (_creatorWillParticipate) {
-        final profile = await UserProfileRepository().fetchByUserId(organizerUserId);
+        // Profiles are stored by Firebase UID, not local short id
+        final profile = await UserProfileRepository().fetchByUserId(organizerAuthUid.trim());
         final name = profile?.teamName.trim() ?? '';
         if (name.isEmpty) {
           throw StateError(l10n.tr('league_create_error_profile_team_name_missing'));
         }
-        creatorTeamName = name;
       }
 
       final leagueId = _draftLeagueId;
@@ -1444,7 +1501,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
       final couponsEnabled = _couponsEnabled;
       final discountPercent = _discountPercent.clamp(0, 100);
-      final couponCount = _couponCount;
+      final couponCount = _couponCount < 0 ? 0 : _couponCount;
 
       final league = League(
         id: leagueId,
@@ -1468,7 +1525,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         region: 'Global',
         maxTeams: _maxTeams,
         season: '2026',
-        organizerUserId: organizerUserId,
+
+        // KEY FIX: rules authority + UI identity kept separate
+        organizerUid: organizerAuthUid.trim(), // Firebase UID authority (rules)
+        organizerUserId: organizerUserId, // short/local id for UI/offline
+
         code: '',
         qrPayloadOverride: '',
         settings: settings,
@@ -1482,14 +1543,14 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       );
 
       // Create/Increment coupon configuration after creation (if enabled)
-      // IMPORTANT: use FirebaseAuth UID for Firestore rules.
+      // IMPORTANT: Firestore rules rely on request.auth.uid (Firebase UID).
       if (couponsEnabled && couponCount > 0) {
         try {
           final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
 
           await CouponConfigService().createOrIncrementOnPurchase(
             leagueId: leagueId,
-            organizerUserId: organizerAuthUid,
+            organizerUserId: organizerAuthUid.trim(), // Firebase UID for rules-safe writes
             qtyPurchased: couponCount,
             discountPercent: discountPercent,
             plan: plan,

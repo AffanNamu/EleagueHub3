@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
@@ -149,19 +150,28 @@ class LocalLeaguesRepository {
 
     final code = (league.code.trim().isNotEmpty) ? league.code.trim().toUpperCase() : _generateJoinCode();
 
+        final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final inferredOrganizerUid = league.organizerUid.trim().isNotEmpty
+        ? league.organizerUid.trim()
+        : (authUid.trim().isNotEmpty
+            ? authUid.trim()
+            : (organizerUserId.trim().length > 20 ? organizerUserId.trim() : ''));
+
     final stored = league.copyWith(
+      organizerUid: inferredOrganizerUid,
       organizerUserId: organizerUserId,
       code: code,
       updatedAtMs: now,
     );
-
-    await _upsertLeagueLocalNoQueue(stored);
+await _upsertLeagueLocalNoQueue(stored);
 
     // organizer membership (local)
     final membership = Membership(
       id: _uuid.v4(),
       leagueId: stored.id,
-      userId: organizerUserId,
+      userId: (FirebaseAuth.instance.currentUser?.uid ?? '').trim().isNotEmpty
+          ? (FirebaseAuth.instance.currentUser!.uid.trim())
+          : organizerUserId,
       teamId: null,
       role: LeagueRole.organizer,
       updatedAtMs: now,
@@ -221,9 +231,15 @@ class LocalLeaguesRepository {
       final doc = query.docs.first;
       final leagueId = doc.id;
 
+      final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final idsToAdd = <String>[];
+      if (authUid.trim().isNotEmpty) idsToAdd.add(authUid.trim());
+      if (userId.trim().isNotEmpty && userId.trim() != authUid.trim()) idsToAdd.add(userId.trim());
+
       await firestore.collection('leagues').doc(leagueId).set(
         {
-          'memberIds': FieldValue.arrayUnion([userId]),
+          // RULES AUTH: request.auth.uid must become a member.
+          'memberIds': FieldValue.arrayUnion(idsToAdd),
           'updatedAtMs': now,
         },
         SetOptions(merge: true),
@@ -303,6 +319,7 @@ class LocalLeaguesRepository {
 
       await _upsertLeagueLocalNoQueue(placeholder);
 
+      final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
       await _queue.enqueue(
         id: _uuid.v4(),
         entityType: 'league_join',
@@ -311,7 +328,10 @@ class LocalLeaguesRepository {
         lastModified: now,
         payload: {
           'code': code,
+          // local/offline id (legacy)
           'userId': userId,
+          // rules-authoritative id (preferred)
+          if (authUid.trim().isNotEmpty) 'authUid': authUid.trim(),
         },
       );
 

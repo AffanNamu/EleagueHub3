@@ -3,13 +3,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:eleaguehub3/core/locale/app_localizations.dart';
-import '../utils/current_user.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
 import 'package:eleaguehub3/features/leagues/models/league.dart';
 import 'package:eleaguehub3/features/leagues/models/league_settings.dart';
 import 'package:eleaguehub3/features/leagues/models/membership.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -48,10 +48,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
   Map<String, bool> _viewerChargesPaid = {};
 
   /// Whether the CURRENT viewer has a participant membership in this league.
-  /// If false (and not owner), they are considered a VIEWER-only for UI badge purposes.
   Map<String, bool> _viewerIsParticipantByLeagueId = {};
 
-  /// resolved viewer id (so owner/lock UI is accurate even if prefs.current_user_id is empty)
+  /// resolved viewer uid (Firebase UID). Empty when signed out.
   String _effectiveUserId = '';
 
   bool _isLoading = true;
@@ -62,6 +61,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
   @override
   bool get wantKeepAlive => true;
 
+  String _authUidOrEmpty() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
+  bool _isOwnerForViewer(League league, String viewerUid) {
+    final v = viewerUid.trim();
+    if (v.isEmpty) return false;
+
+    final orgUid = league.organizerUid.trim();
+    if (orgUid.isNotEmpty) return orgUid == v;
+
+    // Backward compat only if organizerUserId is actually a Firebase UID
+    final legacy = league.organizerUserId.trim();
+    return legacy.isNotEmpty && legacy == v && _looksLikeFirebaseUid(legacy);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -70,7 +85,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     _annRepo = LeagueAnnouncementsFirebase(prefs);
 
     // Initial load must be FAST and never hang on network.
-    // We load local data only; remote sync happens only when user manually refreshes.
     // ignore: discarded_futures
     _loadLeagues(syncFirst: false, showSpinner: true);
   }
@@ -86,7 +100,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
     try {
       if (syncFirst) {
-        // Never let a sync keep the UI stuck forever.
         try {
           await SyncService.instance.syncAll().timeout(const Duration(seconds: 20));
         } catch (e) {
@@ -98,9 +111,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
       final leagues = await _localRepo.listLeagues();
       final prefs = ref.read(prefsServiceProvider);
 
-      String effectiveUserId = prefs.getCurrentUserId() ?? '';
-      if (effectiveUserId.trim().isEmpty) {
-        effectiveUserId = await CurrentUser.getOrCreateUserId();
+      // Always prefer Firebase UID for identity. Fall back to prefs for offline UI.
+      String effectiveUserId = _authUidOrEmpty();
+      if (effectiveUserId.isEmpty) {
+        effectiveUserId = (prefs.getCurrentUserId() ?? '').trim();
       }
 
       final chargesStore = LeagueChargesStore(prefs);
@@ -110,7 +124,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
       final Map<String, bool> viewerPaid = {};
       final Map<String, bool> viewerIsParticipant = {};
 
-      // Local calculations only (fast).
       await Future.wait(
         leagues.map((league) async {
           final teams = await _localRepo.getTeams(league.id);
@@ -121,22 +134,26 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
           counts[league.id] = teams.length + orphanMembersCount;
 
-          viewerIsParticipant[league.id] = memberships.any(
-            (m) =>
-                m.leagueId == league.id &&
-                m.userId == effectiveUserId &&
-                (m.role == LeagueRole.member || m.role == LeagueRole.organizer),
-          );
+          // Participant check uses Firebase UID identity.
+          viewerIsParticipant[league.id] = effectiveUserId.isNotEmpty &&
+              memberships.any(
+                (m) =>
+                    m.leagueId == league.id &&
+                    m.userId == effectiveUserId &&
+                    (m.role == LeagueRole.member || m.role == LeagueRole.organizer),
+              );
 
           final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
 
           if (!requiresCharges) {
             viewerPaid[league.id] = true;
           } else {
-            viewerPaid[league.id] = chargesStore.hasPaidCharges(
-              userId: effectiveUserId,
-              leagueId: league.id,
-            );
+            // If not signed in, treat as not paid (locked).
+            viewerPaid[league.id] = effectiveUserId.isNotEmpty &&
+                chargesStore.hasPaidCharges(
+                  userId: effectiveUserId,
+                  leagueId: league.id,
+                );
           }
         }),
       );
@@ -151,11 +168,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
         _isLoading = false;
       });
 
-      // Announcements may come from Firebase; do not block the "loaded" UI.
-      // Load them best-effort in the background.
       unawaited(_loadLatestAnnouncements(leagues));
     } catch (e) {
-      // If anything fails, never keep a perpetual spinner.
       if (!mounted) return;
       setState(() => _isLoading = false);
       // ignore: avoid_print
@@ -170,7 +184,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     try {
       final Map<String, LeagueAnnouncement?> latestAnns = {};
 
-      // Best-effort per-league fetch with timeouts so it can't hang.
       await Future.wait(leagues.map((league) async {
         try {
           final anns = await _annRepo.listForLeague(league.id).timeout(const Duration(seconds: 5));
@@ -178,9 +191,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
             anns.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
             latestAnns[league.id] = anns.first;
           }
-        } catch (_) {
-          // Ignore per-league announcement failures (offline, timeout, etc.)
-        }
+        } catch (_) {}
       }));
 
       if (!mounted) return;
@@ -193,7 +204,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
   }
 
   Future<void> _refreshLeagues() async {
-    // Manual refresh: do a sync, then reload local data.
     await _loadLeagues(syncFirst: true, showSpinner: true);
   }
 
@@ -203,18 +213,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     if (_payingLeagueId == league.id) return;
 
     final prefs = ref.read(prefsServiceProvider);
-    String userId = _effectiveUserId;
-    if (userId.trim().isEmpty) {
-      userId = prefs.getCurrentUserId() ?? '';
-    }
-    if (userId.trim().isEmpty) {
-      userId = await CurrentUser.getOrCreateUserId();
+    final authUid = _authUidOrEmpty();
+
+    if (authUid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sign in required to unlock paid leagues.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
     }
 
     final requiresCharges = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
     if (!requiresCharges) return;
 
-    if (league.organizerUserId == userId) {
+    if (_isOwnerForViewer(league, authUid)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(l10n.tr('leagues_creator_unlocked')),
@@ -225,7 +239,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     }
 
     final store = LeagueChargesStore(prefs);
-    final alreadyPaid = store.hasPaidCharges(userId: userId, leagueId: league.id);
+    final alreadyPaid = store.hasPaidCharges(userId: authUid, leagueId: league.id);
     if (alreadyPaid) {
       setState(() {
         _viewerChargesPaid[league.id] = true;
@@ -272,7 +286,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
       final result = await paymentService.payLeagueCharges(
         context: context,
-        userId: userId,
+        userId: authUid, // Firebase UID
         leagueId: league.id,
         leagueName: league.name,
       );
@@ -292,7 +306,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
       final receipt = LeagueChargesReceipt(
         leagueId: league.id,
-        userId: userId,
+        userId: authUid,
         receiptId: result.receiptId ?? '',
         provider: result.provider,
         paidAtMs: result.paidAtMs,
@@ -330,8 +344,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     super.build(context);
 
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final media = MediaQuery.of(context);
     final screenWidth = media.size.width;
@@ -380,11 +393,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
                     child: _isLoading
-                        ? Center(
-                            child: CircularProgressIndicator(
-                              color: cs.primary,
-                            ),
-                          )
+                        ? Center(child: CircularProgressIndicator(color: cs.primary))
                         : _leagues.isEmpty
                             ? _buildEmptyState(context)
                             : _buildLeagueList(context, _leagues, isTablet),
@@ -410,12 +419,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
       '$registered / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}',
     ];
 
-    // Viewer capacity (optional paid add-on)
     if (league.viewerCapacity > 0) {
       pieces.add('${league.viewerCapacity} Viewers');
     }
 
-    // Description (optional)
     final desc = league.description.trim();
     if (desc.isNotEmpty) {
       pieces.add(desc);
@@ -436,9 +443,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     final l10n = context.l10n;
     final cs = Theme.of(context).colorScheme;
 
-    final prefs = ref.read(prefsServiceProvider);
-    final String currentUserId = prefs.getCurrentUserId() ?? '';
-    final String viewerId = _effectiveUserId.isNotEmpty ? _effectiveUserId : currentUserId;
+    final viewerUid = _effectiveUserId.trim();
+    final authUid = _authUidOrEmpty();
 
     final media = MediaQuery.of(context);
     final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
@@ -459,7 +465,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
       itemBuilder: (context, index) {
         final league = leagues[index];
 
-        final bool isOwner = league.organizerUserId == viewerId || league.organizerUserId == currentUserId;
+        final bool isOwner = _isOwnerForViewer(league, authUid.isNotEmpty ? authUid : viewerUid);
 
         final bool viewerIsParticipant = _viewerIsParticipantByLeagueId[league.id] ?? false;
         final bool viewerIsViewerOnly = !isOwner && !viewerIsParticipant;
@@ -505,7 +511,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
               ),
             ),
 
-            // League image (optional) — list shows league image only.
             PositionedDirectional(
               bottom: 14,
               start: 14,
@@ -807,6 +812,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
   Future<void> _showJoinByIdSheet(BuildContext context) async {
     final l10n = context.l10n;
 
+    final authUid = _authUidOrEmpty();
+    if (authUid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sign in required to join a league.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     final controller = TextEditingController();
     LeagueJoinMode mode = LeagueJoinMode.participant;
     String? error;
@@ -814,7 +830,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
 
     final prefs = ref.read(prefsServiceProvider);
     final repo = LocalLeaguesRepository(prefs);
-    final userId = await CurrentUser.getOrCreateUserId();
 
     Future<void> doJoin(StateSetter setModalState) async {
       final code = controller.text.trim().toUpperCase();
@@ -831,7 +846,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
       try {
         final league = await repo.joinLeagueLocallyByCode(
           joinCode: code,
-          userId: userId,
+          // IMPORTANT: Firebase UID (rules authority)
+          userId: authUid,
           mode: mode,
           placeholderBuilder: (generatedLeagueId) {
             final now = DateTime.now().millisecondsSinceEpoch;
@@ -843,6 +859,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
               region: l10n.tr('common_region_global'),
               maxTeams: 20,
               season: '2026',
+              organizerUid: '',
               organizerUserId: '',
               code: code,
               qrPayloadOverride: '',
@@ -853,7 +870,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
           },
         );
 
-        final Membership? membership = await repo.getMembership(leagueId: league.id, userId: userId);
+        final Membership? membership = await repo.getMembership(leagueId: league.id, userId: authUid);
         final effectiveMode = (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
 
         if (!context.mounted) return;
@@ -1093,8 +1110,7 @@ class _LeagueImageThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final url = imageUrl.trim();
     final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
@@ -1102,28 +1118,19 @@ class _LeagueImageThumb extends StatelessWidget {
     final Widget content;
 
     if (bytes != null) {
-      content = Image.memory(
-        bytes,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-      );
+      content = Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
     } else if (url.isNotEmpty) {
       content = Image.network(
         url,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) {
-          return Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.65));
-        },
+        errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.65)),
         loadingBuilder: (context, child, event) {
           if (event == null) return child;
           return Center(
             child: SizedBox(
               width: 16,
               height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: cs.primary.withOpacity(0.85),
-              ),
+              child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary.withOpacity(0.85)),
             ),
           );
         },

@@ -16,8 +16,6 @@ class AppAdminsService {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Fallback static admins (always allowed even if /app/admins is missing).
-  // Add your default owner UIDs here so you can bootstrap the dynamic list in Firestore.
   static const Set<String> _staticPricingAdmins = {
     'a0JDUelQW3TEyoXTm4ESuGi7ndq1',
   };
@@ -59,7 +57,6 @@ class AppAdminsService {
   bool isPricingAdminUid(String? uid) {
     final u = (uid ?? '').trim();
     if (u.isEmpty) return false;
-    // Allow either statically whitelisted or dynamically configured admins.
     return _staticPricingAdmins.contains(u) || _dynamicPricingAdmins.contains(u);
   }
 

@@ -576,82 +576,70 @@ class ProfileScreen extends ConsumerWidget {
           else
             Glass(
               padding: const EdgeInsets.all(14),
-              child: StreamBuilder<UserProfile?>(
-                stream: repo.watchByUserId(uid),
-                builder: (context, psnap) {
-                  // Support legacy leagues where organizerUserId stored as shareId.
-                  final shareId = (psnap.data?.effectiveShareId.trim().isNotEmpty ?? false)
-                      ? psnap.data!.effectiveShareId.trim()
-                      : UserProfile.deriveShareIdFromUid(uid);
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                // IMPORTANT:
+                // Authorization is based on Firebase UID ONLY.
+                // We list organizer leagues by organizerUid to match Firestore rules.
+                stream: FirebaseFirestore.instance
+                    .collection('leagues')
+                    .where('organizerUid', isEqualTo: uid)
+                    .limit(25)
+                    .snapshots(),
+                builder: (context, snap) {
+                  if (snap.hasError) {
+                    return Text(
+                      'Failed to load coupons.',
+                      style: t.bodyMedium?.copyWith(
+                        color: theme.colorScheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    );
+                  }
 
-                  final organizerIds = <String>{
-                    uid.trim(),
-                    shareId.trim(),
-                  }.where((s) => s.isNotEmpty).toList();
+                  if (!snap.hasData) {
+                    return Center(child: CircularProgressIndicator(color: theme.colorScheme.primary));
+                  }
 
-                  final leaguesStream = FirebaseFirestore.instance
-                      .collection('leagues')
-                      .where('organizerUserId', whereIn: organizerIds)
-                      .limit(25)
-                      .snapshots();
+                  final leagues = snap.data!.docs
+                      .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
+                      .where((m) {
+                        final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
+                        if (!enabled) return false;
+                        final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
+                        return dp >= 0;
+                      })
+                      .toList();
 
-                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: leaguesStream,
-                    builder: (context, snap) {
-                      if (snap.hasError) {
-                        return Text(
-                          'Failed to load coupons.',
-                          style: t.bodyMedium?.copyWith(
-                            color: theme.colorScheme.error,
-                            fontWeight: FontWeight.w700,
+                  if (leagues.isEmpty) {
+                    return Text(
+                      'No coupons found. Enable coupons during league creation payment.\n\n'
+                      'If your league was created before organizerUid migration, run the migration script to restore access.',
+                      style: t.bodyMedium?.copyWith(
+                        color: onSurface.withOpacity(0.72),
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      for (final m in leagues) ...[
+                        _OrganizerLeagueCouponsTile(
+                          leagueName: (m['name'] as String?) ?? 'League',
+                          subtitle: _couponLeagueSubtitle(
+                            enabled: true,
+                            discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
                           ),
-                        );
-                      }
-
-                      if (!snap.hasData) {
-                        return Center(child: CircularProgressIndicator(color: theme.colorScheme.primary));
-                      }
-
-                      final leagues = snap.data!.docs
-                          .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
-                          .where((m) {
-                            final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
-                            if (!enabled) return false;
-                            final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
-                            return dp >= 0;
-                          })
-                          .toList();
-
-                      if (leagues.isEmpty) {
-                        return Text(
-                          'No coupons found. Enable coupons during league creation payment.',
-                          style: t.bodyMedium?.copyWith(
-                            color: onSurface.withOpacity(0.72),
-                            fontWeight: FontWeight.w600,
+                          onView: () => _showCouponConfigSheet(
+                            context,
+                            leagueId: (m['id'] as String?) ?? '',
+                            leagueName: (m['name'] as String?) ?? 'League',
                           ),
-                        );
-                      }
-
-                      return Column(
-                        children: [
-                          for (final m in leagues) ...[
-                            _OrganizerLeagueCouponsTile(
-                              leagueName: (m['name'] as String?) ?? 'League',
-                              subtitle: _couponLeagueSubtitle(
-                                enabled: true,
-                                discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
-                              ),
-                              onView: () => _showCouponConfigSheet(
-                                context,
-                                leagueId: (m['id'] as String?) ?? '',
-                                leagueName: (m['name'] as String?) ?? 'League',
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                          ],
-                        ],
-                      );
-                    },
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ],
                   );
                 },
               ),

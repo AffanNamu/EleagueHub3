@@ -55,16 +55,15 @@ class CouponConfig {
     final int disc = discountPercent.clamp(0, 100);
     final int usersPay = (100 - disc).clamp(0, 100);
 
-    // Always store canonical currency format.
     final String c = currency.trim().toUpperCase();
 
     return <String, dynamic>{
       'leagueId': leagueId,
-      'organizerUserId': organizerUserId,
+      'organizerUserId': organizerUserId, // display only (rules should not depend on it)
       'currency': c,
       'unitPrice': unitPrice,
       'effectiveUnit': effectiveUnit,
-      'threshold': threshold, // can be null
+      'threshold': threshold,
       'thresholdDiscountPercent': thresholdDiscountPercent,
 
       // preferred
@@ -123,11 +122,8 @@ class CouponConfig {
       threshold: threshold,
       thresholdDiscountPercent: _toDouble(map['thresholdDiscountPercent'], fallback: 30.0),
       discountPercent: disc,
-
-      // keep legacy values readable
       userPaysPercent: _toInt(map['userPaysPercent'], fallback: usersPayDerived).clamp(0, 100),
       organizerPaysPercent: _toInt(map['organizerPaysPercent'], fallback: 100).clamp(0, 100),
-
       qtyTotal: _toInt(map['qtyTotal'], fallback: 0),
       qtyRemaining: _toInt(map['qtyRemaining'], fallback: 0),
       createdAtMs: _toInt(map['createdAtMs'], fallback: 0),
@@ -142,6 +138,10 @@ class CouponConfigService {
 
   DocumentReference<Map<String, dynamic>> _configRef(String leagueId) {
     return _firestore.collection('leagues').doc(leagueId).collection('couponConfig').doc('config');
+  }
+
+  DocumentReference<Map<String, dynamic>> _leagueRef(String leagueId) {
+    return _firestore.collection('leagues').doc(leagueId);
   }
 
   // Read helpers --------------------------------------------------------------
@@ -185,14 +185,16 @@ class CouponConfigService {
 
   // Create or increment configuration atomically after payment ---------------
 
-  /// Backward compatible:
-  /// - preferred: pass discountPercent
-  /// - legacy: pass userPaysPercent (we derive discountPercent = 100 - userPaysPercent)
-  ///
   /// IMPORTANT:
-  /// - Firestore rules require organizerUserId on the config doc to match request.auth.uid
-  ///   (or legacy shareId, depending on deployment).
-  /// - This service enforces organizerUserId = FirebaseAuth UID for all writes.
+  /// - All AUTH is via Firebase UID (request.auth.uid) and league.organizerUid in rules.
+  /// - `organizerUserId` parameter is kept only for call-site compatibility; it is NOT trusted.
+  /// - This function writes organizerUserId = authUid (stable, rules-friendly).
+  ///
+  /// Legacy safety:
+  /// - If a config exists and organizerUserId is NOT authUid (e.g. it is a short/shareId),
+  ///   we DO NOT block in-app. Instead we verify league ownership by reading the league doc
+  ///   and checking organizerUid/ownerUid/etc == authUid.
+  ///   (Rules remain the real source of truth.)
   Future<void> createOrIncrementOnPurchase({
     required String leagueId,
     required String organizerUserId,
@@ -203,8 +205,7 @@ class CouponConfigService {
   }) async {
     final authUid = _requireAuthUid();
 
-    // Enforce canonical auth UID for writes (rules compatibility).
-    // We keep the param for call-site compatibility, but do not trust it.
+    // Canonical: write auth UID (never short id) to be consistent with UID-authoritative model.
     final String organizerUidForWrite = authUid;
 
     final int qty = qtyPurchased < 0 ? 0 : qtyPurchased;
@@ -215,7 +216,6 @@ class CouponConfigService {
 
     final int usersPay = (100 - disc).clamp(0, 100);
 
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
     final ref = _configRef(leagueId);
 
     final currency = _normalizeCurrency(plan.currency);
@@ -227,49 +227,79 @@ class CouponConfigService {
 
     // Compute discounted subtotal for this batch and effective unit for the batch
     double batchSubtotal = couponUnit * qty;
-    if (qty > 0 && plan.couponThreshold != null && plan.couponThreshold! > 0 && batchSubtotal >= plan.couponThreshold!) {
+    if (qty > 0 &&
+        plan.couponThreshold != null &&
+        plan.couponThreshold! > 0 &&
+        batchSubtotal >= plan.couponThreshold!) {
       final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
       batchSubtotal = batchSubtotal * ((100.0 - pct) / 100.0);
     }
     final double batchEffectiveUnit = qty > 0 ? _round2(batchSubtotal / qty) : _round2(couponUnit);
 
     await _firestore.runTransaction((tx) async {
+      // READS first
       final snap = await tx.get(ref);
+      final nowWallMs = DateTime.now().millisecondsSinceEpoch;
 
       if (!snap.exists) {
+        // Create
+        final int createdAtMs = nowWallMs > 0 ? nowWallMs : 1;
         final data = <String, dynamic>{
           'leagueId': leagueId,
-          'organizerUserId': organizerUidForWrite,
+          'organizerUserId': organizerUidForWrite, // display only; auth is via league.organizerUid in rules
           'currency': currency,
           'unitPrice': _round2(couponUnit),
           'effectiveUnit': _round2(batchEffectiveUnit),
-          'threshold': plan.couponThreshold, // can be null
+          'threshold': plan.couponThreshold,
           'thresholdDiscountPercent': plan.couponDiscountPercent,
 
-          // preferred
           'discountPercent': disc,
 
-          // legacy/back-compat (keep)
+          // legacy/back-compat
           'userPaysPercent': usersPay,
           'organizerPaysPercent': 100,
 
           'qtyTotal': qty,
           'qtyRemaining': qty,
-          'createdAtMs': nowMs,
-          'updatedAtMs': nowMs,
+          'createdAtMs': createdAtMs,
+          'updatedAtMs': createdAtMs,
           'version': 1,
         };
         tx.set(ref, data);
         return;
       }
 
+      // Update/increment
       final existing = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       final existingOrganizer = (existing['organizerUserId'] as String?) ?? '';
 
-      // If config exists and is owned by someone else, do not allow mutation.
-      // This is an extra safety net in addition to Firestore rules.
+      // If config "belongs" to a legacy id (short/shareId), don't block here.
+      // Instead verify league ownership by Firebase UID.
       if (existingOrganizer.isNotEmpty && existingOrganizer != organizerUidForWrite) {
-        throw StateError('notOrganizer');
+        final leagueSnap = await tx.get(_leagueRef(leagueId));
+        if (!leagueSnap.exists) {
+          throw StateError('leagueMissing');
+        }
+        final ld = (leagueSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+
+        bool isLeagueOwner = false;
+        final orgUid = (ld['organizerUid'] as String?) ?? '';
+        final ownerUid = (ld['ownerUid'] as String?) ?? '';
+        final orgUserId = (ld['organizerUserId'] as String?) ?? '';
+        final ownerId = (ld['ownerId'] as String?) ?? '';
+
+        if (orgUid == organizerUidForWrite) isLeagueOwner = true;
+        if (ownerUid == organizerUidForWrite) isLeagueOwner = true;
+
+        // Backward compat (ONLY if those happen to be Firebase UIDs in older deployments)
+        if (orgUserId == organizerUidForWrite) isLeagueOwner = true;
+        if (ownerId == organizerUidForWrite) isLeagueOwner = true;
+
+        if (!isLeagueOwner) {
+          throw StateError('notOrganizer');
+        }
+        // Do NOT attempt to change organizerUserId here because your rules' update allowlist
+        // does not include organizerUserId (would cause permission-denied).
       }
 
       final int prevTotal = (existing['qtyTotal'] as num?)?.toInt() ?? 0;
@@ -284,10 +314,13 @@ class CouponConfigService {
       final int newTotal = prevTotal + qty;
       final int newRemaining = prevRemaining + qty;
 
-      // Weighted average across TOTAL purchased (more correct for reporting)
       final double newEffectiveUnit = newTotal > 0
           ? _round2(((prevEffectiveUnit * prevTotal) + (batchEffectiveUnit * qty)) / newTotal)
           : _round2(prevEffectiveUnit);
+
+      // Ensure updatedAtMs strictly increases (some rules require >)
+      final int prevUpdatedAtMs = (existing['updatedAtMs'] as num?)?.toInt() ?? 0;
+      final int writeNowMs = (nowWallMs > prevUpdatedAtMs) ? nowWallMs : (prevUpdatedAtMs + 1);
 
       final update = <String, dynamic>{
         'currency': currency,
@@ -296,16 +329,15 @@ class CouponConfigService {
         'threshold': plan.couponThreshold,
         'thresholdDiscountPercent': plan.couponDiscountPercent,
 
-        // preferred
         'discountPercent': disc,
 
-        // legacy/back-compat (keep)
+        // legacy/back-compat
         'userPaysPercent': usersPay,
         'organizerPaysPercent': 100,
 
         'qtyTotal': newTotal,
         'qtyRemaining': newRemaining,
-        'updatedAtMs': nowMs,
+        'updatedAtMs': writeNowMs,
       };
 
       tx.set(ref, update, SetOptions(merge: true));

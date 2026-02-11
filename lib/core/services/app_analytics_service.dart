@@ -61,7 +61,7 @@ class AppAnalyticsService {
     // Primitive Firestore-safe types
     if (v is String || v is bool || v is int || v is double) return v;
 
-    // num -> int/double
+    // num -> double (Firestore supports ints too, but this keeps consistency)
     if (v is num) return v.toDouble();
 
     // Timestamp / GeoPoint are Firestore-native

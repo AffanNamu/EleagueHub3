@@ -43,6 +43,11 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   /// Firebase Auth UID (required by Firestore rules for memberships/coupons/redemptions).
   String _authUid = '';
 
+  /// Rules-authoritative organizer/owner Firebase UIDs from Firestore league doc.
+  /// These prevent treating short/local ids as permission authority.
+  String _remoteOrganizerUid = '';
+  String _remoteOwnerUid = '';
+
   bool _hasPaid = false;
   LeagueChargesReceipt? _receipt;
 
@@ -79,6 +84,36 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     String localUserId = prefs.getCurrentUserId() ?? '';
     if (localUserId.trim().isEmpty) {
       localUserId = await CurrentUser.getOrCreateUserId();
+    }
+
+    // Fetch remote, rules-authoritative organizer/owner uids.
+    String remoteOrganizerUid = '';
+    String remoteOwnerUid = '';
+    if (authUid.trim().isNotEmpty) {
+      try {
+        final snap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
+        final data = snap.data();
+        if (data != null) {
+          remoteOrganizerUid = (data['organizerUid'] as String?)?.trim() ?? '';
+          remoteOwnerUid = (data['ownerUid'] as String?)?.trim() ?? '';
+
+          // Backward compat ONLY if these fields actually contain Firebase UID and match current auth
+          if (remoteOrganizerUid.isEmpty) {
+            final legacyOrg = (data['organizerUserId'] as String?)?.trim() ?? '';
+            if (legacyOrg.isNotEmpty && legacyOrg == authUid.trim()) {
+              remoteOrganizerUid = authUid.trim();
+            }
+          }
+          if (remoteOwnerUid.isEmpty) {
+            final legacyOwner = (data['ownerId'] as String?)?.trim() ?? '';
+            if (legacyOwner.isNotEmpty && legacyOwner == authUid.trim()) {
+              remoteOwnerUid = authUid.trim();
+            }
+          }
+        }
+      } catch (_) {
+        // ignore: offline/denied/missing
+      }
     }
 
     final store = LeagueChargesStore(prefs);
@@ -122,6 +157,10 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       _league = league;
       _authUid = authUid;
       _localUserId = localUserId;
+
+      _remoteOrganizerUid = remoteOrganizerUid;
+      _remoteOwnerUid = remoteOwnerUid;
+
       _hasPaid = paidAuth || paidLocal;
       _receipt = receipt;
       _isParticipant = isParticipant;
@@ -132,10 +171,22 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
   bool _isClassic(League league) => league.format == LeagueFormat.classic;
 
+  /// Organizer bypass MUST match Firestore rules (Firebase UID only).
+  /// - Prefer leagues/{leagueId}.organizerUid/ownerUid
+  /// - Fallback only if organizerUserId happens to store Firebase UID (not short id)
   bool _isOrganizerAlwaysAllowed(League league) {
-    final org = league.organizerUserId.trim();
-    if (org.isEmpty) return false;
-    return (org == _authUid.trim() && _authUid.trim().isNotEmpty) || (org == _localUserId.trim() && _localUserId.trim().isNotEmpty);
+    final auth = _authUid.trim();
+    if (auth.isEmpty) return false;
+
+    final ro = _remoteOrganizerUid.trim();
+    final rw = _remoteOwnerUid.trim();
+    if (ro.isNotEmpty || rw.isNotEmpty) {
+      return ro == auth || rw == auth;
+    }
+
+    // Fallback only if organizerUserId is actually Firebase UID
+    final orgLegacy = league.organizerUserId.trim();
+    return orgLegacy.isNotEmpty && orgLegacy == auth;
   }
 
   // New gating rules:

@@ -277,10 +277,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   }
 
   bool _isCreator(League league, {required String authUid, required String localUserId}) {
+    // Rules authority: organizerUid (Firebase UID)
+    final orgUid = league.organizerUid.trim();
+    if (authUid.trim().isNotEmpty && orgUid.isNotEmpty && orgUid == authUid.trim()) return true;
+
+    // Backward compat (only for legacy local UI; not used for Firestore auth)
     final org = league.organizerUserId.trim();
-    if (org.isEmpty) return false;
-    if (authUid.trim().isNotEmpty && org == authUid.trim()) return true;
-    if (localUserId.trim().isNotEmpty && org == localUserId.trim()) return true;
+    if (authUid.trim().isNotEmpty && org.isNotEmpty && org == authUid.trim()) return true;
+    if (localUserId.trim().isNotEmpty && org.isNotEmpty && org == localUserId.trim()) return true;
+
     return false;
   }
 

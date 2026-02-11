@@ -70,6 +70,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   /// Firebase Auth UID (required by Firestore rules for coupons/codes).
   String _currentAuthUid = '';
 
+  /// Remote, rules-authoritative organizer/owner UIDs from Firestore league doc.
+  /// Used to ensure coupon admin UI matches server-side rules (Firebase UID only).
+  String _remoteOrganizerUid = '';
+  String _remoteOwnerUid = '';
+
   final Uuid _uuid = const Uuid();
 
   static const List<String> _groupNames = <String>[
@@ -95,6 +100,27 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     return (local.isNotEmpty && org == local) || (auth.isNotEmpty && org == auth);
   }
+
+  /// Coupon admin permission must match Firestore rules.
+  /// Firebase UID is the ONLY authority; short/share IDs are display-only.
+  ///
+  /// We prefer the remote league doc fields:
+  /// - organizerUid / ownerUid
+  /// and fall back ONLY if organizerUserId happens to store the Firebase UID.
+  bool _canManageCoupons(League league) {
+    final auth = _currentAuthUid.trim();
+    if (auth.isEmpty) return false;
+
+    final ro = _remoteOrganizerUid.trim();
+    final rw = _remoteOwnerUid.trim();
+    if (ro.isNotEmpty || rw.isNotEmpty) {
+      return ro == auth || rw == auth;
+    }
+
+    // Fallback: safe only when organizerUserId is actually a Firebase UID.
+    return league.organizerUserId.trim() == auth;
+  }
+
 
   // IMPORTANT: league.couponDiscountPercent is now DISCOUNT percent (0..100),
   // not "users pay percent".
@@ -167,10 +193,43 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     bool showAddMe = false;
     String currentUserId = '';
     String currentAuthUid = '';
+    String remoteOrganizerUid = '';
+    String remoteOwnerUid = '';
 
     try {
       currentAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
       currentUserId = await CurrentUser.getUserId();
+
+      // Fetch rules-authoritative organizer/owner uid from Firestore.
+      // This prevents UI from treating short/share IDs as admin identity.
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('leagues')
+            .doc(widget.leagueId)
+            .get();
+        final data = snap.data();
+        if (data != null) {
+          remoteOrganizerUid = (data['organizerUid'] as String?)?.trim() ?? '';
+          remoteOwnerUid = (data['ownerUid'] as String?)?.trim() ?? '';
+
+          // Backward compat ONLY if legacy fields contain Firebase UID and match current auth.
+          if (remoteOrganizerUid.isEmpty) {
+            final legacyOrg = (data['organizerUserId'] as String?)?.trim() ?? '';
+            if (legacyOrg.isNotEmpty && legacyOrg == currentAuthUid) {
+              remoteOrganizerUid = currentAuthUid;
+            }
+          }
+          if (remoteOwnerUid.isEmpty) {
+            final legacyOwner = (data['ownerId'] as String?)?.trim() ?? '';
+            if (legacyOwner.isNotEmpty && legacyOwner == currentAuthUid) {
+              remoteOwnerUid = currentAuthUid;
+            }
+          }
+        }
+      } catch (_) {
+        // ignore (offline / denied / missing)
+      }
+
 
       final isOrganizer = league != null && (
           (league.organizerUserId.trim().isNotEmpty && league.organizerUserId == currentUserId) ||
@@ -209,7 +268,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     if (_processingUpgradePayment) return;
 
-    if (!_isOrganizer(league)) {
+    if (!_canManageCoupons(league)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Only the organizer can purchase add-ons.'),
@@ -523,6 +582,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   void _showCouponCodesSheet() {
     final league = _league;
     if (league == null) return;
+    if (!_canManageCoupons(league)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only the organizer can manage coupon codes.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1196,7 +1264,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     return ListView(
       children: [
-        if (league != null && _isOrganizer(league))
+        if (league != null && _canManageCoupons(league))
           _buildSettingsTile(
             context,
             Icons.payments_outlined,
@@ -1212,7 +1280,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             league.couponsEnabled ? _couponSubtitleFromLeague(league) : 'Not enabled',
             onTap: _showCouponsConfigSheet,
           ),
-        if (league != null && _isOrganizer(league))
+        if (league != null && _canManageCoupons(league))
           _buildSettingsTile(
             context,
             Icons.qr_code,

@@ -5,8 +5,8 @@ import 'package:flutterwave_standard/flutterwave.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/config/flutterwave_config.dart';
-import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/services/app_analytics_service.dart';
+import '../../../core/services/remote_pricing_service.dart';
 
 final leagueChargesPaymentServiceProvider = Provider<LeagueChargesPaymentService>((ref) {
   return FlutterwaveLeagueChargesPaymentService();
@@ -163,7 +163,7 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
       analyticsKind = cpn.isNotEmpty ? 'redemption' : 'access';
       final int pct = (couponDiscountPercent ?? 0) < 0 ? 0 : (couponDiscountPercent ?? 0);
 
-      // Log attempt (best-effort)
+      // Log attempt (best-effort). Analytics service stores userId as auth uid; actor id goes to actorUserId.
       await AppAnalyticsService.instance.logPaymentAttempt(
         kind: analyticsKind,
         leagueId: leagueId,
@@ -192,7 +192,9 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
 
       final txRef = 'EH-CHG-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
-      final couponPart = (cpn.isNotEmpty && pct > 0) ? ' (coupon $cpn: ${pct}%)' : (cpn.isNotEmpty ? ' (coupon $cpn)' : '');
+      final couponPart = (cpn.isNotEmpty && pct > 0)
+          ? ' (coupon $cpn: ${pct}%)'
+          : (cpn.isNotEmpty ? ' (coupon $cpn)' : '');
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -219,7 +221,6 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
                 ? 'FLW-${response.txRef}'
                 : 'FLW-$txRef';
 
-        // Log success
         await AppAnalyticsService.instance.logPaymentResult(
           kind: analyticsKind,
           leagueId: leagueId,
@@ -241,7 +242,6 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         );
       }
 
-      // Log failure
       await AppAnalyticsService.instance.logPaymentResult(
         kind: analyticsKind,
         leagueId: leagueId,
@@ -261,7 +261,6 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         totalAmount: totalAmount,
       );
     } catch (e) {
-      // Log failure
       try {
         if (currencyUsed.isEmpty) {
           final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));

@@ -8,7 +8,6 @@ import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/league_creation_payment_service.dart';
-import '../utils/current_user.dart';
 
 class LeagueCreationPaymentScreen extends ConsumerStatefulWidget {
   const LeagueCreationPaymentScreen({
@@ -96,16 +95,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
   double _round2(double v) => double.parse(v.toStringAsFixed(2));
 
-  Future<String> _bestUserIdForPayment() async {
-    // Prefer Firebase UID (consistent with Firestore rules).
+  Future<String> _requireAuthUidForPayment() async {
+    // REQUIRED: Firebase UID is authoritative for Firestore writes after payment.
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.trim().isNotEmpty) return uid.trim();
-
-    // Fallback to local/offline id for legacy flows (payment provider may still accept it).
-    final local = await CurrentUser.getOrCreateUserId();
-    if (local.trim().isNotEmpty) return local.trim();
-
-    throw StateError('Not signed in.');
+    throw StateError('Sign in required.');
   }
 
   @override
@@ -118,6 +112,60 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     final provider = ref.watch(leagueCreationPaymentServiceProvider);
 
     final addonsOnly = _addonsOnlyFromRouteExtra();
+
+    // Require auth (otherwise the paid flow cannot complete Firestore writes under rules)
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (authUid.trim().isEmpty) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: Text(addonsOnly ? 'Upgrade payment' : l10n.tr('league_creation_payment_appbar_title')),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Glass(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.login, color: cs.primary, size: 44),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Sign in required',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Please sign in to continue. Payments must be tied to your Firebase account.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: cs.onSurface.withOpacity(0.70),
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: () => context.pop<LeagueCreationPaymentResult?>(null),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return GlassScaffold(
       appBar: AppBar(
@@ -349,7 +397,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                   value: _discountPercent.toDouble(),
                                   min: 0,
                                   max: 100,
-                                  divisions: 20, // steps of 5%
+                                  divisions: 20,
                                   label: '$_discountPercent%',
                                   onChanged: _processing
                                       ? null
@@ -387,27 +435,15 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                 ),
                               ),
                               const SizedBox(height: 6),
-                              _kv(
-                                context,
-                                'League creation fee',
-                                '${_money(baseFee)} $currency',
-                              ),
-                              _kv(
-                                context,
-                                'Coupons subtotal',
-                                '${_money(rawCouponSubtotal)} $currency',
-                              ),
+                              _kv(context, 'League creation fee', '${_money(baseFee)} $currency'),
+                              _kv(context, 'Coupons subtotal', '${_money(rawCouponSubtotal)} $currency'),
                               _kv(
                                 context,
                                 discountApplies ? 'Threshold discount (${_money(plan.couponDiscountPercent)}%)' : 'Threshold discount',
                                 discountApplies ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
                               ),
                               const Divider(),
-                              _kvStrong(
-                                context,
-                                'Total payable now',
-                                '${_money(total)} $currency',
-                              ),
+                              _kvStrong(context, 'Total payable now', '${_money(total)} $currency'),
                             ],
                           ),
                         ),
@@ -429,17 +465,15 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     : () async {
                                         setState(() => _processing = true);
                                         try {
-                                          final userId = await _bestUserIdForPayment();
+                                          final userId = await _requireAuthUidForPayment();
 
                                           final result = await provider.collectLeagueCreationFee(
                                             context: context,
                                             userId: userId,
                                             leagueName: widget.leagueName,
                                             addonsOnly: addonsOnly,
-                                            // viewers removed: keep 0 for backward compatibility
                                             viewerCapacity: 0,
                                             buyCouponsForParticipants: _buyCoupons,
-                                            // NEW: pass DISCOUNT percent
                                             couponDiscountPercent: _discountPercent,
                                             couponCount: _buyCoupons ? _couponCount : 0,
                                           );

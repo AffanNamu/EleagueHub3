@@ -43,9 +43,14 @@ class League {
   final int maxTeams;
   final String season;
 
-  /// Owner/organiser user id (admin/owner)
-  /// IMPORTANT: New deployments should store Firebase Auth UID here for consistent Firestore rules.
-  /// Backward compatible: old deployments may store a shareId/local id.
+  /// RULES AUTHORITY:
+  /// Firebase Auth UID of organizer (server-side authorization uses this).
+  /// Backward compatible: may be missing in old records.
+  final String organizerUid;
+
+  /// UI/OFFLINE ID:
+  /// Short/local id used in older deployments and offline-first local storage.
+  /// Backward compatible: old deployments may store a shareId/local id here.
   final String organizerUserId;
 
   /// Join/invite code (Join ID).
@@ -76,6 +81,7 @@ class League {
     required this.region,
     required this.maxTeams,
     required this.season,
+    this.organizerUid = '',
     required this.organizerUserId,
     required this.code,
     required this.qrPayloadOverride,
@@ -124,7 +130,11 @@ class League {
         'region': region,
         'maxTeams': maxTeams,
         'season': season,
-        'organizerUserId': organizerUserId,
+
+        // Identity
+        'organizerUid': organizerUid, // Firebase UID authority
+        'organizerUserId': organizerUserId, // short/local id for UI/offline
+
         'code': code,
         'qrPayload': qrPayloadOverride,
         'settings': settings.toMap(),
@@ -168,17 +178,21 @@ class League {
 
   static League fromRemoteMap(Map<String, dynamic> map) {
     // Backward/forward compatible key resolution (some deployments may have used different keys).
-    final leagueImageUrl =
-        _stringFromAny(map['leagueImageUrl']).trim().isNotEmpty ? _stringFromAny(map['leagueImageUrl']) : //
-            _stringFromAny(map['leagueImage']).trim().isNotEmpty ? _stringFromAny(map['leagueImage']) : //
-                _stringFromAny(map['imageUrl']).trim().isNotEmpty ? _stringFromAny(map['imageUrl']) : //
-                    _stringFromAny(map['logoUrl']);
+    final leagueImageUrl = _stringFromAny(map['leagueImageUrl']).trim().isNotEmpty
+        ? _stringFromAny(map['leagueImageUrl'])
+        : _stringFromAny(map['leagueImage']).trim().isNotEmpty
+            ? _stringFromAny(map['leagueImage'])
+            : _stringFromAny(map['imageUrl']).trim().isNotEmpty
+                ? _stringFromAny(map['imageUrl'])
+                : _stringFromAny(map['logoUrl']);
 
-    final sponsorImageUrl =
-        _stringFromAny(map['sponsorImageUrl']).trim().isNotEmpty ? _stringFromAny(map['sponsorImageUrl']) : //
-            _stringFromAny(map['sponsorImage']).trim().isNotEmpty ? _stringFromAny(map['sponsorImage']) : //
-                _stringFromAny(map['sponsorLogoUrl']).trim().isNotEmpty ? _stringFromAny(map['sponsorLogoUrl']) : //
-                    _stringFromAny(map['sponsorUrl']);
+    final sponsorImageUrl = _stringFromAny(map['sponsorImageUrl']).trim().isNotEmpty
+        ? _stringFromAny(map['sponsorImageUrl'])
+        : _stringFromAny(map['sponsorImage']).trim().isNotEmpty
+            ? _stringFromAny(map['sponsorImage'])
+            : _stringFromAny(map['sponsorLogoUrl']).trim().isNotEmpty
+                ? _stringFromAny(map['sponsorLogoUrl'])
+                : _stringFromAny(map['sponsorUrl']);
 
     final viewerCapacity = _intFromAny(
       map['viewerCapacity'] ?? map['viewerCount'],
@@ -201,23 +215,22 @@ class League {
     );
     final safeCouponCount = couponCount < 0 ? 0 : couponCount;
 
-    // Backward compatible organizer id resolution:
-    // - organizerUserId (preferred/current)
-    // - ownerId (older deployments)
-    // - organizerId (just in case)
+    final id = (map['id'] as String?) ?? (map['leagueId'] as String?) ?? '';
+    final name = (map['name'] as String?) ?? (map['leagueName'] as String?) ?? '';
+
+    // New authoritative organizer UID (Firebase UID)
+    String organizerUid = _stringFromAny(map['organizerUid']).trim();
+
+    // Backward compatible organizer id resolution for display/offline id:
     final organizerUserId = (map['organizerUserId'] as String?) ??
         (map['ownerId'] as String?) ??
         (map['organizerId'] as String?) ??
         '';
 
-    // Backward compatible id/name resolution (some sources may omit explicit id fields)
-    final id = (map['id'] as String?) ??
-        (map['leagueId'] as String?) ??
-        '';
-
-    final name = (map['name'] as String?) ??
-        (map['leagueName'] as String?) ??
-        '';
+    // If organizerUid missing but organizerUserId looks like a Firebase UID, treat it as organizerUid.
+    if (organizerUid.isEmpty && organizerUserId.trim().length > 20) {
+      organizerUid = organizerUserId.trim();
+    }
 
     return League(
       id: id,
@@ -230,12 +243,11 @@ class League {
       couponDiscountPercent: couponDiscountPercent,
       couponCount: safeCouponCount,
       format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
-      privacy: (map['isPrivate'] == 1 || map['isPrivate'] == true)
-          ? LeaguePrivacy.private
-          : LeaguePrivacy.public,
+      privacy: (map['isPrivate'] == 1 || map['isPrivate'] == true) ? LeaguePrivacy.private : LeaguePrivacy.public,
       region: map['region'] as String? ?? 'Global',
       maxTeams: (map['maxTeams'] as num?)?.toInt() ?? 20,
       season: map['season'] as String? ?? '2026',
+      organizerUid: organizerUid,
       organizerUserId: organizerUserId,
       code: map['code'] as String? ?? '',
       qrPayloadOverride: map['qrPayload'] as String? ?? '',
@@ -262,6 +274,7 @@ class League {
     String? region,
     int? maxTeams,
     String? season,
+    String? organizerUid,
     String? organizerUserId,
     String? code,
     String? qrPayloadOverride,
@@ -284,6 +297,7 @@ class League {
       region: region ?? this.region,
       maxTeams: maxTeams ?? this.maxTeams,
       season: season ?? this.season,
+      organizerUid: organizerUid ?? this.organizerUid,
       organizerUserId: organizerUserId ?? this.organizerUserId,
       code: code ?? this.code,
       qrPayloadOverride: qrPayloadOverride ?? this.qrPayloadOverride,

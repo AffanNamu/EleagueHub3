@@ -9,9 +9,9 @@ class RemotePricingPlan {
   final double createLeagueFee; // mandatory league creation fee
   final double accessFee; // paywall fee when no coupons apply (kept for guard)
   final double couponUnit; // price per coupon unit
-  final double? couponThreshold; // subtotal threshold to apply discount (e.g., 20 USD, or NGN equivalent)
-  final double couponDiscountPercent; // discount percent when threshold is met (e.g., 30)
-  final bool viewersEnabled; // should be false going forward (legacy switch)
+  final double? couponThreshold; // subtotal threshold to apply discount
+  final double couponDiscountPercent; // discount percent when threshold is met
+  final bool viewersEnabled; // legacy switch
 
   const RemotePricingPlan({
     required this.currency,
@@ -43,13 +43,13 @@ class RemotePricingPlan {
     );
   }
 
-  // Defaults MUST match your intended business numbers (used when /app/pricing is missing).
+  // Defaults when /app/pricing missing or unreadable.
   factory RemotePricingPlan.defaultsUsd() => const RemotePricingPlan(
         currency: 'USD',
         createLeagueFee: 5.0,
         accessFee: 1.5,
         couponUnit: 1.5,
-        couponThreshold: 20.0, // apply discount at >= $20 subtotal
+        couponThreshold: 20.0,
         couponDiscountPercent: 30.0,
         viewersEnabled: false,
       );
@@ -59,7 +59,7 @@ class RemotePricingPlan {
         createLeagueFee: 4000.0,
         accessFee: 1000.0,
         couponUnit: 1000.0,
-        couponThreshold: null, // set in Firestore; if null, no auto-discount until configured
+        couponThreshold: null,
         couponDiscountPercent: 30.0,
         viewersEnabled: false,
       );
@@ -94,9 +94,9 @@ class RemotePricingPlan {
       accessFee: _numToDouble(map['accessFee'], fallback: defaults.accessFee),
       couponUnit: _numToDouble(map['couponUnit'], fallback: defaults.couponUnit),
       couponThreshold: map.containsKey('couponThreshold')
-          ? _numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0) == 0
+          ? (_numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0) == 0
               ? null
-              : _numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0)
+              : _numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0))
           : defaults.couponThreshold,
       couponDiscountPercent: _numToDouble(map['couponDiscountPercent'], fallback: defaults.couponDiscountPercent),
       viewersEnabled: _boolFromAny(map['viewersEnabled'], fallback: defaults.viewersEnabled),
@@ -138,7 +138,6 @@ class RemotePricingService {
       }
 
       final raw = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-
       final ngnMap = (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
       final usdMap = (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
@@ -160,7 +159,7 @@ class RemotePricingService {
         usd: usd,
       );
     } catch (_) {
-      // Fail-safe to defaults if Firestore is unavailable or rules deny.
+      // Fail-safe to defaults if Firestore unavailable or rules deny.
       return _RemotePricingCache(
         fetchedAt: DateTime.now(),
         ngn: RemotePricingPlan.defaultsNgn(),
@@ -198,7 +197,7 @@ class RemotePricingService {
     return _round2(v);
   }
 
-  // Helper to compute discounted coupon subtotal (applies discount only when threshold is set and reached).
+  // Compute coupon subtotal (applies discount only when threshold is set and reached).
   double couponSubtotalWithThresholdDiscount({
     required RemotePricingPlan plan,
     required int couponCount,

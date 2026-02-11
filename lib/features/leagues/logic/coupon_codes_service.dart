@@ -148,18 +148,18 @@ class CouponCodesService {
 
   /// Generate `count` new one-time codes.
   ///
-  /// IMPORTANT (rules):
+  /// RULES REQUIREMENTS (your current rules):
   /// - Must be signed in.
   /// - Must create couponCodes/{codeId} AND decrement couponConfig/config.qtyRemaining by 1
   ///   in the SAME transaction.
-  /// - Must ensure couponConfig/config.updatedAtMs increases (>) on each decrement.
+  /// - Must ensure couponConfig/config.updatedAtMs increases (>) when decrementing.
   ///
-  /// NOTE: `organizerAuthUid` is kept for backward compatibility with existing call sites,
-  /// but Firestore writes use the currently signed-in Firebase UID to satisfy security rules
-  /// consistently across legacy/local ids.
+  /// IMPORTANT:
+  /// - All writes are done using Firebase Auth UID (request.auth.uid) as the effective organizer id.
+  /// - We DO NOT trust short/share IDs for authorization.
   Future<List<String>> generateCodes({
     required String leagueId,
-    String? organizerAuthUid,
+    String? organizerAuthUid, // kept for call-site compatibility; ignored unless equals auth uid
     required int count,
   }) async {
     if (count <= 0) return <String>[];
@@ -169,12 +169,14 @@ class CouponCodesService {
       throw StateError('Not signed in (no Firebase UID).');
     }
 
-    // Only accept organizerAuthUid when it exactly matches the current auth uid.
-    // This prevents accidental passing of legacy/local IDs that would fail rules.
-    final organizerUidForWrite = (organizerAuthUid != null && organizerAuthUid.trim() == authUid) ? authUid : authUid;
+    // Only accept organizerAuthUid if it matches auth uid (prevents passing shareId).
+    final organizerUidForWrite =
+        (organizerAuthUid != null && organizerAuthUid.trim() == authUid) ? authUid : authUid;
 
     final List<String> out = [];
 
+    // IMPORTANT: your security rules enforce -1 qtyRemaining per code creation.
+    // Therefore we generate codes one-by-one in separate transactions.
     for (int i = 0; i < count; i++) {
       String code = '';
       int attempts = 0;
@@ -191,7 +193,7 @@ class CouponCodesService {
 
         try {
           await _firestore.runTransaction((tx) async {
-            // READS (must happen before WRITES in a Firestore transaction)
+            // READS
             final cfgSnap = await tx.get(_cfgRef(leagueId));
             if (!cfgSnap.exists) {
               throw StateError('noConfig');
@@ -208,7 +210,7 @@ class CouponCodesService {
 
             final discountPercent = _discountPercentFromConfig(cfg);
 
-            // Pricing doc must exist to compute expectedAmount consistently
+            // Pricing doc used to compute expectedAmount consistently
             final pricingSnap = await tx.get(_pricingRef());
             final pricingMap = (pricingSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
             final accessFee = _accessFeeForCurrency(pricingMap, currency);
@@ -225,14 +227,15 @@ class CouponCodesService {
               throw StateError('collision');
             }
 
-            // Ensure updatedAtMs strictly increases to satisfy rules.
+            // Ensure config.updatedAtMs strictly increases (required by your rules in decrement path)
             final prevUpdatedAtMs = (cfg['updatedAtMs'] as num?)?.toInt() ?? 0;
             final wallNowMs = DateTime.now().millisecondsSinceEpoch;
             final writeNowMs = (wallNowMs > prevUpdatedAtMs) ? wallNowMs : (prevUpdatedAtMs + 1);
 
-            // WRITES (atomic commit)
+            // WRITES
             tx.set(docRef, <String, dynamic>{
               'leagueId': leagueId,
+              // For compatibility with existing schema; in the new auth model this is informational.
               'organizerUserId': organizerUidForWrite,
               'currency': currency,
               'discountPercent': discountPercent,
@@ -244,7 +247,7 @@ class CouponCodesService {
               'version': 1,
             });
 
-            // Decrement config remaining (must be in same transaction as code creation)
+            // MUST decrement by exactly 1 in the same transaction (rules enforce this)
             tx.update(_cfgRef(leagueId), <String, dynamic>{
               'qtyRemaining': remaining - 1,
               'updatedAtMs': writeNowMs,
@@ -255,7 +258,7 @@ class CouponCodesService {
           break; // success for this code
         } on StateError catch (e) {
           if (e.message == 'collision') {
-            continue; // try a new code
+            continue; // try new code
           }
           rethrow;
         }
@@ -269,15 +272,15 @@ class CouponCodesService {
   /// - If expectedAmount > 0 => collect payment
   /// - Atomically mark code used + create redemption doc (status=paid)
   ///
-  /// IMPORTANT (rules):
-  /// - Writes must use Firebase Auth UID for:
-  ///   - couponCodes/{code}.usedBy
-  ///   - couponRedemptions/{uid} doc id and data.userId
+  /// RULES REQUIREMENTS:
+  /// - couponCodes/{code}.usedBy MUST become request.auth.uid
+  /// - couponRedemptions/{uid} doc id MUST equal request.auth.uid
+  /// - redemption data.userId MUST equal request.auth.uid
   Future<CouponCodeRedeemResult> redeemWithCode({
     required BuildContext context,
     required String leagueId,
     required String leagueName,
-    required String userId,
+    required String userId, // legacy/short id allowed for payment metadata; Firestore uses auth uid
     required String code,
   }) async {
     final authUid = _auth.currentUser?.uid ?? '';
@@ -314,11 +317,9 @@ class CouponCodesService {
       String? receiptId;
 
       if (expectedAmount > 0) {
-        // Keep using the passed `userId` for payment metadata (if your payment layer expects it),
-        // but Firestore writes will use authUid to satisfy rules.
         final pay = await _payment.payLeagueCharges(
           context: context,
-          userId: userId,
+          userId: userId, // payment metadata only
           leagueId: leagueId,
           leagueName: leagueName,
           amountOverride: _moneyStr(currency, expectedAmount),
