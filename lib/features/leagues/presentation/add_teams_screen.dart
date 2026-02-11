@@ -10,6 +10,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
+import '../../auth/models/user_profile.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
 import '../logic/fixture_generator.dart';
@@ -19,6 +20,12 @@ import '../models/membership.dart';
 import '../models/team.dart';
 import 'widgets/roster_csv_importer.dart';
 
+/// Add teams screen (admin/organizer tool)
+///
+/// ID POLICY (IMPORTANT):
+/// - Internal IDs stored in Team.id / Membership.userId / Membership.teamId MUST be Firebase Auth UID.
+/// - shareId (short id) is allowed ONLY for display + user input.
+/// - Input shareId is resolved to Firebase UID via UserProfileRepository.fetchByUserIdOrShareId.
 class AddTeamsScreen extends ConsumerStatefulWidget {
   final String leagueId;
   final LeagueFormat format;
@@ -42,7 +49,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   League? _league;
 
-  /// Temp entries are uid-driven (internal Firebase uid):
+  /// Temp entries are uid-driven (Firebase uid):
   /// { userId, teamName, group }
   final List<Map<String, String>> _tempTeams = [];
 
@@ -96,9 +103,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
+  String _shareId(String uid) {
+    final u = uid.trim();
+    if (u.isEmpty) return '';
+    // Safe deterministic fallback even if /users doc missing.
+    return UserProfile.deriveShareIdFromUid(u);
+  }
+
   /// Group UI list:
   /// - If any existing/new team already uses groups E–H, show all groups.
-  /// - Else: show A–D until totalCount > 16, then show A–H (supports both 16 and 32 builds).
+  /// - Else: show A–D until totalCount > 16, then show A–H.
   List<String> get _activeGroups {
     if (!_isGroupLeague) return const <String>[];
 
@@ -173,8 +187,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final league = await _localRepo.getLeagueById(widget.leagueId);
     final teams = await _localRepo.getTeams(widget.leagueId);
 
-    // Auto-show joined participants (memberships) in this screen too,
-    // so they count toward fixture unlock without manually adding them.
+    // Auto-show joined participants (memberships) in this screen too.
     final allMemberships = await _localRepo.listMemberships();
     final memberUserIds = allMemberships
         .where((m) => m.leagueId == widget.leagueId && m.role == LeagueRole.member)
@@ -207,10 +220,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         }
       }
 
-      if (name.isEmpty) name = uid;
+      // UI-friendly fallback: show short id instead of raw UID.
+      if (name.isEmpty) name = _shareId(uid);
 
       autoTemp.add({
-        'userId': uid,
+        'userId': uid, // internal uid
         'teamName': name,
         'group': defaultGroup,
       });
@@ -221,10 +235,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     setState(() {
       _league = league;
       _existingTeams = teams;
-
-      // Add auto-joined users as "New" entries (deduped).
       _tempTeams.addAll(autoTemp);
-
       _isLoading = false;
 
       if (_isGroupLeague) {
@@ -286,6 +297,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final input = userIdOrShareId.trim();
     if (input.isEmpty) return null;
 
+    // Cache is keyed by internal uid. If the user pasted a uid, cache can hit.
     final cached = _teamNameCacheByUserId[input];
     if (cached != null && cached.trim().isNotEmpty) {
       return _ResolvedTeam(userId: input, teamName: cached.trim());
@@ -294,7 +306,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final profile = await _profiles.fetchByUserIdOrShareId(input);
     if (profile == null) return null;
 
-    final resolvedUserId = profile.userId.trim();
+    // Canonical internal id:
+    final resolvedUserId = profile.userId.trim(); // Firebase UID
     final teamName = profile.teamName.trim();
     if (resolvedUserId.isEmpty || teamName.isEmpty) return null;
 
@@ -338,7 +351,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     setState(() {
       _bulkError = null;
       _tempTeams.add({
-        'userId': resolved.userId,
+        'userId': resolved.userId, // internal uid
         'teamName': resolved.teamName,
         'group': groupToUse,
       });
@@ -446,6 +459,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             ),
             content: StatefulBuilder(
               builder: (ctx, setModalState) {
+                final resolvedShare = (resolved == null) ? '' : _shareId(resolved!.userId);
+
                 return SizedBox(
                   width: 520,
                   child: Column(
@@ -513,10 +528,21 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '${l10n.tr('add_teams_uid_prefix')}${resolved!.userId}',
+                                // UI: show shareId prominently
+                                '${l10n.tr('add_teams_uid_prefix')}$resolvedShare',
                                 style: TextStyle(
-                                  color: onSurface.withOpacity(0.55),
+                                  color: onSurface.withOpacity(0.65),
                                   fontSize: 11,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                // Debug: internal uid (helps support)
+                                'Internal uid: ${resolved!.userId}',
+                                style: TextStyle(
+                                  color: onSurface.withOpacity(0.45),
+                                  fontSize: 10,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -797,6 +823,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   itemBuilder: (context, index) {
                                     final r = rows[index];
                                     final isOk = r.status == _BulkStatus.ok && r.resolved != null;
+                                    final resolvedShort = isOk ? _shareId(r.resolved!.userId) : '';
 
                                     return Glass(
                                       borderRadius: 16,
@@ -828,7 +855,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                                   ),
                                                   const SizedBox(height: 2),
                                                   Text(
-                                                    isOk ? r.resolved!.teamName : l10n.tr('add_teams_no_profile_found_short'),
+                                                    isOk
+                                                        ? '${r.resolved!.teamName} • $resolvedShort'
+                                                        : l10n.tr('add_teams_no_profile_found_short'),
                                                     style: TextStyle(
                                                       color: onSurface.withOpacity(isOk ? 0.72 : 0.45),
                                                       fontSize: 11,
@@ -930,7 +959,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       final teamName = t['teamName']!;
 
       return Team(
-        id: userId,
+        id: userId, // internal uid
         leagueId: widget.leagueId,
         name: teamName,
         groupId: groupId,
@@ -968,7 +997,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   /// GENERATE button: generates fixtures ONLY when required team count is reached.
-  /// It always saves teams first (silent), to ensure fixtures match persisted roster.
   Future<void> _generateFixturesOnly() async {
     final l10n = context.l10n;
 
@@ -995,7 +1023,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       return;
     }
 
-    // Classic/Group: if fixtures exist, confirm regeneration (resets results).
+    // Classic/Group: if fixtures exist, confirm regeneration.
     if (existingFixtures.isNotEmpty && widget.format != LeagueFormat.uclSwiss) {
       final ok = await showDialog<bool>(
             context: context,
@@ -1058,7 +1086,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         groupSize: 4,
       );
     } else if (widget.format == LeagueFormat.uclSwiss) {
-      // First Swiss round only.
       generated = SwissPairingEngine.generateInitialRound(
         leagueId: widget.leagueId,
         teams: _existingTeams,
@@ -1432,9 +1459,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       if (i < existingCount) {
                         final team = _existingTeams[i];
                         final groupLabel = _groupLabelForTeam(team);
+                        final short = _shareId(team.id);
                         final label = _isGroupLeague
-                            ? '${l10n.tr('add_teams_label_saved')} · $groupLabel'
-                            : l10n.tr('add_teams_label_saved');
+                            ? '${l10n.tr('add_teams_label_saved')} · $groupLabel · $short'
+                            : '${l10n.tr('add_teams_label_saved')} · $short';
 
                         return _buildTeamTile(
                           index: i,
@@ -1448,9 +1476,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         final idx = i - existingCount;
                         final team = _tempTeams[idx];
                         final group = team['group'] ?? '';
+                        final short = _shareId(team['userId'] ?? '');
                         final label = group.isEmpty
-                            ? l10n.tr('add_teams_label_new')
-                            : '${l10n.tr('add_teams_label_new')} · ${_groupDisplayName(l10n, group)}';
+                            ? '${l10n.tr('add_teams_label_new')} · $short'
+                            : '${l10n.tr('add_teams_label_new')} · ${_groupDisplayName(l10n, group)} · $short';
 
                         return _buildTeamTile(
                           index: i,
@@ -1525,6 +1554,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       selectedGroup = activeGroups.first;
     }
 
+    final short = _shareId(team.id);
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1573,11 +1604,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             Align(
                               alignment: AlignmentDirectional.centerStart,
                               child: Text(
-                                l10n.tr('add_teams_uid_internal_label'),
+                                'UserId (short)',
                                 style: TextStyle(color: onSurface.withOpacity(0.72), fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -1585,8 +1616,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             Align(
                               alignment: AlignmentDirectional.centerStart,
                               child: Text(
-                                team.id,
-                                style: TextStyle(color: onSurface.withOpacity(0.72), fontSize: 12),
+                                short,
+                                style: TextStyle(color: primary, fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                '${l10n.tr('add_teams_uid_internal_label')} ${team.id}',
+                                style: TextStyle(color: onSurface.withOpacity(0.55), fontSize: 11),
                               ),
                             ),
                             if (_isGroupLeague) ...[
@@ -1758,7 +1797,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 }
 
 class _ResolvedTeam {
-  final String userId;
+  final String userId; // Firebase UID
   final String teamName;
 
   const _ResolvedTeam({
