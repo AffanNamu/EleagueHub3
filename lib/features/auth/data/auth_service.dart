@@ -6,6 +6,10 @@ class AuthService {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  /// Used when the app supports "no explicit login" flows.
+  /// NOTE: Must enable Anonymous auth in Firebase Console.
+  Future<UserCredential> signInAnonymously() => _auth.signInAnonymously();
+
   Future<UserCredential> signInWithGoogle() async {
     final googleUser = await GoogleSignIn().signIn();
     if (googleUser == null) {

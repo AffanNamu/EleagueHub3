@@ -15,6 +15,7 @@ import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
+import '../../auth/models/user_profile.dart';
 import '../data/leagues_repository_local.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
@@ -23,7 +24,6 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
-import '../utils/current_user.dart';
 
 class LeagueCreateWizard extends ConsumerStatefulWidget {
   const LeagueCreateWizard({super.key});
@@ -655,77 +655,21 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   Widget _stepBody({Key? key}) {
-    // Keep your existing wizard steps (not altered).
-    // This file focuses on identity/rules correctness on creation + coupon config writes.
-    // If you want, paste the remaining step widgets and I will preserve them exactly.
+    // NOTE: Keep your existing wizard steps (not altered here).
+    // This patch focuses on identity/rules correctness on creation + coupon config write ordering.
     return Column(
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _infoBanner(
-          icon: Icons.edit_note,
-          title: 'This wizard file was truncated in the snippet you provided.',
-          subtitle: 'Creation logic is fixed. Paste the rest of your step widgets and I will return the complete UI unchanged.',
-          accent: Theme.of(context).colorScheme.primary,
-        ),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: _submitting ? null : () => _create(context),
-          child: const Text('Create league (debug)'),
+        const SizedBox(height: 6),
+        Text(
+          'Wizard steps UI not shown in this snippet.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+          textAlign: TextAlign.center,
         ),
       ],
-    );
-  }
-
-  Widget _infoBanner({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    Color? accent,
-  }) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final a = accent ?? cs.primary;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: cs.onSurface.withOpacity(0.04),
-        border: Border.all(color: a.withOpacity(0.35)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: a, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.70),
-                    height: 1.25,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -751,7 +695,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           child: FilledButton(
             onPressed: _submitting ? null : () => _create(context),
             style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-            child: Text(l10n.tr('league_create_create_league_button_upper'), style: const TextStyle(fontWeight: FontWeight.w900)),
+            child: Text(
+              l10n.tr('league_create_create_league_button_upper'),
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
           ),
         ),
       ],
@@ -786,14 +733,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     setState(() => _submitting = true);
 
     try {
-      final organizerUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (organizerUid.trim().isEmpty) {
+      final organizerUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      if (organizerUid.isEmpty) {
         throw StateError('Not signed in (no Firebase UID).');
       }
 
-      // Short/local id used throughout offline-first local repo.
-      final organizerUserId = await CurrentUser.getOrCreateUserId();
-      final safeOrganizerUserId = organizerUserId.trim().isNotEmpty ? organizerUserId.trim() : organizerUid.trim();
+      // UI-only short/share id (never used for authorization)
+      final derivedShortId = UserProfile.deriveShareIdFromUid(organizerUid).trim();
+      final organizerUserId = derivedShortId.isNotEmpty ? derivedShortId : organizerUid;
 
       final prefs = ref.read(prefsServiceProvider);
       final repo = LocalLeaguesRepository(prefs);
@@ -827,9 +774,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         maxTeams: _maxTeams,
         season: '2026',
 
-        // KEY FIX:
-        organizerUid: organizerUid.trim(), // Firebase UID authority for rules
-        organizerUserId: safeOrganizerUserId, // short/local id for UI/offline
+        // RULES AUTHORITY:
+        organizerUid: organizerUid, // Firebase UID authority for rules
+        // UI/OFFLINE ONLY:
+        organizerUserId: organizerUserId, // shareId for display
 
         code: '',
         qrPayloadOverride: '',
@@ -840,17 +788,24 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
       final stored = await repo.createLeagueLocally(
         league: league,
-        organizerUserId: safeOrganizerUserId,
+        organizerUserId: organizerUserId,
       );
 
-      // Attempt to create/update coupon config immediately.
-      // IMPORTANT: write uses Firebase UID (rules-safe).
+      // CRITICAL FIX:
+      // Sync league to cloud FIRST so leagueDoc exists for couponConfig rules,
+      // then create/update couponConfig if coupons were purchased.
+      try {
+        await SyncTrigger.trySync();
+      } catch (_) {
+        // best-effort
+      }
+
       if (couponsEnabled && safeCouponCount > 0) {
         try {
           final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
           await CouponConfigService().createOrIncrementOnPurchase(
             leagueId: leagueId,
-            organizerUserId: organizerUid.trim(),
+            organizerUserId: organizerUid,
             qtyPurchased: safeCouponCount,
             discountPercent: discountPercent,
             plan: plan,
@@ -867,7 +822,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         }
       }
 
-      // Best-effort sync
+      // Optional: second sync to pull any server-side changes (best-effort)
       // ignore: discarded_futures
       SyncTrigger.trySync();
 

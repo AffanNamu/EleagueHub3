@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
@@ -39,7 +40,15 @@ Future<void> main() async {
     SyncQueueService.init(prefs);
 
     try {
-      await AuthBootstrap.syncCurrentUserToPrefs(prefs);
+      // Ensure we have a FirebaseAuth session before any Firestore reads/writes.
+      await AuthBootstrap.syncCurrentUserToPrefs(
+        prefs,
+        autoSignInAnonymously: true,
+      );
+
+      final u = FirebaseAuth.instance.currentUser;
+      // ignore: avoid_print
+      print('main → auth uid=${u?.uid} anon=${u?.isAnonymous}');
     } catch (e) {
       // ignore: avoid_print
       print('AuthBootstrap sync failed (non-fatal): $e');

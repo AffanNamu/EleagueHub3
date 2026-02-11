@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +17,7 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
+import '../../auth/models/user_profile.dart';
 import '../data/leagues_repository_local.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
@@ -24,7 +26,6 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
-import '../utils/current_user.dart';
 
 enum LeagueCreationType {
   series,
@@ -256,6 +257,25 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _uploadingSponsorImage = false;
       });
     }
+  }
+
+  Future<bool> _waitForRemoteLeagueDoc({
+    required String leagueId,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final fs = FirebaseFirestore.instance;
+    final deadline = DateTime.now().add(timeout);
+
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final snap = await fs.collection('leagues').doc(leagueId).get();
+        if (snap.exists) return true;
+      } catch (_) {
+        // offline / rules / transient; keep waiting a bit
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    return false;
   }
 
   @override
@@ -1146,9 +1166,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final canCreate = _type != null &&
-        _name.text.trim().isNotEmpty &&
-        (!_creationRequiresPayment || _paymentCompleted);
+    final canCreate = _type != null && _name.text.trim().isNotEmpty && (!_creationRequiresPayment || _paymentCompleted);
 
     return Column(
       key: key,
@@ -1478,15 +1496,15 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         throw StateError('Not signed in (no Firebase UID).');
       }
 
-      // Keep local short/offline id for UI + offline identity
-      final localUserId = await CurrentUser.getOrCreateUserId();
-      final organizerUserId = localUserId.trim().isNotEmpty ? localUserId.trim() : organizerAuthUid.trim();
+      // UI-only identity (short share id). Rules never use this.
+      final derivedShareId = UserProfile.deriveShareIdFromUid(organizerAuthUid.trim()).trim();
+      final organizerUserId = derivedShareId.isNotEmpty ? derivedShareId : organizerAuthUid.trim();
 
       final prefs = ref.read(prefsServiceProvider);
       final repo = LocalLeaguesRepository(prefs);
 
       if (_creatorWillParticipate) {
-        // Profiles are stored by Firebase UID, not local short id
+        // Profiles are stored by Firebase UID.
         final profile = await UserProfileRepository().fetchByUserId(organizerAuthUid.trim());
         final name = profile?.teamName.trim() ?? '';
         if (name.isEmpty) {
@@ -1526,9 +1544,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         maxTeams: _maxTeams,
         season: '2026',
 
-        // KEY FIX: rules authority + UI identity kept separate
+        // KEY: rules authority + UI identity kept separate
         organizerUid: organizerAuthUid.trim(), // Firebase UID authority (rules)
-        organizerUserId: organizerUserId, // short/local id for UI/offline
+        organizerUserId: organizerUserId, // short/shareId for UI/offline display
 
         code: '',
         qrPayloadOverride: '',
@@ -1542,9 +1560,17 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         organizerUserId: organizerUserId,
       );
 
-      // Create/Increment coupon configuration after creation (if enabled)
-      // IMPORTANT: Firestore rules rely on request.auth.uid (Firebase UID).
-      if (couponsEnabled && couponCount > 0) {
+      // CRITICAL FIX:
+      // Ensure the league doc exists in cloud BEFORE writing couponConfig/config,
+      // because rules authorize couponConfig via get(/leagues/{leagueId}).
+      try {
+        await SyncTrigger.trySync();
+      } catch (_) {
+        // best-effort
+      }
+
+      final cloudLeagueReady = await _waitForRemoteLeagueDoc(leagueId: leagueId);
+      if (couponsEnabled && couponCount > 0 && cloudLeagueReady) {
         try {
           final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
 
@@ -1564,6 +1590,16 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               ),
             );
           }
+        }
+      } else if (couponsEnabled && couponCount > 0 && !cloudLeagueReady) {
+        // Avoid a guaranteed permission-denied attempt.
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('League is still syncing to cloud. Coupon config will be available after Sync.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         }
       }
 

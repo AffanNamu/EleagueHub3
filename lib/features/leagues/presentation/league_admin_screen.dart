@@ -65,6 +65,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   bool _processingUpgradePayment = false;
 
   /// Legacy/local user id (may be a shareId in older deployments).
+  /// NOTE: CurrentUser.getUserId() now returns Firebase uid, but we keep this field
+  /// name for backward compatibility with older local storage.
   String _currentUserId = '';
 
   /// Firebase Auth UID (required by Firestore rules for coupons/codes).
@@ -88,42 +90,48 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     'Group H',
   ];
 
-  /// Organizer detection must support both:
-  /// - new leagues storing organizerUserId as Firebase UID
-  /// - legacy leagues storing organizerUserId as local/shareId
-  bool _isOrganizer(League league) {
-    final org = league.organizerUserId.trim();
-    if (org.isEmpty) return false;
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
 
-    final local = _currentUserId.trim();
-    final auth = _currentAuthUid.trim();
+  /// Rules-authoritative owner detection (Firebase UID only).
+  /// Prefer remote organizerUid/ownerUid. Fall back to league.organizerUid if present.
+  /// Last resort: legacy organizerUserId ONLY if it *looks like* a Firebase UID.
+  bool _isRulesOwnerForLeague(
+    League league, {
+    required String authUid,
+    required String remoteOrganizerUid,
+    required String remoteOwnerUid,
+  }) {
+    final a = authUid.trim();
+    if (a.isEmpty) return false;
 
-    return (local.isNotEmpty && org == local) || (auth.isNotEmpty && org == auth);
+    final ro = remoteOrganizerUid.trim();
+    final rw = remoteOwnerUid.trim();
+    if (ro.isNotEmpty || rw.isNotEmpty) {
+      return ro == a || rw == a;
+    }
+
+    final ou = league.organizerUid.trim();
+    if (ou.isNotEmpty) return ou == a;
+
+    final legacy = league.organizerUserId.trim();
+    return _looksLikeFirebaseUid(legacy) && legacy == a;
   }
 
   /// Coupon admin permission must match Firestore rules.
   /// Firebase UID is the ONLY authority; short/share IDs are display-only.
-  ///
-  /// We prefer the remote league doc fields:
-  /// - organizerUid / ownerUid
-  /// and fall back ONLY if organizerUserId happens to store the Firebase UID.
   bool _canManageCoupons(League league) {
     final auth = _currentAuthUid.trim();
     if (auth.isEmpty) return false;
 
-    final ro = _remoteOrganizerUid.trim();
-    final rw = _remoteOwnerUid.trim();
-    if (ro.isNotEmpty || rw.isNotEmpty) {
-      return ro == auth || rw == auth;
-    }
-
-    // Fallback: safe only when organizerUserId is actually a Firebase UID.
-    return league.organizerUserId.trim() == auth;
+    return _isRulesOwnerForLeague(
+      league,
+      authUid: auth,
+      remoteOrganizerUid: _remoteOrganizerUid,
+      remoteOwnerUid: _remoteOwnerUid,
+    );
   }
 
-
-  // IMPORTANT: league.couponDiscountPercent is now DISCOUNT percent (0..100),
-  // not "users pay percent".
+  // IMPORTANT: league.couponDiscountPercent is DISCOUNT percent (0..100)
   String _couponSubtitleFromLeague(League league) {
     if (!league.couponsEnabled) return 'Not enabled';
     final pct = league.couponDiscountPercent;
@@ -197,54 +205,58 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     String remoteOwnerUid = '';
 
     try {
-      currentAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      currentAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
       currentUserId = await CurrentUser.getUserId();
 
       // Fetch rules-authoritative organizer/owner uid from Firestore.
       // This prevents UI from treating short/share IDs as admin identity.
-      try {
-        final snap = await FirebaseFirestore.instance
-            .collection('leagues')
-            .doc(widget.leagueId)
-            .get();
-        final data = snap.data();
-        if (data != null) {
-          remoteOrganizerUid = (data['organizerUid'] as String?)?.trim() ?? '';
-          remoteOwnerUid = (data['ownerUid'] as String?)?.trim() ?? '';
+      if (currentAuthUid.isNotEmpty) {
+        try {
+          final snap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
+          final data = snap.data();
+          if (data != null) {
+            remoteOrganizerUid = (data['organizerUid'] as String?)?.trim() ?? '';
+            remoteOwnerUid = (data['ownerUid'] as String?)?.trim() ?? '';
 
-          // Backward compat ONLY if legacy fields contain Firebase UID and match current auth.
-          if (remoteOrganizerUid.isEmpty) {
-            final legacyOrg = (data['organizerUserId'] as String?)?.trim() ?? '';
-            if (legacyOrg.isNotEmpty && legacyOrg == currentAuthUid) {
-              remoteOrganizerUid = currentAuthUid;
+            // Backward compat ONLY if legacy fields contain Firebase UID and match current auth.
+            if (remoteOrganizerUid.isEmpty) {
+              final legacyOrg = (data['organizerUserId'] as String?)?.trim() ?? '';
+              if (legacyOrg.isNotEmpty && legacyOrg == currentAuthUid) {
+                remoteOrganizerUid = currentAuthUid;
+              }
+            }
+            if (remoteOwnerUid.isEmpty) {
+              final legacyOwner = (data['ownerId'] as String?)?.trim() ?? '';
+              if (legacyOwner.isNotEmpty && legacyOwner == currentAuthUid) {
+                remoteOwnerUid = currentAuthUid;
+              }
             }
           }
-          if (remoteOwnerUid.isEmpty) {
-            final legacyOwner = (data['ownerId'] as String?)?.trim() ?? '';
-            if (legacyOwner.isNotEmpty && legacyOwner == currentAuthUid) {
-              remoteOwnerUid = currentAuthUid;
-            }
-          }
+        } catch (_) {
+          // ignore (offline / denied / missing)
         }
-      } catch (_) {
-        // ignore (offline / denied / missing)
       }
 
-
-      final isOrganizer = league != null && (
-          (league.organizerUserId.trim().isNotEmpty && league.organizerUserId == currentUserId) ||
-          (currentAuthUid.trim().isNotEmpty && league.organizerUserId == currentAuthUid)
-      );
+      final isOrganizer = league != null &&
+          _isRulesOwnerForLeague(
+            league,
+            authUid: currentAuthUid,
+            remoteOrganizerUid: remoteOrganizerUid,
+            remoteOwnerUid: remoteOwnerUid,
+          );
 
       if (isOrganizer) {
         final teams = await _localRepo.getTeams(widget.leagueId);
-        final alreadyParticipant = teams.any((t) => t.id == currentUserId);
+
+        // Team ids are now the Firebase uid (CurrentUser.getUserId()) in modern builds.
+        final myTeamId = currentAuthUid.isNotEmpty ? currentAuthUid : currentUserId;
+        final alreadyParticipant = myTeamId.trim().isNotEmpty && teams.any((t) => t.id == myTeamId);
         showAddMe = !alreadyParticipant;
       }
     } catch (_) {
       showAddMe = false;
       currentUserId = '';
-      currentAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      currentAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     }
 
     if (!mounted) return;
@@ -253,6 +265,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       _space = space;
       _currentUserId = currentUserId;
       _currentAuthUid = currentAuthUid;
+
+      // CRITICAL: persist remote organizer/owner so coupon admin gating matches rules.
+      _remoteOrganizerUid = remoteOrganizerUid;
+      _remoteOwnerUid = remoteOwnerUid;
+
       _showAddMeAsParticipant = showAddMe;
       _isLeagueLoading = false;
     });
@@ -318,7 +335,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       final addCoupons = result.buyCouponsForParticipants ? (result.couponCount < 0 ? 0 : result.couponCount) : 0;
 
       final nextCouponsEnabled = league.couponsEnabled || result.buyCouponsForParticipants;
-      final nextDiscountPercent = result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
+      final nextDiscountPercent =
+          result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
       final nextCouponCount = league.couponCount + addCoupons;
 
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -333,12 +351,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       await _localRepo.saveLeague(updated);
 
       // Update coupon configuration in Firestore (create or increment)
-      // IMPORTANT: Firestore rules require organizerUserId to equal request.auth.uid on writes
       try {
         final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
-        final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
 
-        if (organizerAuthUid.trim().isEmpty) {
+        if (organizerAuthUid.isEmpty) {
           throw StateError('Not signed in (no Firebase UID).');
         }
 
@@ -519,7 +536,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 _kv('Currency', cfg.currency, theme, cs),
                                 _kv('Unit price', '${money(cfg.unitPrice)} ${cfg.currency}', theme, cs),
                                 _kv('Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}', theme, cs),
-                                _kv('Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}', theme, cs),
+                                _kv(
+                                  'Threshold',
+                                  cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}',
+                                  theme,
+                                  cs,
+                                ),
                                 _kv('Threshold discount', '${money(cfg.thresholdDiscountPercent)}%', theme, cs),
                                 const Divider(),
                                 _kv('Discount', '${cfg.discountPercent}%', theme, cs),
@@ -582,6 +604,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   void _showCouponCodesSheet() {
     final league = _league;
     if (league == null) return;
+
+    // Must match Firestore rules (remote owner detection).
     if (!_canManageCoupons(league)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -627,8 +651,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                   return;
                 }
 
-                final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-                if (organizerAuthUid.trim().isEmpty) {
+                final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+                if (organizerAuthUid.isEmpty) {
                   throw StateError('Not signed in (no Firebase UID).');
                 }
 
@@ -875,10 +899,21 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     setState(() => _addingMeAsParticipant = true);
 
     try {
-      final userId = await CurrentUser.getUserId();
+      final userId = await CurrentUser.getUserId(); // Firebase uid in modern builds
+      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
 
-      // Keep legacy behavior here because local team IDs are tied to CurrentUser.getUserId()
-      if (league.organizerUserId != userId && league.organizerUserId != (FirebaseAuth.instance.currentUser?.uid ?? '')) {
+      // Prefer rules-authoritative organizer checks.
+      final isOwnerByRules = _isRulesOwnerForLeague(
+        league,
+        authUid: authUid,
+        remoteOrganizerUid: _remoteOrganizerUid,
+        remoteOwnerUid: _remoteOwnerUid,
+      );
+
+      // Legacy fallback for local-only behavior (does not grant coupon/admin access).
+      final legacyOk = league.organizerUserId == userId || (authUid.isNotEmpty && league.organizerUserId == authUid);
+
+      if (!isOwnerByRules && !legacyOk) {
         throw StateError(l10n.tr('league_admin_only_organizer_action'));
       }
 
@@ -1202,13 +1237,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final title = widget.hasPendingChanges
-        ? l10n.tr('league_admin_offline_changes_title')
-        : l10n.tr('league_admin_fully_synced_title');
+    final title = widget.hasPendingChanges ? l10n.tr('league_admin_offline_changes_title') : l10n.tr('league_admin_fully_synced_title');
 
-    final subtitle = widget.hasPendingChanges
-        ? l10n.tr('league_admin_offline_changes_subtitle')
-        : l10n.tr('league_admin_fully_synced_subtitle');
+    final subtitle =
+        widget.hasPendingChanges ? l10n.tr('league_admin_offline_changes_subtitle') : l10n.tr('league_admin_fully_synced_subtitle');
 
     final statusIcon = widget.hasPendingChanges ? Icons.cloud_off : Icons.cloud_done;
     final statusColor = widget.hasPendingChanges ? const Color(0xFFF59E0B) : const Color(0xFF22C55E);
@@ -1299,18 +1331,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           _buildSettingsTile(
             context,
             Icons.person_add_alt_1,
-            _addingMeAsParticipant
-                ? l10n.tr('league_admin_adding_you')
-                : l10n.tr('league_admin_add_me_participant'),
+            _addingMeAsParticipant ? l10n.tr('league_admin_adding_you') : l10n.tr('league_admin_add_me_participant'),
             l10n.tr('league_admin_add_me_participant_subtitle'),
             onTap: _addingMeAsParticipant ? null : _addMeAsParticipant,
           ),
         _buildSettingsTile(
           context,
           Icons.file_download_outlined,
-          _exportingRoster
-              ? l10n.tr('league_admin_exporting_roster')
-              : l10n.tr('league_admin_export_roster'),
+          _exportingRoster ? l10n.tr('league_admin_exporting_roster') : l10n.tr('league_admin_export_roster'),
           l10n.tr('league_admin_export_roster_subtitle'),
           onTap: _exportingRoster ? null : _exportRosterCsv,
         ),
@@ -1338,9 +1366,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         _buildSettingsTile(
           context,
           Icons.spatial_audio_off,
-          _space?.isLive == true
-              ? l10n.tr('league_admin_league_space_live')
-              : l10n.tr('league_admin_league_space_voice_room'),
+          _space?.isLive == true ? l10n.tr('league_admin_league_space_live') : l10n.tr('league_admin_league_space_voice_room'),
           _space?.isLive == true
               ? l10n.tr('league_admin_league_space_live_subtitle')
               : l10n.tr('league_admin_league_space_voice_room_subtitle'),
@@ -1364,9 +1390,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           context,
           Icons.sync,
           l10n.tr('league_admin_sync_now'),
-          _isSyncing
-              ? l10n.tr('league_admin_syncing')
-              : l10n.tr('league_admin_sync_now_subtitle'),
+          _isSyncing ? l10n.tr('league_admin_syncing') : l10n.tr('league_admin_sync_now_subtitle'),
           onTap: _isSyncing ? null : _syncParticipants,
         ),
         _buildSettingsTile(
@@ -1586,9 +1610,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final startPrefix = l10n.tr('league_admin_league_space_start_description_prefix');
         final startSuffix = l10n.tr('league_admin_league_space_start_description_suffix');
 
-        final descText = spaceLive
-            ? '$runningPrefix $leagueName.'
-            : '$startPrefix $leagueName$startSuffix';
+        final descText = spaceLive ? '$runningPrefix $leagueName.' : '$startPrefix $leagueName$startSuffix';
 
         return SafeArea(
           child: Padding(
@@ -1715,8 +1737,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
-                .add(const EdgeInsets.all(16)),
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom).add(const EdgeInsets.all(16)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
@@ -1777,9 +1798,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   final msg = messageController.text.trim();
                                   if (msg.isEmpty) return;
 
-                                  final title = rawTitle.isEmpty
-                                      ? l10n.tr('league_admin_announcement_default_title')
-                                      : rawTitle;
+                                  final title = rawTitle.isEmpty ? l10n.tr('league_admin_announcement_default_title') : rawTitle;
                                   final now = DateTime.now().millisecondsSinceEpoch;
 
                                   final ann = LeagueAnnouncement(

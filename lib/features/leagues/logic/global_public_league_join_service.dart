@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../data/leagues_repository_local.dart';
 import '../domain/models/global_public_league.dart';
@@ -23,13 +24,12 @@ class GlobalPublicLeagueJoinResult {
   });
 }
 
-/// Production-oriented join service:
-/// - Any user can join a PUBLIC league as:
-///   - participant: consumes capacity (registeredCount++)
-///   - viewer: does NOT consume capacity
-/// - Participant join uses a Firestore transaction to enforce capacity safely.
-/// - Viewer join adds the user to memberIds for access, without creating a membership doc.
-/// - Best-effort sync into local storage via existing LocalLeaguesRepository join-by-code.
+/// Join service for PUBLIC leagues.
+///
+/// IMPORTANT (rules):
+/// - All authorization is via FirebaseAuth UID (`request.auth.uid`).
+/// - `memberIds` MUST contain ONLY Firebase UIDs and MUST include `request.auth.uid`.
+/// - Do NOT write short/share IDs into `memberIds`.
 class GlobalPublicLeagueJoinService {
   GlobalPublicLeagueJoinService({
     required FirebaseFirestore firestore,
@@ -42,7 +42,7 @@ class GlobalPublicLeagueJoinService {
 
   Future<GlobalPublicLeagueJoinResult> joinPublicLeague({
     required GlobalPublicLeague league,
-    required String userId,
+    required String userId, // legacy/display only; cloud writes use auth uid
     required LeagueJoinMode mode,
   }) async {
     final leagueId = league.league.id.trim();
@@ -50,47 +50,55 @@ class GlobalPublicLeagueJoinService {
       throw ArgumentError('league.id is required');
     }
 
-    // Always require a join code for local sync (existing architecture).
     final joinCode = league.league.code.trim();
     if (joinCode.isEmpty) {
       throw StateError('League Join ID is missing.');
     }
 
-    final leagueRef = _firestore.collection('leagues').doc(leagueId);
-    final membershipsRef = leagueRef.collection('memberships').doc(userId);
+    // RULES AUTHORITY
+    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (authUid.isEmpty) {
+      throw StateError('Not signed in (FirebaseAuth.currentUser == null).');
+    }
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final leagueRef = _firestore.collection('leagues').doc(leagueId);
+
+    // Deterministic membership doc id by auth uid
+    final membershipsRef = leagueRef.collection('memberships').doc(authUid);
+
+    final wallNow = DateTime.now().millisecondsSinceEpoch;
 
     final GlobalPublicLeagueJoinStatus status = await _firestore.runTransaction((tx) async {
       final snap = await tx.get(leagueRef);
       final data = (snap.data() ?? <String, dynamic>{});
 
+      // Ensure updatedAtMs strictly increases to satisfy rules that use ">"
+      final prevUpdatedAtMs = (data['updatedAtMs'] as num?)?.toInt() ?? 0;
+      final now = (wallNow > prevUpdatedAtMs) ? wallNow : (prevUpdatedAtMs + 1);
+
       final isPrivate = data['isPrivate'] == 1 || data['isPrivate'] == true;
-      if (isPrivate) {
-        return GlobalPublicLeagueJoinStatus.privateLeague;
-      }
+      if (isPrivate) return GlobalPublicLeagueJoinStatus.privateLeague;
 
       final isFinished = data['isFinished'] == true || data['isFinished'] == 1;
-      if (isFinished) {
-        return GlobalPublicLeagueJoinStatus.finished;
-      }
+      if (isFinished) return GlobalPublicLeagueJoinStatus.finished;
 
       final memberIdsRaw = data['memberIds'];
       final memberIds = (memberIdsRaw is List)
           ? memberIdsRaw.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty).toSet()
           : <String>{};
 
-      // Idempotency: if user already has access, don't re-join / re-count.
-      if (memberIds.contains(userId)) {
+      // Idempotent: already has access
+      if (memberIds.contains(authUid)) {
         return GlobalPublicLeagueJoinStatus.alreadyJoined;
       }
 
-      // VIEWER JOIN: do not touch counts, do not create membership.
+      // VIEWER JOIN: do not touch counts, do not create membership doc
       if (mode == LeagueJoinMode.viewer) {
         tx.set(
           leagueRef,
           <String, dynamic>{
-            'memberIds': FieldValue.arrayUnion([userId]),
+            // RULES: append ONLY self (auth uid)
+            'memberIds': FieldValue.arrayUnion([authUid]),
             'updatedAtMs': now,
           },
           SetOptions(merge: true),
@@ -100,13 +108,12 @@ class GlobalPublicLeagueJoinService {
 
       // PARTICIPANT JOIN
       final maxTeams = (data['maxTeams'] as num?)?.toInt() ?? league.league.maxTeams;
-
       final isFullStored = data['isFull'] == true || data['isFull'] == 1;
 
-      final registeredCount = (data['registeredCount'] as num?)?.toInt() ?? (league.registeredCount ?? 0);
+      // CRITICAL: derive registeredCount from remote doc (rules expect +1)
+      final registeredCount = (data['registeredCount'] as num?)?.toInt() ?? 0;
 
       if (isFullStored || registeredCount >= maxTeams) {
-        // Keep `isFull` consistent for the rest of the app.
         tx.set(
           leagueRef,
           <String, dynamic>{
@@ -118,13 +125,13 @@ class GlobalPublicLeagueJoinService {
         return GlobalPublicLeagueJoinStatus.full;
       }
 
-      // If membership doc exists, treat as already joined (but ensure memberIds contains user).
+      // If membership exists, treat as already joined but ensure access is granted
       final membershipSnap = await tx.get(membershipsRef);
       if (membershipSnap.exists) {
         tx.set(
           leagueRef,
           <String, dynamic>{
-            'memberIds': FieldValue.arrayUnion([userId]),
+            'memberIds': FieldValue.arrayUnion([authUid]),
             'updatedAtMs': now,
           },
           SetOptions(merge: true),
@@ -135,13 +142,13 @@ class GlobalPublicLeagueJoinService {
       final nextCount = registeredCount + 1;
       final nextIsFull = nextCount >= maxTeams;
 
-      // Write membership with deterministic docId=userId for idempotency.
+      // Membership doc must use auth uid for both id and userId (rules-friendly)
       tx.set(
         membershipsRef,
         <String, dynamic>{
-          'id': userId,
+          'id': authUid,
           'leagueId': leagueId,
-          'userId': userId,
+          'userId': authUid,
           'teamId': null,
           'role': LeagueRole.member.index,
           'updatedAtMs': now,
@@ -150,13 +157,13 @@ class GlobalPublicLeagueJoinService {
         SetOptions(merge: true),
       );
 
-      // Update league doc counts + access.
+      // League update must append ONLY auth uid
       tx.set(
         leagueRef,
         <String, dynamic>{
           'registeredCount': nextCount,
           'isFull': nextIsFull,
-          'memberIds': FieldValue.arrayUnion([userId]),
+          'memberIds': FieldValue.arrayUnion([authUid]),
           'updatedAtMs': now,
         },
         SetOptions(merge: true),
@@ -171,23 +178,23 @@ class GlobalPublicLeagueJoinService {
       return GlobalPublicLeagueJoinResult(status: status, league: null);
     }
 
-    // Best-effort local sync using existing code path (DO NOT modify legacy join flows).
+    // Best-effort local sync using existing join-by-code flow.
+    // IMPORTANT: local identity should be Firebase UID so memberships line up.
     League? syncedLeague;
     try {
       syncedLeague = await _localRepo.joinLeagueLocallyByCode(
         joinCode: joinCode,
-        userId: userId,
+        userId: authUid,
         mode: mode,
         placeholderBuilder: (generatedLeagueId) {
-          // Only used on transient network failures.
           return league.league.copyWith(
             id: generatedLeagueId,
-            updatedAtMs: now,
+            updatedAtMs: wallNow,
           );
         },
       );
     } catch (_) {
-      // Non-fatal: remote join succeeded; local cache will be updated on next sync/refresh.
+      // non-fatal
     }
 
     return GlobalPublicLeagueJoinResult(

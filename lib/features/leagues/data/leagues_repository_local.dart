@@ -150,12 +150,10 @@ class LocalLeaguesRepository {
 
     final code = (league.code.trim().isNotEmpty) ? league.code.trim().toUpperCase() : _generateJoinCode();
 
-        final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final inferredOrganizerUid = league.organizerUid.trim().isNotEmpty
-        ? league.organizerUid.trim()
-        : (authUid.trim().isNotEmpty
-            ? authUid.trim()
-            : (organizerUserId.trim().length > 20 ? organizerUserId.trim() : ''));
+    // Rules authority: FirebaseAuth uid (anonymous or real).
+    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+
+    final inferredOrganizerUid = authUid.isNotEmpty ? authUid : league.organizerUid.trim();
 
     final stored = league.copyWith(
       organizerUid: inferredOrganizerUid,
@@ -163,15 +161,14 @@ class LocalLeaguesRepository {
       code: code,
       updatedAtMs: now,
     );
-await _upsertLeagueLocalNoQueue(stored);
+
+    await _upsertLeagueLocalNoQueue(stored);
 
     // organizer membership (local)
     final membership = Membership(
       id: _uuid.v4(),
       leagueId: stored.id,
-      userId: (FirebaseAuth.instance.currentUser?.uid ?? '').trim().isNotEmpty
-          ? (FirebaseAuth.instance.currentUser!.uid.trim())
-          : organizerUserId,
+      userId: authUid.isNotEmpty ? authUid : organizerUserId,
       teamId: null,
       role: LeagueRole.organizer,
       updatedAtMs: now,
@@ -231,15 +228,16 @@ await _upsertLeagueLocalNoQueue(stored);
       final doc = query.docs.first;
       final leagueId = doc.id;
 
-      final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final idsToAdd = <String>[];
-      if (authUid.trim().isNotEmpty) idsToAdd.add(authUid.trim());
-      if (userId.trim().isNotEmpty && userId.trim() != authUid.trim()) idsToAdd.add(userId.trim());
+      // RULES AUTHORITY:
+      // memberIds must append exactly +1 element (request.auth.uid only).
+      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      if (authUid.isEmpty) {
+        throw StateError('Sign in required to join this league.');
+      }
 
       await firestore.collection('leagues').doc(leagueId).set(
         {
-          // RULES AUTH: request.auth.uid must become a member.
-          'memberIds': FieldValue.arrayUnion(idsToAdd),
+          'memberIds': FieldValue.arrayUnion([authUid]),
           'updatedAtMs': now,
         },
         SetOptions(merge: true),
@@ -252,13 +250,16 @@ await _upsertLeagueLocalNoQueue(stored);
       final league = League.fromRemoteMap(data);
       await _upsertLeagueLocalNoQueue(league);
 
+      // Memberships should use Firebase UID in modern flows
+      final effectiveMembershipUserId = authUid;
+
       final remoteMembership = await _fetchRemoteMembershipForUser(
         firestore: firestore,
         leagueId: leagueId,
-        userId: userId,
+        userId: effectiveMembershipUserId,
       );
 
-      final localExisting = await getMembership(leagueId: leagueId, userId: userId);
+      final localExisting = await getMembership(leagueId: leagueId, userId: effectiveMembershipUserId);
 
       final existingMembership = remoteMembership ?? localExisting;
 
@@ -285,7 +286,7 @@ await _upsertLeagueLocalNoQueue(stored);
           final membership = Membership(
             id: _uuid.v4(),
             leagueId: leagueId,
-            userId: userId,
+            userId: effectiveMembershipUserId,
             teamId: null,
             role: LeagueRole.member,
             updatedAtMs: now,
@@ -319,7 +320,7 @@ await _upsertLeagueLocalNoQueue(stored);
 
       await _upsertLeagueLocalNoQueue(placeholder);
 
-      final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
       await _queue.enqueue(
         id: _uuid.v4(),
         entityType: 'league_join',
@@ -328,18 +329,20 @@ await _upsertLeagueLocalNoQueue(stored);
         lastModified: now,
         payload: {
           'code': code,
-          // local/offline id (legacy)
+          // legacy/local id (kept for old UI / analytics)
           'userId': userId,
           // rules-authoritative id (preferred)
-          if (authUid.trim().isNotEmpty) 'authUid': authUid.trim(),
+          if (authUid.isNotEmpty) 'authUid': authUid,
         },
       );
 
       if (mode == LeagueJoinMode.participant) {
+        final effectiveMembershipUserId = authUid.isNotEmpty ? authUid : userId;
+
         final membership = Membership(
           id: _uuid.v4(),
           leagueId: generatedLeagueId,
-          userId: userId,
+          userId: effectiveMembershipUserId,
           teamId: null,
           role: LeagueRole.member,
           updatedAtMs: now,
@@ -434,101 +437,6 @@ await _upsertLeagueLocalNoQueue(stored);
       if (m.leagueId == leagueId && m.userId == userId) return m;
     }
     return null;
-  }
-
-  Future<void> assignTeamToUserInLeague({
-    required String leagueId,
-    required String userId,
-    required String teamId,
-  }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    final all = await _getAllMemberships();
-
-    // Deduplicate any existing memberships for this league/user (prevents duplicate tiles).
-    bool deduped = false;
-    final duplicates = all.where((m) => m.leagueId == leagueId && m.userId == userId).toList();
-    if (duplicates.length > 1) {
-      deduped = true;
-
-      final base = duplicates.first;
-      final best = duplicates.reduce((a, b) => a.updatedAtMs >= b.updatedAtMs ? a : b);
-      final bestVersion = duplicates.map((m) => m.version).reduce((a, b) => a > b ? a : b);
-      final role = duplicates.any((m) => m.role == LeagueRole.organizer) ? LeagueRole.organizer : best.role;
-
-      final consolidated = Membership(
-        id: base.id, // keep earliest id stable
-        leagueId: leagueId,
-        userId: userId,
-        teamId: best.teamId,
-        role: role,
-        updatedAtMs: best.updatedAtMs,
-        version: bestVersion,
-      );
-
-      all.removeWhere((m) => m.leagueId == leagueId && m.userId == userId);
-      all.add(consolidated);
-    }
-
-    final idx = all.indexWhere((m) => m.leagueId == leagueId && m.userId == userId);
-
-    // If membership already exists and teamId already correct, do nothing (no extra queue spam).
-    if (idx >= 0) {
-      final existing = all[idx];
-      if (existing.teamId == teamId) {
-        if (deduped) {
-          await _prefs.setStringList(
-            kMembershipsKey,
-            all.map((m) => jsonEncode(m.toRemoteMap())).toList(),
-          );
-        }
-        return;
-      }
-    }
-
-    late final Membership updated;
-    late final String action;
-
-    if (idx >= 0) {
-      final existing = all[idx];
-      updated = Membership(
-        id: existing.id,
-        leagueId: existing.leagueId,
-        userId: existing.userId,
-        teamId: teamId,
-        role: existing.role,
-        updatedAtMs: now,
-        version: existing.version + 1,
-      );
-      all[idx] = updated;
-      action = 'update';
-    } else {
-      updated = Membership(
-        id: _uuid.v4(),
-        leagueId: leagueId,
-        userId: userId,
-        teamId: teamId,
-        role: LeagueRole.member,
-        updatedAtMs: now,
-        version: 1,
-      );
-      all.add(updated);
-      action = 'create';
-    }
-
-    await _prefs.setStringList(
-      kMembershipsKey,
-      all.map((m) => jsonEncode(m.toRemoteMap())).toList(),
-    );
-
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'membership',
-      entityId: updated.id,
-      action: action,
-      lastModified: now,
-      payload: updated.toRemoteMap(),
-    );
   }
 
   // ------------------------------------------------------
@@ -632,7 +540,6 @@ await _upsertLeagueLocalNoQueue(stored);
   // Knockout matches
   // ------------------------------------------------------
 
-  // FIX: return matches in a stable, bracket-friendly order (especially for 2-legged play-offs).
   Future<List<KnockoutMatch>> getKnockoutMatches(String leagueId) async {
     final all = await _getAllKnockoutMatches();
     final list = all.where((m) => m.leagueId == leagueId).toList();
@@ -661,7 +568,6 @@ await _upsertLeagueLocalNoQueue(stored);
         final c1 = an.compareTo(bn);
         if (c1 != 0) return c1;
 
-        // Leg 1 first
         final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
         if (c2 != 0) return c2;
       }
@@ -726,7 +632,6 @@ await _upsertLeagueLocalNoQueue(stored);
   Future<void> _upsertMembershipLocalByLeagueUserNoQueue(Membership membership) async {
     final all = await _getAllMemberships();
 
-    // Ensure no duplicates for this league/user.
     all.removeWhere((m) => m.leagueId == membership.leagueId && m.userId == membership.userId);
     all.add(membership);
 

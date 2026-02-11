@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/league.dart';
@@ -7,8 +8,7 @@ class LeaguesRepositoryFirebase {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Uuid _uuid = const Uuid();
 
-  CollectionReference<Map<String, dynamic>> get _leaguesCol =>
-      _firestore.collection('leagues');
+  CollectionReference<Map<String, dynamic>> get _leaguesCol => _firestore.collection('leagues');
 
   League _docToLeague(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final raw = doc.data();
@@ -48,24 +48,39 @@ class LeaguesRepositoryFirebase {
   }
 
   /// IMPORTANT:
-  /// - Use merge:true so we never wipe server-managed fields (memberIds, counts, etc).
-  /// - Ensure organizerUid is present (rules authority).
+  /// - Rules authority is FirebaseAuth UID only.
+  /// - This method must always write organizerUid/ownerUid = request.auth.uid.
+  /// - Ensure memberIds contains request.auth.uid.
   Future<void> saveLeague(League league) async {
-    final id = league.id.isEmpty ? _uuid.v4() : league.id;
+    final authUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (authUid.isEmpty) {
+      throw StateError('Not signed in (FirebaseAuth.currentUser == null)');
+    }
 
-    final organizerUid = league.organizerUid.trim().isNotEmpty
-        ? league.organizerUid.trim()
-        : (league.organizerUserId.trim().length > 20 ? league.organizerUserId.trim() : '');
+    final id = league.id.isEmpty ? _uuid.v4() : league.id;
 
     final fixed = league.copyWith(
       id: id,
-      organizerUid: organizerUid,
+      organizerUid: authUid,
+      code: league.code.trim().toUpperCase(),
     );
 
     await _leaguesCol.doc(id).set(
-          fixed.toJson(),
-          SetOptions(merge: true),
-        );
+      {
+        ...fixed.toJson(),
+
+        // Rules-authoritative owner fields
+        'organizerUid': authUid,
+        'ownerUid': authUid,
+
+        // Back-compat but must be Firebase UID if present
+        'ownerId': authUid,
+
+        // Membership must contain ONLY Firebase UIDs (never short/share ids).
+        'memberIds': FieldValue.arrayUnion([authUid]),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   Future<void> deleteLeague(String leagueId) async {

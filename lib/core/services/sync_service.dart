@@ -112,27 +112,6 @@ class SyncService {
     }
   }
 
-  bool _boolFromAny(dynamic v, {bool fallback = false}) {
-    if (v == null) return fallback;
-    if (v is bool) return v;
-    if (v is int) return v == 1;
-    if (v is num) return v.toInt() == 1;
-    if (v is String) {
-      final s = v.trim().toLowerCase();
-      if (s == 'true' || s == '1' || s == 'yes') return true;
-      if (s == 'false' || s == '0' || s == 'no') return false;
-    }
-    return fallback;
-  }
-
-  int _intFromAny(dynamic v, {int fallback = 0}) {
-    if (v == null) return fallback;
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    if (v is String) return int.tryParse(v.trim()) ?? fallback;
-    return fallback;
-  }
-
   bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
 
   // ---------------------------
@@ -149,6 +128,12 @@ class SyncService {
     final payload = item.payload;
     if (payload == null) throw StateError('Missing payload for league');
 
+    final authUid = _authUidOrEmpty();
+    if (authUid.isEmpty) {
+      // Should never happen (caller checks), but keep it safe.
+      throw StateError('Not signed in (auth uid missing)');
+    }
+
     final data = Map<String, dynamic>.from(payload);
     data['id'] = item.entityId;
 
@@ -156,42 +141,49 @@ class SyncService {
     final isPrivate = data['isPrivate'] == 1 || data['isPrivate'] == true;
     data['isPrivate'] = isPrivate;
 
-    // Resolve organizerUid (Firebase UID authority)
-    final authUid = _authUidOrEmpty();
+    // ------------------------------------------------------------
+    // CRITICAL FIX:
+    // Never trust organizerUid from local payload unless it is a real
+    // Firebase UID AND equals the currently authenticated user.
+    // Otherwise Firestore rules will deny league create/update and
+    // coupon subcollections will be inaccessible.
+    // ------------------------------------------------------------
     final organizerUidRaw = (data['organizerUid'] as String?)?.trim() ?? '';
-    final organizerUserId = (data['organizerUserId'] as String?)?.trim() ?? '';
+    final organizerUserIdRaw = (data['organizerUserId'] as String?)?.trim() ?? '';
 
-    final resolvedOrganizerUid = organizerUidRaw.isNotEmpty
-        ? organizerUidRaw
-        : (authUid.isNotEmpty
-            ? authUid
-            : (_looksLikeFirebaseUid(organizerUserId) ? organizerUserId : ''));
+    String resolvedOrganizerUid = authUid;
 
-    if (resolvedOrganizerUid.isNotEmpty) {
-      data['organizerUid'] = resolvedOrganizerUid;
-
-      // Transitional/back-compat fields: keep ownerId as Firebase UID (NOT short id)
-      data['ownerId'] = resolvedOrganizerUid;
-      data['ownerUid'] = resolvedOrganizerUid;
+    // Only accept organizerUid from payload if it matches the current auth uid.
+    if (organizerUidRaw.isNotEmpty && _looksLikeFirebaseUid(organizerUidRaw) && organizerUidRaw == authUid) {
+      resolvedOrganizerUid = organizerUidRaw;
+    } else if (_looksLikeFirebaseUid(organizerUserIdRaw) && organizerUserIdRaw == authUid) {
+      // Back-compat: sometimes organizerUserId held the Firebase UID.
+      resolvedOrganizerUid = organizerUserIdRaw;
+    } else {
+      resolvedOrganizerUid = authUid;
     }
+
+    // Authoritative identity fields used by rules
+    data['organizerUid'] = resolvedOrganizerUid;
+    data['ownerUid'] = resolvedOrganizerUid;
+    data['ownerId'] = resolvedOrganizerUid; // legacy field but must be Firebase UID if present
 
     // Ensure memberIds contains Firebase UID for rules membership checks
     final existing = (data['memberIds'] as List?)?.cast<dynamic>() ?? const [];
-    final normalizedExisting = existing.map((e) => e.toString().trim()).where((s) => s.isNotEmpty);
+    final existingStrings = existing.map((e) => e.toString().trim()).where((s) => s.isNotEmpty);
 
-    final memberSet = <String>{
-      ...normalizedExisting,
-      if (resolvedOrganizerUid.isNotEmpty) resolvedOrganizerUid,
-      if (authUid.isNotEmpty) authUid,
+    // Sanitize to Firebase UIDs only (prevents short/shareIds poisoning memberIds).
+    final memberUids = <String>{
+      ...existingStrings.where(_looksLikeFirebaseUid),
+      authUid,
+      resolvedOrganizerUid,
     };
 
-    data['memberIds'] = memberSet.toList();
+    data['memberIds'] = memberUids.toList();
 
     await ref.set(data, SetOptions(merge: true));
 
-    // IMPORTANT:
-    // We DO NOT auto-generate /coupons anymore.
-    // Your app uses couponConfig + couponCodes with strict rules/transactions.
+    // NOTE: Coupons are handled via couponConfig + couponCodes (not /coupons).
   }
 
   // ---------------------------
@@ -356,19 +348,27 @@ class SyncService {
   // --------------------------------------------------
 
   Future<void> _syncCloudToLocal() async {
-    final prefs = await PreferencesService.create();
-    final uid = prefs.getCurrentUserId();
-    if (uid == null || uid.isEmpty) {
-      debugPrint('SyncService → Cloud pull skipped (no uid)');
+    // Rules require request.auth != null. Cached prefs uid is not enough.
+    final authUid = _authUidOrEmpty();
+    if (authUid.isEmpty) {
+      debugPrint('SyncService → Cloud pull skipped (not signed in)');
       return;
     }
 
+    final prefs = await PreferencesService.create();
+
+    // Ensure prefs uid matches the *real* authenticated uid.
+    final prefsUid = prefs.getCurrentUserId();
+    if (prefsUid == null || prefsUid.trim().isEmpty || prefsUid.trim() != authUid) {
+      await prefs.setCurrentUserId(authUid);
+    }
+
     final lastPulledAtMs = prefs.getInt('cloud_last_pulled_at_ms') ?? 0;
-    debugPrint('SyncService → Cloud pull start. uid=$uid lastPulledAtMs=$lastPulledAtMs');
+    debugPrint('SyncService → Cloud pull start. uid=$authUid lastPulledAtMs=$lastPulledAtMs');
 
     QuerySnapshot<Map<String, dynamic>> leaguesSnap;
     try {
-      leaguesSnap = await _firestore.collection('leagues').where('memberIds', arrayContains: uid).get();
+      leaguesSnap = await _firestore.collection('leagues').where('memberIds', arrayContains: authUid).get();
     } catch (e) {
       debugPrint('SyncService → Cloud pull FAILED at leagues query (non-fatal): $e');
       return;
@@ -376,7 +376,6 @@ class SyncService {
 
     final leagueIds = leaguesSnap.docs.map((d) => d.id).toList();
 
-    // Upsert leagues into local list
     await _upsertLeaguesLocal(
       prefs,
       leaguesSnap.docs.map((d) {
@@ -386,7 +385,6 @@ class SyncService {
       }).toList(),
     );
 
-    // Pull subcollections per league (best-effort per league)
     for (final leagueId in leagueIds) {
       try {
         await _pullTeams(prefs, leagueId);
