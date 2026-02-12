@@ -119,12 +119,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   /// Coupon admin permission must match Firestore rules.
   /// Firebase UID is the ONLY authority; short/share IDs are display-only.
-    /// Coupon admin permission must match Firestore rules.
-  /// Firebase UID is the ONLY authority; short/share IDs are display-only.
   ///
-  /// IMPORTANT FIX:
+  /// IMPORTANT:
   /// - We require remote organizerUid/ownerUid to be loaded (from Firestore) before enabling coupon admin UI.
-  /// - If remote ids are unknown (offline/denied), the UI will not pretend you can manage coupons (prevents permission-denied surprises).
+  /// - If remote ids are unknown (offline/denied), the UI will not pretend you can manage coupons.
   bool _canManageCoupons(League league) {
     final auth = _currentAuthUid.trim();
     if (auth.isEmpty) return false;
@@ -608,12 +606,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   // Coupon Codes sheet
   // ---------------------------------------------------------------------------
 
-  
-  
-  // ---------------------------------------------------------------------------
-  // Coupon Codes sheet
-  // ---------------------------------------------------------------------------
-
   void _showCouponCodesSheet() {
     final league = _league;
     if (league == null) return;
@@ -743,7 +735,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               } catch (e) {
                 final msg = e.toString();
                 if (msg.contains('permission-denied')) {
-                  setStateSheet(() => errorText = 'Permission denied. This account is not the league organizer (organizerUid mismatch). Fix organizerUid/ownerUid on the league doc or sign in as the creator.');
+                  setStateSheet(
+                    () => errorText =
+                        'Permission denied. This account is not the league organizer (organizerUid mismatch). Fix organizerUid/ownerUid on the league doc or sign in as the creator.',
+                  );
                 } else {
                   setStateSheet(() => errorText = msg);
                 }
@@ -1001,9 +996,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                'Custom name cannot contain "/".
-Your final code will be: ESL_<NAME>_<DISCOUNT>% (DISCOUNT comes from coupon config).
-Creating one consumes 1 remaining coupon.',
+                                'Custom name cannot contain "/".\n'
+                                'Your final code will be: ESL_<NAME>_<DISCOUNT>% (DISCOUNT comes from coupon config).\n'
+                                'Creating one consumes 1 remaining coupon.',
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: onSurface.withOpacity(0.60),
                                   fontWeight: FontWeight.w600,
@@ -1123,7 +1118,7 @@ Creating one consumes 1 remaining coupon.',
     );
   }
 
-Widget _kv(String k, String v, ThemeData theme, ColorScheme cs) {
+  Widget _kv(String k, String v, ThemeData theme, ColorScheme cs) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -1512,10 +1507,13 @@ Widget _kv(String k, String v, ThemeData theme, ColorScheme cs) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final title = widget.hasPendingChanges ? l10n.tr('league_admin_offline_changes_title') : l10n.tr('league_admin_fully_synced_title');
+    final title = widget.hasPendingChanges
+        ? l10n.tr('league_admin_offline_changes_title')
+        : l10n.tr('league_admin_fully_synced_title');
 
-    final subtitle =
-        widget.hasPendingChanges ? l10n.tr('league_admin_offline_changes_subtitle') : l10n.tr('league_admin_fully_synced_subtitle');
+    final subtitle = widget.hasPendingChanges
+        ? l10n.tr('league_admin_offline_changes_subtitle')
+        : l10n.tr('league_admin_fully_synced_subtitle');
 
     final statusIcon = widget.hasPendingChanges ? Icons.cloud_off : Icons.cloud_done;
     final statusColor = widget.hasPendingChanges ? const Color(0xFFF59E0B) : const Color(0xFF22C55E);
