@@ -4,64 +4,106 @@ service cloud.firestore {
 
     function signedIn() { return request.auth != null; }
 
+    // --------------------------
+    // Pricing admins + super admin (app creator)
+    // --------------------------
+    function adminsDoc() {
+      return get(/databases/$(database)/documents/app/admins);
+    }
+
+    function isPricingAdmin() {
+      return signedIn() && (
+        request.auth.uid == 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'
+        ||
+        (adminsDoc().exists()
+         && (adminsDoc().data.pricingAdmins is list)
+         && (request.auth.uid in adminsDoc().data.pricingAdmins))
+      );
+    }
+
     function leagueDoc(leagueId) {
       return get(/databases/$(database)/documents/leagues/$(leagueId));
     }
 
-    // Load current user's profile (to resolve legacy shareId ownership)
-    function userProfile(uid) {
-      return get(/databases/$(database)/documents/users/$(uid));
-    }
-
-    // Organizer/Owner detection with backward-compat:
-    // - organizerUserId == Firebase UID (new model)
-    // - ownerId == Firebase UID (older deployments)
-    // - organizerUserId == users/{uid}.shareId (legacy local id stored as shareId)
+    // Organizer/Owner detection (Firebase UID ONLY)
     function isOwner(leagueId) {
-      let d = leagueDoc(leagueId).data;
-
-      // Resolve shareId safely (may not exist)
-      let up = userProfile(request.auth.uid);
-      let share = (up.exists() && (up.data.shareId is string)) ? up.data.shareId : '';
+      let ld = leagueDoc(leagueId);
 
       return signedIn()
+        && ld.exists()
         && (
-          d.organizerUserId == request.auth.uid
-          || d.ownerId == request.auth.uid
-          || (share != '' && d.organizerUserId == share)
+          (('organizerUid' in ld.data) && (ld.data.organizerUid is string) && (ld.data.organizerUid == request.auth.uid))
+          || (('ownerUid' in ld.data) && (ld.data.ownerUid is string) && (ld.data.ownerUid == request.auth.uid))
+          // Backward-compat only if these contain Firebase UID (NOT short/share id)
+          || (('organizerUserId' in ld.data) && (ld.data.organizerUserId is string) && (ld.data.organizerUserId == request.auth.uid))
+          || (('ownerId' in ld.data) && (ld.data.ownerId is string) && (ld.data.ownerId == request.auth.uid))
         );
     }
 
+    // Membership (expects Firebase UIDs in memberIds)
     function isMember(leagueId) {
+      let ld = leagueDoc(leagueId);
       return signedIn()
-        && (leagueDoc(leagueId).data.memberIds is list)
-        && (request.auth.uid in leagueDoc(leagueId).data.memberIds);
+        && ld.exists()
+        && (ld.data.memberIds is list)
+        && (request.auth.uid in ld.data.memberIds);
     }
 
-    function isLeagueFinished(leagueId) {
-      let d = leagueDoc(leagueId).data;
-      return (d.isFinished == true) || (d.isFinished == 1);
+    // Append-only self-join to memberIds
+    function isSelfJoinAppendOnly() {
+      // Only allow changing memberIds + updatedAtMs
+      return signedIn()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
+        && (request.resource.data.memberIds is list)
+        && (request.resource.data.updatedAtMs is int)
+        && (
+          // Case A: memberIds already exists -> must append exactly 1 new uid (self)
+          (
+            (resource.data.memberIds is list)
+            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+            && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+            && (request.auth.uid in request.resource.data.memberIds)
+            && !(request.auth.uid in resource.data.memberIds)
+            && (
+              !(resource.data.updatedAtMs is int)
+              || request.resource.data.updatedAtMs > resource.data.updatedAtMs
+            )
+          )
+          ||
+          // Case B: memberIds did not exist -> initialize to [self]
+          (
+            !(resource.data.memberIds is list)
+            && request.resource.data.memberIds.size() == 1
+            && (request.auth.uid in request.resource.data.memberIds)
+          )
+        );
+    }
+
+    function registeredCountOrZero(d) {
+      return (d.registeredCount is int) ? d.registeredCount : 0;
     }
 
     // Public/private detection (secure by default)
     function isPublicLeague(leagueId) {
-      let d = leagueDoc(leagueId).data;
+      let ld = leagueDoc(leagueId);
+      let d = ld.data;
 
-      return
-        ((d.isPrivate is bool) && (d.isPrivate == false))
-        ||
-        ((d.isPrivate is int) && (d.isPrivate == 0))
-        ||
-        ((d.privacy is string) && (
-          d.privacy == 'public'
-          || d.privacy == 'PUBLIC'
-          || d.privacy == 'LeaguePrivacy.public'
-        ));
+      return ld.exists()
+        && (
+          (((d.isPrivate is bool) && (d.isPrivate == false)))
+          ||
+          (((d.isPrivate is int) && (d.isPrivate == 0)))
+          ||
+          (((d.privacy is string) && (
+            d.privacy == 'public'
+            || d.privacy == 'PUBLIC'
+            || d.privacy == 'LeaguePrivacy.public'
+          )))
+        );
     }
 
-    // Helper for safe numeric comparisons in update rules.
-    function registeredCountOrZero(d) {
-      return (d.registeredCount is int) ? d.registeredCount : 0;
+    function canViewLeague(leagueId) {
+      return isOwner(leagueId) || isMember(leagueId) || isPublicLeague(leagueId);
     }
 
     // --------------------------
@@ -153,22 +195,31 @@ service cloud.firestore {
     // Leagues
     // --------------------------
     match /leagues/{leagueId} {
-      allow get: if isOwner(leagueId) || isMember(leagueId) || isPublicLeague(leagueId);
+      allow get: if canViewLeague(leagueId);
+
+      // NOTE:
+      // list is needed for "join by code" query. If you want strict privacy, move codes to /leagueCodes/{code}.
       allow list: if signedIn();
 
+      // Create league must set organizerUid == Firebase UID (authoritative).
       allow create: if signedIn()
-        && request.resource.data.organizerUserId == request.auth.uid
+        && (('organizerUid' in request.resource.data)
+          && (request.resource.data.organizerUid is string)
+          && request.resource.data.organizerUid == request.auth.uid
+        )
         && (
           !(request.resource.data.memberIds is list)
           || (request.auth.uid in request.resource.data.memberIds)
         );
 
-      allow update: if isOwner(leagueId)
-        || (signedIn()
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
-          && (request.resource.data.memberIds is list)
-          && (request.auth.uid in request.resource.data.memberIds))
-        || (signedIn()
+      allow update: if
+        // Organizer/admin
+        isOwner(leagueId)
+        // Self-join (append self only)
+        || isSelfJoinAppendOnly()
+        // Your original "join + counters" path (kept, but safe because it enforces +1 semantics)
+        || (
+          signedIn()
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'memberIds',
             'updatedAtMs',
@@ -176,26 +227,28 @@ service cloud.firestore {
             'isFull'
           ])
           && (request.resource.data.memberIds is list)
-          && (request.auth.uid in request.resource.data.memberIds)
           && (
-            (
-              (resource.data.memberIds is list)
-              && request.resource.data.memberIds.hasAll(resource.data.memberIds)
-              && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
-              && !(request.auth.uid in resource.data.memberIds)
-            )
-            ||
-            (
-              !(resource.data.memberIds is list)
-              && request.resource.data.memberIds.size() == 1
-              && (request.auth.uid in request.resource.data.memberIds)
-            )
+            // append self exactly once
+            (resource.data.memberIds is list)
+            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+            && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+            && (request.auth.uid in request.resource.data.memberIds)
+            && !(request.auth.uid in resource.data.memberIds)
           )
           && (request.resource.data.registeredCount is int)
           && request.resource.data.registeredCount == (registeredCountOrZero(resource.data) + 1)
+          && (request.resource.data.updatedAtMs is int)
           && (
-            (request.resource.data.isFull is bool)
-            && (request.resource.data.isFull == (request.resource.data.registeredCount >= ((resource.data.maxTeams is int) ? resource.data.maxTeams : request.resource.data.maxTeams)))
+            !(resource.data.updatedAtMs is int)
+            || request.resource.data.updatedAtMs > resource.data.updatedAtMs
+          )
+          && (
+            // isFull must be consistent with maxTeams if present
+            !(resource.data.maxTeams is int)
+            || (
+              (request.resource.data.isFull is bool)
+              && (request.resource.data.isFull == (request.resource.data.registeredCount >= resource.data.maxTeams))
+            )
           )
         );
 
@@ -217,7 +270,7 @@ service cloud.firestore {
       }
 
       match /memberships/{membershipId} {
-        allow get: if isOwner(leagueId) || isMember(leagueId) || (signedIn() && membershipId == request.auth.uid);
+        allow get: if isOwner(leagueId) || isMember(leagueId);
         allow list: if isOwner(leagueId) || isMember(leagueId);
 
         allow create, update: if isOwner(leagueId)
@@ -255,14 +308,8 @@ service cloud.firestore {
             && request.resource.data.userId == request.auth.uid
             && request.resource.data.status == "pending";
 
-          allow update: if signedIn() && (
-            isOwner(leagueId)
-            || (request.auth.uid == uid)
-          );
-
-          allow delete: if signedIn() && (
-            isOwner(leagueId) || (request.auth.uid == uid)
-          );
+          allow update: if signedIn() && (isOwner(leagueId) || (request.auth.uid == uid));
+          allow delete: if signedIn() && (isOwner(leagueId) || (request.auth.uid == uid));
         }
 
         match /speakers/{uid} {
@@ -288,23 +335,46 @@ service cloud.firestore {
         return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponCodes/$(codeId));
       }
 
-      // Coupon Configuration (single doc)
+      // IMPORTANT:
+      // You said super admin manages ONLY global pricing (/app/pricing).
+      // So coupons are managed ONLY by league organizer/owner.
+      function isCouponManager(leagueId) {
+        return isOwner(leagueId);
+      }
+
+      function hasDisc(data) {
+        return ('discountPercent' in data) && (data.discountPercent is number);
+      }
+      function hasUserPays(data) {
+        return ('userPaysPercent' in data) && (data.userPaysPercent is int);
+      }
+      function discOk(data) {
+        return !('discountPercent' in data)
+          || ((data.discountPercent is number) && (data.discountPercent >= 0) && (data.discountPercent <= 100));
+      }
+      function userPaysOk(data) {
+        return !('userPaysPercent' in data)
+          || ((data.userPaysPercent is int) && (data.userPaysPercent >= 0) && (data.userPaysPercent <= 100));
+      }
+      function discAndUserPaysConsistent(data) {
+        return !(hasDisc(data) && hasUserPays(data))
+          || (data.userPaysPercent == (100 - data.discountPercent));
+      }
+      function organizerPaysOk(data) {
+        return !('organizerPaysPercent' in data)
+          || ((data.organizerPaysPercent is int) && (data.organizerPaysPercent >= 0) && (data.organizerPaysPercent <= 100));
+      }
+
       match /couponConfig/{docId} {
-        // Organizer can get; also allow get when the config itself is owned by the caller (organizerUserId == uid)
-        allow get: if isOwner(leagueId)
-          || (signedIn() && resource.data.organizerUserId == request.auth.uid);
-        // Do not allow list/enumeration (keep hidden)
+        allow get: if signedIn() && (canViewLeague(leagueId) || isCouponManager(leagueId));
         allow list: if false;
 
-        // Create by organizer (owner or explicit organizerUserId == uid)
         allow create: if (docId == 'config')
+          && signedIn()
+          && isCouponManager(leagueId)
           && (request.resource.data.leagueId is string)
           && request.resource.data.leagueId == leagueId
           && (request.resource.data.organizerUserId is string)
-          && (
-            isOwner(leagueId)
-            || request.resource.data.organizerUserId == request.auth.uid
-          )
           && (request.resource.data.currency is string)
           && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
           && (request.resource.data.unitPrice is number) && (request.resource.data.unitPrice > 0)
@@ -312,9 +382,11 @@ service cloud.firestore {
           && (!('threshold' in request.resource.data) || (request.resource.data.threshold == null) || (request.resource.data.threshold is number && request.resource.data.threshold >= 0))
           && (request.resource.data.thresholdDiscountPercent is number)
           && (request.resource.data.thresholdDiscountPercent >= 0) && (request.resource.data.thresholdDiscountPercent <= 100)
-          && (request.resource.data.userPaysPercent is int) && (request.resource.data.userPaysPercent >= 0) && (request.resource.data.userPaysPercent <= 100)
-          && (request.resource.data.organizerPaysPercent is int)
-          && (request.resource.data.organizerPaysPercent == (100 - request.resource.data.userPaysPercent))
+          && (hasDisc(request.resource.data) || hasUserPays(request.resource.data))
+          && discOk(request.resource.data)
+          && userPaysOk(request.resource.data)
+          && discAndUserPaysConsistent(request.resource.data)
+          && organizerPaysOk(request.resource.data)
           && (request.resource.data.qtyTotal is int) && (request.resource.data.qtyTotal >= 0)
           && (request.resource.data.qtyRemaining is int) && (request.resource.data.qtyRemaining == request.resource.data.qtyTotal)
           && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
@@ -322,14 +394,34 @@ service cloud.firestore {
           && (request.resource.data.version is int) && (request.resource.data.version >= 1);
 
         allow update: if
+          // REPAIR: allow coupon manager to add missing qtyRemaining once (set to 0).
           (
-            (isOwner(leagueId) || (signedIn() && resource.data.organizerUserId == request.auth.uid))
+            signedIn()
+            && isCouponManager(leagueId)
+            && !(resource.data.qtyRemaining is int)
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'qtyRemaining',
+              'updatedAtMs'
+            ])
+            && (request.resource.data.qtyRemaining is int)
+            && (request.resource.data.qtyRemaining == 0)
+            && (request.resource.data.updatedAtMs is int)
+            && (
+              !(resource.data.updatedAtMs is int)
+              || request.resource.data.updatedAtMs > resource.data.updatedAtMs
+            )
+          )
+          ||
+          (
+            signedIn()
+            && isCouponManager(leagueId)
             && request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'currency',
               'unitPrice',
               'effectiveUnit',
               'threshold',
               'thresholdDiscountPercent',
+              'discountPercent',
               'userPaysPercent',
               'organizerPaysPercent',
               'qtyTotal',
@@ -343,14 +435,29 @@ service cloud.firestore {
             && (!('threshold' in request.resource.data) || (request.resource.data.threshold == null) || (request.resource.data.threshold is number && request.resource.data.threshold >= 0))
             && (request.resource.data.thresholdDiscountPercent is number)
             && (request.resource.data.thresholdDiscountPercent >= 0) && (request.resource.data.thresholdDiscountPercent <= 100)
-            && (request.resource.data.userPaysPercent is int) && (request.resource.data.userPaysPercent >= 0) && (request.resource.data.userPaysPercent <= 100)
-            && (request.resource.data.organizerPaysPercent is int)
-            && (request.resource.data.organizerPaysPercent == (100 - request.resource.data.userPaysPercent))
+            && discOk(request.resource.data)
+            && userPaysOk(request.resource.data)
+            && discAndUserPaysConsistent(request.resource.data)
+            && organizerPaysOk(request.resource.data)
             && (request.resource.data.qtyTotal is int) && (request.resource.data.qtyRemaining is int)
             && (request.resource.data.qtyTotal >= resource.data.qtyTotal)
             && (request.resource.data.qtyRemaining >= resource.data.qtyRemaining)
             && ((request.resource.data.qtyTotal - resource.data.qtyTotal) == (request.resource.data.qtyRemaining - resource.data.qtyRemaining))
             && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > resource.data.updatedAtMs)
+          )
+          ||
+          (
+            signedIn()
+            && isCouponManager(leagueId)
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'qtyRemaining',
+              'updatedAtMs'
+            ])
+            && (request.resource.data.qtyRemaining is int)
+            && (request.resource.data.qtyRemaining == (resource.data.qtyRemaining - 1))
+            && (request.resource.data.qtyRemaining >= 0)
+            && (request.resource.data.updatedAtMs is int)
+            && (request.resource.data.updatedAtMs > resource.data.updatedAtMs)
           )
           ||
           (
@@ -372,31 +479,34 @@ service cloud.firestore {
         allow delete: if false;
       }
 
-      // CODE-BASED COUPONS
       match /couponCodes/{codeId} {
-        // Organizer can list; allow get by anyone signed-in who knows the code (secret acts as capability).
-        allow list: if isOwner(leagueId);
+        allow list: if isCouponManager(leagueId);
+
+        // IMPORTANT: signed-in users must be able to read a code doc to redeem it
+        // (they cannot list/enumerate codes).
         allow get: if signedIn();
 
-        // Create a code (single code per write) and decrement qtyRemaining atomically.
         allow create: if signedIn()
+          && isCouponManager(leagueId)
           && (request.resource.data.leagueId is string)
           && request.resource.data.leagueId == leagueId
           && (request.resource.data.organizerUserId is string)
-          && request.resource.data.organizerUserId == request.auth.uid
           && (request.resource.data.currency is string)
           && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
+          && (request.resource.data.discountPercent is number)
+          && (request.resource.data.discountPercent >= 0) && (request.resource.data.discountPercent <= 100)
           && (request.resource.data.expectedAmount is number) && (request.resource.data.expectedAmount >= 0)
           && (request.resource.data.usedBy is string) && (request.resource.data.usedBy == '')
           && (request.resource.data.usedAtMs is int) && (request.resource.data.usedAtMs == 0)
           && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
           && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > 0)
           && (request.resource.data.version is int) && (request.resource.data.version >= 1)
-          // Atomic coupling with config: decrement remaining by exactly 1 on the same request
+          && cfgCurrent(leagueId).exists()
+          && (cfgCurrent(leagueId).data.qtyRemaining is int)
+          && (cfgCurrent(leagueId).data.qtyRemaining > 0)
           && cfgAfter(leagueId).exists()
           && (cfgAfter(leagueId).data.qtyRemaining == (cfgCurrent(leagueId).data.qtyRemaining - 1));
 
-        // Mark code as used (one-time), atomically coupled with a 'paid' redemption create.
         allow update: if signedIn()
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'usedBy',
@@ -407,7 +517,6 @@ service cloud.firestore {
           && (request.resource.data.usedBy is string) && (request.resource.data.usedBy == request.auth.uid)
           && (request.resource.data.usedAtMs is int) && (request.resource.data.usedAtMs > 0)
           && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > resource.data.updatedAtMs)
-          // Require the redemption doc to be created in the same write and to reference this code
           && redemptionAfter(leagueId, request.auth.uid).exists()
           && (redemptionAfter(leagueId, request.auth.uid).data.status == 'paid')
           && (redemptionAfter(leagueId, request.auth.uid).data.code is string)
@@ -416,15 +525,10 @@ service cloud.firestore {
         allow delete: if false;
       }
 
-      // One redemption document per user (doc id == user uid)
       match /couponRedemptions/{uid} {
-        // Organizer can list; user can read their own doc (get).
-        allow list: if isOwner(leagueId);
-        allow get: if isOwner(leagueId) || (signedIn() && uid == request.auth.uid);
+        allow list: if isCouponManager(leagueId);
+        allow get: if isCouponManager(leagueId) || (signedIn() && uid == request.auth.uid);
 
-        // Create:
-        // A) pending intent (pool-based flow)
-        // B) direct 'paid' creation when redeeming a CODE (must be coupled with code update in same request)
         allow create: if signedIn()
           && uid == request.auth.uid
           && request.resource.data.leagueId == leagueId
@@ -432,7 +536,6 @@ service cloud.firestore {
           && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
           && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs >= request.resource.data.createdAtMs)
           && (
-            // A) PENDING path (pool-based)
             (
               request.resource.data.status == 'pending'
               && (request.resource.data.currency is string)
@@ -443,7 +546,6 @@ service cloud.firestore {
               && ((cfgCurrent(leagueId).data.qtyRemaining is int) && (cfgCurrent(leagueId).data.qtyRemaining >= 0))
             )
             ||
-            // B) DIRECT PAID path (code-based): require code doc updated to usedBy==uid in same request
             (
               request.resource.data.status == 'paid'
               && (request.resource.data.code is string)
@@ -453,7 +555,6 @@ service cloud.firestore {
             )
           );
 
-        // Update to 'paid' (pool-based flow), atomically coupled with config decrement in the same request.
         allow update: if signedIn()
           && uid == request.auth.uid
           && resource.data.userId == request.auth.uid
@@ -469,14 +570,12 @@ service cloud.firestore {
           && (request.resource.data.status == 'paid')
           && (request.resource.data.paidAtMs is int) && (request.resource.data.paidAtMs > 0)
           && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs >= request.resource.data.paidAtMs)
-          // atomic coupling: require config.qtyRemaining to decrement by exactly 1 in this same request
           && cfgAfter(leagueId).exists()
           && (cfgAfter(leagueId).data.qtyRemaining == (cfgCurrent(leagueId).data.qtyRemaining - 1));
 
         allow delete: if false;
       }
 
-      // Legacy coupons collection is deprecated. Deny all access explicitly.
       match /coupons/{couponId} {
         allow read, write: if false;
       }
@@ -500,30 +599,11 @@ service cloud.firestore {
     }
 
     // --------------------------
-    // Pricing admins + pricing doc + analytics
+    // Pricing doc + admins doc + analytics
     // --------------------------
-
-    function adminsDoc() {
-      return get(/databases/$(database)/documents/app/admins);
-    }
-
-    function isPricingAdmin() {
-      return signedIn() && (
-        request.auth.uid == 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'
-        ||
-        (adminsDoc().exists()
-         && (adminsDoc().data.pricingAdmins is list)
-         && (request.auth.uid in adminsDoc().data.pricingAdmins))
-      );
-    }
-
     match /app/{docId} {
-      // Public read of pricing; signed-in read of admins list for UI
       allow get, list: if (docId == 'pricing') || (docId == 'admins' && signedIn());
-
-      // Allow pricing updates and admins list updates to pricing admins
       allow create, update: if ((docId == 'pricing' || docId == 'admins') && isPricingAdmin());
-
       allow delete: if false;
     }
 
@@ -535,7 +615,6 @@ service cloud.firestore {
         && (request.resource.data.userId == request.auth.uid);
 
       allow get, list: if isPricingAdmin();
-
       allow update, delete: if false;
     }
   }
