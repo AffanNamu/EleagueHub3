@@ -208,14 +208,10 @@ class CouponConfigService {
 
   /// Auto-initialize (or repair) `leagues/{leagueId}/couponConfig/config`.
   ///
-  /// Why this exists:
-  /// - Your business rule requires `qtyRemaining` to exist (mandatory).
-  /// - Some leagues may exist with coupons enabled but missing the config doc (legacy or deleted).
-  ///
-  /// Safety:
-  /// - Only the organizer (by Firebase UID) can initialize/repair.
-  /// - If league has `couponsEnabled` and `couponCount`, we seed qtyRemaining/qtyTotal from it.
-  /// - If config exists but missing `qtyRemaining`, we merge in a safe default (0).
+  /// IMPORTANT:
+  /// Firestore rules require unitPrice/effectiveUnit > 0 on create.
+  /// So we initialize them with a safe >0 placeholder (1.0).
+  /// Purchase flow will overwrite with real values from RemotePricingPlan.
   Future<void> ensureConfigInitializedFromLeague(String leagueId) async {
     final authUid = _requireAuthUid();
     final ref = _configRef(leagueId);
@@ -227,36 +223,16 @@ class CouponConfigService {
       if (cfgSnap.exists) {
         final cfg = (cfgSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
 
-        // Repair missing mandatory field(s) without changing semantics.
-        if (!cfg.containsKey('qtyRemaining') || cfg['qtyRemaining'] == null) {
+        // Repair missing qtyRemaining using ONLY allowed update keys.
+        final hasQtyRemaining = cfg.containsKey('qtyRemaining') && (cfg['qtyRemaining'] is num);
+        if (!hasQtyRemaining) {
           final int prevUpdatedAtMs = (cfg['updatedAtMs'] as num?)?.toInt() ?? 0;
           final int writeNowMs = (nowWallMs > prevUpdatedAtMs) ? nowWallMs : (prevUpdatedAtMs + 1);
 
-          final int disc = (cfg['discountPercent'] is num)
-              ? (cfg['discountPercent'] as num).toInt().clamp(0, 100)
-              : (100 - ((cfg['userPaysPercent'] as num?)?.toInt() ?? 0)).clamp(0, 100);
-
-          tx.set(ref, <String, dynamic>{
-            'leagueId': leagueId,
-            'organizerUserId': (cfg['organizerUserId'] as String?) ?? authUid,
-            'currency': (_strAny(cfg['currency'], fallback: 'USD')).trim().toUpperCase(),
-            'unitPrice': (cfg['unitPrice'] is num) ? (cfg['unitPrice'] as num).toDouble() : 0.0,
-            'effectiveUnit': (cfg['effectiveUnit'] is num)
-                ? (cfg['effectiveUnit'] as num).toDouble()
-                : ((cfg['unitPrice'] is num) ? (cfg['unitPrice'] as num).toDouble() : 0.0),
-            'threshold': cfg['threshold'],
-            'thresholdDiscountPercent': (cfg['thresholdDiscountPercent'] is num)
-                ? (cfg['thresholdDiscountPercent'] as num).toDouble()
-                : 30.0,
-            'discountPercent': disc,
-            'userPaysPercent': (100 - disc).clamp(0, 100),
-            'organizerPaysPercent': 100,
-            'qtyTotal': (cfg['qtyTotal'] as num?)?.toInt() ?? 0,
-            'qtyRemaining': 0, // mandatory, safe fallback
-            'createdAtMs': (cfg['createdAtMs'] as num?)?.toInt() ?? writeNowMs,
+          tx.update(ref, <String, dynamic>{
+            'qtyRemaining': 0,
             'updatedAtMs': writeNowMs,
-            'version': (cfg['version'] as num?)?.toInt() ?? 1,
-          }, SetOptions(merge: true));
+          });
         }
         return;
       }
@@ -312,14 +288,17 @@ class CouponConfigService {
       final int seedQty = (couponsEnabled && couponCount > 0) ? couponCount : 0;
       final int createdAtMs = nowWallMs > 0 ? nowWallMs : 1;
 
+      // Must be >0 to satisfy rules on create.
+      final double initUnitPrice = _round2(1.0);
+      final double initEffectiveUnit = _round2(1.0);
+
       tx.set(ref, <String, dynamic>{
         'leagueId': leagueId,
-        'organizerUserId': authUid, // informational; rules should rely on league.organizerUid
+        'organizerUserId': authUid, // informational; rules rely on league.organizerUid
         'currency': currency,
 
-        // Pricing fields unknown at this stage → safe defaults (they'll be overwritten on purchase).
-        'unitPrice': _round2(0.0),
-        'effectiveUnit': _round2(0.0),
+        'unitPrice': initUnitPrice,
+        'effectiveUnit': initEffectiveUnit,
         'threshold': null,
         'thresholdDiscountPercent': 30.0,
 
@@ -328,7 +307,7 @@ class CouponConfigService {
         'organizerPaysPercent': 100,
 
         'qtyTotal': seedQty,
-        'qtyRemaining': seedQty, // mandatory field (and key gating field)
+        'qtyRemaining': seedQty,
         'createdAtMs': createdAtMs,
         'updatedAtMs': createdAtMs,
         'version': 1,
@@ -338,16 +317,6 @@ class CouponConfigService {
 
   // Create or increment configuration atomically after payment ---------------
 
-  /// IMPORTANT:
-  /// - All AUTH is via Firebase UID (request.auth.uid) and league.organizerUid in rules.
-  /// - `organizerUserId` parameter is kept only for call-site compatibility; it is NOT trusted.
-  /// - This function writes organizerUserId = authUid (stable, rules-friendly).
-  ///
-  /// Legacy safety:
-  /// - If a config exists and organizerUserId is NOT authUid (e.g. it is a short/shareId),
-  ///   we DO NOT block in-app. Instead we verify league ownership by reading the league doc
-  ///   and checking organizerUid/ownerUid/etc == authUid.
-  ///   (Rules remain the real source of truth.)
   Future<void> createOrIncrementOnPurchase({
     required String leagueId,
     required String organizerUserId,
@@ -451,8 +420,6 @@ class CouponConfigService {
         if (!isLeagueOwner) {
           throw StateError('notOrganizer');
         }
-        // Do NOT attempt to change organizerUserId here because your rules' update allowlist
-        // does not include organizerUserId (would cause permission-denied).
       }
 
       final int prevTotal = (existing['qtyTotal'] as num?)?.toInt() ?? 0;

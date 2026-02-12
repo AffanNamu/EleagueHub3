@@ -8,15 +8,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
-import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
-import '../data/league_announcements_local.dart';
 import '../data/league_spaces_local.dart';
 import '../data/leagues_repository_local.dart';
 import '../logic/coupon_codes_service.dart';
@@ -28,7 +28,6 @@ import '../models/league_announcement.dart';
 import '../models/league_format.dart';
 import '../models/league_space.dart';
 import '../models/team.dart';
-import '../utils/current_user.dart';
 import 'add_teams_screen.dart';
 import 'league_participants_screen.dart';
 import 'utils/roster_csv_exporter.dart';
@@ -39,7 +38,7 @@ class LeagueAdminScreen extends ConsumerStatefulWidget {
 
   const LeagueAdminScreen({
     super.key,
-    this.hasPendingChanges = true,
+    this.hasPendingChanges = true, // legacy param (ignored in online-only UX)
     required this.leagueId,
   });
 
@@ -48,15 +47,13 @@ class LeagueAdminScreen extends ConsumerStatefulWidget {
 }
 
 class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
-  late LocalLeaguesRepository _localRepo;
-  late LeagueAnnouncementsFirebase _annRepo;
-  late LeagueSpacesFirebase _spaceRepo;
+  late final LocalLeaguesRepository _repo;
+  late final LeagueSpacesFirebase _spaceRepo;
 
   League? _league;
   LeagueSpace? _space;
 
   bool _isLeagueLoading = true;
-  bool _isSyncing = false;
   bool _exportingRoster = false;
 
   bool _showAddMeAsParticipant = false;
@@ -64,19 +61,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   bool _processingUpgradePayment = false;
 
-  /// Legacy/local user id (may be a shareId in older deployments).
-  /// NOTE: CurrentUser.getUserId() now returns Firebase uid, but we keep this field
-  /// name for backward compatibility with older local storage.
-  String _currentUserId = '';
-
-  /// Firebase Auth UID (required by Firestore rules for coupons/codes).
+  /// Firebase Auth UID (rules authority).
   String _currentAuthUid = '';
 
   /// Remote, rules-authoritative organizer/owner UIDs from Firestore league doc.
-  /// Used to ensure coupon admin UI matches server-side rules (Firebase UID only).
   String _remoteOrganizerUid = '';
   String _remoteOwnerUid = '';
 
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Uuid _uuid = const Uuid();
 
   static const List<String> _groupNames = <String>[
@@ -92,9 +84,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
 
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+    );
+  }
+
   /// Rules-authoritative owner detection (Firebase UID only).
-  /// Prefer remote organizerUid/ownerUid. Fall back to league.organizerUid if present.
-  /// Last resort: legacy organizerUserId ONLY if it *looks like* a Firebase UID.
   bool _isRulesOwnerForLeague(
     League league, {
     required String authUid,
@@ -118,11 +115,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   /// Coupon admin permission must match Firestore rules.
-  /// Firebase UID is the ONLY authority; short/share IDs are display-only.
-  ///
-  /// IMPORTANT:
-  /// - We require remote organizerUid/ownerUid to be loaded (from Firestore) before enabling coupon admin UI.
-  /// - If remote ids are unknown (offline/denied), the UI will not pretend you can manage coupons.
   bool _canManageCoupons(League league) {
     final auth = _currentAuthUid.trim();
     if (auth.isEmpty) return false;
@@ -130,13 +122,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final ro = _remoteOrganizerUid.trim();
     final rw = _remoteOwnerUid.trim();
 
-    // If we don't know remote owner ids yet, do not allow coupon actions (writes would likely fail).
+    // If we don't know remote owner ids yet, do not allow coupon actions.
     if (ro.isEmpty && rw.isEmpty) return false;
 
     return ro == auth || rw == auth;
   }
 
-  // IMPORTANT: league.couponDiscountPercent is DISCOUNT percent (0..100)
   String _couponSubtitleFromLeague(League league) {
     if (!league.couponsEnabled) return 'Not enabled';
     final pct = league.couponDiscountPercent;
@@ -190,34 +181,38 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   void initState() {
     super.initState();
     final prefs = ref.read(prefsServiceProvider);
-    _localRepo = LocalLeaguesRepository(prefs);
-    _annRepo = LeagueAnnouncementsFirebase(prefs);
+    _repo = LocalLeaguesRepository(prefs);
     _spaceRepo = LeagueSpacesFirebase(prefs);
-    _loadLeague();
 
     // ignore: discarded_futures
-    SyncTrigger.trySync().then((_) => _loadLeague());
+    _loadLeague();
   }
 
   Future<void> _loadLeague() async {
-    final league = await _localRepo.getLeagueById(widget.leagueId);
-    final space = await _spaceRepo.getSpace(widget.leagueId);
+    setState(() => _isLeagueLoading = true);
+
+    League? league;
+    LeagueSpace? space;
 
     bool showAddMe = false;
-    String currentUserId = '';
     String currentAuthUid = '';
     String remoteOrganizerUid = '';
     String remoteOwnerUid = '';
 
     try {
       currentAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-      currentUserId = await CurrentUser.getUserId();
 
-      // Fetch rules-authoritative organizer/owner uid from Firestore.
-      // This prevents UI from treating short/share IDs as admin identity.
+      league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+      space = await _spaceRepo.getSpace(widget.leagueId).timeout(const Duration(seconds: 10));
+
+      // Fetch rules-authoritative organizer/owner uid from Firestore (server).
       if (currentAuthUid.isNotEmpty) {
         try {
-          final snap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
+          final snap = await _firestore
+              .collection('leagues')
+              .doc(widget.leagueId)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 10));
           final data = snap.data();
           if (data != null) {
             remoteOrganizerUid = (data['organizerUid'] as String?)?.trim() ?? '';
@@ -242,46 +237,40 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         }
       }
 
-      final isOrganizer = league != null &&
-          _isRulesOwnerForLeague(
-            league,
-            authUid: currentAuthUid,
-            remoteOrganizerUid: remoteOrganizerUid,
-            remoteOwnerUid: remoteOwnerUid,
-          );
+      if (league != null) {
+        final isOrganizer = _isRulesOwnerForLeague(
+          league,
+          authUid: currentAuthUid,
+          remoteOrganizerUid: remoteOrganizerUid,
+          remoteOwnerUid: remoteOwnerUid,
+        );
 
-      if (isOrganizer) {
-        final teams = await _localRepo.getTeams(widget.leagueId);
+        if (isOrganizer) {
+          final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
 
-        // Team ids are now the Firebase uid (CurrentUser.getUserId()) in modern builds.
-        final myTeamId = currentAuthUid.isNotEmpty ? currentAuthUid : currentUserId;
-        final alreadyParticipant = myTeamId.trim().isNotEmpty && teams.any((t) => t.id == myTeamId);
-        showAddMe = !alreadyParticipant;
+          final myTeamId = currentAuthUid;
+          final alreadyParticipant = myTeamId.isNotEmpty && teams.any((t) => t.id == myTeamId);
+          showAddMe = !alreadyParticipant;
+        }
       }
-    } catch (_) {
-      showAddMe = false;
-      currentUserId = '';
-      currentAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    } catch (e) {
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
 
     if (!mounted) return;
     setState(() {
       _league = league;
       _space = space;
-      _currentUserId = currentUserId;
       _currentAuthUid = currentAuthUid;
-
-      // CRITICAL: persist remote organizer/owner so coupon admin gating matches rules.
       _remoteOrganizerUid = remoteOrganizerUid;
       _remoteOwnerUid = remoteOwnerUid;
-
       _showAddMeAsParticipant = showAddMe;
       _isLeagueLoading = false;
     });
   }
 
   // ---------------------------------------------------------------------------
-  // Purchase coupons / set discount (viewers removed)
+  // Purchase coupons / set discount
   // ---------------------------------------------------------------------------
 
   Future<void> _purchaseCouponsOrAdjustSubsidy() async {
@@ -291,12 +280,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     if (_processingUpgradePayment) return;
 
     if (!_canManageCoupons(league)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Only the organizer can purchase add-ons.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('Only the organizer can purchase add-ons.');
       return;
     }
 
@@ -311,29 +295,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           'addonsOnly': true,
           'existingCouponsEnabled': league.couponsEnabled,
           'existingCouponCount': league.couponCount,
-          'existingCouponDiscountPercent': league.couponDiscountPercent, // discount %
+          'existingCouponDiscountPercent': league.couponDiscountPercent,
         },
       );
 
       if (!mounted) return;
 
       if (result == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Payment cancelled.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _snack('Payment cancelled.');
         return;
       }
 
       if (!result.success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.errorMessage ?? 'Payment failed'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _snack(result.errorMessage?.trim().isNotEmpty == true ? result.errorMessage! : 'Payment failed');
         return;
       }
 
@@ -348,62 +322,48 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       final updated = league.copyWith(
         couponsEnabled: nextCouponsEnabled,
-        couponDiscountPercent: nextDiscountPercent, // discount %
+        couponDiscountPercent: nextDiscountPercent,
         couponCount: nextCouponCount,
         updatedAtMs: now,
       );
 
-      await _localRepo.saveLeague(updated);
+      await _repo.saveLeague(updated).timeout(const Duration(seconds: 25));
 
-      // Update coupon configuration in Firestore (create or increment)
+      // Update coupon configuration in Firestore (create or increment).
       try {
-        final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+        final plan = await RemotePricingService.instance
+            .getPlanForLocale(Localizations.maybeLocaleOf(context))
+            .timeout(const Duration(seconds: 15));
+
         final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-
         if (organizerAuthUid.isEmpty) {
-          throw StateError('Not signed in (no Firebase UID).');
+          throw const FirebaseAuthException(code: 'unauthenticated');
         }
 
-        // Sync config whenever coupons are being managed, even if addCoupons == 0 (discount-only change).
         if (result.buyCouponsForParticipants) {
-          await CouponConfigService().createOrIncrementOnPurchase(
-            leagueId: league.id,
-            organizerUserId: organizerAuthUid,
-            qtyPurchased: addCoupons,
-            discountPercent: nextDiscountPercent,
-            plan: plan,
-          );
+          await CouponConfigService()
+              .createOrIncrementOnPurchase(
+                leagueId: league.id,
+                organizerUserId: organizerAuthUid,
+                qtyPurchased: addCoupons,
+                discountPercent: nextDiscountPercent,
+                plan: plan,
+              )
+              .timeout(const Duration(seconds: 20));
         }
-      } catch (e) {
+      } catch (_) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Coupon config update deferred: $e'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          _snack("We saved your purchase, but couldn't update coupons right now. Please try again.");
         }
       }
 
-      await SyncTrigger.trySync();
       await _loadLeague();
 
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Purchase successful. Syncing updates...'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('Purchase successful.');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Upgrade purchase failed: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     } finally {
       if (mounted) setState(() => _processingUpgradePayment = false);
     }
@@ -610,14 +570,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final league = _league;
     if (league == null) return;
 
-    // Must match Firestore rules (remote owner detection).
     if (!_canManageCoupons(league)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Only the organizer can manage coupon codes.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('Only the organizer can manage coupon codes.');
       return;
     }
 
@@ -639,13 +593,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             .orderBy('createdAtMs', descending: true)
             .limit(300);
 
-        // Random batch input
         final countCtrl = TextEditingController(text: '10');
-
-        // Custom code input (single code)
         final customCtrl = TextEditingController();
 
-        bool customMode = false; // false => random batch, true => custom single
+        bool customMode = false;
         bool generating = false;
         String? errorText;
 
@@ -653,17 +604,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           builder: (ctx, setStateSheet) {
             Future<void> _initConfigIfMissing() async {
               try {
-                // Rules-safe initializer: creates leagues/{leagueId}/couponConfig/config with qtyRemaining.
-                await CouponConfigService().ensureConfigInitializedFromLeague(league.id);
+                await CouponConfigService()
+                    .ensureConfigInitializedFromLeague(league.id)
+                    .timeout(const Duration(seconds: 15));
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Coupon config initialized.'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                _snack('Coupon config initialized.');
               } catch (e) {
-                setStateSheet(() => errorText = 'Init failed: $e');
+                setStateSheet(() => errorText = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
               }
             }
 
@@ -678,7 +625,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               try {
                 final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
                 if (organizerAuthUid.isEmpty) {
-                  throw StateError('Not signed in (no Firebase UID).');
+                  throw const FirebaseAuthException(code: 'unauthenticated');
                 }
 
                 final svc = CouponCodesService();
@@ -690,25 +637,20 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                     return;
                   }
 
-                  // Custom mode always creates exactly 1 code.
-                  final generated = await svc.generateCodes(
-                    leagueId: league.id,
-                    organizerAuthUid: organizerAuthUid,
-                    count: 1,
-                    customCode: raw,
-                  );
+                  final generated = await svc
+                      .generateCodes(
+                        leagueId: league.id,
+                        organizerAuthUid: organizerAuthUid,
+                        count: 1,
+                        customCode: raw,
+                      )
+                      .timeout(const Duration(seconds: 20));
 
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(generated.isEmpty ? 'No code generated' : 'Generated: ${generated.first}'),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
+                  _snack(generated.isEmpty ? 'No code generated' : 'Generated: ${generated.first}');
                   return;
                 }
 
-                // Random batch mode
                 final cnt = int.tryParse(countCtrl.text.trim()) ?? 0;
                 if (cnt <= 0) {
                   setStateSheet(() => errorText = 'Enter a positive number');
@@ -717,31 +659,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                 final requested = cnt.clamp(1, 500);
 
-                final generated = await svc.generateCodes(
-                  leagueId: league.id,
-                  organizerAuthUid: organizerAuthUid,
-                  count: requested,
-                );
+                final generated = await svc
+                    .generateCodes(
+                      leagueId: league.id,
+                      organizerAuthUid: organizerAuthUid,
+                      count: requested,
+                    )
+                    .timeout(const Duration(seconds: 25));
 
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Generated ${generated.length} codes'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              } on StateError catch (e) {
-                setStateSheet(() => errorText = e.message ?? e.toString());
+                _snack('Generated ${generated.length} codes');
               } catch (e) {
-                final msg = e.toString();
-                if (msg.contains('permission-denied')) {
-                  setStateSheet(
-                    () => errorText =
-                        'Permission denied. This account is not the league organizer (organizerUid mismatch). Fix organizerUid/ownerUid on the league doc or sign in as the creator.',
-                  );
-                } else {
-                  setStateSheet(() => errorText = msg);
-                }
+                setStateSheet(() => errorText = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
               } finally {
                 setStateSheet(() => generating = false);
               }
@@ -797,8 +726,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 10),
-
-                            // Config/remaining indicator + init helper
                             StreamBuilder<CouponConfig?>(
                               stream: cfgStream,
                               builder: (context, snap) {
@@ -906,8 +833,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 );
                               },
                             ),
-
-                            // Mode selector: Random vs Custom
                             Row(
                               children: [
                                 _modeChip(
@@ -929,9 +854,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 ),
                               ],
                             ),
-
                             const SizedBox(height: 10),
-
                             if (!customMode) ...[
                               Row(
                                 children: [
@@ -976,7 +899,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                       decoration: const InputDecoration(
                                         labelText: 'Custom code (single)',
                                         prefixIcon: Icon(Icons.edit),
-                                        hintText: 'BARCA  (we will create: ESL_BARCA_<DISCOUNT>%)',
+                                        hintText: 'BARCA (creates: ESL_BARCA_<DISCOUNT>%)',
                                       ),
                                     ),
                                   ),
@@ -994,18 +917,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Custom name cannot contain "/".\n'
-                                'Your final code will be: ESL_<NAME>_<DISCOUNT>% (DISCOUNT comes from coupon config).\n'
-                                'Creating one consumes 1 remaining coupon.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: onSurface.withOpacity(0.60),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                             ],
-
                             if (errorText != null) ...[
                               const SizedBox(height: 8),
                               Text(
@@ -1016,7 +928,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 ),
                               ),
                             ],
-
                             const SizedBox(height: 12),
                             Divider(color: onSurface.withOpacity(0.12)),
                             ConstrainedBox(
@@ -1085,12 +996,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                           onPressed: () async {
                                             await Clipboard.setData(ClipboardData(text: code));
                                             if (!context.mounted) return;
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text('Copied: $code'),
-                                                behavior: SnackBarBehavior.floating,
-                                              ),
-                                            );
+                                            _snack('Copied: $code');
                                           },
                                         ),
                                       );
@@ -1155,12 +1061,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final l10n = context.l10n;
     final league = _league;
     if (league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
 
@@ -1169,10 +1070,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     setState(() => _addingMeAsParticipant = true);
 
     try {
-      final userId = await CurrentUser.getUserId(); // Firebase uid in modern builds
       final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      if (authUid.isEmpty) {
+        throw const FirebaseAuthException(code: 'unauthenticated');
+      }
 
-      // Prefer rules-authoritative organizer checks.
       final isOwnerByRules = _isRulesOwnerForLeague(
         league,
         authUid: authUid,
@@ -1180,10 +1082,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         remoteOwnerUid: _remoteOwnerUid,
       );
 
-      // Legacy fallback for local-only behavior (does not grant coupon/admin access).
-      final legacyOk = league.organizerUserId == userId || (authUid.isNotEmpty && league.organizerUserId == authUid);
-
-      if (!isOwnerByRules && !legacyOk) {
+      if (!isOwnerByRules) {
         throw StateError(l10n.tr('league_admin_only_organizer_action'));
       }
 
@@ -1194,16 +1093,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         throw StateError(l10n.tr('league_admin_swiss_maxteams_error'));
       }
 
-      final existingTeams = await _localRepo.getTeams(league.id);
-      final alreadyHasTeam = existingTeams.any((t) => t.id == userId);
+      final existingTeams = await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
+      final alreadyHasTeam = existingTeams.any((t) => t.id == authUid);
       if (alreadyHasTeam) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.tr('league_admin_already_added_participant_team_exists')),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _snack(l10n.tr('league_admin_already_added_participant_team_exists'));
         return;
       }
 
@@ -1213,7 +1106,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         throw StateError('$prefix${league.maxTeams}$suffix');
       }
 
-      final profile = await UserProfileRepository().fetchByUserId(userId);
+      final profile = await UserProfileRepository().fetchByUserId(authUid).timeout(const Duration(seconds: 12));
       final teamName = profile?.teamName.trim() ?? '';
       if (teamName.isEmpty) {
         throw StateError(l10n.tr('league_admin_profile_team_name_missing'));
@@ -1234,7 +1127,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final team = Team(
-        id: userId,
+        id: authUid,
         leagueId: league.id,
         name: teamName,
         groupId: groupId,
@@ -1242,13 +1135,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         version: 1,
       );
 
-      await _localRepo.saveTeams(league.id, <Team>[...existingTeams, team]);
+      await _repo.saveTeams(league.id, <Team>[...existingTeams, team]).timeout(const Duration(seconds: 25));
 
-      await _localRepo.assignTeamToUserInLeague(
-        leagueId: league.id,
-        userId: userId,
-        teamId: userId,
-      );
+      await _repo
+          .assignTeamToUserInLeague(
+            leagueId: league.id,
+            userId: authUid,
+            teamId: authUid,
+          )
+          .timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
 
@@ -1263,21 +1158,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         msg = '$groupPrefix $groupName.';
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(msg);
     } catch (e) {
       if (!mounted) return;
       final failPrefix = l10n.tr('league_admin_failed_add_participant_prefix');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$failPrefix $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('$failPrefix ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}');
     } finally {
       if (mounted) setState(() => _addingMeAsParticipant = false);
     }
@@ -1291,12 +1176,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final l10n = context.l10n;
     final league = _league;
     if (league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
 
@@ -1305,18 +1185,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     setState(() => _exportingRoster = true);
     try {
       await RosterCsvExporter.shareRosterCsv(
-        repo: _localRepo,
+        repo: _repo,
         league: league,
       );
     } catch (e) {
       if (!mounted) return;
       final prefix = l10n.tr('league_admin_export_failed_prefix');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$prefix $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('$prefix ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}');
     } finally {
       if (mounted) setState(() => _exportingRoster = false);
     }
@@ -1328,59 +1203,48 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   Future<void> _startSpace() async {
     final l10n = context.l10n;
+    final league = _league;
 
-    if (_league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    if (league == null) {
+      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
 
     try {
-      final prefs = ref.read(prefsServiceProvider);
-      final currentUserId = prefs.getCurrentUserId();
-      if (currentUserId == null || currentUserId.isEmpty) {
-        throw StateError(l10n.tr('league_admin_no_signed_in_user_error'));
+      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      if (authUid.isEmpty) {
+        throw const FirebaseAuthException(code: 'unauthenticated');
       }
 
-      if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
-        // Keep legacy behavior (space host uses local user id in current architecture).
+      final isOwnerByRules = _isRulesOwnerForLeague(
+        league,
+        authUid: authUid,
+        remoteOrganizerUid: _remoteOrganizerUid,
+        remoteOwnerUid: _remoteOwnerUid,
+      );
+
+      if (!isOwnerByRules) {
         throw StateError(l10n.tr('league_admin_only_organizer_start_space'));
       }
 
-      final leagueName = _league!.name;
+      final leagueName = league.name;
       final suffix = l10n.tr('league_details_space_title_suffix');
       final spaceTitle = '$leagueName $suffix';
 
-      final space = await _spaceRepo.startSpace(
-        leagueId: _league!.id,
-        hostUserId: currentUserId,
-        title: spaceTitle,
-      );
-
-      await SyncTrigger.trySync();
+      final space = await _spaceRepo
+          .startSpace(
+            leagueId: league.id,
+            hostUserId: authUid,
+            title: spaceTitle,
+          )
+          .timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
       setState(() => _space = space);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_details_space_started')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(l10n.tr('league_details_space_started'));
     } catch (e) {
       if (!mounted) return;
-      final failMsg = l10n.tr('league_details_failed_to_start_space');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$failMsg: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
@@ -1388,12 +1252,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final l10n = context.l10n;
 
     if (_league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
 
@@ -1402,63 +1261,35 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   Future<void> _endSpace() async {
     final l10n = context.l10n;
-
-    if (_league == null) return;
+    final league = _league;
+    if (league == null) return;
 
     try {
-      final prefs = ref.read(prefsServiceProvider);
-      final currentUserId = prefs.getCurrentUserId();
-      if (currentUserId == null || currentUserId.isEmpty) {
-        throw StateError(l10n.tr('league_admin_no_signed_in_user_error'));
+      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      if (authUid.isEmpty) {
+        throw const FirebaseAuthException(code: 'unauthenticated');
       }
 
-      if (_league!.organizerUserId.isNotEmpty && _league!.organizerUserId != currentUserId) {
-        // Keep legacy behavior (space host uses local user id in current architecture).
+      final isOwnerByRules = _isRulesOwnerForLeague(
+        league,
+        authUid: authUid,
+        remoteOrganizerUid: _remoteOrganizerUid,
+        remoteOwnerUid: _remoteOwnerUid,
+      );
+
+      if (!isOwnerByRules) {
         throw StateError(l10n.tr('league_admin_only_organizer_end_space'));
       }
 
-      final updated = await _spaceRepo.endSpace(_league!.id);
-
-      await SyncTrigger.trySync();
+      final updated = await _spaceRepo.endSpace(league.id).timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
       setState(() => _space = updated);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_details_space_ended')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(l10n.tr('league_details_space_ended'));
     } catch (e) {
       if (!mounted) return;
-      final failMsg = l10n.tr('league_details_failed_to_end_space');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$failMsg: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Sync
-  // ---------------------------------------------------------------------------
-
-  Future<void> _syncParticipants() async {
-    final l10n = context.l10n;
-
-    setState(() => _isSyncing = true);
-    await SyncTrigger.trySync();
-    if (!mounted) return;
-    setState(() => _isSyncing = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.tr('league_admin_sync_complete')),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1468,14 +1299,20 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     return GlassScaffold(
       appBar: AppBar(
         title: Text(l10n.tr('league_admin_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: l10n.tr('common_refresh'),
+            onPressed: _isLeagueLoading ? null : _loadLeague,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
       ),
       resizeToAvoidBottomInset: true,
       body: SafeArea(
@@ -1507,58 +1344,57 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final title = widget.hasPendingChanges
-        ? l10n.tr('league_admin_offline_changes_title')
-        : l10n.tr('league_admin_fully_synced_title');
+    return ValueListenableBuilder<bool>(
+      valueListenable: ConnectivityService.instance.isConnected,
+      builder: (context, online, _) {
+        final title = online ? 'Online' : 'Offline';
+        final subtitle = online
+            ? 'All changes are saved to the server instantly.'
+            : 'You appear to be offline. Some actions may not work.';
 
-    final subtitle = widget.hasPendingChanges
-        ? l10n.tr('league_admin_offline_changes_subtitle')
-        : l10n.tr('league_admin_fully_synced_subtitle');
+        final statusIcon = online ? Icons.wifi : Icons.wifi_off;
+        final statusColor = online ? const Color(0xFF22C55E) : const Color(0xFFF59E0B);
 
-    final statusIcon = widget.hasPendingChanges ? Icons.cloud_off : Icons.cloud_done;
-    final statusColor = widget.hasPendingChanges ? const Color(0xFFF59E0B) : const Color(0xFF22C55E);
-
-    return Glass(
-      borderRadius: 24,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(statusIcon, color: statusColor, size: 40),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: cs.onSurface,
-                      fontWeight: FontWeight.w900,
-                    ),
+        return Glass(
+          borderRadius: 24,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(statusIcon, color: statusColor, size: 40),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.70),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.70),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                IconButton(
+                  tooltip: l10n.tr('common_refresh'),
+                  onPressed: _loadLeague,
+                  icon: Icon(Icons.refresh, color: cs.onSurface.withOpacity(0.72)),
+                ),
+              ],
             ),
-            IconButton(
-              tooltip: l10n.tr('league_admin_sync_now_tooltip'),
-              onPressed: () async {
-                await SyncTrigger.trySync();
-                await _loadLeague();
-              },
-              icon: Icon(Icons.sync, color: cs.onSurface.withOpacity(0.72)),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -1658,13 +1494,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           l10n.tr('league_admin_league_rules'),
           l10n.tr('league_admin_league_rules_subtitle'),
           onTap: _showRulesSheet,
-        ),
-        _buildSettingsTile(
-          context,
-          Icons.sync,
-          l10n.tr('league_admin_sync_now'),
-          _isSyncing ? l10n.tr('league_admin_syncing') : l10n.tr('league_admin_sync_now_subtitle'),
-          onTap: _isSyncing ? null : _syncParticipants,
         ),
         _buildSettingsTile(
           context,
@@ -1837,12 +1666,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                                     if (!mounted) return;
                                     Navigator.of(ctx).pop();
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(l10n.tr('league_admin_live_viewer_settings_updated')),
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
+                                    _snack(l10n.tr('league_admin_live_viewer_settings_updated'));
                                   },
                                   child: Text(l10n.tr('common_save')),
                                 ),
@@ -1980,19 +1804,32 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Send announcement sheet
+  // Send announcement sheet (online-only: direct Firestore write)
   // ---------------------------------------------------------------------------
 
   void _showSendAnnouncementSheet() {
     final l10n = context.l10n;
 
-    if (_league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    final league = _league;
+    if (league == null) {
+      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
+      return;
+    }
+
+    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (authUid.isEmpty) {
+      _snack('Please sign in and try again.');
+      return;
+    }
+
+    final isOwnerByRules = _isRulesOwnerForLeague(
+      league,
+      authUid: authUid,
+      remoteOrganizerUid: _remoteOrganizerUid,
+      remoteOwnerUid: _remoteOwnerUid,
+    );
+    if (!isOwnerByRules) {
+      _snack('Only the organizer can send announcements.');
       return;
     }
 
@@ -2071,7 +1908,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   final msg = messageController.text.trim();
                                   if (msg.isEmpty) return;
 
-                                  final title = rawTitle.isEmpty ? l10n.tr('league_admin_announcement_default_title') : rawTitle;
+                                  final title = rawTitle.isEmpty
+                                      ? l10n.tr('league_admin_announcement_default_title')
+                                      : rawTitle;
+
                                   final now = DateTime.now().millisecondsSinceEpoch;
 
                                   final ann = LeagueAnnouncement(
@@ -2082,24 +1922,32 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     createdAtMs: now,
                                   );
 
-                                  await _annRepo.addAnnouncement(ann);
+                                  try {
+                                    await _firestore
+                                        .collection('leagues')
+                                        .doc(widget.leagueId)
+                                        .collection('announcements')
+                                        .doc(ann.id)
+                                        .set(ann.toMap(), SetOptions(merge: true))
+                                        .timeout(const Duration(seconds: 15));
 
-                                  await NotificationService().showLeagueAnnouncementNotification(
-                                    leagueName: _league?.name ?? l10n.tr('common_league_placeholder'),
-                                    title: title,
-                                    message: msg,
-                                  );
+                                    try {
+                                      await NotificationService().showLeagueAnnouncementNotification(
+                                        leagueName: league.name,
+                                        title: title,
+                                        message: msg,
+                                      );
+                                    } catch (_) {
+                                      // Non-fatal: local notification optional.
+                                    }
 
-                                  await SyncTrigger.trySync();
-
-                                  if (!mounted) return;
-                                  Navigator.of(ctx).pop();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(l10n.tr('league_admin_announcement_sent')),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
+                                    if (!ctx.mounted) return;
+                                    Navigator.of(ctx).pop();
+                                    _snack(l10n.tr('league_admin_announcement_sent'));
+                                  } catch (e) {
+                                    if (!ctx.mounted) return;
+                                    _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                                  }
                                 },
                                 child: Text(l10n.tr('league_admin_send')),
                               ),
@@ -2221,20 +2069,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Open add-teams screen
-  // ---------------------------------------------------------------------------
-
   void _openAddTeams() {
     final l10n = context.l10n;
 
     if (_league == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_admin_league_info_not_loaded_yet_try_again')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack(l10n.tr('league_admin_league_info_not_loaded_yet_try_again'));
       return;
     }
 
@@ -2249,24 +2088,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Rules sheet (placeholder)
-  // ---------------------------------------------------------------------------
-
   void _showRulesSheet() {
     final l10n = context.l10n;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.tr('league_admin_rules_editor_unchanged')),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    _snack(l10n.tr('league_admin_rules_editor_unchanged'));
   }
-
-  // ---------------------------------------------------------------------------
-  // Delete league
-  // ---------------------------------------------------------------------------
 
   void _confirmDeleteLeague() {
     final l10n = context.l10n;
@@ -2296,19 +2121,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: cs.error),
               onPressed: () async {
-                await _localRepo.deleteLeagueCompletely(widget.leagueId);
-
-                if (!mounted) return;
-                Navigator.of(ctx).pop();
-
-                GoRouter.of(context).go('/leagues');
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(l10n.tr('league_admin_league_deleted')),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                try {
+                  await _repo.deleteLeagueCompletely(widget.leagueId).timeout(const Duration(seconds: 30));
+                  if (!mounted) return;
+                  Navigator.of(ctx).pop();
+                  GoRouter.of(context).go('/leagues');
+                  _snack(l10n.tr('league_admin_league_deleted'));
+                } catch (e) {
+                  if (!mounted) return;
+                  Navigator.of(ctx).pop();
+                  _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                }
               },
               child: Text(l10n.tr('league_admin_delete')),
             ),

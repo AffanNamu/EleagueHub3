@@ -1,12 +1,12 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
-import '../../../core/services/sync_queue_service.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
 import '../models/league.dart';
@@ -15,24 +15,108 @@ import '../models/team.dart';
 
 /// How a user joins a league from the UI.
 ///
-/// IMPORTANT:
-/// - `participant`: user is counted as a league participant (creates/keeps Membership).
+/// IMPORTANT (online-only):
+/// - `participant`: user is counted as a league participant (creates Membership).
 /// - `viewer`: user can view the league (added to league.memberIds for access),
-///   but is NOT counted as a participant (no new Membership is created).
+///   but is NOT counted as a participant (no Membership is created).
 enum LeagueJoinMode { participant, viewer }
 
-class LocalLeaguesRepository {
-  final PreferencesService _prefs;
-  final SyncQueueService _queue = SyncQueueService.instance;
-  final Uuid _uuid = const Uuid();
+/// User-safe exception: if UI shows `$e`, it will still be a friendly message.
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
 
+  @override
+  String toString() => message;
+}
+
+/// Backward-compatible repository name kept to avoid widespread refactors.
+///
+/// ONLINE-ONLY MIGRATION:
+/// - No SharedPreferences storage for leagues/teams/matches.
+/// - No local queue.
+/// - All reads/writes go directly to Firestore.
+/// - Errors are thrown as user-friendly messages (no raw Firebase errors).
+class LocalLeaguesRepository {
   LocalLeaguesRepository(this._prefs);
 
+  // Kept only because many screens construct this repo from prefs provider.
+  // Online-only: prefs must not be used for domain data.
+  // ignore: unused_field
+  final PreferencesService _prefs;
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final Uuid _uuid = const Uuid();
+
+  // Legacy keys kept only for compatibility (no longer used).
   static const String kLeaguesKey = 'local_leagues';
   static const String kMembershipsKey = 'local_memberships';
   static const String kTeamsKey = 'local_teams';
   static const String kMatchesKey = 'local_matches';
   static const String kKnockoutMatchesKey = 'local_knockout_matches';
+
+  String _requireAuthUid() {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      throw const UserFriendlyException('Please sign in and try again.');
+    }
+    return uid;
+  }
+
+  bool _isNetworkFirebaseException(FirebaseException e) {
+    return e.code == 'unavailable' || e.code == 'deadline-exceeded';
+  }
+
+  Never _rethrowFriendly(Object e) {
+    if (e is UserFriendlyException) throw e;
+
+    if (e is TimeoutException) {
+      throw const UserFriendlyException('Your internet connection seems unstable. Please try again.');
+    }
+
+    if (e is FirebaseException) {
+      if (_isNetworkFirebaseException(e)) {
+        throw const UserFriendlyException(
+          'Your network appears to be offline. Please check your connection and try again.',
+        );
+      }
+      if (e.code == 'permission-denied') {
+        throw const UserFriendlyException('You don’t have permission to do that right now.');
+      }
+      if (e.code == 'unauthenticated') {
+        throw const UserFriendlyException('Please sign in and try again.');
+      }
+      throw const UserFriendlyException("We couldn't complete this action. Please try again.");
+    }
+
+    throw const UserFriendlyException('Something went wrong. Please try again.');
+  }
+
+  String _generateJoinCode({int length = 6}) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final rnd = Random.secure();
+    return List.generate(length, (_) => chars[rnd.nextInt(chars.length)]).join();
+  }
+
+  Future<String> _generateUniqueJoinCode() async {
+    for (var i = 0; i < 6; i++) {
+      final code = _generateJoinCode();
+      final snap = await _firestore
+          .collection('leagues')
+          .where('code', isEqualTo: code)
+          .limit(1)
+          .get(const GetOptions(source: Source.server));
+      if (snap.docs.isEmpty) return code;
+    }
+    throw const UserFriendlyException("We couldn't create a join code. Please try again.");
+  }
+
+  League _docToLeague(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    final map = <String, dynamic>{...data};
+    map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
+    return League.fromRemoteMap(map);
+  }
 
   // -----------------------
   // Leagues
@@ -41,471 +125,387 @@ class LocalLeaguesRepository {
   Future<List<League>> listLeagues() => getAllLeagues();
 
   Future<List<League>> getAllLeagues() async {
-    final raw = _prefs.getStringList(kLeaguesKey) ?? <String>[];
+    try {
+      final authUid = _requireAuthUid();
 
-    // Defensive: do not crash the whole app if one stored entry is malformed.
-    final out = <League>[];
-    for (final s in raw) {
-      try {
-        out.add(League.fromJsonString(s));
-      } catch (_) {
-        // Skip bad record (non-fatal)
-      }
+      final snapshot = await _firestore
+          .collection('leagues')
+          .where('memberIds', arrayContains: authUid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      return snapshot.docs.map((d) => _docToLeague(d)).toList(growable: false);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
-    return out;
   }
 
   Future<League?> getLeagueById(String id) async {
-    final all = await getAllLeagues();
-    for (final l in all) {
-      if (l.id == id) return l;
+    try {
+      _requireAuthUid();
+
+      final doc = await _firestore
+          .collection('leagues')
+          .doc(id)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+      if (!doc.exists) return null;
+      return _docToLeague(doc);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
-    return null;
   }
 
   Future<void> saveLeague(League league) async {
-    final all = await getAllLeagues();
-    final existsIndex = all.indexWhere((l) => l.id == league.id);
+    try {
+      final authUid = _requireAuthUid();
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final updated = league.copyWith(updatedAtMs: now);
+      final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
+      final fixedCode =
+          league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
 
-    if (existsIndex >= 0) {
-      all[existsIndex] = updated;
-    } else {
-      all.add(updated);
+      final fixed = league.copyWith(
+        id: leagueId,
+        organizerUid: authUid,
+        code: fixedCode,
+        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+
+      await _firestore.collection('leagues').doc(leagueId).set(
+        {
+          ...fixed.toJson(),
+          'organizerUid': authUid,
+          'ownerUid': authUid,
+          'ownerId': authUid,
+          'memberIds': FieldValue.arrayUnion([authUid]),
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 25));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
-
-    await _prefs.setStringList(
-      kLeaguesKey,
-      all.map((l) => l.toJsonString()).toList(),
-    );
-
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'league',
-      entityId: updated.id,
-      action: existsIndex >= 0 ? 'update' : 'create',
-      lastModified: now,
-      payload: updated.toJson(),
-    );
   }
 
   Future<void> deleteLeagueCompletely(String leagueId) async {
-    final leagues = await getAllLeagues();
-    leagues.removeWhere((l) => l.id == leagueId);
-    await _prefs.setStringList(
-      kLeaguesKey,
-      leagues.map((l) => l.toJsonString()).toList(),
-    );
+    try {
+      _requireAuthUid();
 
-    final teams = await _getAllTeams();
-    teams.removeWhere((t) => t.leagueId == leagueId);
-    await _prefs.setStringList(
-      kTeamsKey,
-      teams.map((t) => jsonEncode(t.toRemoteMap())).toList(),
-    );
+      final leagueRef = _firestore.collection('leagues').doc(leagueId);
 
-    final memberships = await _getAllMemberships();
-    memberships.removeWhere((m) => m.leagueId == leagueId);
-    await _prefs.setStringList(
-      kMembershipsKey,
-      memberships.map((m) => jsonEncode(m.toRemoteMap())).toList(),
-    );
+      Future<void> deleteAllDocsIn(String sub) async {
+        final col = leagueRef.collection(sub);
+        final snap = await col.get(const GetOptions(source: Source.server));
+        if (snap.docs.isEmpty) return;
 
-    final matches = await _getAllMatches();
-    matches.removeWhere((m) => m.leagueId == leagueId);
-    await _prefs.setStringList(
-      kMatchesKey,
-      matches.map((m) => jsonEncode(m.toJson())).toList(),
-    );
+        const chunkSize = 450;
+        for (var i = 0; i < snap.docs.length; i += chunkSize) {
+          final batch = _firestore.batch();
+          final chunk = snap.docs.sublist(i, (i + chunkSize > snap.docs.length) ? snap.docs.length : i + chunkSize);
+          for (final d in chunk) {
+            batch.delete(d.reference);
+          }
+          await batch.commit();
+        }
+      }
 
-    final ko = await _getAllKnockoutMatches();
-    ko.removeWhere((m) => m.leagueId == leagueId);
-    await _prefs.setStringList(
-      kKnockoutMatchesKey,
-      ko.map((m) => jsonEncode(m.toJson())).toList(),
-    );
+      await deleteAllDocsIn('teams');
+      await deleteAllDocsIn('matches');
+      await deleteAllDocsIn('knockout');
+      await deleteAllDocsIn('memberships');
+      await deleteAllDocsIn('announcements');
+      await deleteAllDocsIn('space');
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'league',
-      entityId: leagueId,
-      action: 'delete',
-      lastModified: now,
-      payload: null,
-    );
+      await leagueRef.delete().timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   // ------------------------------------------------------
-  // CREATE (local)
+  // CREATE (online-only)
   // ------------------------------------------------------
 
   Future<League> createLeagueLocally({
     required League league,
     required String organizerUserId,
   }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    try {
+      final authUid = _requireAuthUid();
 
-    final code = (league.code.trim().isNotEmpty) ? league.code.trim().toUpperCase() : _generateJoinCode();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
 
-    // Rules authority: FirebaseAuth uid (anonymous or real).
-    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      final code =
+          league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
 
-    final inferredOrganizerUid = authUid.isNotEmpty ? authUid : league.organizerUid.trim();
+      final stored = league.copyWith(
+        id: leagueId,
+        organizerUid: authUid,
+        organizerUserId: organizerUserId,
+        code: code,
+        updatedAtMs: now,
+      );
 
-    final stored = league.copyWith(
-      organizerUid: inferredOrganizerUid,
-      organizerUserId: organizerUserId,
-      code: code,
-      updatedAtMs: now,
-    );
+      await _firestore.collection('leagues').doc(leagueId).set(
+        {
+          ...stored.toJson(),
+          'organizerUid': authUid,
+          'ownerUid': authUid,
+          'ownerId': authUid,
+          'memberIds': FieldValue.arrayUnion([authUid]),
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 25));
 
-    await _upsertLeagueLocalNoQueue(stored);
+      final membership = Membership(
+        id: _uuid.v4(),
+        leagueId: leagueId,
+        userId: authUid,
+        teamId: null,
+        role: LeagueRole.organizer,
+        updatedAtMs: now,
+        version: 1,
+      );
 
-    // organizer membership (local)
-    final membership = Membership(
-      id: _uuid.v4(),
-      leagueId: stored.id,
-      userId: authUid.isNotEmpty ? authUid : organizerUserId,
-      teamId: null,
-      role: LeagueRole.organizer,
-      updatedAtMs: now,
-      version: 1,
-    );
-    await _upsertMembershipLocalByLeagueUserNoQueue(membership);
+      await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('memberships')
+          .doc(membership.id)
+          .set(membership.toRemoteMap(), SetOptions(merge: true))
+          .timeout(const Duration(seconds: 20));
 
-    // queue league create
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'league',
-      entityId: stored.id,
-      action: 'create',
-      lastModified: now,
-      payload: stored.toJson(),
-    );
-
-    // queue membership create
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'membership',
-      entityId: membership.id,
-      action: 'create',
-      lastModified: now,
-      payload: membership.toRemoteMap(),
-    );
-
-    return stored;
+      return stored;
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   // ------------------------------------------------------
-  // JOIN by code (strict online, offline fallback only on network error)
+  // JOIN by code (online-only)
   // ------------------------------------------------------
 
   Future<League> joinLeagueLocallyByCode({
     required String joinCode,
-    required String userId,
-    required League Function(String generatedLeagueId) placeholderBuilder,
+    required String userId, // kept for API compatibility; auth UID is authoritative
+    required League Function(String generatedLeagueId) placeholderBuilder, // ignored online-only
     LeagueJoinMode mode = LeagueJoinMode.participant,
   }) async {
-    final code = joinCode.trim().toUpperCase();
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    final firestore = FirebaseFirestore.instance;
-
     try {
-      // Always try ONLINE first (don't trust connectivity flag)
-      final query = await firestore.collection('leagues').where('code', isEqualTo: code).limit(1).get();
+      final authUid = _requireAuthUid();
+
+      final code = joinCode.trim().toUpperCase();
+      if (code.isEmpty) {
+        throw const UserFriendlyException('Please enter a valid league code.');
+      }
+
+      final query = await _firestore
+          .collection('leagues')
+          .where('code', isEqualTo: code)
+          .limit(1)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
 
       if (query.docs.isEmpty) {
-        // Online reachable but league not found: DO NOT create placeholder
-        throw StateError(
-          'League not found online. Ask admin to sync and share the correct Join ID.',
-        );
+        throw const UserFriendlyException("We couldn't find a league with that code.");
       }
 
-      final doc = query.docs.first;
-      final leagueId = doc.id;
+      final leagueDoc = query.docs.first;
+      final leagueId = leagueDoc.id;
 
-      // RULES AUTHORITY:
-      // memberIds must append exactly +1 element (request.auth.uid only).
-      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-      if (authUid.isEmpty) {
-        throw StateError('Sign in required to join this league.');
-      }
-
-      await firestore.collection('leagues').doc(leagueId).set(
+      await _firestore.collection('leagues').doc(leagueId).set(
         {
           'memberIds': FieldValue.arrayUnion([authUid]),
-          'updatedAtMs': now,
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
         },
         SetOptions(merge: true),
-      );
-
-      final fresh = await firestore.collection('leagues').doc(leagueId).get();
-      final data = (fresh.data() ?? <String, dynamic>{});
-      data['id'] = leagueId;
-
-      final league = League.fromRemoteMap(data);
-      await _upsertLeagueLocalNoQueue(league);
-
-      // Memberships should use Firebase UID in modern flows
-      final effectiveMembershipUserId = authUid;
-
-      final remoteMembership = await _fetchRemoteMembershipForUser(
-        firestore: firestore,
-        leagueId: leagueId,
-        userId: effectiveMembershipUserId,
-      );
-
-      final localExisting = await getMembership(leagueId: leagueId, userId: effectiveMembershipUserId);
-
-      final existingMembership = remoteMembership ?? localExisting;
-
-      if (existingMembership != null) {
-        await _upsertMembershipLocalByLeagueUserNoQueue(existingMembership);
-        return league;
-      }
+      ).timeout(const Duration(seconds: 20));
 
       if (mode == LeagueJoinMode.participant) {
-        bool allowParticipantMembership = true;
-        try {
-          final registered = await _fetchRemoteRegisteredCount(
-            firestore: firestore,
-            leagueId: leagueId,
-          );
-          if (registered >= league.maxTeams) {
-            allowParticipantMembership = false;
-          }
-        } catch (_) {
-          allowParticipantMembership = true;
-        }
+        final existing = await _firestore
+            .collection('leagues')
+            .doc(leagueId)
+            .collection('memberships')
+            .where('userId', isEqualTo: authUid)
+            .limit(1)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 20));
 
-        if (allowParticipantMembership) {
+        if (existing.docs.isEmpty) {
+          final now = DateTime.now().millisecondsSinceEpoch;
           final membership = Membership(
             id: _uuid.v4(),
             leagueId: leagueId,
-            userId: effectiveMembershipUserId,
+            userId: authUid,
             teamId: null,
             role: LeagueRole.member,
             updatedAtMs: now,
             version: 1,
           );
-          await _upsertMembershipLocalByLeagueUserNoQueue(membership);
 
-          await _queue.enqueue(
-            id: _uuid.v4(),
-            entityType: 'membership',
-            entityId: membership.id,
-            action: 'create',
-            lastModified: now,
-            payload: membership.toRemoteMap(),
-          );
+          await _firestore
+              .collection('leagues')
+              .doc(leagueId)
+              .collection('memberships')
+              .doc(membership.id)
+              .set(membership.toRemoteMap(), SetOptions(merge: true))
+              .timeout(const Duration(seconds: 20));
         }
       }
 
-      return league;
-    } on FirebaseException catch (e) {
-      final isNetwork = e.code == 'unavailable' || e.code == 'deadline-exceeded';
-      if (!isNetwork) {
-        throw StateError('Join failed: ${e.message ?? e.code}');
-      }
-
-      final generatedLeagueId = _uuid.v4();
-      final placeholder = placeholderBuilder(generatedLeagueId).copyWith(
-        code: code,
-        updatedAtMs: now,
-      );
-
-      await _upsertLeagueLocalNoQueue(placeholder);
-
-      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-      await _queue.enqueue(
-        id: _uuid.v4(),
-        entityType: 'league_join',
-        entityId: generatedLeagueId,
-        action: 'join',
-        lastModified: now,
-        payload: {
-          'code': code,
-          // legacy/local id (kept for old UI / analytics)
-          'userId': userId,
-          // rules-authoritative id (preferred)
-          if (authUid.isNotEmpty) 'authUid': authUid,
-        },
-      );
-
-      if (mode == LeagueJoinMode.participant) {
-        final effectiveMembershipUserId = authUid.isNotEmpty ? authUid : userId;
-
-        final membership = Membership(
-          id: _uuid.v4(),
-          leagueId: generatedLeagueId,
-          userId: effectiveMembershipUserId,
-          teamId: null,
-          role: LeagueRole.member,
-          updatedAtMs: now,
-          version: 1,
-        );
-        await _upsertMembershipLocalByLeagueUserNoQueue(membership);
-
-        await _queue.enqueue(
-          id: _uuid.v4(),
-          entityType: 'membership',
-          entityId: membership.id,
-          action: 'create',
-          lastModified: now,
-          payload: membership.toRemoteMap(),
-        );
-      }
-
-      return placeholder;
-    }
-  }
-
-  Future<Membership?> _fetchRemoteMembershipForUser({
-    required FirebaseFirestore firestore,
-    required String leagueId,
-    required String userId,
-  }) async {
-    try {
-      final snap = await firestore
+      final fresh = await _firestore
           .collection('leagues')
           .doc(leagueId)
-          .collection('memberships')
-          .where('userId', isEqualTo: userId)
-          .limit(1)
-          .get();
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
 
-      if (snap.docs.isEmpty) return null;
-
-      final doc = snap.docs.first;
-      final data = doc.data();
-
-      final map = <String, dynamic>{...data};
-
-      map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
-
-      map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
-      map['userId'] = (map['userId'] as String?) ?? userId;
-
-      map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
-      map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
-      map['version'] = (map['version'] as num?)?.toInt() ?? 1;
-
-      return Membership.fromRemoteMap(map);
-    } catch (_) {
-      return null;
+      return _docToLeague(fresh);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
-  }
-
-  Future<int> _fetchRemoteRegisteredCount({
-    required FirebaseFirestore firestore,
-    required String leagueId,
-  }) async {
-    final teamsSnap = await firestore.collection('leagues').doc(leagueId).collection('teams').get();
-    final membershipsSnap = await firestore.collection('leagues').doc(leagueId).collection('memberships').get();
-
-    final teamsCount = teamsSnap.size;
-
-    int orphanMembersCount = 0;
-    for (final d in membershipsSnap.docs) {
-      final data = d.data();
-      final role = (data['role'] as num?)?.toInt();
-      final teamId = data['teamId'] as String?;
-      final isMember = role == LeagueRole.member.index;
-      final isOrphan = teamId == null || teamId.trim().isEmpty;
-      if (isMember && isOrphan) orphanMembersCount++;
-    }
-
-    return teamsCount + orphanMembersCount;
   }
 
   // ------------------------------------------------------
   // Memberships
   // ------------------------------------------------------
 
-  Future<List<Membership>> listMemberships() async => _getAllMemberships();
+  Future<List<Membership>> listMemberships() async {
+    try {
+      final authUid = _requireAuthUid();
+
+      final leaguesSnap = await _firestore
+          .collection('leagues')
+          .where('memberIds', arrayContains: authUid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      final leagueIds = leaguesSnap.docs.map((d) => d.id).toList(growable: false);
+      if (leagueIds.isEmpty) return const <Membership>[];
+
+      final all = await Future.wait(
+        leagueIds.map((leagueId) async {
+          final snap = await _firestore
+              .collection('leagues')
+              .doc(leagueId)
+              .collection('memberships')
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 20));
+
+          return snap.docs.map((d) {
+            final map = <String, dynamic>{...d.data()};
+            map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+            map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+            map['userId'] = (map['userId'] as String?) ?? '';
+            map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+            map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+            map['version'] = (map['version'] as num?)?.toInt() ?? 1;
+            return Membership.fromRemoteMap(map);
+          }).toList();
+        }),
+      );
+
+      return all.expand((x) => x).toList(growable: false);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
 
   Future<Membership?> getMembership({
     required String leagueId,
     required String userId,
   }) async {
-    final all = await _getAllMemberships();
-    for (final m in all) {
-      if (m.leagueId == leagueId && m.userId == userId) return m;
+    try {
+      _requireAuthUid();
+
+      final uid = userId.trim();
+      if (uid.isEmpty) return null;
+
+      final snap = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('memberships')
+          .where('userId', isEqualTo: uid)
+          .limit(1)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      if (snap.docs.isEmpty) return null;
+
+      final doc = snap.docs.first;
+      final map = <String, dynamic>{...doc.data()};
+      map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
+      map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+      map['userId'] = (map['userId'] as String?) ?? uid;
+      map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+      map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+      map['version'] = (map['version'] as num?)?.toInt() ?? 1;
+      return Membership.fromRemoteMap(map);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
-    return null;
   }
 
-
-
-  // ------------------------------------------------------
-  // Assign team to user in league (compat restore)
-  // ------------------------------------------------------
-  ///
-  /// Some screens (AddTeamsScreen, LeagueAdminScreen) depend on this method to:
-  /// - create/update a Membership for a user
-  /// - set teamId so "My Matches" works
-  ///
-  /// ID POLICY:
-  /// - userId/teamId are expected to be Firebase UIDs (canonical).
-  /// - shareId is display/input only; never store shareId in Membership.userId.
   Future<void> assignTeamToUserInLeague({
     required String leagueId,
     required String userId,
     required String teamId,
   }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    try {
+      _requireAuthUid();
 
-    final all = await _getAllMemberships();
+      final uid = userId.trim();
+      if (uid.isEmpty) {
+        throw const UserFriendlyException('Please select a valid user.');
+      }
 
-    // Choose the most recently updated membership if duplicates exist.
-    final matches = all.where((m) => m.leagueId == leagueId && m.userId == userId).toList();
-    Membership? existing;
-    if (matches.isNotEmpty) {
-      existing = matches.reduce((a, b) => a.updatedAtMs >= b.updatedAtMs ? a : b);
+      final existing = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('memberships')
+          .where('userId', isEqualTo: uid)
+          .limit(1)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      if (existing.docs.isEmpty) {
+        final membership = Membership(
+          id: _uuid.v4(),
+          leagueId: leagueId,
+          userId: uid,
+          teamId: teamId,
+          role: LeagueRole.member,
+          updatedAtMs: now,
+          version: 1,
+        );
+
+        await _firestore
+            .collection('leagues')
+            .doc(leagueId)
+            .collection('memberships')
+            .doc(membership.id)
+            .set(membership.toRemoteMap(), SetOptions(merge: true))
+            .timeout(const Duration(seconds: 20));
+
+        return;
+      }
+
+      final doc = existing.docs.first;
+      final data = doc.data();
+      final currentVersion = (data['version'] as num?)?.toInt() ?? 1;
+
+      await doc.reference.set(
+        {
+          'teamId': teamId,
+          'updatedAtMs': now,
+          'version': currentVersion + 1,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
-
-    // Remove any duplicates; we'll re-add a single canonical record.
-    all.removeWhere((m) => m.leagueId == leagueId && m.userId == userId);
-
-    final Membership updated = (existing != null)
-        ? Membership(
-            id: existing.id,
-            leagueId: existing.leagueId,
-            userId: existing.userId,
-            teamId: teamId,
-            role: existing.role, // preserve role
-            updatedAtMs: now,
-            version: existing.version + 1,
-          )
-        : Membership(
-            id: _uuid.v4(),
-            leagueId: leagueId,
-            userId: userId,
-            teamId: teamId,
-            role: LeagueRole.member,
-            updatedAtMs: now,
-            version: 1,
-          );
-
-    all.add(updated);
-
-    await _prefs.setStringList(
-      kMembershipsKey,
-      all.map((m) => jsonEncode(m.toRemoteMap())).toList(),
-    );
-
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'membership',
-      entityId: updated.id,
-      action: (existing != null) ? 'update' : 'create',
-      lastModified: now,
-      payload: updated.toRemoteMap(),
-    );
   }
 
   // ------------------------------------------------------
@@ -513,32 +513,61 @@ class LocalLeaguesRepository {
   // ------------------------------------------------------
 
   Future<List<Team>> getTeams(String leagueId) async {
-    final all = await _getAllTeams();
-    return all.where((t) => t.leagueId == leagueId).toList();
+    try {
+      _requireAuthUid();
+
+      final snap = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('teams')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      return snap.docs.map((d) {
+        final map = <String, dynamic>{...d.data()};
+        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+        map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+        return Team.fromRemoteMap(map);
+      }).toList(growable: false);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<void> saveTeams(String leagueId, List<Team> allTeams) async {
-    final teams = await _getAllTeams();
-    teams.removeWhere((t) => t.leagueId == leagueId);
-    teams.addAll(allTeams);
+    try {
+      _requireAuthUid();
 
-    await _prefs.setStringList(
-      kTeamsKey,
-      teams.map((t) => jsonEncode(t.toRemoteMap())).toList(),
-    );
+      final col = _firestore.collection('leagues').doc(leagueId).collection('teams');
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'teams_replace',
-      entityId: leagueId,
-      action: 'replace',
-      lastModified: now,
-      payload: {
-        'leagueId': leagueId,
-        'teams': allTeams.map((t) => t.toRemoteMap()).toList(),
-      },
-    );
+      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+
+      const chunkSize = 450;
+
+      if (existing.docs.isNotEmpty) {
+        for (var i = 0; i < existing.docs.length; i += chunkSize) {
+          final batch = _firestore.batch();
+          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          for (final d in chunk) {
+            batch.delete(d.reference);
+          }
+          await batch.commit();
+        }
+      }
+
+      for (var i = 0; i < allTeams.length; i += chunkSize) {
+        final batch = _firestore.batch();
+        final chunk = allTeams.sublist(i, (i + chunkSize > allTeams.length) ? allTeams.length : i + chunkSize);
+        for (final t in chunk) {
+          final id = t.id.trim().isEmpty ? _uuid.v4() : t.id.trim();
+          final data = t.copyWith(id: id, leagueId: leagueId).toRemoteMap();
+          batch.set(col.doc(id), data, SetOptions(merge: true));
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   // ------------------------------------------------------
@@ -546,63 +575,73 @@ class LocalLeaguesRepository {
   // ------------------------------------------------------
 
   Future<List<FixtureMatch>> getMatches(String leagueId) async {
-    final all = await _getAllMatches();
-    return all.where((m) => m.leagueId == leagueId).toList();
+    try {
+      _requireAuthUid();
+
+      final snap = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('matches')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      return snap.docs.map((d) {
+        final map = <String, dynamic>{...d.data()};
+        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+        map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+        return FixtureMatch.fromJson(map);
+      }).toList(growable: false);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<void> saveMatches(String leagueId, List<FixtureMatch> matches) async {
-    final all = await _getAllMatches();
+    try {
+      _requireAuthUid();
 
-    for (final m in matches) {
-      final idx = all.indexWhere((x) => x.id == m.id);
-      if (idx >= 0) {
-        all[idx] = m;
-      } else {
-        all.add(m);
+      final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
+
+      const chunkSize = 450;
+      for (var i = 0; i < matches.length; i += chunkSize) {
+        final batch = _firestore.batch();
+        final chunk = matches.sublist(i, (i + chunkSize > matches.length) ? matches.length : i + chunkSize);
+        for (final m in chunk) {
+          final id = m.id.trim().isEmpty ? _uuid.v4() : m.id.trim();
+          final data = m.copyWith(id: id, leagueId: leagueId).toJson();
+          batch.set(col.doc(id), data, SetOptions(merge: true));
+        }
+        await batch.commit();
       }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
-
-    await _prefs.setStringList(
-      kMatchesKey,
-      all.map((m) => jsonEncode(m.toJson())).toList(),
-    );
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'matches_upsert',
-      entityId: leagueId,
-      action: 'upsert',
-      lastModified: now,
-      payload: {
-        'leagueId': leagueId,
-        'matches': matches.map((m) => m.toJson()).toList(),
-      },
-    );
   }
 
   Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
-    final all = await _getAllMatches();
-    all.removeWhere((m) => m.leagueId == leagueId);
-    all.addAll(matches);
+    try {
+      _requireAuthUid();
 
-    await _prefs.setStringList(
-      kMatchesKey,
-      all.map((m) => jsonEncode(m.toJson())).toList(),
-    );
+      final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
+      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'matches_replace',
-      entityId: leagueId,
-      action: 'replace',
-      lastModified: now,
-      payload: {
-        'leagueId': leagueId,
-        'matches': matches.map((m) => m.toJson()).toList(),
-      },
-    );
+      const chunkSize = 450;
+
+      if (existing.docs.isNotEmpty) {
+        for (var i = 0; i < existing.docs.length; i += chunkSize) {
+          final batch = _firestore.batch();
+          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          for (final d in chunk) {
+            batch.delete(d.reference);
+          }
+          await batch.commit();
+        }
+      }
+
+      await saveMatches(leagueId, matches);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   // ------------------------------------------------------
@@ -610,133 +649,94 @@ class LocalLeaguesRepository {
   // ------------------------------------------------------
 
   Future<List<KnockoutMatch>> getKnockoutMatches(String leagueId) async {
-    final all = await _getAllKnockoutMatches();
-    final list = all.where((m) => m.leagueId == leagueId).toList();
+    try {
+      _requireAuthUid();
 
-    const roundOrder = <String>[
-      'Play-off',
-      'Round of 16',
-      'Quarter Finals',
-      'Semi Finals',
-      'Final',
-      '3rd Place',
-    ];
+      final snap = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('knockout')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
 
-    list.sort((a, b) {
-      final ai = roundOrder.indexOf(a.roundName);
-      final bi = roundOrder.indexOf(b.roundName);
-      if (ai != bi) {
-        if (ai == -1) return 1;
-        if (bi == -1) return -1;
-        return ai.compareTo(bi);
-      }
+      final list = snap.docs.map((d) {
+        final map = <String, dynamic>{...d.data()};
+        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+        map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+        return KnockoutMatch.fromJson(map);
+      }).toList(growable: false);
 
-      if (a.roundName == 'Play-off' && b.roundName == 'Play-off') {
-        final an = (a.nextMatchId ?? '');
-        final bn = (b.nextMatchId ?? '');
-        final c1 = an.compareTo(bn);
-        if (c1 != 0) return c1;
+      const roundOrder = <String>[
+        'Play-off',
+        'Round of 16',
+        'Quarter Finals',
+        'Semi Finals',
+        'Final',
+        '3rd Place',
+      ];
 
-        final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
-        if (c2 != 0) return c2;
-      }
+      final sorted = [...list];
+      sorted.sort((a, b) {
+        final ai = roundOrder.indexOf(a.roundName);
+        final bi = roundOrder.indexOf(b.roundName);
+        if (ai != bi) {
+          if (ai == -1) return 1;
+          if (bi == -1) return -1;
+          return ai.compareTo(bi);
+        }
 
-      return a.id.compareTo(b.id);
-    });
+        if (a.roundName == 'Play-off' && b.roundName == 'Play-off') {
+          final an = (a.nextMatchId ?? '');
+          final bn = (b.nextMatchId ?? '');
+          final c1 = an.compareTo(bn);
+          if (c1 != 0) return c1;
 
-    return list;
+          final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
+          if (c2 != 0) return c2;
+        }
+
+        return a.id.compareTo(b.id);
+      });
+
+      return sorted;
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<void> saveKnockoutMatches(String leagueId, List<KnockoutMatch> matches) async {
-    final all = await _getAllKnockoutMatches();
-    all.removeWhere((m) => m.leagueId == leagueId);
-    all.addAll(matches);
+    try {
+      _requireAuthUid();
 
-    await _prefs.setStringList(
-      kKnockoutMatchesKey,
-      all.map((m) => jsonEncode(m.toJson())).toList(),
-    );
+      final col = _firestore.collection('leagues').doc(leagueId).collection('knockout');
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'knockout_replace',
-      entityId: leagueId,
-      action: 'replace',
-      lastModified: now,
-      payload: {
-        'leagueId': leagueId,
-        'matches': matches.map((m) => m.toJson()).toList(),
-      },
-    );
-  }
+      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
 
-  // ------------------------------------------------------
-  // Internal local storage helpers
-  // ------------------------------------------------------
+      const chunkSize = 450;
 
-  Future<void> _upsertLeagueLocalNoQueue(League league) async {
-    final all = await getAllLeagues();
-    final idx = all.indexWhere((l) => l.id == league.id);
-    if (idx >= 0) {
-      all[idx] = league;
-    } else {
-      all.add(league);
+      if (existing.docs.isNotEmpty) {
+        for (var i = 0; i < existing.docs.length; i += chunkSize) {
+          final batch = _firestore.batch();
+          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          for (final d in chunk) {
+            batch.delete(d.reference);
+          }
+          await batch.commit();
+        }
+      }
+
+      for (var i = 0; i < matches.length; i += chunkSize) {
+        final batch = _firestore.batch();
+        final chunk = matches.sublist(i, (i + chunkSize > matches.length) ? matches.length : i + chunkSize);
+        for (final m in chunk) {
+          final id = m.id.trim().isEmpty ? _uuid.v4() : m.id.trim();
+          final data = m.copyWith(id: id, leagueId: leagueId).toJson();
+          batch.set(col.doc(id), data, SetOptions(merge: true));
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
-
-    await _prefs.setStringList(
-      kLeaguesKey,
-      all.map((l) => l.toJsonString()).toList(),
-    );
-  }
-
-  Future<List<Membership>> _getAllMemberships() async {
-    final raw = _prefs.getStringList(kMembershipsKey) ?? <String>[];
-    return raw.map((e) {
-      final map = (jsonDecode(e) as Map).cast<String, dynamic>();
-      return Membership.fromRemoteMap(map);
-    }).toList();
-  }
-
-  Future<void> _upsertMembershipLocalByLeagueUserNoQueue(Membership membership) async {
-    final all = await _getAllMemberships();
-
-    all.removeWhere((m) => m.leagueId == membership.leagueId && m.userId == membership.userId);
-    all.add(membership);
-
-    await _prefs.setStringList(
-      kMembershipsKey,
-      all.map((m) => jsonEncode(m.toRemoteMap())).toList(),
-    );
-  }
-
-  Future<List<Team>> _getAllTeams() async {
-    final raw = _prefs.getStringList(kTeamsKey) ?? <String>[];
-    return raw.map((e) {
-      final map = (jsonDecode(e) as Map).cast<String, dynamic>();
-      return Team.fromRemoteMap(map);
-    }).toList();
-  }
-
-  Future<List<FixtureMatch>> _getAllMatches() async {
-    final raw = _prefs.getStringList(kMatchesKey) ?? <String>[];
-    return raw.map((e) {
-      final map = (jsonDecode(e) as Map).cast<String, dynamic>();
-      return FixtureMatch.fromJson(map);
-    }).toList();
-  }
-
-  Future<List<KnockoutMatch>> _getAllKnockoutMatches() async {
-    final raw = _prefs.getStringList(kKnockoutMatchesKey) ?? <String>[];
-    return raw.map((e) {
-      final map = (jsonDecode(e) as Map).cast<String, dynamic>();
-      return KnockoutMatch.fromJson(map);
-    }).toList();
-  }
-
-  String _generateJoinCode({int length = 6}) {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final rnd = Random.secure();
-    return List.generate(length, (_) => chars[rnd.nextInt(chars.length)]).join();
   }
 }

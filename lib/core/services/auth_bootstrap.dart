@@ -1,51 +1,46 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../persistence/prefs_service.dart';
 
+/// ONLINE-ONLY MIGRATION:
+/// - Do NOT persist auth identity to local storage for access control.
+/// - Always trust `FirebaseAuth.instance.currentUser`.
+/// - This helper may optionally ensure an authenticated session (e.g., anonymous),
+///   but should never be used as an "offline auth cache".
 class AuthBootstrap {
-  /// Syncs SharedPreferences with the currently signed-in Firebase user (if any).
+  /// Backward-compatible method signature kept.
   ///
-  /// IMPORTANT (production):
-  /// - Firestore rules require `request.auth != null` for leagues/coupons.
-  /// - If the app is allowed to work without an explicit login screen, we must
-  ///   ensure there is *at least* an anonymous Firebase session.
-  ///
-  /// If [autoSignInAnonymously] is true and no user is signed in, we will attempt
-  /// `FirebaseAuth.signInAnonymously()` to avoid constant permission-denied.
+  /// ONLINE-ONLY behavior:
+  /// - Optionally signs in anonymously if enabled and no user exists.
+  /// - Does NOT store `uid` in SharedPreferences (no local auth assumptions).
   static Future<void> syncCurrentUserToPrefs(
     PreferencesService prefs, {
-    bool autoSignInAnonymously = true,
+    bool autoSignInAnonymously = false,
   }) async {
+    // prefs is intentionally unused for auth identity in online-only mode.
+    // ignore: unused_local_variable
+    final PreferencesService _ = prefs;
+
     final auth = FirebaseAuth.instance;
-    var user = auth.currentUser;
 
-    if (user == null && autoSignInAnonymously) {
-      try {
-        await auth.signInAnonymously();
-      } catch (e) {
-        // If Anonymous auth is disabled in Firebase Console, this will fail with
-        // operation-not-allowed. We keep the app in signed-out mode in that case.
-        // ignore: avoid_print
-        print('AuthBootstrap → signInAnonymously failed: $e');
-      }
-      user = auth.currentUser;
-    }
+    if (auth.currentUser != null) return;
 
-    if (user == null) {
-      await prefs.clearCurrentUserId();
-      // ignore: avoid_print
-      print('AuthBootstrap → no Firebase user; prefs cleared');
+    if (!autoSignInAnonymously) return;
+
+    try {
+      await auth.signInAnonymously().timeout(const Duration(seconds: 15));
+    } on FirebaseAuthException {
+      // Silent: app remains signed-out; router/login flow should handle it.
+      return;
+    } on TimeoutException {
+      return;
+    } on SocketException {
+      return;
+    } catch (_) {
       return;
     }
-
-    await prefs.setCurrentUserId(user.uid);
-
-    // Debug
-    // ignore: avoid_print
-    print(
-      'AuthBootstrap → current uid=${user.uid} '
-      'anon=${user.isAnonymous} '
-      'provider=${user.providerData.map((e) => e.providerId).join(",")}',
-    );
   }
 }

@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
@@ -55,7 +57,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   List<Team> _existingTeams = [];
   bool _isLoading = true;
+  String? _loadErrorMessage;
 
+  bool _saving = false;
+  bool _generating = false;
+
+  bool get _busy => _saving || _generating;
   bool get _isGroupLeague => widget.format == LeagueFormat.uclGroup;
 
   String _selectedGroup = 'Group A';
@@ -132,6 +139,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   void initState() {
     super.initState();
     _localRepo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+    // ignore: discarded_futures
     _loadExistingTeams();
   }
 
@@ -184,67 +192,81 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   Future<void> _loadExistingTeams() async {
-    final league = await _localRepo.getLeagueById(widget.leagueId);
-    final teams = await _localRepo.getTeams(widget.leagueId);
-
-    // Auto-show joined participants (memberships) in this screen too.
-    final allMemberships = await _localRepo.listMemberships();
-    final memberUserIds = allMemberships
-        .where((m) => m.leagueId == widget.leagueId && m.role == LeagueRole.member)
-        .map((m) => m.userId.trim())
-        .where((id) => id.isNotEmpty)
-        .toSet()
-        .toList();
-
-    final existingIds = teams.map((t) => t.id).toSet();
-    final tempIds = _tempTeams.map((t) => (t['userId'] ?? '').trim()).where((id) => id.isNotEmpty).toSet();
-
-    final autoTemp = <Map<String, String>>[];
-    final defaultGroup = _isGroupLeague ? _selectedGroup : _leaguePoolGroup;
-
-    for (final uid in memberUserIds) {
-      if (existingIds.contains(uid)) continue;
-      if (tempIds.contains(uid)) continue;
-
-      String name = (_teamNameCacheByUserId[uid] ?? '').trim();
-      if (name.isEmpty) {
-        try {
-          final p = await _profiles.fetchByUserId(uid);
-          final resolved = (p?.teamName ?? '').trim();
-          if (resolved.isNotEmpty) {
-            name = resolved;
-            _teamNameCacheByUserId[uid] = resolved;
-          }
-        } catch (_) {
-          // Offline / permission / transient error: ignore and fallback.
-        }
-      }
-
-      // UI-friendly fallback: show short id instead of raw UID.
-      if (name.isEmpty) name = _shareId(uid);
-
-      autoTemp.add({
-        'userId': uid, // internal uid
-        'teamName': name,
-        'group': defaultGroup,
-      });
-    }
-
-    if (!mounted) return;
-
     setState(() {
-      _league = league;
-      _existingTeams = teams;
-      _tempTeams.addAll(autoTemp);
-      _isLoading = false;
-
-      if (_isGroupLeague) {
-        final active = _activeGroups;
-        if (!active.contains(_selectedGroup)) {
-          _selectedGroup = active.isNotEmpty ? active.first : 'Group A';
-        }
-      }
+      _isLoading = true;
+      _loadErrorMessage = null;
     });
+
+    try {
+      final league = await _localRepo.getLeagueById(widget.leagueId);
+      final teams = await _localRepo.getTeams(widget.leagueId);
+
+      // Auto-show joined participants (memberships) in this screen too.
+      final allMemberships = await _localRepo.listMemberships();
+      final memberUserIds = allMemberships
+          .where((m) => m.leagueId == widget.leagueId && m.role == LeagueRole.member)
+          .map((m) => m.userId.trim())
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+
+      final existingIds = teams.map((t) => t.id).toSet();
+      final tempIds = _tempTeams.map((t) => (t['userId'] ?? '').trim()).where((id) => id.isNotEmpty).toSet();
+
+      final autoTemp = <Map<String, String>>[];
+      final defaultGroup = _isGroupLeague ? _selectedGroup : _leaguePoolGroup;
+
+      for (final uid in memberUserIds) {
+        if (existingIds.contains(uid)) continue;
+        if (tempIds.contains(uid)) continue;
+
+        String name = (_teamNameCacheByUserId[uid] ?? '').trim();
+        if (name.isEmpty) {
+          try {
+            final p = await _profiles.fetchByUserId(uid);
+            final resolved = (p?.teamName ?? '').trim();
+            if (resolved.isNotEmpty) {
+              name = resolved;
+              _teamNameCacheByUserId[uid] = resolved;
+            }
+          } catch (_) {
+            // Best-effort only.
+          }
+        }
+
+        // UI-friendly fallback: show short id instead of raw UID.
+        if (name.isEmpty) name = _shareId(uid);
+
+        autoTemp.add({
+          'userId': uid, // internal uid
+          'teamName': name,
+          'group': defaultGroup,
+        });
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _league = league;
+        _existingTeams = teams;
+        _tempTeams.addAll(autoTemp);
+        _isLoading = false;
+
+        if (_isGroupLeague) {
+          final active = _activeGroups;
+          if (!active.contains(_selectedGroup)) {
+            _selectedGroup = active.isNotEmpty ? active.first : 'Group A';
+          }
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadErrorMessage = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+      });
+      _snackErr(_loadErrorMessage!);
+    }
   }
 
   String _formatLabel(AppLocalizations l10n) {
@@ -436,7 +458,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         setModalState(() {
           resolved = null;
           resolving = false;
-          error = '${l10n.tr('add_teams_lookup_failed_prefix')} $e';
+          error = '${l10n.tr('add_teams_lookup_failed_prefix')} ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}';
         });
       }
     }
@@ -491,6 +513,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           debounce?.cancel();
                           debounce = Timer(const Duration(milliseconds: 350), () {
                             if (!ctx.mounted) return;
+                            // ignore: discarded_futures
                             resolveNow(setModalState);
                           });
                         },
@@ -538,7 +561,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                // Debug: internal uid (helps support)
+                                // Support/debug: internal uid
                                 'Internal uid: ${resolved!.userId}',
                                 style: TextStyle(
                                   color: onSurface.withOpacity(0.45),
@@ -666,7 +689,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         if (!mounted) return;
         setModalState(() {
           validating = false;
-          error = '${l10n.tr('add_teams_validation_failed_prefix')} $e';
+          error = '${l10n.tr('add_teams_validation_failed_prefix')} ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}';
         });
       }
     }
@@ -951,48 +974,63 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final l10n = context.l10n;
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    final newTeams = _tempTeams.map<Team>((t) {
-      final groupName = t['group']!;
-      final String? groupId = _isGroupLeague ? groupName : null;
-
-      final userId = t['userId']!;
-      final teamName = t['teamName']!;
-
-      return Team(
-        id: userId, // internal uid
-        leagueId: widget.leagueId,
-        name: teamName,
-        groupId: groupId,
-        updatedAtMs: now,
-        version: 1,
-      );
-    }).toList();
-
-    final allTeams = <Team>[..._existingTeams, ...newTeams];
-
-    await _localRepo.saveTeams(widget.leagueId, allTeams);
-
-    for (final t in newTeams) {
-      await _localRepo.assignTeamToUserInLeague(
-        leagueId: widget.leagueId,
-        userId: t.id,
-        teamId: t.id,
-      );
-    }
-
-    if (!mounted) return;
+    if (_busy) return;
 
     setState(() {
-      _existingTeams = allTeams;
-      _tempTeams.clear();
+      _saving = true;
       _bulkError = null;
     });
 
-    if (!silent) {
-      _snackOk(l10n.tr('add_teams_saved_toast'));
-      if (!_requiredCountReached) {
-        _snackWarn(_unlockHint(l10n));
+    try {
+      final newTeams = _tempTeams.map<Team>((t) {
+        final groupName = t['group']!;
+        final String? groupId = _isGroupLeague ? groupName : null;
+
+        final userId = t['userId']!;
+        final teamName = t['teamName']!;
+
+        return Team(
+          id: userId, // internal uid
+          leagueId: widget.leagueId,
+          name: teamName,
+          groupId: groupId,
+          updatedAtMs: now,
+          version: 1,
+        );
+      }).toList();
+
+      final allTeams = <Team>[..._existingTeams, ...newTeams];
+
+      await _localRepo.saveTeams(widget.leagueId, allTeams);
+
+      for (final t in newTeams) {
+        await _localRepo.assignTeamToUserInLeague(
+          leagueId: widget.leagueId,
+          userId: t.id,
+          teamId: t.id,
+        );
       }
+
+      if (!mounted) return;
+
+      setState(() {
+        _existingTeams = allTeams;
+        _tempTeams.clear();
+        _bulkError = null;
+      });
+
+      if (!silent) {
+        _snackOk(l10n.tr('add_teams_saved_toast'));
+        if (!_requiredCountReached) {
+          _snackWarn(_unlockHint(l10n));
+        }
+      }
+    } catch (e) {
+      final msg = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+      if (mounted) _snackErr(msg);
+    } finally {
+      if (!mounted) return;
+      setState(() => _saving = false);
     }
   }
 
@@ -1000,111 +1038,121 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   Future<void> _generateFixturesOnly() async {
     final l10n = context.l10n;
 
-    await _saveTeamsOnly(silent: true);
+    if (_busy) return;
 
-    final total = _existingTeams.length;
+    setState(() => _generating = true);
+    try {
+      await _saveTeamsOnly(silent: true);
 
-    if (!_requiredCountReached) {
-      if (widget.format == LeagueFormat.uclGroup) {
-        _snackErr('${l10n.tr('add_teams_cannot_generate_group_prefix')} $total.');
-      } else if (widget.format == LeagueFormat.uclSwiss) {
-        _snackErr('${l10n.tr('add_teams_cannot_generate_swiss_prefix')} $total.');
-      } else {
-        _snackErr('${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.');
-      }
-      return;
-    }
+      final total = _existingTeams.length;
 
-    final existingFixtures = await _localRepo.getMatches(widget.leagueId);
-
-    // Swiss: never allow generating league fixtures if any already exist.
-    if (widget.format == LeagueFormat.uclSwiss && existingFixtures.isNotEmpty) {
-      _snackErr(l10n.tr('add_teams_swiss_fixtures_already_exist'));
-      return;
-    }
-
-    // Classic/Group: if fixtures exist, confirm regeneration.
-    if (existingFixtures.isNotEmpty && widget.format != LeagueFormat.uclSwiss) {
-      final ok = await showDialog<bool>(
-            context: context,
-            barrierDismissible: true,
-            builder: (ctx) {
-              final theme = Theme.of(ctx);
-              final cs = theme.colorScheme;
-              final onSurface = cs.onSurface;
-
-              return AlertDialog(
-                backgroundColor: cs.surface,
-                title: Text(
-                  l10n.tr('add_teams_regenerate_fixtures_title'),
-                  style: TextStyle(color: onSurface),
-                ),
-                content: Text(
-                  l10n.tr('add_teams_regenerate_fixtures_message'),
-                  style: TextStyle(color: onSurface.withOpacity(0.72)),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: Text(l10n.tr('common_cancel')),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: Text(l10n.tr('add_teams_regenerate')),
-                  ),
-                ],
-              );
-            },
-          ) ??
-          false;
-
-      if (!ok) return;
-    }
-
-    final doubleRR = _league?.settings.doubleRoundRobin ?? true;
-    final swissRounds = _league?.settings.swissRounds ?? 8;
-
-    List<dynamic> generated = [];
-
-    if (widget.format == LeagueFormat.classic) {
-      generated = FixtureGenerator.generateClassicLeagueFixtures(
-        leagueId: widget.leagueId,
-        teams: _existingTeams,
-        doubleRoundRobin: doubleRR,
-      );
-    } else if (widget.format == LeagueFormat.uclGroup) {
-      if (!_groupStructureValidFor(total, _existingTeams)) {
-        _snackErr(
-            '${l10n.tr('add_teams_invalid_group_structure_prefix')} $total ${l10n.tr('add_teams_invalid_group_structure_suffix')}');
+      if (!_requiredCountReached) {
+        if (widget.format == LeagueFormat.uclGroup) {
+          _snackErr('${l10n.tr('add_teams_cannot_generate_group_prefix')} $total.');
+        } else if (widget.format == LeagueFormat.uclSwiss) {
+          _snackErr('${l10n.tr('add_teams_cannot_generate_swiss_prefix')} $total.');
+        } else {
+          _snackErr('${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.');
+        }
         return;
       }
 
-      generated = FixtureGenerator.generateUclGroupStage(
-        leagueId: widget.leagueId,
-        teams: _existingTeams,
-        doubleRoundRobin: doubleRR,
-        groupSize: 4,
-      );
-    } else if (widget.format == LeagueFormat.uclSwiss) {
-      generated = SwissPairingEngine.generateInitialRound(
-        leagueId: widget.leagueId,
-        teams: _existingTeams,
-        roundNumber: 1,
-        totalRounds: swissRounds,
-      );
-    }
+      final existingFixtures = await _localRepo.getMatches(widget.leagueId);
 
-    if (generated.isEmpty) {
-      _snackErr(l10n.tr('add_teams_failed_generate_fixtures'));
-      return;
-    }
+      // Swiss: never allow generating league fixtures if any already exist.
+      if (widget.format == LeagueFormat.uclSwiss && existingFixtures.isNotEmpty) {
+        _snackErr(l10n.tr('add_teams_swiss_fixtures_already_exist'));
+        return;
+      }
 
-    await _localRepo.replaceMatches(widget.leagueId, generated.cast());
-    _snackOk(
-        '${l10n.tr('add_teams_fixtures_generated_prefix')}${generated.length}${l10n.tr('add_teams_fixtures_generated_suffix')}');
+      // Classic/Group: if fixtures exist, confirm regeneration.
+      if (existingFixtures.isNotEmpty && widget.format != LeagueFormat.uclSwiss) {
+        final ok = await showDialog<bool>(
+              context: context,
+              barrierDismissible: true,
+              builder: (ctx) {
+                final theme = Theme.of(ctx);
+                final cs = theme.colorScheme;
+                final onSurface = cs.onSurface;
 
-    if (mounted) {
-      context.go('/leagues/${widget.leagueId}');
+                return AlertDialog(
+                  backgroundColor: cs.surface,
+                  title: Text(
+                    l10n.tr('add_teams_regenerate_fixtures_title'),
+                    style: TextStyle(color: onSurface),
+                  ),
+                  content: Text(
+                    l10n.tr('add_teams_regenerate_fixtures_message'),
+                    style: TextStyle(color: onSurface.withOpacity(0.72)),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: Text(l10n.tr('common_cancel')),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: Text(l10n.tr('add_teams_regenerate')),
+                    ),
+                  ],
+                );
+              },
+            ) ??
+            false;
+
+        if (!ok) return;
+      }
+
+      final doubleRR = _league?.settings.doubleRoundRobin ?? true;
+      final swissRounds = _league?.settings.swissRounds ?? 8;
+
+      List<dynamic> generated = [];
+
+      if (widget.format == LeagueFormat.classic) {
+        generated = FixtureGenerator.generateClassicLeagueFixtures(
+          leagueId: widget.leagueId,
+          teams: _existingTeams,
+          doubleRoundRobin: doubleRR,
+        );
+      } else if (widget.format == LeagueFormat.uclGroup) {
+        if (!_groupStructureValidFor(total, _existingTeams)) {
+          _snackErr(
+              '${l10n.tr('add_teams_invalid_group_structure_prefix')} $total ${l10n.tr('add_teams_invalid_group_structure_suffix')}');
+          return;
+        }
+
+        generated = FixtureGenerator.generateUclGroupStage(
+          leagueId: widget.leagueId,
+          teams: _existingTeams,
+          doubleRoundRobin: doubleRR,
+          groupSize: 4,
+        );
+      } else if (widget.format == LeagueFormat.uclSwiss) {
+        generated = SwissPairingEngine.generateInitialRound(
+          leagueId: widget.leagueId,
+          teams: _existingTeams,
+          roundNumber: 1,
+          totalRounds: swissRounds,
+        );
+      }
+
+      if (generated.isEmpty) {
+        _snackErr(l10n.tr('add_teams_failed_generate_fixtures'));
+        return;
+      }
+
+      await _localRepo.replaceMatches(widget.leagueId, generated.cast());
+      _snackOk(
+          '${l10n.tr('add_teams_fixtures_generated_prefix')}${generated.length}${l10n.tr('add_teams_fixtures_generated_suffix')}');
+
+      if (mounted) {
+        context.go('/leagues/${widget.leagueId}');
+      }
+    } catch (e) {
+      _snackErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } finally {
+      if (!mounted) return;
+      setState(() => _generating = false);
     }
   }
 
@@ -1115,6 +1163,60 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
     final primary = cs.primary;
+
+    // Online-only: require authenticated user for protected operations.
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: Text(l10n.tr('add_teams_appbar_title_prefix')),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Glass(
+                borderRadius: 24,
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.login, color: primary, size: 44),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Sign in required',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Please sign in to manage teams.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: cs.onSurface.withOpacity(0.70),
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton(
+                        onPressed: () => context.pop(),
+                        child: const Text('Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     final width = MediaQuery.of(context).size.width;
     final showTwoPane = width >= 900;
@@ -1139,76 +1241,141 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             constraints: BoxConstraints(maxWidth: showTwoPane ? 980 : 620),
             child: _isLoading
                 ? Center(child: CircularProgressIndicator(color: primary))
-                : Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Glass(
-                          borderRadius: 24,
-                          padding: const EdgeInsets.all(14),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: headerGradient,
-                                ),
-                                child: Icon(Icons.sports_soccer, color: cs.onPrimary),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      l10n.tr('add_teams_header_title'),
-                                      style: theme.textTheme.titleMedium?.copyWith(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                : (_loadErrorMessage != null
+                    ? _buildLoadErrorState(_loadErrorMessage!)
+                    : Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Glass(
+                              borderRadius: 24,
+                              padding: const EdgeInsets.all(14),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: headerGradient,
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _unlockHint(l10n),
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: onSurface.withOpacity(0.70),
-                                        fontSize: 11,
-                                      ),
+                                    child: Icon(Icons.sports_soccer, color: cs.onPrimary),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          l10n.tr('add_teams_header_title'),
+                                          style: theme.textTheme.titleMedium?.copyWith(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          _unlockHint(l10n),
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: onSurface.withOpacity(0.70),
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
+                            ),
+                            if (_isGroupLeague) ...[
+                              const SizedBox(height: 10),
+                              _buildGroupSelector(),
                             ],
-                          ),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: showTwoPane
+                                  ? Row(
+                                      children: [
+                                        Expanded(flex: 3, child: _buildAddPanel()),
+                                        const SizedBox(width: 12),
+                                        Expanded(flex: 4, child: _buildPreviewPanel()),
+                                      ],
+                                    )
+                                  : Column(
+                                      children: [
+                                        _buildAddPanel(),
+                                        const SizedBox(height: 12),
+                                        Expanded(child: _buildPreviewPanel()),
+                                      ],
+                                    ),
+                            ),
+                          ],
                         ),
-                        if (_isGroupLeague) ...[
-                          const SizedBox(height: 10),
-                          _buildGroupSelector(),
-                        ],
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: showTwoPane
-                              ? Row(
-                                  children: [
-                                    Expanded(flex: 3, child: _buildAddPanel()),
-                                    const SizedBox(width: 12),
-                                    Expanded(flex: 4, child: _buildPreviewPanel()),
-                                  ],
-                                )
-                              : Column(
-                                  children: [
-                                    _buildAddPanel(),
-                                    const SizedBox(height: 12),
-                                    Expanded(child: _buildPreviewPanel()),
-                                  ],
-                                ),
-                        ),
-                      ],
+                      )),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadErrorState(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Glass(
+            borderRadius: 24,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_off_rounded, color: cs.primary, size: 44),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Couldn’t load teams',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
                     ),
+                    textAlign: TextAlign.center,
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    msg,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface.withOpacity(0.70),
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => context.pop(),
+                          child: const Text('Back'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _loadExistingTeams,
+                          child: const Text('Retry'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -1285,7 +1452,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _showAddSingleDialog,
+              onPressed: _busy ? null : _showAddSingleDialog,
               icon: const Icon(Icons.person_add),
               label: Text(l10n.tr('add_teams_add_one_player')),
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
@@ -1295,7 +1462,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: _showPasteListSheet,
+              onPressed: _busy ? null : _showPasteListSheet,
               icon: const Icon(Icons.playlist_add),
               label: Text(l10n.tr('add_teams_paste_list')),
               style: OutlinedButton.styleFrom(
@@ -1309,7 +1476,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: _importRosterFromCsv,
+              onPressed: _busy ? null : _importRosterFromCsv,
               icon: const Icon(Icons.upload_file),
               label: Text(l10n.tr('add_teams_import_csv')),
               style: OutlinedButton.styleFrom(
@@ -1369,10 +1536,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         color: selected ? primary : onSurface.withOpacity(0.72),
                         fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                       ),
-                      onSelected: (selected) {
-                        if (!selected) return;
-                        setState(() => _selectedGroup = g);
-                      },
+                      onSelected: _busy
+                          ? null
+                          : (selected) {
+                              if (!selected) return;
+                              setState(() => _selectedGroup = g);
+                            },
                     ),
                   );
                 }).toList(),
@@ -1469,7 +1638,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           name: team.name,
                           label: label,
                           isNew: false,
-                          onTap: () => _editExistingTeam(i),
+                          onTap: _busy ? null : () => _editExistingTeam(i),
                           onRemove: null,
                         );
                       } else {
@@ -1487,12 +1656,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           label: label,
                           isNew: true,
                           onTap: null,
-                          onRemove: () {
-                            setState(() {
-                              _tempTeams.removeAt(idx);
-                              _bulkError = null;
-                            });
-                          },
+                          onRemove: _busy
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _tempTeams.removeAt(idx);
+                                    _bulkError = null;
+                                  });
+                                },
                         );
                       }
                     },
@@ -1504,22 +1675,26 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _saveTeamsOnly,
+                    onPressed: _busy ? null : _saveTeamsOnly,
                     style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                    icon: const Icon(Icons.save),
+                    icon: _saving
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.save),
                     label: Text(l10n.tr('add_teams_save_teams')),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _requiredCountReached ? _generateFixturesOnly : null,
+                    onPressed: (_busy || !_requiredCountReached) ? null : _generateFixturesOnly,
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(color: primary),
                       foregroundColor: primary,
                       minimumSize: const Size.fromHeight(48),
                     ),
-                    icon: const Icon(Icons.auto_awesome),
+                    icon: _generating
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.auto_awesome),
                     label: Text(l10n.tr('add_teams_generate_fixtures')),
                   ),
                 ),

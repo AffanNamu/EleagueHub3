@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../locale/app_localizations.dart';
 import 'glass.dart';
 
 class OfflineBanner extends StatelessWidget {
@@ -8,9 +7,11 @@ class OfflineBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
+    // ONLINE-ONLY: do not promise "sync later". This is a network status indicator only.
+    const message = "You're offline. Please check your connection.";
 
     return Glass(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -27,7 +28,7 @@ class OfflineBanner extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            l10n.tr('offline_banner_message'),
+            message,
             textAlign: TextAlign.center,
             style: theme.textTheme.labelSmall?.copyWith(
               color: colorScheme.onError,

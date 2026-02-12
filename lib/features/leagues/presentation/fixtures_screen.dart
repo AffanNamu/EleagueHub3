@@ -1,7 +1,11 @@
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
@@ -12,6 +16,7 @@ import '../domain/algorithms/swiss_pairing.dart';
 import '../models/enums.dart';
 import '../models/fixture_match.dart';
 import '../models/league_format.dart';
+import '../models/membership.dart';
 
 class FixturesScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -33,6 +38,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Map<String, String> _teamNames = {};
   bool _isLoading = true;
+  String? _loadError;
 
   LeagueFormat _format = LeagueFormat.classic;
   List<String> _groups = [];
@@ -44,6 +50,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   // Organizer guard: only organiser can generate Swiss rounds from this screen.
   bool _isOrganizer = false;
+
+  List<FixtureMatch> _allMatches = const [];
+  int _totalRounds = 0;
 
   static String _lastRoundKey(String leagueId) => 'ui_last_round_$leagueId';
   static String _lastGroupKey(String leagueId) => 'ui_last_group_$leagueId';
@@ -63,6 +72,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final savedGroupRaw = _prefs.getString(_lastGroupKey(widget.leagueId));
     _selectedGroup = (savedGroupRaw == null || savedGroupRaw.trim().isEmpty) ? null : savedGroupRaw.trim();
 
+    // ignore: discarded_futures
     _loadInitialData();
   }
 
@@ -127,11 +137,59 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     );
   }
 
+  int _computeTotalRounds({
+    required LeagueFormat format,
+    required List<FixtureMatch> matches,
+    required String? selectedGroup,
+  }) {
+    Iterable<FixtureMatch> filtered = matches;
+
+    if (format == LeagueFormat.uclGroup && selectedGroup != null) {
+      filtered = filtered.where((m) => m.groupId == selectedGroup);
+    }
+
+    final list = filtered.toList();
+    if (list.isEmpty) return 0;
+
+    return list.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+  }
+
+  List<FixtureMatch> _matchesForSelectedRound() {
+    Iterable<FixtureMatch> filtered = _allMatches;
+
+    if (_format == LeagueFormat.uclGroup && _selectedGroup != null) {
+      filtered = filtered.where((m) => m.groupId == _selectedGroup);
+    }
+
+    filtered = filtered.where((m) => m.roundNumber == _selectedRound);
+
+    final list = filtered.toList();
+
+    // Deterministic order for UI
+    list.sort((a, b) {
+      final r = a.sortIndex.compareTo(b.sortIndex);
+      if (r != 0) return r;
+      return a.id.compareTo(b.id);
+    });
+
+    return list;
+  }
+
   Future<void> _loadInitialData() async {
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+
     try {
-      final league = await _repo.getLeagueById(widget.leagueId);
-      final teams = await _repo.getTeams(widget.leagueId);
-      final allMatches = await _repo.getMatches(widget.leagueId);
+      final authUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      if (authUid.isEmpty) {
+        throw const FirebaseAuthException(code: 'unauthenticated');
+      }
+
+      final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+      final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+      final allMatches = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
       final format = league?.format ?? LeagueFormat.classic;
 
@@ -162,21 +220,27 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       }
 
       // Compute max round under the selected group filter
-      Iterable<FixtureMatch> filteredForRounds = allMatches;
-      if (format == LeagueFormat.uclGroup && validatedGroup != null) {
-        filteredForRounds = filteredForRounds.where((m) => m.groupId == validatedGroup);
-      }
-
-      final filteredList = filteredForRounds.toList();
-      final maxRound =
-          filteredList.isEmpty ? 1 : filteredList.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+      final totalRounds = _computeTotalRounds(
+        format: format,
+        matches: allMatches,
+        selectedGroup: validatedGroup,
+      );
 
       var roundToUse = _selectedRound;
-      if (roundToUse > maxRound) roundToUse = maxRound;
+      if (totalRounds > 0 && roundToUse > totalRounds) roundToUse = totalRounds;
       if (roundToUse < 1) roundToUse = 1;
 
-      final currentUserId = _prefs.getCurrentUserId() ?? '';
-      final isOrganizer = (league != null && league.organizerUserId == currentUserId);
+      Membership? membership;
+      try {
+        membership = await _repo.getMembership(
+          leagueId: widget.leagueId,
+          userId: authUid,
+        );
+      } catch (_) {
+        membership = null;
+      }
+
+      final isOrganizer = membership?.role == LeagueRole.organizer || (league?.organizerUid.trim() == authUid);
 
       if (!mounted) return;
       setState(() {
@@ -186,52 +250,21 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         _selectedGroup = validatedGroup;
         _selectedRound = roundToUse;
         _isOrganizer = isOrganizer;
+        _allMatches = allMatches;
+        _totalRounds = totalRounds;
         _isLoading = false;
       });
 
       _persistGroup(_selectedGroup);
       _persistRound(_selectedRound);
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+      });
+      _snack(_loadError!);
     }
-  }
-
-  Future<List<FixtureMatch>> _getMatches() async {
-    final allMatches = await _repo.getMatches(widget.leagueId);
-
-    Iterable<FixtureMatch> filtered = allMatches;
-
-    if (_format == LeagueFormat.uclGroup && _selectedGroup != null) {
-      filtered = filtered.where((m) => m.groupId == _selectedGroup);
-    }
-
-    filtered = filtered.where((m) => m.roundNumber == _selectedRound);
-
-    final list = filtered.toList();
-
-    // Deterministic order for UI
-    list.sort((a, b) {
-      final r = a.sortIndex.compareTo(b.sortIndex);
-      if (r != 0) return r;
-      return a.id.compareTo(b.id);
-    });
-
-    return list;
-  }
-
-  Future<int> _getTotalRounds() async {
-    final allMatches = await _repo.getMatches(widget.leagueId);
-
-    Iterable<FixtureMatch> filtered = allMatches;
-
-    if (_format == LeagueFormat.uclGroup && _selectedGroup != null) {
-      filtered = filtered.where((m) => m.groupId == _selectedGroup);
-    }
-
-    final list = filtered.toList();
-    if (list.isEmpty) return 0;
-
-    return list.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
   }
 
   /// Generate the next Swiss round (or Round 1 if none exist yet) for UCL Swiss leagues.
@@ -252,7 +285,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
     setState(() => _isGeneratingNextRound = true);
     try {
-      final league = await _repo.getLeagueById(widget.leagueId);
+      final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
       if (league == null) {
         _snack(l10n.tr('fixtures_league_not_found'));
         return;
@@ -260,7 +293,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       final maxRounds = league.settings.swissRounds;
 
-      final teams = await _repo.getTeams(widget.leagueId);
+      final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
 
       final n = teams.length;
       if (!(n == 18 || n == 36)) {
@@ -268,7 +301,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return;
       }
 
-      final existingMatches = await _repo.getMatches(widget.leagueId);
+      // Always compute based on freshest matches from server
+      final existingMatches = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
       int currentMaxRound = 0;
       if (existingMatches.isNotEmpty) {
@@ -333,7 +367,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return;
       }
 
-      await _repo.saveMatches(widget.leagueId, newFixtures);
+      await _repo.saveMatches(widget.leagueId, newFixtures).timeout(const Duration(seconds: 25));
 
       if (!mounted) return;
 
@@ -347,7 +381,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       await _loadInitialData();
     } catch (e) {
       if (mounted) {
-        _snack('${l10n.tr('fixtures_failed_generate_swiss_round_prefix')} $e');
+        _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
       }
     } finally {
       if (mounted) setState(() => _isGeneratingNextRound = false);
@@ -357,8 +391,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
@@ -369,6 +402,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         elevation: 0,
         backgroundColor: Colors.transparent,
         actions: [
+          IconButton(
+            tooltip: l10n.tr('common_refresh'),
+            onPressed: _isLoading ? null : _loadInitialData,
+            icon: const Icon(Icons.refresh),
+          ),
           if (_format == LeagueFormat.uclSwiss && _isOrganizer)
             IconButton(
               onPressed: _isGeneratingNextRound ? null : _generateNextSwissRound,
@@ -386,44 +424,98 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       body: SafeArea(
         child: _isLoading
             ? Center(child: CircularProgressIndicator(color: cs.primary))
-            : Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: isTablet ? 800 : 600),
-                  child: FutureBuilder<int>(
-                    future: _getTotalRounds(),
-                    builder: (context, snapshot) {
-                      final totalRounds = snapshot.data ?? 0;
+            : (_loadError != null
+                ? _buildLoadErrorState(_loadError!)
+                : Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: isTablet ? 800 : 600),
+                      child: RefreshIndicator(
+                        onRefresh: _loadInitialData,
+                        color: cs.primary,
+                        child: Column(
+                          children: [
+                            if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
+                            if (_totalRounds > 0) _buildRoundSelector(_totalRounds),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: SectionHeader(l10n.tr('fixtures_section_title')),
+                            ),
+                            Expanded(child: _buildMatchesList()),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )),
+      ),
+    );
+  }
 
-                      if (totalRounds > 0 && _selectedRound > totalRounds) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted) return;
-                          _setRound(totalRounds);
-                        });
-                      }
+  Widget _buildLoadErrorState(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-                      return Column(
-                        children: [
-                          if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
-                          if (totalRounds > 0) _buildRoundSelector(totalRounds),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: SectionHeader(l10n.tr('fixtures_section_title')),
-                          ),
-                          Expanded(child: _buildMatchesList()),
-                        ],
-                      );
-                    },
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Glass(
+            borderRadius: 24,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_off_rounded, color: cs.primary, size: 44),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Couldn’t load fixtures',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  Text(
+                    msg,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface.withOpacity(0.70),
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => context.pop(),
+                          child: const Text('Back'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _loadInitialData,
+                          child: const Text('Retry'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final unselectedBg = cs.onBackground.withOpacity(0.06);
     final unselectedBorder = cs.onBackground.withOpacity(0.14);
@@ -493,12 +585,18 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildRoundSelector(int totalRounds) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final unselectedBg = cs.onBackground.withOpacity(0.06);
     final unselectedBorder = cs.onBackground.withOpacity(0.14);
     final unselectedText = cs.onBackground.withOpacity(0.78);
+
+    if (totalRounds > 0 && _selectedRound > totalRounds) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _setRound(totalRounds);
+      });
+    }
 
     return Container(
       height: 50,
@@ -539,34 +637,24 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildMatchesList() {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
-    return FutureBuilder<List<FixtureMatch>>(
-      future: _getMatches(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator(color: cs.primary));
-        }
+    final matches = _matchesForSelectedRound();
 
-        final matches = snapshot.data ?? [];
+    if (matches.isEmpty) {
+      return Center(
+        child: Text(
+          l10n.tr('fixtures_no_matches_generated_yet'),
+          style: TextStyle(color: cs.onBackground.withOpacity(0.70), fontWeight: FontWeight.w600),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
 
-        if (matches.isEmpty) {
-          return Center(
-            child: Text(
-              l10n.tr('fixtures_no_matches_generated_yet'),
-              style: TextStyle(color: cs.onBackground.withOpacity(0.70), fontWeight: FontWeight.w600),
-              textAlign: TextAlign.center,
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: matches.length,
-          itemBuilder: (context, index) => _buildMatchCard(matches[index]),
-        );
-      },
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: matches.length,
+      itemBuilder: (context, index) => _buildMatchCard(matches[index]),
     );
   }
 

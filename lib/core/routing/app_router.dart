@@ -1,11 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/admin/pricing_admin_screen.dart';
 import '../../features/admin/pricing_admins_screen.dart';
+import '../../features/auth/data/user_profile_repository.dart';
 import '../../features/auth/presentation/bootstrap_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/onboarding_screen.dart';
@@ -32,42 +34,62 @@ import '../../features/live/presentation/join_match_screen.dart';
 import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
-import '../../features/auth/data/user_profile_repository.dart';
 import '../services/app_admins_service.dart';
+import '../services/connectivity_service.dart';
 
 enum _ProfileState { unknown, checking, missing, exists }
 
 class AuthRouterRefresh extends ChangeNotifier {
   AuthRouterRefresh() {
-    _sub = FirebaseAuth.instance.authStateChanges().listen((user) {
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
       final prevUserId = _user?.uid;
       _user = user;
-
-      _retryTimer?.cancel();
-      _retryTimer = null;
 
       // Start admins watcher as soon as we have a session context.
       AppAdminsService.instance.ensureStarted();
 
+      _cancelRetry();
+      _retryAttempt = 0;
+
       // Signed out.
       if (_user == null) {
         _setProfileState(_ProfileState.unknown);
-        if (prevUserId != null) notifyListeners(); // user changed
+        if (prevUserId != null) notifyListeners();
         return;
       }
 
       // Signed in.
       _checkProfileFor(_user!.uid);
     });
+
+    // If the profile check failed due to offline/unavailable, retry once we get connectivity back.
+    _connSub = ConnectivityService.instance.connectionStream.listen((online) {
+      if (!online) {
+        _cancelRetry();
+        return;
+      }
+
+      final uid = _user?.uid;
+      if (uid == null) return;
+
+      if (_profileState == _ProfileState.unknown) {
+        // ignore: discarded_futures
+        _checkProfileFor(uid);
+      }
+    });
   }
 
-  late final StreamSubscription<User?> _sub;
+  late final StreamSubscription<User?> _authSub;
+  late final StreamSubscription<bool> _connSub;
+
   User? _user;
 
   final UserProfileRepository _profiles = UserProfileRepository();
 
   _ProfileState _profileState = _ProfileState.unknown;
+
   Timer? _retryTimer;
+  int _retryAttempt = 0;
 
   bool get isSignedIn => _user != null;
 
@@ -90,29 +112,70 @@ class AuthRouterRefresh extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _cancelRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  Duration _retryDelayForAttempt(int attempt) {
+    // Exponential backoff with cap.
+    // 1s, 2s, 4s, 8s, 16s, 30s...
+    final seconds = (1 << attempt).clamp(1, 30);
+    return Duration(seconds: seconds);
+  }
+
+  bool _isNetworkError(Object e) {
+    if (e is TimeoutException) return true;
+    if (e is SocketException) return true;
+    if (e is FirebaseAuthException) {
+      return e.code == 'network-request-failed';
+    }
+    // Firestore throws FirebaseException; some code paths may bubble it here.
+    if (e is dynamic && e.runtimeType.toString() == 'FirebaseException') {
+      try {
+        final code = (e as dynamic).code as String?;
+        return code == 'unavailable' || code == 'deadline-exceeded';
+      } catch (_) {
+        return false;
+      }
+    }
+    return false;
+  }
+
   Future<void> _checkProfileFor(String uid) async {
     final prev = _profileState;
 
-    _retryTimer?.cancel();
-    _retryTimer = null;
-
+    _cancelRetry();
     _setProfileState(_ProfileState.checking);
 
     try {
-      final exists = await _profiles.profileExists(uid);
+      final exists = await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
+      _retryAttempt = 0;
       _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
       return;
     } catch (e) {
+      // ONLINE-ONLY: do not spam retries every 3 seconds forever.
+      // If it's likely network-related, stay in unknown (Bootstrap) and retry with backoff
+      // only while online.
       final fallback = (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
       _setProfileState(fallback);
 
       if (kDebugMode) {
-        // ignore: avoid_print
-        print('AuthRouterRefresh: profile check failed for uid=$uid → $e');
+        debugPrint('AuthRouterRefresh: profile check failed for uid=$uid → $e');
       }
 
-      _retryTimer = Timer(const Duration(seconds: 3), () {
+      // If we're offline/unavailable, wait for connectivity stream to trigger a retry.
+      if (_isNetworkError(e is Object ? e : Exception('unknown'))) return;
+
+      // Otherwise, retry with backoff a few times (server hiccup, transient).
+      if (_retryAttempt >= 5) return;
+
+      final delay = _retryDelayForAttempt(_retryAttempt);
+      _retryAttempt++;
+
+      _retryTimer = Timer(delay, () {
         if (_user?.uid != uid) return;
+        if (!ConnectivityService.instance.isConnected.value) return;
         // ignore: discarded_futures
         _checkProfileFor(uid);
       });
@@ -121,8 +184,9 @@ class AuthRouterRefresh extends ChangeNotifier {
 
   @override
   void dispose() {
-    _retryTimer?.cancel();
-    _sub.cancel();
+    _cancelRetry();
+    _authSub.cancel();
+    _connSub.cancel();
     super.dispose();
   }
 }
@@ -202,7 +266,6 @@ final appRouter = GoRouter(
       builder: (context, state) => const SettingsScreen(),
     ),
 
-    // New: Voice room by 8-digit code (works with floating overlay controls).
     GoRoute(
       path: '/call',
       builder: (context, state) => const CallRoomScreen(),
@@ -305,7 +368,6 @@ final appRouter = GoRouter(
               ],
             ),
 
-            // Organizer upgrade/add-ons purchase (coupons/subsidy) for an existing league.
             GoRoute(
               path: ':leagueId/upgrade/payment',
               builder: (context, state) {

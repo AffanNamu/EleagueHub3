@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,10 +8,9 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
-import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
@@ -211,10 +209,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     try {
       final service = LeagueMediaService();
-      final url = await service.pickAndUploadImage(
-        leagueId: _draftLeagueId,
-        kind: kind,
-      );
+      final url = await service
+          .pickAndUploadImage(
+            leagueId: _draftLeagueId,
+            kind: kind,
+          )
+          .timeout(const Duration(seconds: 40));
 
       if (!mounted) return;
 
@@ -246,7 +246,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Upload failed: $e'),
+          content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -257,25 +257,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _uploadingSponsorImage = false;
       });
     }
-  }
-
-  Future<bool> _waitForRemoteLeagueDoc({
-    required String leagueId,
-    Duration timeout = const Duration(seconds: 8),
-  }) async {
-    final fs = FirebaseFirestore.instance;
-    final deadline = DateTime.now().add(timeout);
-
-    while (DateTime.now().isBefore(deadline)) {
-      try {
-        final snap = await fs.collection('leagues').doc(leagueId).get();
-        if (snap.exists) return true;
-      } catch (_) {
-        // offline / rules / transient; keep waiting a bit
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    }
-    return false;
   }
 
   @override
@@ -319,7 +300,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Please sign in to create a league. Organizer permissions and coupons require Firebase Authentication.',
+                        'Please sign in to create a league.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: cs.onSurface.withOpacity(0.70),
@@ -396,7 +377,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                           if (_couponsEnabled) ...[
                             const SizedBox(height: 10),
                             Text(
-                              'Coupons are configured for this league. If you don’t see them yet, tap Sync in Admin after a moment.',
+                              'Coupons are configured for this league. If you don’t see them yet, please try again in a moment.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: cs.onSurface.withOpacity(0.65),
@@ -680,8 +661,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     required int index,
     required int current,
   }) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final active = index == current;
     final done = index < current;
@@ -1491,21 +1471,20 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     setState(() => _submitting = true);
 
     try {
-      final organizerAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (organizerAuthUid.trim().isEmpty) {
-        throw StateError('Not signed in (no Firebase UID).');
+      final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      if (organizerAuthUid.isEmpty) {
+        throw StateError('unauthenticated');
       }
 
       // UI-only identity (short share id). Rules never use this.
-      final derivedShareId = UserProfile.deriveShareIdFromUid(organizerAuthUid.trim()).trim();
-      final organizerUserId = derivedShareId.isNotEmpty ? derivedShareId : organizerAuthUid.trim();
-
-      final prefs = ref.read(prefsServiceProvider);
-      final repo = LocalLeaguesRepository(prefs);
+      final derivedShareId = UserProfile.deriveShareIdFromUid(organizerAuthUid).trim();
+      final organizerUserId = derivedShareId.isNotEmpty ? derivedShareId : organizerAuthUid;
 
       if (_creatorWillParticipate) {
         // Profiles are stored by Firebase UID.
-        final profile = await UserProfileRepository().fetchByUserId(organizerAuthUid.trim());
+        final profile = await UserProfileRepository()
+            .fetchByUserId(organizerAuthUid)
+            .timeout(const Duration(seconds: 12));
         final name = profile?.teamName.trim() ?? '';
         if (name.isEmpty) {
           throw StateError(l10n.tr('league_create_error_profile_team_name_missing'));
@@ -1530,12 +1509,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         leagueImageUrl: _leagueImageUrl.text.trim(),
         sponsorImageUrl: _sponsorImageUrl.text.trim(),
 
-        // viewers removed: always 0 for backward compatibility
         viewerCapacity: 0,
 
         // coupons (optional add-on)
         couponsEnabled: couponsEnabled,
-        couponDiscountPercent: discountPercent, // DISCOUNT percent
+        couponDiscountPercent: discountPercent,
         couponCount: couponCount,
 
         format: _format,
@@ -1544,9 +1522,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         maxTeams: _maxTeams,
         season: '2026',
 
-        // KEY: rules authority + UI identity kept separate
-        organizerUid: organizerAuthUid.trim(), // Firebase UID authority (rules)
-        organizerUserId: organizerUserId, // short/shareId for UI/offline display
+        organizerUid: organizerAuthUid, // Firebase UID authority (rules)
+        organizerUserId: organizerUserId, // short/shareId for UI
 
         code: '',
         qrPayloadOverride: '',
@@ -1555,57 +1532,42 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         version: 1,
       );
 
-      final stored = await repo.createLeagueLocally(
-        league: league,
-        organizerUserId: organizerUserId,
-      );
+      final repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+      final stored = await repo
+          .createLeagueLocally(
+            league: league,
+            organizerUserId: organizerUserId,
+          )
+          .timeout(const Duration(seconds: 25));
 
-      // CRITICAL FIX:
-      // Ensure the league doc exists in cloud BEFORE writing couponConfig/config,
-      // because rules authorize couponConfig via get(/leagues/{leagueId}).
-      try {
-        await SyncTrigger.trySync();
-      } catch (_) {
-        // best-effort
-      }
-
-      final cloudLeagueReady = await _waitForRemoteLeagueDoc(leagueId: leagueId);
-      if (couponsEnabled && couponCount > 0 && cloudLeagueReady) {
+      // Coupons: league doc is already written. Create/update coupon config online.
+      if (couponsEnabled && couponCount > 0) {
         try {
-          final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+          final plan = await RemotePricingService.instance
+              .getPlanForLocale(Localizations.maybeLocaleOf(context))
+              .timeout(const Duration(seconds: 15));
 
-          await CouponConfigService().createOrIncrementOnPurchase(
-            leagueId: leagueId,
-            organizerUserId: organizerAuthUid.trim(), // Firebase UID for rules-safe writes
-            qtyPurchased: couponCount,
-            discountPercent: discountPercent,
-            plan: plan,
-          );
-        } catch (e) {
+          await CouponConfigService()
+              .createOrIncrementOnPurchase(
+                leagueId: leagueId,
+                organizerUserId: organizerAuthUid,
+                qtyPurchased: couponCount,
+                discountPercent: discountPercent,
+                plan: plan,
+              )
+              .timeout(const Duration(seconds: 20));
+        } catch (_) {
+          // Do not expose technical errors. Keep the league created successfully.
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Coupon config could not be updated now. You can sync later. ($e)'),
+              const SnackBar(
+                content: Text("We saved your league, but couldn't update coupons right now. Please try again."),
                 behavior: SnackBarBehavior.floating,
               ),
             );
           }
         }
-      } else if (couponsEnabled && couponCount > 0 && !cloudLeagueReady) {
-        // Avoid a guaranteed permission-denied attempt.
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('League is still syncing to cloud. Coupon config will be available after Sync.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
       }
-
-      // Best-effort sync (does not block)
-      // ignore: discarded_futures
-      SyncTrigger.trySync();
 
       if (!mounted) return;
       setState(() {
@@ -1615,9 +1577,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
+
+      final msg = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${l10n.tr('league_create_error_failed_to_create_prefix')}: $e'),
+          content: Text('${l10n.tr('league_create_error_failed_to_create_prefix')}: $msg'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -1676,7 +1640,8 @@ class _OptionalImageField extends StatelessWidget {
                 ? Image.network(
                     url,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
+                    errorBuilder: (_, __, ___) =>
+                        Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
                   )
                 : Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55))),
       ),

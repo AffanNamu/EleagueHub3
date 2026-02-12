@@ -16,6 +16,11 @@ class AppAdminsService {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // IMPORTANT:
+  // Pricing admin IDs MUST be FirebaseAuth UIDs.
+  // Share IDs / short IDs must never be treated as admins (UI would show admin tools but rules will deny writes).
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
   static const Set<String> _staticPricingAdmins = {
     'a0JDUelQW3TEyoXTm4ESuGi7ndq1',
   };
@@ -38,8 +43,12 @@ class AppAdminsService {
             final list = data['pricingAdmins'];
             if (list is List) {
               for (final v in list) {
-                if (v is String && v.trim().isNotEmpty) {
-                  _dynamicPricingAdmins.add(v.trim());
+                if (v is String) {
+                  final s = v.trim();
+                  // Only accept real Firebase UIDs
+                  if (s.isNotEmpty && _looksLikeFirebaseUid(s)) {
+                    _dynamicPricingAdmins.add(s);
+                  }
                 }
               }
             }
@@ -57,11 +66,14 @@ class AppAdminsService {
   bool isPricingAdminUid(String? uid) {
     final u = (uid ?? '').trim();
     if (u.isEmpty) return false;
+    if (!_looksLikeFirebaseUid(u)) return false; // never treat short/share id as admin
     return _staticPricingAdmins.contains(u) || _dynamicPricingAdmins.contains(u);
   }
 
   Set<String> currentPricingAdmins() {
-    return <String>{..._staticPricingAdmins, ..._dynamicPricingAdmins};
+    // Only UIDs (defensive)
+    final all = <String>{..._staticPricingAdmins, ..._dynamicPricingAdmins};
+    return all.where(_looksLikeFirebaseUid).toSet();
   }
 
   Future<void> dispose() async {

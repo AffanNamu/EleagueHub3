@@ -3,20 +3,19 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
-import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
-import '../data/league_announcements_local.dart';
-import '../data/league_spaces_local.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/logic/tournament_controller.dart';
 import '../domain/standings/standings.dart';
@@ -26,7 +25,6 @@ import '../models/knockout_match.dart';
 import '../models/league.dart';
 import '../models/league_announcement.dart';
 import '../models/league_format.dart';
-import '../models/league_space.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 
@@ -53,8 +51,8 @@ class LeagueDetailScreen extends ConsumerStatefulWidget {
 class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   late final LocalLeaguesRepository _repo;
   late final PreferencesService _prefs;
-  late final LeagueAnnouncementsFirebase _annRepo;
-  late final LeagueSpacesFirebase _spaceRepo;
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   int? _lastViewedRound;
   static String _lastRoundKey(String leagueId) => 'ui_last_round_$leagueId';
@@ -76,18 +74,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     super.initState();
     _prefs = ref.read(prefsServiceProvider);
     _repo = LocalLeaguesRepository(_prefs);
-    _annRepo = LeagueAnnouncementsFirebase(_prefs);
-    _spaceRepo = LeagueSpacesFirebase(_prefs);
 
     final rawRound = _prefs.getString(_lastRoundKey(widget.leagueId));
     _lastViewedRound = int.tryParse((rawRound ?? '').trim());
 
     _lastSeenAnnMs = _prefs.getInt(_lastSeenAnnKey(widget.leagueId)) ?? 0;
-
-    // ignore: discarded_futures
-    SyncTrigger.trySync().then((_) {
-      if (mounted) setState(() {});
-    });
   }
 
   @override
@@ -213,34 +204,86 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     });
   }
 
+  int _intFrom(dynamic v, {int fallback = 0}) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return fallback;
+  }
+
+  Future<List<LeagueAnnouncement>> _loadAnnouncements(String leagueId) async {
+    final snap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .collection('announcements')
+        .orderBy('createdAtMs', descending: true)
+        .limit(30)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 10));
+
+    final out = <LeagueAnnouncement>[];
+    for (final d in snap.docs) {
+      final data = d.data();
+      // Defensive normalization
+      data['createdAtMs'] = _intFrom(data['createdAtMs'], fallback: 0);
+      data['id'] = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? data['id'] : d.id;
+      try {
+        out.add(LeagueAnnouncement.fromMap(data));
+      } catch (_) {
+        // Skip malformed announcement
+      }
+    }
+    return out;
+  }
+
+  Future<Map<String, dynamic>?> _loadSpaceCurrent(String leagueId) async {
+    final doc = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .collection('space')
+        .doc('current')
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 8));
+
+    if (!doc.exists) return null;
+    final data = doc.data();
+    if (data == null) return null;
+
+    return <String, dynamic>{...data};
+  }
+
   Future<Map<String, dynamic>> _loadData() async {
-    final league = await _repo.getLeagueById(widget.leagueId);
+    final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
     if (league == null) {
       throw const _L10nException('leagues_error_not_found_local_storage');
     }
 
-    final fixtures = await _repo.getMatches(widget.leagueId);
-    final teams = await _repo.getTeams(widget.leagueId);
-    final knockouts = await _repo.getKnockoutMatches(widget.leagueId);
-    final announcements = await _annRepo.listForLeague(widget.leagueId);
+    final fixtures = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+    final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+    final knockouts = await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
-    final currentUserId = _prefs.getCurrentUserId() ?? '';
+    final announcements = await _loadAnnouncements(widget.leagueId);
 
-    final membership = await _repo.getMembership(
-      leagueId: widget.leagueId,
-      userId: currentUserId,
-    );
+    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+
+    final membership = authUid.isEmpty
+        ? null
+        : await _repo
+            .getMembership(
+              leagueId: widget.leagueId,
+              userId: authUid,
+            )
+            .timeout(const Duration(seconds: 12));
 
     final teamNames = {for (final t in teams) t.id: t.name};
 
-    final space = await _spaceRepo.getActiveSpace(widget.leagueId);
+    final space = await _loadSpaceCurrent(widget.leagueId);
 
     return {
       'league': league,
       'fixtures': fixtures,
       'teams': teams,
       'teamNames': teamNames,
-      'currentUserId': currentUserId,
+      'currentUserId': authUid,
       'membership': membership,
       'knockouts': knockouts,
       'announcements': announcements,
@@ -281,7 +324,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       effectiveRound = next.isNotEmpty ? next.first : roundsWithUnplayed.first;
     }
 
-    // Avoid calling setState during build.
     if (effectiveRound != selectedRound) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -296,33 +338,57 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   Future<void> _onStartSpace(League league, String currentUserId) async {
     try {
-      await _spaceRepo.startSpace(
-        leagueId: league.id,
-        hostUserId: currentUserId,
-        title: '${league.name} ${context.l10n.tr('league_details_space_title_suffix')}',
-      );
+      if (currentUserId.trim().isEmpty) {
+        _toastErr('Please sign in and try again.');
+        return;
+      }
 
-      await SyncTrigger.trySync();
+      await _firestore
+          .collection('leagues')
+          .doc(league.id)
+          .collection('space')
+          .doc('current')
+          .set(
+        {
+          'leagueId': league.id,
+          'hostUserId': currentUserId,
+          'title': '${league.name} ${context.l10n.tr('league_details_space_title_suffix')}',
+          'isLive': true,
+          'startedAtMs': DateTime.now().millisecondsSinceEpoch,
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
       setState(() {});
       _toastOk(context.l10n.tr('league_details_space_started'));
     } catch (e) {
-      _toastErr('${context.l10n.tr('league_details_failed_to_start_space')}: $e');
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
   Future<void> _onEndSpace(League league) async {
     try {
-      await _spaceRepo.endSpace(league.id);
-
-      await SyncTrigger.trySync();
+      await _firestore
+          .collection('leagues')
+          .doc(league.id)
+          .collection('space')
+          .doc('current')
+          .set(
+        {
+          'isLive': false,
+          'endedAtMs': DateTime.now().millisecondsSinceEpoch,
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
       setState(() {});
       _toastOk(context.l10n.tr('league_details_space_ended'));
     } catch (e) {
-      _toastErr('${context.l10n.tr('league_details_failed_to_end_space')}: $e');
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
@@ -346,13 +412,12 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: l10n.tr('league_details_sync_tooltip'),
-            onPressed: () async {
-              await SyncTrigger.trySync();
-              if (mounted) setState(() {});
-              _toastOk(l10n.tr('league_details_synced_toast'));
+            tooltip: l10n.tr('common_refresh'),
+            onPressed: () {
+              setState(() {});
+              _toastOk(l10n.tr('common_done'));
             },
-            icon: const Icon(Icons.sync),
+            icon: const Icon(Icons.refresh),
           ),
         ],
       ),
@@ -369,7 +434,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
               if (snapshot.hasError) {
                 final err = snapshot.error;
-                final message = (err is _L10nException) ? l10n.tr(err.key) : '$err';
+                final message = (err is _L10nException)
+                    ? l10n.tr(err.key)
+                    : UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
 
                 return Center(
                   child: Padding(
@@ -419,7 +486,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               final membership = snapshot.data!['membership'] as Membership?;
               final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
               final announcements = snapshot.data!['announcements'] as List<LeagueAnnouncement>;
-              final space = snapshot.data!['space'] as LeagueSpace?;
+              final space = snapshot.data!['space'] as Map<String, dynamic>?;
 
               final sorted = _sortedSchedule(fixtures);
               final rounds = _allRounds(sorted);
@@ -447,41 +514,47 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
               _ensureAnnounceAutoScroll(announcements.length);
 
-              final isOwnerByLeague = membership?.role == LeagueRole.organizer;
-              final isOwnerFallback = league.organizerUserId == currentUserId;
-              final isOwner = isOwnerByLeague || isOwnerFallback;
+              final isOwnerByMembership = membership?.role == LeagueRole.organizer;
+              final isOwnerByLeague = league.organizerUid.trim().isNotEmpty && league.organizerUid.trim() == currentUserId.trim();
+              final isOwner = isOwnerByMembership || isOwnerByLeague;
+
+              final spaceLive = space?['isLive'] == true;
 
               return ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: isWide ? 600 : 500),
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  children: [
-                    _overviewCard(context, league, isOwner),
-                    if (announcements.isNotEmpty) ...[
+                child: RefreshIndicator(
+                  onRefresh: () async => setState(() {}),
+                  color: cs.primary,
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    children: [
+                      _overviewCard(context, league, isOwner),
+                      if (announcements.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _announcementsCard(context, announcements, hasUnreadAnnouncements),
+                      ],
                       const SizedBox(height: 16),
-                      _announcementsCard(context, announcements, hasUnreadAnnouncements),
+                      _quickActions(
+                        context,
+                        league,
+                        isOwner,
+                        fixtures,
+                        teams,
+                        knockouts,
+                        spaceLive,
+                        currentUserId,
+                      ),
+                      const SizedBox(height: 16),
+                      _upcomingMatchesCard(
+                        context,
+                        fixtures: upcoming,
+                        names: teamNames,
+                        rounds: rounds,
+                        selectedRound: selectedRound,
+                        onRoundSelected: (r) => _persistRound(r),
+                      ),
                     ],
-                    const SizedBox(height: 16),
-                    _quickActions(
-                      context,
-                      league,
-                      isOwner,
-                      fixtures,
-                      teams,
-                      knockouts,
-                      space,
-                      currentUserId,
-                    ),
-                    const SizedBox(height: 16),
-                    _upcomingMatchesCard(
-                      context,
-                      fixtures: upcoming,
-                      names: teamNames,
-                      rounds: rounds,
-                      selectedRound: selectedRound,
-                      onRoundSelected: (r) => _persistRound(r),
-                    ),
-                  ],
+                  ),
                 ),
               );
             },
@@ -648,7 +721,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     List<FixtureMatch> fixtures,
     List<Team> teams,
     List<KnockoutMatch> knockouts,
-    LeagueSpace? space,
+    bool spaceLive,
     String currentUserId,
   ) {
     final l10n = context.l10n;
@@ -658,7 +731,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final isSwiss = league.format == LeagueFormat.uclSwiss;
     final isGroup = league.format == LeagueFormat.uclGroup;
     final hasKnockouts = knockouts.isNotEmpty;
-    final spaceLive = space?.isLive == true;
 
     void showNeedKnockoutsSnack() => _toastWarn(l10n.tr('league_details_need_knockouts_first'));
 
@@ -697,11 +769,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ],
           ),
-
-          // ------------------------------
-          // VIEWER / NON-OWNER ACCESS:
-          // Viewer can see bracket ONLY if knockouts have been generated (your "started" condition).
-          // ------------------------------
           if (!isOwner) ...[
             const SizedBox(height: 12),
             if (hasKnockouts)
@@ -755,7 +822,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ),
           ],
-
           if (isOwner) ...[
             const SizedBox(height: 12),
             SizedBox(
@@ -1033,8 +1099,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   }
 
   Widget _roundChip({required String label, required bool selected, required VoidCallback onTap}) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     return InkWell(
       onTap: onTap,
@@ -1188,182 +1253,188 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   ) async {
     final l10n = context.l10n;
 
-    if (league.format != LeagueFormat.uclSwiss) {
-      _toastWarn(l10n.tr('league_details_swiss_only_action'));
-      return;
-    }
+    try {
+      if (league.format != LeagueFormat.uclSwiss) {
+        _toastWarn(l10n.tr('league_details_swiss_only_action'));
+        return;
+      }
 
-    if (!(teams.length == 18 || teams.length == 36)) {
-      _toastErr('${l10n.tr('league_details_swiss_team_count_error_prefix')}: ${teams.length}.');
-      return;
-    }
+      if (!(teams.length == 18 || teams.length == 36)) {
+        _toastErr('${l10n.tr('league_details_swiss_team_count_error_prefix')}: ${teams.length}.');
+        return;
+      }
 
-    final existing = await _repo.getKnockoutMatches(league.id);
-    if (existing.isNotEmpty) {
-      _toastWarn(l10n.tr('league_details_knockout_already_generated'));
-      return;
-    }
+      final existing = await _repo.getKnockoutMatches(league.id);
+      if (existing.isNotEmpty) {
+        _toastWarn(l10n.tr('league_details_knockout_already_generated'));
+        return;
+      }
 
-    final swissMatches = fixtures.where((m) => m.groupId == null).toList();
-    if (swissMatches.isEmpty) {
-      _toastErr(l10n.tr('league_details_swiss_no_matches_found'));
-      return;
-    }
+      final swissMatches = fixtures.where((m) => m.groupId == null).toList();
+      if (swissMatches.isEmpty) {
+        _toastErr(l10n.tr('league_details_swiss_no_matches_found'));
+        return;
+      }
 
-    final requiredRounds = league.settings.swissRounds;
+      final requiredRounds = league.settings.swissRounds;
 
-    final roundsSet = swissMatches.map((m) => m.roundNumber).toSet();
-    final hasAllRounds = List.generate(requiredRounds, (i) => i + 1).every((r) => roundsSet.contains(r));
-    if (!hasAllRounds) {
-      _toastWarn(
-        '${l10n.tr('league_details_generate_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_generate_all_swiss_rounds_suffix')}',
+      final roundsSet = swissMatches.map((m) => m.roundNumber).toSet();
+      final hasAllRounds = List.generate(requiredRounds, (i) => i + 1).every((r) => roundsSet.contains(r));
+      if (!hasAllRounds) {
+        _toastWarn(
+          '${l10n.tr('league_details_generate_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_generate_all_swiss_rounds_suffix')}',
+        );
+        return;
+      }
+
+      final anyUnplayedInRequired = swissMatches.where((m) => m.roundNumber <= requiredRounds).any((m) => !m.isPlayed);
+      if (anyUnplayedInRequired) {
+        _toastWarn(
+          '${l10n.tr('league_details_finish_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_finish_all_swiss_rounds_suffix')}',
+        );
+        return;
+      }
+
+      final swissStandings = StandingsCalculator.calculate(teams: teams, matches: swissMatches);
+
+      if (swissStandings.length != teams.length) {
+        _toastErr(l10n.tr('league_details_standings_team_mismatch'));
+        return;
+      }
+
+      final koMatches = TournamentController.seedSwissKnockouts(
+        leagueId: league.id,
+        swissStandings: swissStandings,
       );
-      return;
+
+      if (koMatches.isEmpty) {
+        _toastErr(l10n.tr('league_details_failed_seed_swiss_knockout'));
+        return;
+      }
+
+      await _repo.saveKnockoutMatches(league.id, koMatches);
+
+      final label = (teams.length == 36)
+          ? l10n.tr('league_details_swiss_knockout_generated_36')
+          : l10n.tr('league_details_swiss_knockout_generated_18');
+
+      _toastOk(label);
+      if (mounted) setState(() {});
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
-
-    final anyUnplayedInRequired = swissMatches.where((m) => m.roundNumber <= requiredRounds).any((m) => !m.isPlayed);
-    if (anyUnplayedInRequired) {
-      _toastWarn(
-        '${l10n.tr('league_details_finish_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_finish_all_swiss_rounds_suffix')}',
-      );
-      return;
-    }
-
-    final swissStandings = StandingsCalculator.calculate(teams: teams, matches: swissMatches);
-
-    if (swissStandings.length != teams.length) {
-      _toastErr(l10n.tr('league_details_standings_team_mismatch'));
-      return;
-    }
-
-    final koMatches = TournamentController.seedSwissKnockouts(
-      leagueId: league.id,
-      swissStandings: swissStandings,
-    );
-
-    if (koMatches.isEmpty) {
-      _toastErr(l10n.tr('league_details_failed_seed_swiss_knockout'));
-      return;
-    }
-
-    await _repo.saveKnockoutMatches(league.id, koMatches);
-    await SyncTrigger.trySync();
-
-    final label = (teams.length == 36)
-        ? l10n.tr('league_details_swiss_knockout_generated_36')
-        : l10n.tr('league_details_swiss_knockout_generated_18');
-
-    _toastOk(label);
-    if (mounted) setState(() {});
   }
 
   Future<void> _generateGroupKnockouts(BuildContext context, League league) async {
     final l10n = context.l10n;
 
-    if (league.format != LeagueFormat.uclGroup) {
-      _toastWarn(l10n.tr('league_details_groups_only_action'));
-      return;
-    }
-
-    final existing = await _repo.getKnockoutMatches(league.id);
-    if (existing.isNotEmpty) {
-      _toastWarn(l10n.tr('league_details_knockout_already_generated'));
-      return;
-    }
-
-    final teams = await _repo.getTeams(league.id);
-    final matches = await _repo.getMatches(league.id);
-
-    if (!(teams.length == 16 || teams.length == 32)) {
-      _toastErr('${l10n.tr('league_details_group_team_count_error_prefix')}: ${teams.length}.');
-      return;
-    }
-
-    if (league.settings.groupSize != 4) {
-      _toastWarn('${l10n.tr('league_details_group_size_expected_4_prefix')}: ${league.settings.groupSize}.');
-    }
-
-    final groupMatches = matches.where((m) => m.groupId != null).toList();
-    if (groupMatches.isEmpty) {
-      _toastErr(l10n.tr('league_details_no_group_matches_found'));
-      return;
-    }
-
-    final anyUnplayedGroup = groupMatches.any((m) => !m.isPlayed);
-    if (anyUnplayedGroup) {
-      _toastWarn(l10n.tr('league_details_finish_all_group_matches_first'));
-      return;
-    }
-
-    final groupIds = groupMatches
-        .map((m) => m.groupId)
-        .whereType<String>()
-        .map((g) => g.trim())
-        .where((g) => g.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-
-    final expectedGroupCount = teams.length ~/ 4;
-    if (groupIds.length != expectedGroupCount) {
-      _toastErr(
-        '${l10n.tr('league_details_invalid_group_structure_prefix')} $expectedGroupCount ${l10n.tr('league_details_invalid_group_structure_mid')} ${teams.length} ${l10n.tr('league_details_invalid_group_structure_suffix')} ${groupIds.length}.',
-      );
-      return;
-    }
-
-    final groupStandings = <String, List<StandingsRow>>{};
-
-    for (final groupId in groupIds) {
-      final gm = groupMatches.where((m) => m.groupId == groupId).toList();
-      if (gm.isEmpty) continue;
-
-      final teamIds = <String>{};
-      for (final m in gm) {
-        teamIds.add(m.homeTeamId);
-        teamIds.add(m.awayTeamId);
+    try {
+      if (league.format != LeagueFormat.uclGroup) {
+        _toastWarn(l10n.tr('league_details_groups_only_action'));
+        return;
       }
 
-      final groupTeams = teams.where((t) => teamIds.contains(t.id)).toList();
-      if (groupTeams.length != 4) {
+      final existing = await _repo.getKnockoutMatches(league.id);
+      if (existing.isNotEmpty) {
+        _toastWarn(l10n.tr('league_details_knockout_already_generated'));
+        return;
+      }
+
+      final teams = await _repo.getTeams(league.id);
+      final matches = await _repo.getMatches(league.id);
+
+      if (!(teams.length == 16 || teams.length == 32)) {
+        _toastErr('${l10n.tr('league_details_group_team_count_error_prefix')}: ${teams.length}.');
+        return;
+      }
+
+      if (league.settings.groupSize != 4) {
+        _toastWarn('${l10n.tr('league_details_group_size_expected_4_prefix')}: ${league.settings.groupSize}.');
+      }
+
+      final groupMatches = matches.where((m) => m.groupId != null).toList();
+      if (groupMatches.isEmpty) {
+        _toastErr(l10n.tr('league_details_no_group_matches_found'));
+        return;
+      }
+
+      final anyUnplayedGroup = groupMatches.any((m) => !m.isPlayed);
+      if (anyUnplayedGroup) {
+        _toastWarn(l10n.tr('league_details_finish_all_group_matches_first'));
+        return;
+      }
+
+      final groupIds = groupMatches
+          .map((m) => m.groupId)
+          .whereType<String>()
+          .map((g) => g.trim())
+          .where((g) => g.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+      final expectedGroupCount = teams.length ~/ 4;
+      if (groupIds.length != expectedGroupCount) {
         _toastErr(
-          '${l10n.tr('league_details_group_not_four_prefix')} $groupId ${l10n.tr('league_details_group_not_four_suffix')} ${groupTeams.length}.',
+          '${l10n.tr('league_details_invalid_group_structure_prefix')} $expectedGroupCount ${l10n.tr('league_details_invalid_group_structure_mid')} ${teams.length} ${l10n.tr('league_details_invalid_group_structure_suffix')} ${groupIds.length}.',
         );
         return;
       }
 
-      final rows = StandingsCalculator.calculate(teams: groupTeams, matches: gm);
-      if (rows.length != 4) {
-        _toastErr('${l10n.tr('league_details_group_standings_invalid_prefix')} $groupId.');
+      final groupStandings = <String, List<StandingsRow>>{};
+
+      for (final groupId in groupIds) {
+        final gm = groupMatches.where((m) => m.groupId == groupId).toList();
+        if (gm.isEmpty) continue;
+
+        final teamIds = <String>{};
+        for (final m in gm) {
+          teamIds.add(m.homeTeamId);
+          teamIds.add(m.awayTeamId);
+        }
+
+        final groupTeams = teams.where((t) => teamIds.contains(t.id)).toList();
+        if (groupTeams.length != 4) {
+          _toastErr(
+            '${l10n.tr('league_details_group_not_four_prefix')} $groupId ${l10n.tr('league_details_group_not_four_suffix')} ${groupTeams.length}.',
+          );
+          return;
+        }
+
+        final rows = StandingsCalculator.calculate(teams: groupTeams, matches: gm);
+        if (rows.length != 4) {
+          _toastErr('${l10n.tr('league_details_group_standings_invalid_prefix')} $groupId.');
+          return;
+        }
+        groupStandings[groupId] = rows;
+      }
+
+      if (groupStandings.length != expectedGroupCount) {
+        _toastErr('${l10n.tr('league_details_group_standings_incomplete_prefix')} $expectedGroupCount.');
         return;
       }
-      groupStandings[groupId] = rows;
+
+      final koMatches = TournamentController.seedKnockoutsFromGroups(
+        leagueId: league.id,
+        groupStandings: groupStandings,
+      );
+
+      if (koMatches.isEmpty) {
+        _toastErr(l10n.tr('league_details_failed_seed_group_knockout'));
+        return;
+      }
+
+      await _repo.saveKnockoutMatches(league.id, koMatches);
+
+      final label = (teams.length == 32)
+          ? l10n.tr('league_details_group_knockout_generated_32')
+          : l10n.tr('league_details_group_knockout_generated_16');
+
+      _toastOk(label);
+      if (mounted) setState(() {});
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
-
-    if (groupStandings.length != expectedGroupCount) {
-      _toastErr('${l10n.tr('league_details_group_standings_incomplete_prefix')} $expectedGroupCount.');
-      return;
-    }
-
-    final koMatches = TournamentController.seedKnockoutsFromGroups(
-      leagueId: league.id,
-      groupStandings: groupStandings,
-    );
-
-    if (koMatches.isEmpty) {
-      _toastErr(l10n.tr('league_details_failed_seed_group_knockout'));
-      return;
-    }
-
-    await _repo.saveKnockoutMatches(league.id, koMatches);
-    await SyncTrigger.trySync();
-
-    final label = (teams.length == 32)
-        ? l10n.tr('league_details_group_knockout_generated_32')
-        : l10n.tr('league_details_group_knockout_generated_16');
-
-    _toastOk(label);
-    if (mounted) setState(() {});
   }
 }
 
@@ -1390,8 +1461,7 @@ class _LeagueHero extends StatelessWidget {
   }
 
   Widget _imageOrPlaceholder(BuildContext context, String url, {BoxFit fit = BoxFit.cover}) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final u = url.trim();
     final bytes = u.isEmpty ? null : _tryDecodeDataUri(u);

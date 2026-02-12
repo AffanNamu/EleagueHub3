@@ -1,29 +1,42 @@
 import 'package:flutter/foundation.dart';
-import 'sync_queue_service.dart';
-import 'sync_service.dart';
 
+/// ONLINE-ONLY MIGRATION
+///
+/// Legacy builds contained offline-first sync debug tooling (queue inspection,
+/// conflict debugging, etc.).
+///
+/// Online-only architecture has:
+/// - no local queue
+/// - no background sync
+/// - no local-vs-cloud conflict resolution layer
+///
+/// This file remains as a lightweight, safe diagnostics hook to avoid breaking
+/// any older imports. It does NOT implement any sync behavior.
 class SyncDebug {
-  static final ValueNotifier<String> lastLog = ValueNotifier<String>('');
+  SyncDebug._();
 
-  static void log(String msg) {
-    lastLog.value = msg;
-    debugPrint(msg);
+  /// A simple status line that UI/debug screens may display.
+  static final ValueNotifier<String> status = ValueNotifier<String>('Online-only mode');
+
+  static void setStatus(String value) {
+    status.value = value;
   }
 
-  static Future<int> queueCount() async {
-    final items = await SyncQueueService.instance.getPending();
-    return items.length;
-  }
+  /// Optional debug log buffer for screens that render sync logs.
+  static final ValueNotifier<List<String>> logs = ValueNotifier<List<String>>(<String>[]);
 
-  static Future<void> runSync() async {
-    try {
-      log('SyncDebug → syncAll() start');
-      await SyncService.instance.syncAll();
-      final c = await queueCount();
-      log('SyncDebug → syncAll() done. queue=$c');
-    } catch (e) {
-      log('SyncDebug → syncAll() ERROR: $e');
-      rethrow;
+  static void log(String message) {
+    // Keep the buffer bounded.
+    final next = List<String>.from(logs.value);
+    next.add(message);
+    if (next.length > 200) {
+      next.removeRange(0, next.length - 200);
     }
+    logs.value = next;
+  }
+
+  static void clear() {
+    logs.value = <String>[];
+    status.value = 'Online-only mode';
   }
 }

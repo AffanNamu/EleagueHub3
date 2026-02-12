@@ -1,6 +1,12 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
+/// Legacy duplicate OfflineBanner (non-localized).
+///
+/// ONLINE-ONLY MIGRATION:
+/// - Do not promise "changes will sync later".
+/// - This banner should only communicate network status.
 class OfflineBanner extends StatelessWidget {
   const OfflineBanner({super.key});
 
@@ -26,7 +32,7 @@ class OfflineBanner extends StatelessWidget {
                   SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      "Offline Mode: Changes will sync later",
+                      "You're offline. Please check your connection and try again.",
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 13,

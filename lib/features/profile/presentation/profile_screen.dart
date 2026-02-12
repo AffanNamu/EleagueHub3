@@ -292,9 +292,7 @@ class ProfileScreen extends ConsumerWidget {
                                               ),
                                             ),
                                             subtitle: Text(
-                                              isPaid
-                                                  ? 'Paid • $provider • $when'
-                                                  : 'Pending • ${money(expected)} $currency',
+                                              isPaid ? 'Paid • $provider • $when' : 'Pending • ${money(expected)} $currency',
                                               style: theme.textTheme.bodySmall?.copyWith(
                                                 color: onSurface.withOpacity(0.65),
                                                 fontWeight: FontWeight.w700,
@@ -335,20 +333,22 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Ensure dynamic admins watcher runs (safe if called multiple times).
-    AppAdminsService.instance.ensureStarted();
-
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final t = theme.textTheme;
     final onBg = theme.colorScheme.onBackground;
     final onSurface = theme.colorScheme.onSurface;
 
-    final themeState = ref.watch(themeControllerProvider);
-    final currentLeague = ref.watch(leagueModeProvider);
-
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid ?? '';
+
+    // Start dynamic admins watcher only when signed in (matches Firestore rules).
+    if (uid.trim().isNotEmpty) {
+      AppAdminsService.instance.ensureStarted();
+    }
+
+    final themeState = ref.watch(themeControllerProvider);
+    final currentLeague = ref.watch(leagueModeProvider);
 
     final isPricingAdmin = AppAdminsService.instance.isPricingAdminUid(uid);
 
@@ -386,9 +386,8 @@ class ProfileScreen extends ConsumerWidget {
                     ? profile.teamName.trim()
                     : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
 
-                final shortUserId = (profile != null)
-                    ? profile.effectiveShareId
-                    : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
+                final shortUserId =
+                    (profile != null) ? profile.effectiveShareId : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
 
                 final iconMuted = onSurface.withOpacity(0.72);
                 final iconDim = onSurface.withOpacity(0.55);
@@ -453,9 +452,7 @@ class ProfileScreen extends ConsumerWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  uid.isEmpty
-                                      ? l10n.tr('profile_not_signed_in')
-                                      : '${l10n.tr('profile_userid_prefix')} $shortUserId',
+                                  uid.isEmpty ? l10n.tr('profile_not_signed_in') : '${l10n.tr('profile_userid_prefix')} $shortUserId',
                                   style: t.bodySmall?.copyWith(
                                     color: onSurface.withOpacity(0.72),
                                   ),
@@ -580,11 +577,7 @@ class ProfileScreen extends ConsumerWidget {
                 // IMPORTANT:
                 // Authorization is based on Firebase UID ONLY.
                 // We list organizer leagues by organizerUid to match Firestore rules.
-                stream: FirebaseFirestore.instance
-                    .collection('leagues')
-                    .where('organizerUid', isEqualTo: uid)
-                    .limit(25)
-                    .snapshots(),
+                stream: FirebaseFirestore.instance.collection('leagues').where('organizerUid', isEqualTo: uid).limit(25).snapshots(),
                 builder: (context, snap) {
                   if (snap.hasError) {
                     return Text(

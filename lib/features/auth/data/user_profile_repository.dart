@@ -1,6 +1,17 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/user_profile.dart';
+
+/// User-safe exception: if UI shows `$e`, it will still be a friendly message.
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 class UserProfileRepository {
   UserProfileRepository({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -20,29 +31,85 @@ class UserProfileRepository {
     return UserProfile.deriveShareIdFromUid(userId);
   }
 
+  Never _rethrowFriendly(Object error) {
+    if (error is UserFriendlyException) throw error;
+
+    if (error is TimeoutException) {
+      throw const UserFriendlyException('Your internet connection seems unstable. Please try again.');
+    }
+
+    if (error is FirebaseException) {
+      switch (error.code) {
+        case 'unavailable':
+        case 'deadline-exceeded':
+          throw const UserFriendlyException(
+            'Your network appears to be offline. Please check your connection and try again.',
+          );
+        case 'permission-denied':
+          throw const UserFriendlyException('You don’t have permission to do that right now.');
+        default:
+          throw const UserFriendlyException("We couldn't load your profile right now. Please try again.");
+      }
+    }
+
+    throw const UserFriendlyException('Something went wrong. Please try again.');
+  }
+
+  Stream<T> _safeStream<T>(Stream<T> source, T fallback) {
+    return source.transform(
+      StreamTransformer<T, T>.fromHandlers(
+        handleError: (error, stack, sink) {
+          // Do not surface raw errors to UI; return fallback instead.
+          sink.add(fallback);
+        },
+      ),
+    );
+  }
+
   Future<bool> profileExists(String userId) async {
-    final doc = await _users.doc(userId).get();
-    return doc.exists;
+    try {
+      final doc = await _users
+          .doc(userId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+      return doc.exists;
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<UserProfile?> fetchByUserId(String userId) async {
-    final doc = await _users.doc(userId).get();
-    if (!doc.exists) return null;
-    final data = doc.data();
-    if (data == null) return null;
-    return UserProfile.fromFirestore(userId: doc.id, data: data);
+    try {
+      final doc = await _users
+          .doc(userId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!doc.exists) return null;
+      final data = doc.data();
+      if (data == null) return null;
+      return UserProfile.fromFirestore(userId: doc.id, data: data);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<UserProfile?> fetchByShareId(String shareId) async {
-    final sid = shareId.trim();
-    if (sid.isEmpty) return null;
+    try {
+      final sid = shareId.trim();
+      if (sid.isEmpty) return null;
 
-    final snap = await _users.where('shareId', isEqualTo: sid).limit(1).get();
-    if (snap.docs.isEmpty) return null;
+      final snap = await _users
+          .where('shareId', isEqualTo: sid)
+          .limit(1)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (snap.docs.isEmpty) return null;
 
-    final doc = snap.docs.first;
-    final data = doc.data();
-    return UserProfile.fromFirestore(userId: doc.id, data: data);
+      final doc = snap.docs.first;
+      return UserProfile.fromFirestore(userId: doc.id, data: doc.data());
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   /// Accepts either:
@@ -60,35 +127,47 @@ class UserProfileRepository {
 
   /// Resolves a shareId (eS...) to the real Firebase uid (doc id).
   Future<String?> resolveUserIdFromShareId(String shareId) async {
-    final sid = shareId.trim();
-    if (sid.isEmpty) return null;
+    try {
+      final sid = shareId.trim();
+      if (sid.isEmpty) return null;
 
-    final snap = await _users.where('shareId', isEqualTo: sid).limit(1).get();
-    if (snap.docs.isEmpty) return null;
+      final snap = await _users
+          .where('shareId', isEqualTo: sid)
+          .limit(1)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (snap.docs.isEmpty) return null;
 
-    return snap.docs.first.id;
+      return snap.docs.first.id;
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Stream<UserProfile?> watchByUserId(String userId) {
-    return _users.doc(userId).snapshots().map((doc) {
+    final stream = _users.doc(userId).snapshots().map((doc) {
       if (!doc.exists) return null;
       final data = doc.data();
       if (data == null) return null;
       return UserProfile.fromFirestore(userId: doc.id, data: data);
     });
+
+    return _safeStream<UserProfile?>(stream, null);
   }
 
   Stream<bool> watchIsPremium(String userId) {
-    return _users.doc(userId).snapshots().map((doc) {
+    final stream = _users.doc(userId).snapshots().map((doc) {
       if (!doc.exists) return false;
       final data = doc.data();
       if (data == null) return false;
       return data['isPremium'] == true;
     });
+
+    return _safeStream<bool>(stream, false);
   }
 
   Stream<List<String>> watchQuickMessagesCustom(String userId) {
-    return _users.doc(userId).snapshots().map((doc) {
+    final stream = _users.doc(userId).snapshots().map((doc) {
       if (!doc.exists) return const <String>[];
       final data = doc.data();
       if (data == null) return const <String>[];
@@ -101,34 +180,50 @@ class UserProfileRepository {
           .where((s) => s.isNotEmpty)
           .toList(growable: false);
     });
+
+    return _safeStream<List<String>>(stream, const <String>[]);
   }
 
   Future<void> updateQuickMessagesCustom({
     required String userId,
     required List<String> messages,
   }) async {
-    final cleaned = messages.map((e) => e.trim()).where((s) => s.isNotEmpty).toList(growable: false);
+    try {
+      final cleaned = messages.map((e) => e.trim()).where((s) => s.isNotEmpty).toList(growable: false);
 
-    await _users.doc(userId).set(
-      {
-        'quickMessagesCustom': cleaned,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+      await _users
+          .doc(userId)
+          .set(
+            {
+              'quickMessagesCustom': cleaned,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<void> setPremium({
     required String userId,
     required bool isPremium,
   }) async {
-    await _users.doc(userId).set(
-      {
-        'isPremium': isPremium,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    try {
+      await _users
+          .doc(userId)
+          .set(
+            {
+              'isPremium': isPremium,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<void> createProfileIfMissing({
@@ -137,44 +232,55 @@ class UserProfileRepository {
     required String authProvider,
     Map<String, dynamic>? onboardingAnswers,
   }) async {
-    final ref = _users.doc(userId);
+    try {
+      final ref = _users.doc(userId);
 
-    await _firestore.runTransaction((tx) async {
-      final snap = await tx.get(ref);
-      if (snap.exists) return;
+      await _firestore.runTransaction((tx) async {
+        final snap = await tx.get(ref);
+        if (snap.exists) return;
 
-      final payload = <String, dynamic>{
-        'userId': userId,
-        'teamName': teamName,
-        'authProvider': authProvider,
-        'shareId': _generateShareId(userId),
+        final payload = <String, dynamic>{
+          'userId': userId,
+          'teamName': teamName,
+          'authProvider': authProvider,
+          'shareId': _generateShareId(userId),
 
-        // Defaults for new users
-        'isPremium': false,
-        'quickMessagesCustom': <String>[],
+          // Defaults for new users
+          'isPremium': false,
+          'quickMessagesCustom': <String>[],
 
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
 
-      if (onboardingAnswers != null && onboardingAnswers.isNotEmpty) {
-        payload['onboardingAnswers'] = onboardingAnswers;
-      }
+        if (onboardingAnswers != null && onboardingAnswers.isNotEmpty) {
+          payload['onboardingAnswers'] = onboardingAnswers;
+        }
 
-      tx.set(ref, payload);
-    });
+        tx.set(ref, payload);
+      }).timeout(const Duration(seconds: 25));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<void> updateTeamName({
     required String userId,
     required String teamName,
   }) async {
-    await _users.doc(userId).set(
-      {
-        'teamName': teamName,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    try {
+      await _users
+          .doc(userId)
+          .set(
+            {
+              'teamName': teamName,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 }

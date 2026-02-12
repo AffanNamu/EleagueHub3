@@ -1,92 +1,158 @@
-import 'dart:convert';
+import 'dart:async';
 
-import 'package:uuid/uuid.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 
 import '../../../core/persistence/prefs_service.dart';
-import '../../../core/services/sync_queue_service.dart';
 import '../models/league_space.dart';
 
-/// Local cache of LeagueSpace per league.
-/// Also enqueues changes for Firestore sync.
-/// Firestore target: /leagues/{leagueId}/space/current (single doc)
+/// ONLINE-ONLY Firestore implementation (legacy file name kept for compatibility).
+///
+/// This project previously had "local" space handling + sync. Online-only rules:
+/// - No local persistence
+/// - No background sync
+/// - All space state is live in Firestore
+///
+/// Collection layout:
+/// leagues/{leagueId}/space/current
 class LeagueSpacesFirebase {
   LeagueSpacesFirebase(this._prefs);
 
+  // Kept only to avoid breaking constructors across the codebase.
+  // ignore: unused_field
   final PreferencesService _prefs;
-  final SyncQueueService _queue = SyncQueueService.instance;
 
-  static const _prefix = 'league_space_';
-  static const _uuid = Uuid();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String _key(String leagueId) => '$_prefix$leagueId';
+  DocumentReference<Map<String, dynamic>> _doc(String leagueId) {
+    return _firestore.collection('leagues').doc(leagueId).collection('space').doc('current');
+  }
 
-  Future<LeagueSpace?> getSpace(String leagueId) async {
-    final raw = _prefs.getString(_key(leagueId));
-    if (raw == null || raw.trim().isEmpty) return null;
+  String _requireAuthUid() {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      throw const FirebaseAuthException(code: 'unauthenticated');
+    }
+    return uid;
+  }
+
+  LeagueSpace? _tryParse(Map<String, dynamic> data) {
     try {
-      final map = jsonDecode(raw) as Map<String, dynamic>;
-      return LeagueSpace.fromJson(map);
+      return LeagueSpace.fromJson(data);
     } catch (_) {
       return null;
     }
   }
 
+  /// Returns current space doc (live). Returns null if missing or not parseable.
+  Future<LeagueSpace?> getSpace(String leagueId) async {
+    return getActiveSpace(leagueId);
+  }
+
   Future<LeagueSpace?> getActiveSpace(String leagueId) async {
-    final s = await getSpace(leagueId);
-    if (s == null || !s.isLive) return null;
-    return s;
+    final snap = await _doc(leagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 10));
+
+    if (!snap.exists) return null;
+
+    final data = snap.data();
+    if (data == null) return null;
+
+    return _tryParse(data);
+  }
+
+  Stream<LeagueSpace?> watchSpace(String leagueId) {
+    return _doc(leagueId).snapshots().map((snap) {
+      final data = snap.data();
+      if (!snap.exists || data == null) return null;
+      return _tryParse(data);
+    }).handleError((_) {
+      // Suppress raw stream errors at UI level; callers should show friendly state.
+    });
   }
 
   Future<LeagueSpace> startSpace({
     required String leagueId,
     required String hostUserId,
-    String? title,
+    required String title,
   }) async {
+    final uid = _requireAuthUid();
+
+    if (hostUserId.trim().isEmpty) {
+      throw const FirebaseException(plugin: 'cloud_firestore', code: 'invalid-argument');
+    }
+
     final now = DateTime.now().millisecondsSinceEpoch;
-    final space = LeagueSpace(
-      id: _uuid.v4(),
-      leagueId: leagueId,
-      hostUserId: hostUserId,
-      title: title ?? 'League Space',
-      isLive: true,
-      createdAtMs: now,
-      endedAtMs: null,
-    );
 
-    await _prefs.setString(_key(leagueId), jsonEncode(space.toJson()));
+    await _doc(leagueId)
+        .set(
+          {
+            'leagueId': leagueId,
+            'hostUserId': hostUserId.trim(),
+            'hostUid': uid, // explicit auth uid for rules/debug
+            'title': title.trim(),
+            'isLive': true,
+            'startedAtMs': now,
+            'updatedAtMs': now,
+          },
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 15));
 
-    // Enqueue for cloud
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'space_current',
-      entityId: leagueId, // entityId is leagueId for current-space doc
-      action: 'upsert',
-      lastModified: now,
-      payload: space.toJson(),
-    );
+    final snap = await _doc(leagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 10));
 
-    return space;
+    final data = snap.data();
+    final parsed = data == null ? null : _tryParse(data);
+    if (parsed == null) {
+      // Fallback: create a minimal object from the just-written payload if parsing failed.
+      return LeagueSpace.fromJson({
+        'leagueId': leagueId,
+        'hostUserId': hostUserId.trim(),
+        'title': title.trim(),
+        'isLive': true,
+        'startedAtMs': now,
+        'updatedAtMs': now,
+      });
+    }
+
+    return parsed;
   }
 
-  Future<LeagueSpace?> endSpace(String leagueId) async {
-    final existing = await getSpace(leagueId);
-    if (existing == null) return null;
+  Future<LeagueSpace> endSpace(String leagueId) async {
+    _requireAuthUid();
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    final updated = existing.copyWith(isLive: false, endedAtMs: now);
 
-    await _prefs.setString(_key(leagueId), jsonEncode(updated.toJson()));
+    await _doc(leagueId)
+        .set(
+          {
+            'isLive': false,
+            'endedAtMs': now,
+            'updatedAtMs': now,
+          },
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 15));
 
-    // Enqueue for cloud
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'space_current',
-      entityId: leagueId,
-      action: 'upsert',
-      lastModified: now,
-      payload: updated.toJson(),
-    );
+    final snap = await _doc(leagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 10));
 
-    return updated;
+    final data = snap.data();
+    final parsed = data == null ? null : _tryParse(data);
+    if (parsed == null) {
+      return LeagueSpace.fromJson({
+        'leagueId': leagueId,
+        'isLive': false,
+        'endedAtMs': now,
+        'updatedAtMs': now,
+      });
+    }
+
+    return parsed;
   }
 }

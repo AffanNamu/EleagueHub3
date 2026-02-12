@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
@@ -30,8 +30,10 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
   void initState() {
     super.initState();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _syncAndRefresh();
+    // Online-only: no sync engine. Just refresh providers once after first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ignore: discarded_futures
+      _refresh();
     });
   }
 
@@ -59,17 +61,34 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
     }
   }
 
-  Future<void> _syncAndRefresh() async {
+  Future<void> _refresh() async {
     if (_refreshing) return;
     setState(() => _refreshing = true);
 
-    await SyncTrigger.trySync();
-
+    // Online-only: invalidate providers so they refetch live Firebase data.
     ref.invalidate(leagueProvider(widget.id));
     ref.invalidate(leagueStandingsProvider(widget.id));
     ref.invalidate(leagueGroupedStandingsProvider(widget.id));
 
     if (mounted) setState(() => _refreshing = false);
+  }
+
+  Widget _errorText(BuildContext context, String prefixKey, Object error) {
+    final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
+
+    final message = UserFriendlyError.toMessage(error);
+
+    return Center(
+      child: Text(
+        '${l10n.tr(prefixKey)}\n$message',
+        style: TextStyle(
+          color: cs.onSurface.withOpacity(0.72),
+          fontWeight: FontWeight.w600,
+        ),
+        textAlign: TextAlign.center,
+      ),
+    );
   }
 
   @override
@@ -88,7 +107,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
         actions: [
           IconButton(
             tooltip: l10n.tr('admin_knockout_reload_tooltip'),
-            onPressed: _refreshing ? null : _syncAndRefresh,
+            onPressed: _refreshing ? null : _refresh,
             icon: _refreshing
                 ? SizedBox(
                     width: 18,
@@ -101,7 +120,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
       ),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: _syncAndRefresh,
+          onRefresh: _refresh,
           color: cs.primary,
           backgroundColor: cs.surface,
           child: Center(
@@ -121,12 +140,10 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                           loading: () => Center(
                             child: CircularProgressIndicator(color: cs.primary),
                           ),
-                          error: (error, stack) => Center(
-                            child: Text(
-                              '${l10n.tr('standings_failed_load_league_prefix')}\n${error.toString()}',
-                              style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontWeight: FontWeight.w600),
-                              textAlign: TextAlign.center,
-                            ),
+                          error: (error, _) => _errorText(
+                            context,
+                            'standings_failed_load_league_prefix',
+                            error,
                           ),
                           data: (league) {
                             switch (league.format) {
@@ -136,19 +153,20 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                   loading: () => Center(
                                     child: CircularProgressIndicator(color: cs.primary),
                                   ),
-                                  error: (error, stack) => Center(
-                                    child: Text(
-                                      '${l10n.tr('standings_failed_load_group_standings_prefix')}\n${error.toString()}',
-                                      style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontWeight: FontWeight.w600),
-                                      textAlign: TextAlign.center,
-                                    ),
+                                  error: (error, _) => _errorText(
+                                    context,
+                                    'standings_failed_load_group_standings_prefix',
+                                    error,
                                   ),
                                   data: (groupMap) {
                                     if (groupMap.isEmpty) {
                                       return Center(
                                         child: Text(
                                           l10n.tr('standings_no_group_results_yet'),
-                                          style: TextStyle(color: cs.onSurface.withOpacity(0.55), fontWeight: FontWeight.w600),
+                                          style: TextStyle(
+                                            color: cs.onSurface.withOpacity(0.55),
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                           textAlign: TextAlign.center,
                                         ),
                                       );
@@ -163,7 +181,6 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                       padding: const EdgeInsets.only(bottom: 8),
                                       itemCount: groupKeys.length + ((invalidGroupCount || invalidGroupSizes) ? 1 : 0),
                                       itemBuilder: (context, index) {
-                                        // Warning header if invalid counts/sizes
                                         if ((invalidGroupCount || invalidGroupSizes) && index == 0) {
                                           return Padding(
                                             padding: const EdgeInsets.only(bottom: 12),
@@ -217,12 +234,10 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                   loading: () => Center(
                                     child: CircularProgressIndicator(color: cs.primary),
                                   ),
-                                  error: (error, stack) => Center(
-                                    child: Text(
-                                      '${l10n.tr('standings_failed_load_standings_prefix')}\n${error.toString()}',
-                                      style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontWeight: FontWeight.w600),
-                                      textAlign: TextAlign.center,
-                                    ),
+                                  error: (error, _) => _errorText(
+                                    context,
+                                    'standings_failed_load_standings_prefix',
+                                    error,
                                   ),
                                   data: (rows) {
                                     return FutureBuilder<int>(
@@ -242,7 +257,6 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                         final n = rows.length;
                                         final allowed = (n == 18 || n == 36);
 
-                                        // Define zones based on allowed team count.
                                         final int autoCut = (n == 36) ? 8 : (n == 18 ? 4 : 0);
                                         final int playoffCut = (n == 36) ? 24 : (n == 18 ? 12 : 0);
 
@@ -252,14 +266,21 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                             children: [
                                               Text(
                                                 label,
-                                                style: TextStyle(color: cs.onSurface.withOpacity(0.55), fontSize: 12, fontWeight: FontWeight.w600),
+                                                style: TextStyle(
+                                                  color: cs.onSurface.withOpacity(0.55),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
                                               ),
                                               const SizedBox(height: 12),
                                               Expanded(
                                                 child: Center(
                                                   child: Text(
                                                     l10n.tr('standings_no_results_yet'),
-                                                    style: TextStyle(color: cs.onSurface.withOpacity(0.55), fontWeight: FontWeight.w600),
+                                                    style: TextStyle(
+                                                      color: cs.onSurface.withOpacity(0.55),
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
                                                     textAlign: TextAlign.center,
                                                   ),
                                                 ),
@@ -273,7 +294,11 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                           children: [
                                             Text(
                                               label,
-                                              style: TextStyle(color: cs.onSurface.withOpacity(0.55), fontSize: 12, fontWeight: FontWeight.w600),
+                                              style: TextStyle(
+                                                color: cs.onSurface.withOpacity(0.55),
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
                                             const SizedBox(height: 8),
                                             if (!allowed) ...[
@@ -300,8 +325,6 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                             Expanded(
                                               child: StandingsTable(
                                                 rows: rows,
-                                                // Keep qualification coloring consistent with the ranking order
-                                                // returned by the standings provider.
                                                 allowSorting: false,
                                                 rowColorBuilder: (ctx, index, row, totalRows) {
                                                   if (!allowed) return Colors.transparent;
@@ -326,19 +349,20 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                   loading: () => Center(
                                     child: CircularProgressIndicator(color: cs.primary),
                                   ),
-                                  error: (error, stack) => Center(
-                                    child: Text(
-                                      '${l10n.tr('standings_failed_load_standings_prefix')}\n${error.toString()}',
-                                      style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontWeight: FontWeight.w600),
-                                      textAlign: TextAlign.center,
-                                    ),
+                                  error: (error, _) => _errorText(
+                                    context,
+                                    'standings_failed_load_standings_prefix',
+                                    error,
                                   ),
                                   data: (rows) {
                                     if (rows.isEmpty) {
                                       return Center(
                                         child: Text(
                                           l10n.tr('standings_no_results_yet'),
-                                          style: TextStyle(color: cs.onSurface.withOpacity(0.55), fontWeight: FontWeight.w600),
+                                          style: TextStyle(
+                                            color: cs.onSurface.withOpacity(0.55),
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                           textAlign: TextAlign.center,
                                         ),
                                       );
@@ -363,10 +387,15 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
 }
 
 Future<int> _getSwissCurrentRound(WidgetRef ref, String leagueId) async {
-  final repo = ref.read(localLeaguesRepositoryProvider);
-  final allMatches = await repo.getMatches(leagueId);
-  if (allMatches.isEmpty) return 0;
-  return allMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+  try {
+    final repo = ref.read(localLeaguesRepositoryProvider);
+    final allMatches = await repo.getMatches(leagueId);
+    if (allMatches.isEmpty) return 0;
+    return allMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+  } catch (_) {
+    // Best-effort: standings still render even if round label can't be computed.
+    return 0;
+  }
 }
 
 Widget _swissLegendDynamic({
@@ -377,8 +406,7 @@ Widget _swissLegendDynamic({
   required Color eliminatedColor,
 }) {
   final l10n = context.l10n;
-  final theme = Theme.of(context);
-  final cs = theme.colorScheme;
+  final cs = Theme.of(context).colorScheme;
 
   Widget dot(Color c) => Container(
         width: 10,
@@ -410,7 +438,6 @@ Widget _swissLegendDynamic({
     );
   }
 
-  // teamCount == 18
   return Row(
     children: [
       dot(autoColor),

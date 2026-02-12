@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/persistence/prefs_service.dart';
@@ -7,27 +9,30 @@ import '../domain/standings/standings_calculator.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 
-/// Provides a single instance of [LocalLeaguesRepository] using the shared
-/// [PreferencesService].
+/// Provides a single instance of [LocalLeaguesRepository].
+///
+/// ONLINE-ONLY NOTE:
+/// - Despite the legacy name, LocalLeaguesRepository is Firestore-backed in this migration.
+/// - PreferencesService is passed only because older constructors/providers expect it.
 final localLeaguesRepositoryProvider = Provider<LocalLeaguesRepository>((ref) {
   final prefs = ref.watch(prefsServiceProvider);
   return LocalLeaguesRepository(prefs);
 });
 
-/// Loads a League by ID (to access format, settings, etc.).
+/// Loads a League by ID (format, settings, etc.).
 final leagueProvider = FutureProvider.family<League, String>(
   (ref, leagueId) async {
     final repo = ref.watch(localLeaguesRepositoryProvider);
-    final league = await repo.getLeagueById(leagueId);
+    final league = await repo.getLeagueById(leagueId).timeout(const Duration(seconds: 20));
     if (league == null) {
-      throw Exception('League not found');
+      throw Exception('League not found.');
     }
     return league;
   },
 );
 
 /// Computes GLOBAL league standings for a given league ID by:
-/// - Loading all teams + all matches from local storage
+/// - Loading all teams + matches from Firestore
 /// - Running [StandingsCalculator.calculate] over them
 ///
 /// Used for:
@@ -37,13 +42,10 @@ final leagueStandingsProvider = FutureProvider.family<List<StandingsRow>, String
   (ref, leagueId) async {
     final repo = ref.watch(localLeaguesRepositoryProvider);
 
-    final league = await repo.getLeagueById(leagueId);
-    final teams = await repo.getTeams(leagueId);
-    final matches = await repo.getMatches(leagueId);
+    final league = await repo.getLeagueById(leagueId).timeout(const Duration(seconds: 20));
+    final teams = await repo.getTeams(leagueId).timeout(const Duration(seconds: 20));
+    final matches = await repo.getMatches(leagueId).timeout(const Duration(seconds: 25));
 
-    // IMPORTANT:
-    // - Swiss standings must only consider Swiss league-phase matches (groupId == null).
-    // - Classic typically also has groupId == null.
     final filteredMatches = (league?.format == LeagueFormat.uclSwiss)
         ? matches.where((m) => m.groupId == null).toList()
         : matches;
@@ -62,15 +64,13 @@ final leagueStandingsProvider = FutureProvider.family<List<StandingsRow>, String
 ///
 /// Source-of-truth for groups:
 /// - Team.groupId (NOT matches), so tables exist even before any match is played.
-final leagueGroupedStandingsProvider =
-    FutureProvider.family<Map<String, List<StandingsRow>>, String>(
+final leagueGroupedStandingsProvider = FutureProvider.family<Map<String, List<StandingsRow>>, String>(
   (ref, leagueId) async {
     final repo = ref.watch(localLeaguesRepositoryProvider);
 
-    final allTeams = await repo.getTeams(leagueId);
-    final allMatches = await repo.getMatches(leagueId);
+    final allTeams = await repo.getTeams(leagueId).timeout(const Duration(seconds: 20));
+    final allMatches = await repo.getMatches(leagueId).timeout(const Duration(seconds: 25));
 
-    // Group IDs come from team assignments.
     final groupIds = allTeams
         .map((t) => t.groupId)
         .whereType<String>()
@@ -88,7 +88,6 @@ final leagueGroupedStandingsProvider =
 
       final groupMatches = allMatches.where((m) => (m.groupId ?? '').trim() == groupId).toList();
 
-      // StandingsCalculator will include all teams (even MP=0) because we pass groupTeams.
       final standings = StandingsCalculator.calculate(
         teams: groupTeams,
         matches: groupMatches,

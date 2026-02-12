@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:ui';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:eleaguehub3/core/errors/user_friendly_error.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
-import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,7 +14,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
@@ -22,7 +23,6 @@ import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
 import '../models/membership.dart';
-import '../utils/current_user.dart';
 
 class QRScannerScreen extends ConsumerStatefulWidget {
   const QRScannerScreen({super.key});
@@ -33,6 +33,8 @@ class QRScannerScreen extends ConsumerStatefulWidget {
 
 class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsBindingObserver {
   static const Color _premiumAmber = Color(0xFFF59E0B);
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool _isScanned = false;
 
@@ -47,9 +49,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
   /// Firebase Auth UID (required by Firestore rules for memberships/coupons).
   String _authUid = '';
-
-  /// Local/offline user id (backward compatibility for local store/receipts).
-  String _localUserId = '';
 
   bool _chargesPaid = false;
 
@@ -108,6 +107,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     }
   }
 
+  void _setError(String? msg) {
+    if (!mounted) return;
+    setState(() => _error = msg);
+  }
+
   Future<void> _ensureCameraPermission({required bool startScannerIfGranted}) async {
     final status = await Permission.camera.status;
     final granted = status.isGranted;
@@ -150,12 +154,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         await _stopScannerSafely();
       }
     } catch (e) {
-      final l10n = context.l10n;
       if (!mounted) return;
-      setState(() {
-        _requestingPermission = false;
-        _error = '${l10n.tr('qr_scanner_permission_error_prefix')}$e';
-      });
+      setState(() => _requestingPermission = false);
+      _setError(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
@@ -165,12 +166,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       await _scannerController.start();
       _scannerStarted = true;
     } catch (e) {
-      final l10n = context.l10n;
-      if (!mounted) return;
-      setState(() {
-        _error = '${l10n.tr('qr_scanner_failed_start_camera_prefix')}$e';
-      });
       _scannerStarted = false;
+      _setError('We couldn’t access your camera. Please try again.');
     }
   }
 
@@ -257,69 +254,59 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     );
   }
 
-  Future<_JoinUserIds> _resolveUserIds() async {
-    final prefs = ref.read(prefsServiceProvider);
-
-    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    String localUserId = prefs.getCurrentUserId() ?? '';
-    if (localUserId.trim().isEmpty) {
-      localUserId = await CurrentUser.getOrCreateUserId();
-    }
-
-    return _JoinUserIds(
-      authUid: authUid.trim(),
-      localUserId: localUserId.trim(),
-    );
-  }
-
   bool _requiresCharges(League league) {
     return league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
   }
 
-  bool _isCreator(League league, {required String authUid, required String localUserId}) {
-    // Rules authority: organizerUid (Firebase UID)
+  bool _isCreator(League league, {required String authUid}) {
     final orgUid = league.organizerUid.trim();
-    if (authUid.trim().isNotEmpty && orgUid.isNotEmpty && orgUid == authUid.trim()) return true;
-
-    // Backward compat (only for legacy local UI; not used for Firestore auth)
-    final org = league.organizerUserId.trim();
-    if (authUid.trim().isNotEmpty && org.isNotEmpty && org == authUid.trim()) return true;
-    if (localUserId.trim().isNotEmpty && org.isNotEmpty && org == localUserId.trim()) return true;
-
-    return false;
+    return authUid.trim().isNotEmpty && orgUid.isNotEmpty && orgUid == authUid.trim();
   }
 
-  Future<void> _storeReceiptBoth({
-    required LeagueChargesStore store,
-    required LeagueChargesReceipt receipt,
-    required String authUid,
-    required String localUserId,
+  Future<bool> _hasPaidChargesRemote({
+    required String userId,
+    required String leagueId,
   }) async {
-    // Store under auth UID (preferred for rules consistency).
-    if (authUid.trim().isNotEmpty) {
-      await store.storeReceipt(
-        LeagueChargesReceipt(
-          leagueId: receipt.leagueId,
-          userId: authUid.trim(),
-          receiptId: receipt.receiptId,
-          provider: receipt.provider,
-          paidAtMs: receipt.paidAtMs,
-        ),
-      );
-    }
+    final uid = userId.trim();
+    if (uid.isEmpty) return false;
 
-    // Store under local/offline ID too (backward compatibility).
-    if (localUserId.trim().isNotEmpty && localUserId.trim() != authUid.trim()) {
-      await store.storeReceipt(
-        LeagueChargesReceipt(
-          leagueId: receipt.leagueId,
-          userId: localUserId.trim(),
-          receiptId: receipt.receiptId,
-          provider: receipt.provider,
-          paidAtMs: receipt.paidAtMs,
-        ),
-      );
-    }
+    final doc = await _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('leagueCharges')
+        .doc(leagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 8));
+
+    if (!doc.exists) return false;
+    final data = doc.data() ?? <String, dynamic>{};
+    return data['paid'] == true;
+  }
+
+  Future<void> _storePaidChargesRemote({
+    required String userId,
+    required String leagueId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty) return;
+
+    await _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('leagueCharges')
+        .doc(leagueId)
+        .set(
+          {
+            'paid': true,
+            'leagueId': leagueId,
+            'userId': uid,
+            'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+            ...payload,
+          },
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 12));
   }
 
   Future<void> _handleScan(String payload) async {
@@ -343,7 +330,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
     final selectedMode = await _promptJoinMode(context, joinCode: joinCode);
     if (selectedMode == null) {
-      // User cancelled
       if (!mounted) return;
       setState(() {
         _joining = false;
@@ -360,96 +346,80 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       _joinNotice = null;
     });
 
-    final prefs = ref.read(prefsServiceProvider);
-    final repo = LocalLeaguesRepository(prefs);
+    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    _authUid = authUid;
 
-    final ids = await _resolveUserIds();
-    final authUid = ids.authUid;
-    final localUserId = ids.localUserId;
-
-    // Joining/memberships require Firebase auth in Firestore rules.
     if (authUid.isEmpty) {
       if (!mounted) return;
       setState(() {
         _joining = false;
-        _error = 'Sign in required to join this league.';
+        _error = 'Please sign in and try again.';
         _isScanned = false;
       });
       await _startScannerSafely();
       return;
     }
 
-    try {
-      final league = await repo.joinLeagueLocallyByCode(
-        joinCode: joinCode,
-        // IMPORTANT: use Firebase UID for membership/rules consistency.
-        userId: authUid,
-        mode: selectedMode,
-        placeholderBuilder: (generatedLeagueId) {
-          final now = DateTime.now().millisecondsSinceEpoch;
-          return League(
-            id: generatedLeagueId,
-            name: l10n.tr('qr_scanner_joined_league_placeholder_name'),
-            format: LeagueFormat.classic,
-            privacy: LeaguePrivacy.private,
-            region: 'Global',
-            maxTeams: 20,
-            season: '2026',
-            organizerUserId: '',
-            code: joinCode,
-            qrPayloadOverride: '',
-            settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(
-              lastPulledAtMs: now,
-            ),
-            updatedAtMs: now,
-            version: 1,
-          );
-        },
-      );
+    final repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
 
-      // Determine whether the user actually became a participant (membership created),
-      // because:
-      // - participant join may be blocked when the league is full
-      // - admin may have already added the user (membership exists in cloud)
-      final Membership? membership = await repo.getMembership(leagueId: league.id, userId: authUid);
+    try {
+      final league = await repo
+          .joinLeagueLocallyByCode(
+            joinCode: joinCode,
+            userId: authUid,
+            mode: selectedMode,
+            placeholderBuilder: (generatedLeagueId) {
+              // Online-only: placeholder is ignored by repo, but keep signature.
+              final now = DateTime.now().millisecondsSinceEpoch;
+              return League(
+                id: generatedLeagueId,
+                name: l10n.tr('qr_scanner_joined_league_placeholder_name'),
+                format: LeagueFormat.classic,
+                privacy: LeaguePrivacy.private,
+                region: 'Global',
+                maxTeams: 20,
+                season: '2026',
+                organizerUid: '',
+                organizerUserId: '',
+                code: joinCode,
+                qrPayloadOverride: '',
+                settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
+                updatedAtMs: now,
+                version: 1,
+              );
+            },
+          )
+          .timeout(const Duration(seconds: 25));
+
+      final Membership? membership =
+          await repo.getMembership(leagueId: league.id, userId: authUid).timeout(const Duration(seconds: 15));
       final effectiveMode = (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
 
       String? notice;
-
       final bool adminAlreadyAdded = membership != null && (membership.teamId?.trim().isNotEmpty == true);
 
       if (adminAlreadyAdded) {
-        // If admin assigned a team already, we can confidently tell the user.
-        if (selectedMode == LeagueJoinMode.viewer) {
-          notice = l10n.tr('qr_scanner_notice_viewer_but_already_added_team_assigned');
-        } else {
-          notice = l10n.tr('qr_scanner_notice_already_added_team_assigned');
-        }
+        notice = (selectedMode == LeagueJoinMode.viewer)
+            ? l10n.tr('qr_scanner_notice_viewer_but_already_added_team_assigned')
+            : l10n.tr('qr_scanner_notice_already_added_team_assigned');
       } else if (membership != null) {
-        // Membership exists but no teamId assigned yet (still "already registered").
-        if (selectedMode == LeagueJoinMode.viewer) {
-          notice = l10n.tr('qr_scanner_notice_viewer_but_already_registered_participant');
-        } else {
-          notice = l10n.tr('qr_scanner_notice_already_registered');
-        }
+        notice = (selectedMode == LeagueJoinMode.viewer)
+            ? l10n.tr('qr_scanner_notice_viewer_but_already_registered_participant')
+            : l10n.tr('qr_scanner_notice_already_registered');
       } else if (selectedMode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
         notice = l10n.tr('qr_scanner_notice_league_full_joined_viewer_only');
       } else if (selectedMode == LeagueJoinMode.viewer) {
         notice = l10n.tr('qr_scanner_notice_joined_viewer_only');
       }
 
-      if (!mounted) return;
+      final paid = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
 
-      final store = LeagueChargesStore(prefs);
-      final paidAuth = store.hasPaidCharges(userId: authUid, leagueId: league.id);
-      final paidLocal = localUserId.isEmpty ? false : store.hasPaidCharges(userId: localUserId, leagueId: league.id);
+      if (!mounted) return;
 
       setState(() {
         _joinedLeague = league;
         _joining = false;
-        _authUid = authUid;
-        _localUserId = localUserId;
-        _chargesPaid = paidAuth || paidLocal;
+        _chargesPaid = paid;
         _joinedMode = effectiveMode;
         _joinNotice = notice;
       });
@@ -458,13 +428,12 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         context,
         joinedLeague: league,
         authUid: authUid,
-        localUserId: localUserId,
       );
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _joining = false;
-        _error = '${l10n.tr('qr_scanner_join_failed_prefix')}$e';
+        _error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
         _isScanned = false;
       });
       await _startScannerSafely();
@@ -475,21 +444,13 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     BuildContext context, {
     required League joinedLeague,
     required String authUid,
-    required String localUserId,
   }) async {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     if (!_requiresCharges(joinedLeague)) return;
-    if (_isCreator(joinedLeague, authUid: authUid, localUserId: localUserId)) return;
+    if (_isCreator(joinedLeague, authUid: authUid)) return;
 
-    final prefs = ref.read(prefsServiceProvider);
-    final store = LeagueChargesStore(prefs);
-
-    final alreadyPaid = store.hasPaidCharges(userId: authUid, leagueId: joinedLeague.id) ||
-        (localUserId.isNotEmpty && store.hasPaidCharges(userId: localUserId, leagueId: joinedLeague.id));
-
+    final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: joinedLeague.id);
     if (alreadyPaid) {
       if (!mounted) return;
       setState(() => _chargesPaid = true);
@@ -528,23 +489,17 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
     if (shouldPay != true) return;
 
-    await _unlockNow(context, league: joinedLeague, authUid: authUid, localUserId: localUserId);
+    await _unlockNow(context, league: joinedLeague, authUid: authUid);
   }
 
   Future<void> _unlockNow(
     BuildContext context, {
     required League league,
     required String authUid,
-    required String localUserId,
   }) async {
     final l10n = context.l10n;
 
-    final prefs = ref.read(prefsServiceProvider);
-    final store = LeagueChargesStore(prefs);
-
-    final alreadyPaid = store.hasPaidCharges(userId: authUid, leagueId: league.id) ||
-        (localUserId.isNotEmpty && store.hasPaidCharges(userId: localUserId, leagueId: league.id));
-
+    final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
     if (alreadyPaid) {
       if (!mounted) return;
       setState(() => _chargesPaid = true);
@@ -559,13 +514,14 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     try {
       final paymentService = ref.read(leagueChargesPaymentServiceProvider);
 
-      final result = await paymentService.payLeagueCharges(
-        context: context,
-        // IMPORTANT: use auth uid (stable identity + aligns with Firestore rules).
-        userId: authUid,
-        leagueId: league.id,
-        leagueName: league.name,
-      );
+      final result = await paymentService
+          .payLeagueCharges(
+            context: context,
+            userId: authUid,
+            leagueId: league.id,
+            leagueName: league.name,
+          )
+          .timeout(const Duration(seconds: 60));
 
       if (!mounted) return;
 
@@ -577,19 +533,14 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         return;
       }
 
-      final receipt = LeagueChargesReceipt(
-        leagueId: league.id,
+      await _storePaidChargesRemote(
         userId: authUid,
-        receiptId: result.receiptId ?? '',
-        provider: result.provider,
-        paidAtMs: result.paidAtMs,
-      );
-
-      await _storeReceiptBoth(
-        store: store,
-        receipt: receipt,
-        authUid: authUid,
-        localUserId: localUserId,
+        leagueId: league.id,
+        payload: <String, dynamic>{
+          'receiptId': result.receiptId ?? '',
+          'provider': result.provider,
+          'paidAtMs': result.paidAtMs,
+        },
       );
 
       if (!mounted) return;
@@ -608,7 +559,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       if (!mounted) return;
       setState(() {
         _joining = false;
-        _error = '${l10n.tr('league_access_payment_failed_prefix')} $e';
+        _error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
       });
     }
   }
@@ -768,7 +719,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       final isWide = screenWidth > 600;
 
       final requiresCharges = _requiresCharges(league);
-      final isCreator = _isCreator(league, authUid: _authUid, localUserId: _localUserId);
+      final isCreator = _isCreator(league, authUid: _authUid);
       final showUnlock = requiresCharges && !isCreator && !_chargesPaid;
 
       final mode = _joinedMode;
@@ -858,14 +809,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton.icon(
-                                onPressed: _joining
-                                    ? null
-                                    : () => _unlockNow(
-                                          context,
-                                          league: league,
-                                          authUid: _authUid,
-                                          localUserId: _localUserId,
-                                        ),
+                                onPressed: _joining ? null : () => _unlockNow(context, league: league, authUid: _authUid),
                                 icon: _joining
                                     ? const SizedBox(
                                         width: 16,
@@ -924,7 +868,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
               controller: _scannerController,
               onDetect: _onDetect,
               errorBuilder: (context, error, child) {
-                final l10n = context.l10n;
                 final theme = Theme.of(context);
                 final cs = theme.colorScheme;
 
@@ -940,7 +883,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                           Icon(Icons.camera_alt_outlined, color: cs.onSurface.withOpacity(0.72), size: 34),
                           const SizedBox(height: 10),
                           Text(
-                            l10n.tr('qr_scanner_camera_not_available'),
+                            context.l10n.tr('qr_scanner_camera_not_available'),
                             style: theme.textTheme.titleMedium?.copyWith(
                               color: cs.onSurface,
                               fontWeight: FontWeight.w900,
@@ -949,7 +892,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            error.toString(),
+                            'Please check your camera permission and try again.',
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: cs.onSurface.withOpacity(0.70),
@@ -968,7 +911,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                     });
                                     await _ensureCameraPermission(startScannerIfGranted: true);
                                   },
-                                  child: Text(l10n.tr('common_retry')),
+                                  child: Text(context.l10n.tr('common_retry')),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -979,7 +922,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                     side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
                                     foregroundColor: cs.primary,
                                   ),
-                                  child: Text(l10n.tr('qr_scanner_enter_code_instead')),
+                                  child: Text(context.l10n.tr('qr_scanner_enter_code_instead')),
                                 ),
                               ),
                             ],
@@ -992,8 +935,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
               },
             ),
           ),
-
-          // Overlay with cut-out
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
@@ -1003,7 +944,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
               ),
             ),
           ),
-
           SafeArea(
             child: Column(
               children: [
@@ -1240,16 +1180,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 class _JoinParse {
   final String code;
   const _JoinParse({required this.code});
-}
-
-class _JoinUserIds {
-  final String authUid;
-  final String localUserId;
-
-  const _JoinUserIds({
-    required this.authUid,
-    required this.localUserId,
-  });
 }
 
 class _JoinModeTile extends StatelessWidget {

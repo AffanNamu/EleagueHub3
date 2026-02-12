@@ -1,12 +1,20 @@
-import 'dart:convert';
-
-import '../persistence/prefs_service.dart';
-
-/// One queued local change to be synced to cloud later.
+/// ONLINE-ONLY MIGRATION (Facebook/X style)
 ///
-/// payload:
-/// - for create/update: JSON map of the entity (Firestore-ready)
-/// - for delete: null
+/// This project previously used a local sync queue (stored in SharedPreferences)
+/// to support offline changes and later background sync.
+///
+/// Online-only rules:
+/// - No local persistence
+/// - No background sync
+/// - No durable queues
+///
+/// This file remains ONLY to keep backward compatibility during migration.
+/// Any calls to enqueue items become no-ops, and reads always return empty.
+///
+/// Important:
+/// - Do not rely on this queue for correctness.
+/// - All writes must go directly to Firestore and surface failures to the user.
+
 class SyncQueueItem {
   final String id;
   final String entityType; // 'league', 'announcement', 'space', ...
@@ -45,41 +53,27 @@ class SyncQueueItem {
   }
 }
 
-/// Local-only sync queue using SharedPreferences.
-/// Safe, simple, backend-agnostic.
 class SyncQueueService {
-  SyncQueueService._internal(this._prefs);
+  SyncQueueService._internal();
 
   static SyncQueueService? _instance;
 
-  static SyncQueueService init(PreferencesService prefs) {
-    _instance ??= SyncQueueService._internal(prefs);
+  /// Legacy init signature preserved. Argument is ignored in online-only mode.
+  static SyncQueueService init(dynamic _unusedPrefs) {
+    _instance ??= SyncQueueService._internal();
     return _instance!;
   }
 
+  /// Never throw in online-only mode; always provide a usable (no-op) instance.
   static SyncQueueService get instance {
-    final inst = _instance;
-    if (inst == null) {
-      throw StateError('SyncQueueService not initialized. Call init() first.');
-    }
-    return inst;
+    _instance ??= SyncQueueService._internal();
+    return _instance!;
   }
 
-  static const _storageKey = 'sync_queue_items';
-
-  final PreferencesService _prefs;
-
-  /// Add a new pending sync action.
-  ///
-  /// You generate the queue item id outside OR just pass something stable.
-  /// (We keep your "id" field in the queue item so markDone works.)
   Future<void> enqueueItem(SyncQueueItem item) async {
-    final items = await _loadAll();
-    items.add(item);
-    await _saveAll(items);
+    // No-op (online-only).
   }
 
-  /// Convenience API (if you don't want to build SyncQueueItem manually)
   Future<void> enqueue({
     required String id,
     required String entityType,
@@ -88,60 +82,22 @@ class SyncQueueService {
     required int lastModified,
     required Map<String, dynamic>? payload,
   }) async {
-    await enqueueItem(
-      SyncQueueItem(
-        id: id,
-        entityType: entityType,
-        entityId: entityId,
-        action: action,
-        lastModified: lastModified,
-        payload: payload,
-      ),
-    );
+    // No-op (online-only).
   }
 
-  /// Get all pending items (ordered oldest → newest)
   Future<List<SyncQueueItem>> getPending() async {
-    final items = await _loadAll();
-    items.sort((a, b) => a.lastModified.compareTo(b.lastModified));
-    return items;
+    return const <SyncQueueItem>[];
   }
 
-  /// Remove item after successful sync
   Future<void> markDone(String id) async {
-    final items = await _loadAll();
-    items.removeWhere((e) => e.id == id);
-    await _saveAll(items);
+    // No-op (online-only).
   }
 
-  /// Check if a specific entity has pending changes
   Future<bool> hasPendingForEntity(String entityType, String entityId) async {
-    final items = await _loadAll();
-    return items.any((e) => e.entityType == entityType && e.entityId == entityId);
+    return false;
   }
 
-  /// Clear everything (debug / logout / full reset)
   Future<void> clearAll() async {
-    // PreferencesService does not expose remove(); store empty value instead.
-    await _prefs.setString(_storageKey, '');
-  }
-
-  // -----------------
-  // Internal helpers
-  // -----------------
-
-  Future<List<SyncQueueItem>> _loadAll() async {
-    final raw = _prefs.getString(_storageKey);
-    if (raw == null || raw.isEmpty) return [];
-
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded
-        .map((e) => SyncQueueItem.fromMap((e as Map).cast<String, dynamic>()))
-        .toList();
-  }
-
-  Future<void> _saveAll(List<SyncQueueItem> items) async {
-    final encoded = jsonEncode(items.map((e) => e.toMap()).toList());
-    await _prefs.setString(_storageKey, encoded);
+    // No-op (online-only).
   }
 }

@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,15 +11,14 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
-import '../../../core/services/sync_trigger.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../../auth/models/user_profile.dart';
-import '../data/leagues_repository_local.dart';
+import '../data/leagues_repository_firebase.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
@@ -67,9 +69,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   int get _maxTeams {
-    // IMPORTANT: Must match other parts of app validation.
-    // UCL Group: 16 or 32 (this wizard uses default 32)
-    // UCL Swiss: 18 or 36 (this wizard uses default 36)
     switch (_format) {
       case LeagueFormat.classic:
         return 20;
@@ -88,7 +87,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   bool get _couponsEnabled => (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
 
-  // IMPORTANT: couponDiscountPercent is now DISCOUNT percent (0..100)
   int get _discountPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
 
   int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
@@ -110,30 +108,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     super.dispose();
   }
 
-  String _formatLabel(AppLocalizations l10n) {
-    switch (_format) {
-      case LeagueFormat.classic:
-        return l10n.tr('league_create_type_classic_title');
-      case LeagueFormat.uclGroup:
-        return l10n.tr('league_create_type_group_title');
-      case LeagueFormat.uclSwiss:
-        return l10n.tr('league_create_type_series_title');
-    }
-  }
-
-  String _privacyLabel(AppLocalizations l10n) {
-    return _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public');
-  }
-
-  String _creationFeeLabel(AppLocalizations l10n) {
-    if (!_creationRequiresPayment) return l10n.tr('league_create_fee_free');
-    return _paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required');
-  }
-
-  String _unlockNote(AppLocalizations l10n) {
-    return _creationRequiresPayment
-        ? l10n.tr('league_create_fee_note_requires_payment')
-        : l10n.tr('league_create_fee_note_free');
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 
   Future<void> _uploadImage({
@@ -151,20 +130,17 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     try {
       final service = LeagueMediaService();
-      final url = await service.pickAndUploadImage(
-        leagueId: _draftLeagueId,
-        kind: kind,
-      );
+      final url = await service
+          .pickAndUploadImage(
+            leagueId: _draftLeagueId,
+            kind: kind,
+          )
+          .timeout(const Duration(seconds: 40));
 
       if (!mounted) return;
 
       if (url == null || url.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Image not selected or upload failed.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _showSnack('Image not selected or upload failed. Please try again.');
         return;
       }
 
@@ -176,20 +152,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         }
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.l10n.tr('common_done')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSnack(context.l10n.tr('common_done'));
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Upload failed: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSnack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     } finally {
       if (!mounted) return;
       setState(() {
@@ -199,16 +164,37 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     }
   }
 
+  String _generateJoinCode({int length = 6}) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final rnd = Random.secure();
+    return List.generate(length, (_) => chars[rnd.nextInt(chars.length)]).join();
+  }
+
+  Future<String> _generateUniqueJoinCode() async {
+    final firestore = FirebaseFirestore.instance;
+
+    for (int i = 0; i < 6; i++) {
+      final code = _generateJoinCode();
+      final snap = await firestore
+          .collection('leagues')
+          .where('code', isEqualTo: code)
+          .limit(1)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+      if (snap.docs.isEmpty) return code;
+    }
+
+    throw StateError("We couldn't create a league code right now. Please try again.");
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    // IMPORTANT: To create leagues that can be managed under Firestore rules,
-    // user MUST be signed in (Firebase UID authority).
-    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (authUid.trim().isEmpty) {
+    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (authUid.isEmpty) {
       return GlassScaffold(
         appBar: AppBar(
           title: Text(l10n.tr('league_create_appbar_title')),
@@ -237,7 +223,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Please sign in to create a league. Organizer permissions and coupons require Firebase Authentication.',
+                        'Please sign in to create a league.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: cs.onSurface.withOpacity(0.70),
@@ -317,7 +303,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           if (league.hasCoupons) ...[
                             const SizedBox(height: 10),
                             Text(
-                              'Coupons are configured for this league. If you don’t see them yet, tap Sync in Admin after a moment.',
+                              'Coupons are configured for this league. If you don’t see them yet, try again in a moment.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: cs.onSurface.withOpacity(0.65),
@@ -461,33 +447,68 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             ),
           ),
           const SizedBox(height: 12),
-          _summaryRow(Icons.format_list_bulleted, l10n.tr('league_create_summary_type_label'), _formatLabel(l10n)),
-          _summaryRow(
-            Icons.label,
-            l10n.tr('league_create_summary_name_label'),
-            _name.text.trim().isEmpty ? l10n.tr('league_create_summary_not_set') : _name.text.trim(),
+          Text(
+            l10n.tr('league_create_summary_type_label'),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.70),
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
           ),
-          _summaryRow(Icons.lock, l10n.tr('league_create_summary_privacy_label'), _privacyLabel(l10n)),
-          _summaryRow(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
-          _summaryRow(Icons.repeat, l10n.tr('league_create_wizard_double_rr_label'),
-              _doubleRoundRobin ? l10n.tr('common_yes') : l10n.tr('common_no')),
-          _summaryRow(
-            _creationRequiresPayment ? (_paymentCompleted ? Icons.verified : Icons.lock_outline) : Icons.verified,
+          Text(
+            _format.displayName,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            l10n.tr('league_create_summary_name_label'),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.70),
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+          Text(
+            _name.text.trim().isEmpty ? l10n.tr('league_create_summary_not_set') : _name.text.trim(),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
             l10n.tr('league_create_summary_creation_fee_label'),
-            _creationFeeLabel(l10n),
-            valueColor: paymentColor,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.70),
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+          Text(
+            _creationRequiresPayment
+                ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
+                : l10n.tr('league_create_fee_free'),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: paymentColor,
+              fontWeight: FontWeight.w900,
+            ),
           ),
           if (_couponsEnabled) ...[
-            _summaryRow(
-              Icons.confirmation_number_outlined,
-              'Coupons',
-              _couponLabel.replaceFirst('Coupons: ', ''),
-              valueColor: cs.primary,
+            const SizedBox(height: 10),
+            Text(
+              _couponLabel,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.primary,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ],
           const SizedBox(height: 10),
           Text(
-            _unlockNote(l10n),
+            _unlockNote(context.l10n),
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurface.withOpacity(0.60),
               height: 1.35,
@@ -500,46 +521,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     );
   }
 
-  Widget _summaryRow(
-    IconData icon,
-    String label,
-    String value, {
-    Color? valueColor,
-  }) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18, color: cs.primary),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 90,
-            child: Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.70),
-                fontWeight: FontWeight.w800,
-                fontSize: 12,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: valueColor ?? cs.onSurface,
-                fontWeight: FontWeight.w800,
-                height: 1.25,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  String _unlockNote(AppLocalizations l10n) {
+    return _creationRequiresPayment
+        ? l10n.tr('league_create_fee_note_requires_payment')
+        : l10n.tr('league_create_fee_note_free');
   }
 
   Widget _buildStepHeader() {
@@ -656,7 +641,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _stepBody({Key? key}) {
     // NOTE: Keep your existing wizard steps (not altered here).
-    // This patch focuses on identity/rules correctness on creation + coupon config write ordering.
     return Column(
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -711,22 +695,12 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     if (_submitting) return;
 
     if (_name.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_create_error_name_required')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSnack(l10n.tr('league_create_error_name_required'));
       return;
     }
 
     if (_creationRequiresPayment && !_paymentCompleted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_create_error_payment_must_be_completed')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSnack(l10n.tr('league_create_error_payment_must_be_completed'));
       return;
     }
 
@@ -735,15 +709,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     try {
       final organizerUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
       if (organizerUid.isEmpty) {
-        throw StateError('Not signed in (no Firebase UID).');
+        throw StateError('unauthenticated');
       }
 
-      // UI-only short/share id (never used for authorization)
       final derivedShortId = UserProfile.deriveShareIdFromUid(organizerUid).trim();
       final organizerUserId = derivedShortId.isNotEmpty ? derivedShortId : organizerUid;
-
-      final prefs = ref.read(prefsServiceProvider);
-      final repo = LocalLeaguesRepository(prefs);
 
       final leagueId = _draftLeagueId;
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -755,8 +725,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
       final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
       final discountPercent = (couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0).clamp(0, 100);
-      final couponCount = (couponsEnabled ? (_payment?.couponCount ?? 0) : 0);
+      final couponCount = couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
       final safeCouponCount = couponCount < 0 ? 0 : couponCount;
+
+      final joinCode = await _generateUniqueJoinCode().timeout(const Duration(seconds: 12));
 
       final league = League(
         id: leagueId,
@@ -773,73 +745,47 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         region: l10n.tr('common_region_global'),
         maxTeams: _maxTeams,
         season: '2026',
-
-        // RULES AUTHORITY:
-        organizerUid: organizerUid, // Firebase UID authority for rules
-        // UI/OFFLINE ONLY:
-        organizerUserId: organizerUserId, // shareId for display
-
-        code: '',
+        organizerUid: organizerUid,
+        organizerUserId: organizerUserId,
+        code: joinCode,
         qrPayloadOverride: '',
         settings: settings,
         updatedAtMs: now,
         version: 1,
       );
 
-      final stored = await repo.createLeagueLocally(
-        league: league,
-        organizerUserId: organizerUserId,
-      );
-
-      // CRITICAL FIX:
-      // Sync league to cloud FIRST so leagueDoc exists for couponConfig rules,
-      // then create/update couponConfig if coupons were purchased.
-      try {
-        await SyncTrigger.trySync();
-      } catch (_) {
-        // best-effort
-      }
+      final repo = LeaguesRepositoryFirebase();
+      await repo.saveLeague(league).timeout(const Duration(seconds: 25));
 
       if (couponsEnabled && safeCouponCount > 0) {
         try {
-          final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
-          await CouponConfigService().createOrIncrementOnPurchase(
-            leagueId: leagueId,
-            organizerUserId: organizerUid,
-            qtyPurchased: safeCouponCount,
-            discountPercent: discountPercent,
-            plan: plan,
-          );
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Coupon config could not be updated now. You can sync later. ($e)'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
+          final plan = await RemotePricingService.instance
+              .getPlanForLocale(Localizations.maybeLocaleOf(context))
+              .timeout(const Duration(seconds: 15));
+
+          await CouponConfigService()
+              .createOrIncrementOnPurchase(
+                leagueId: leagueId,
+                organizerUserId: organizerUid,
+                qtyPurchased: safeCouponCount,
+                discountPercent: discountPercent,
+                plan: plan,
+              )
+              .timeout(const Duration(seconds: 20));
+        } catch (_) {
+          _showSnack("We saved your league, but couldn't update coupons right now. Please try again.");
         }
       }
 
-      // Optional: second sync to pull any server-side changes (best-effort)
-      // ignore: discarded_futures
-      SyncTrigger.trySync();
-
       if (!mounted) return;
       setState(() {
-        _createdLeague = stored;
+        _createdLeague = league;
         _submitting = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to create league: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showSnack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 }
@@ -895,7 +841,8 @@ class _OptionalImageField extends StatelessWidget {
                 ? Image.network(
                     url,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
+                    errorBuilder: (_, __, ___) =>
+                        Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
                   )
                 : Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55))),
       ),

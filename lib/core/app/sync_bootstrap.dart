@@ -1,21 +1,16 @@
-import '../services/connectivity_service.dart';
-import '../services/sync_service.dart';
-
+/// ONLINE-ONLY MIGRATION (Facebook/X style)
+///
+/// The legacy app shipped an offline-first sync engine:
+/// - Sync on startup
+/// - Sync on reconnect
+/// - Local queue → cloud replay
+/// - Cloud → local mirroring
+///
+/// In online-only architecture, this bootstrap must do nothing.
+/// All reads/writes must be live against Firebase, and failures must be handled
+/// at the point of user action with friendly messaging.
 class SyncBootstrap {
   static Future<void> init() async {
-    await ConnectivityService.instance.initialize();
-
-    // try once on startup (non-fatal)
-    try {
-      await SyncService.instance.syncAll();
-    } catch (_) {}
-
-    // sync when internet comes back (non-fatal)
-    ConnectivityService.instance.connectionStream.listen((online) async {
-      if (!online) return;
-      try {
-        await SyncService.instance.syncAll();
-      } catch (_) {}
-    });
+    // Intentionally no-op in online-only mode.
   }
 }

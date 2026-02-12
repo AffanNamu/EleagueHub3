@@ -48,6 +48,8 @@ class EleagueHubApp extends ConsumerWidget {
             child: Stack(
               children: [
                 PermissionWrapper(child: child ?? const SizedBox.shrink()),
+
+                // ONLINE-ONLY: show a simple offline indicator, but do not enable local fallback.
                 ValueListenableBuilder<bool>(
                   valueListenable: ConnectivityService.instance.isConnected,
                   builder: (context, online, _) {
