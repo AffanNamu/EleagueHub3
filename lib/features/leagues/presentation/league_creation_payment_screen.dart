@@ -44,6 +44,12 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
   bool _initializedFromRoute = false;
 
+  @override
+  void dispose() {
+    _couponCodeBase.dispose();
+    super.dispose();
+  }
+
   bool _addonsOnlyFromRouteExtra() {
     try {
       final extra = GoRouterState.of(context).extra;
@@ -108,7 +114,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
           }
         }
 
-        // If buying coupons (>0), enforce a non-zero discount so couponConfig.unitPrice stays > 0 (rules-safe).
+        // If buying coupons (>0), enforce a non-zero discount.
         if (_buyCoupons && _couponCount > 0 && _discountPercent <= 0) {
           _discountPercent = 50;
         }
@@ -134,6 +140,27 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.trim().isNotEmpty) return uid.trim();
     throw StateError('Sign in required.');
+  }
+
+  String _previewCode({
+    required bool customMode,
+    required String base,
+    required int discountPercent,
+  }) {
+    final pct = discountPercent.clamp(0, 100);
+    if (!customMode) return 'ESLXXXXXXXXXXXX';
+
+    final normalized = base
+        .trim()
+        .toUpperCase()
+        .replaceAll(' ', '_')
+        .replaceAll('-', '_')
+        .replaceAll(RegExp(r'[^A-Z0-9_]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+
+    final name = normalized.isEmpty ? 'NAME' : normalized;
+    return 'ESL_${name}_$pct%';
   }
 
   @override
@@ -234,7 +261,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
             final int qty = (_buyCoupons ? _couponCount : 0).clamp(0, 100000);
             final int disc = _discountPercent.clamp(0, 100);
 
-            // If buying coupons (>0 qty), discount must be > 0 to avoid 0-cost purchases + rules conflicts.
+            // If buying coupons (>0 qty), discount must be > 0.
             final int discForPurchase = (qty > 0 && disc <= 0) ? 50 : disc;
 
             final pricing = RemotePricingService.instance.computeOrganizerCouponPricing(
@@ -267,6 +294,16 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
             final qtyLabel = addonsOnly ? 'Additional coupons' : 'Coupons';
 
             final bool thresholdConfigured = plan.couponThreshold != null && plan.couponThreshold! > 0;
+
+            final double minCoupon = (addonsOnly ? 0 : 1).toDouble();
+            final double couponSliderValue =
+                _couponCount.toDouble().clamp(minCoupon, 100000.0);
+
+            final String preview = _previewCode(
+              customMode: _couponCodeCustomMode,
+              base: _couponCodeBase.text,
+              discountPercent: discForPurchase,
+            );
 
             return SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -384,7 +421,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
-                                    Icon(Icons.confirmation_number_outlined, color: cs.onSurface.withOpacity(0.70), size: 18),
+                                    Icon(
+                                      Icons.confirmation_number_outlined,
+                                      color: cs.onSurface.withOpacity(0.70),
+                                      size: 18,
+                                    ),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
@@ -425,9 +466,9 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                   ],
                                 ),
                                 Slider(
-                                  value: _couponCount.toDouble().clamp(addonsOnly ? 0 : 1, 100000),
-                                  min: (addonsOnly ? 0 : 1).toDouble(),
-                                  max: 100000,
+                                  value: couponSliderValue,
+                                  min: minCoupon,
+                                  max: 100000.0,
                                   divisions: 1000,
                                   label: '$_couponCount',
                                   onChanged: _processing
@@ -465,8 +506,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                   ],
                                 ),
                                 Slider(
-                                  // Allow 0% only when NOT buying additional coupons (upgrade discount-only adjustment).
                                   value: _discountPercent.toDouble(),
+                                  // Allow 0% only when qty==0 (upgrade discount-only adjustments).
                                   min: (_couponCount > 0) ? 5 : 0,
                                   max: 100,
                                   divisions: 20,
@@ -477,71 +518,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           final rounded = (v / 5).round() * 5;
                                           setState(() => _discountPercent = rounded.clamp(0, 100));
                                         },
-
+                                ),
 
                                 const SizedBox(height: 12),
                                 Text(
                                   'Coupon code type (optional)',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.onSurface,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    ChoiceChip(
-                                      label: const Text('Random', style: TextStyle(fontWeight: FontWeight.w800)),
-                                      selected: !_couponCodeCustomMode,
-                                      onSelected: _processing
-                                          ? null
-                                          : (_) => setState(() => _couponCodeCustomMode = false),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    ChoiceChip(
-                                      label: const Text('Custom', style: TextStyle(fontWeight: FontWeight.w800)),
-                                      selected: _couponCodeCustomMode,
-                                      onSelected: _processing
-                                          ? null
-                                          : (_) => setState(() => _couponCodeCustomMode = true),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                if (_couponCodeCustomMode) ...[
-                                  TextField(
-                                    controller: _couponCodeBase,
-                                    enabled: !_processing,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Custom name (example: BARCA)',
-                                      prefixIcon: Icon(Icons.edit),
-                                    ),
-                                    onChanged: (_) => setState(() {}),
-                                  ),
-                                  const SizedBox(height: 6),
-                                ],
-                                Builder(
-                                  builder: (_) {
-                                    final base = _couponCodeBase.text.trim().toUpperCase().replaceAll(' ', '_').replaceAll('-', '_');
-                                    final name = base.isEmpty ? 'NAME' : base;
-                                    final preview = _couponCodeCustomMode
-                                        ? 'ESL_${name}_${discForPurchase}%'
-                                        : 'ESL' + 'XXXXXXXXXXXX'; // 12 random chars placeholder
-                                    return Text(
-                                      'Preview: $preview',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.65),
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    );
-                                  },
-                                ),
-
-
-
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Coupon code (optional)',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: cs.onSurface,
                                     fontWeight: FontWeight.w900,
@@ -575,24 +556,20 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     onChanged: (_) => setState(() {}),
                                   ),
                                   const SizedBox(height: 6),
+                                  Text(
+                                    'Custom name cannot contain "/".',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: cs.onSurface.withOpacity(0.65),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                                 ],
-                                Builder(
-                                  builder: (_) {
-                                    final base = _couponCodeBase.text.trim().toUpperCase().replaceAll(' ', '_').replaceAll('-', '_');
-                                    final name = base.isEmpty ? 'NAME' : base;
-                                    final preview = _couponCodeCustomMode
-                                        ? 'ESL_${name}_${discForPurchase}%'
-                                        : 'ESL' + 'XXXXXXXXXXXX';
-                                    return Text(
-                                      'Preview: $preview',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.65),
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    );
-                                  },
-                                ),
-
+                                Text(
+                                  'Preview: $preview',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.65),
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ],
                             ],
@@ -625,8 +602,12 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                               _kv(context, 'Coupons subtotal (organizer pays)', '${_money(rawCouponSubtotal)} $currency'),
                               _kv(
                                 context,
-                                bulkDiscountApplied ? 'Bulk discount (${_money(plan.couponDiscountPercent)}%)' : 'Bulk discount',
-                                bulkDiscountApplied ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
+                                bulkDiscountApplied
+                                    ? 'Bulk discount (${_money(plan.couponDiscountPercent)}%)'
+                                    : 'Bulk discount',
+                                bulkDiscountApplied
+                                    ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency'
+                                    : '—',
                               ),
                               const Divider(),
                               _kvStrong(context, 'Total payable now', '${_money(total)} $currency'),
@@ -652,7 +633,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                         if (_buyCoupons && _couponCount > 0 && _discountPercent <= 0) {
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(
-                                              content: Text('Set a discount above 0% to buy coupons.'),
+                                              content: const Text('Set a discount above 0% to buy coupons.'),
                                               backgroundColor: cs.error,
                                             ),
                                           );
