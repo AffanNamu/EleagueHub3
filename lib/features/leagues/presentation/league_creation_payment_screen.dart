@@ -35,6 +35,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
   // DISCOUNT percent (0..100) for users at redemption
   int _discountPercent = 50;
 
+  // Coupon code naming (UX preview only)
+  bool _couponCodeCustomMode = false; // false => random, true => custom
+  final TextEditingController _couponCodeBase = TextEditingController();
+
   // Route seed (informational only in upgrade mode, and prefill in creation mode)
   int _existingCouponCount = 0;
 
@@ -473,6 +477,122 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           final rounded = (v / 5).round() * 5;
                                           setState(() => _discountPercent = rounded.clamp(0, 100));
                                         },
+
+
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Coupon code type (optional)',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    ChoiceChip(
+                                      label: const Text('Random', style: TextStyle(fontWeight: FontWeight.w800)),
+                                      selected: !_couponCodeCustomMode,
+                                      onSelected: _processing
+                                          ? null
+                                          : (_) => setState(() => _couponCodeCustomMode = false),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    ChoiceChip(
+                                      label: const Text('Custom', style: TextStyle(fontWeight: FontWeight.w800)),
+                                      selected: _couponCodeCustomMode,
+                                      onSelected: _processing
+                                          ? null
+                                          : (_) => setState(() => _couponCodeCustomMode = true),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                if (_couponCodeCustomMode) ...[
+                                  TextField(
+                                    controller: _couponCodeBase,
+                                    enabled: !_processing,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Custom name (example: BARCA)',
+                                      prefixIcon: Icon(Icons.edit),
+                                    ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                  const SizedBox(height: 6),
+                                ],
+                                Builder(
+                                  builder: (_) {
+                                    final base = _couponCodeBase.text.trim().toUpperCase().replaceAll(' ', '_').replaceAll('-', '_');
+                                    final name = base.isEmpty ? 'NAME' : base;
+                                    final preview = _couponCodeCustomMode
+                                        ? 'ESL_${name}_${discForPurchase}%'
+                                        : 'ESL' + 'XXXXXXXXXXXX'; // 12 random chars placeholder
+                                    return Text(
+                                      'Preview: $preview',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: cs.onSurface.withOpacity(0.65),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    );
+                                  },
+                                ),
+
+
+
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Coupon code (optional)',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    ChoiceChip(
+                                      label: const Text('Random', style: TextStyle(fontWeight: FontWeight.w800)),
+                                      selected: !_couponCodeCustomMode,
+                                      onSelected: _processing ? null : (_) => setState(() => _couponCodeCustomMode = false),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    ChoiceChip(
+                                      label: const Text('Custom', style: TextStyle(fontWeight: FontWeight.w800)),
+                                      selected: _couponCodeCustomMode,
+                                      onSelected: _processing ? null : (_) => setState(() => _couponCodeCustomMode = true),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                if (_couponCodeCustomMode) ...[
+                                  TextField(
+                                    controller: _couponCodeBase,
+                                    enabled: !_processing,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Custom name (example: BARCA)',
+                                      prefixIcon: Icon(Icons.edit),
+                                    ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                  const SizedBox(height: 6),
+                                ],
+                                Builder(
+                                  builder: (_) {
+                                    final base = _couponCodeBase.text.trim().toUpperCase().replaceAll(' ', '_').replaceAll('-', '_');
+                                    final name = base.isEmpty ? 'NAME' : base;
+                                    final preview = _couponCodeCustomMode
+                                        ? 'ESL_${name}_${discForPurchase}%'
+                                        : 'ESL' + 'XXXXXXXXXXXX';
+                                    return Text(
+                                      'Preview: $preview',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: cs.onSurface.withOpacity(0.65),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    );
+                                  },
+                                ),
+
                                 ),
                               ],
                             ],

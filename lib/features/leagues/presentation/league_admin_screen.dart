@@ -119,16 +119,23 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   /// Coupon admin permission must match Firestore rules.
   /// Firebase UID is the ONLY authority; short/share IDs are display-only.
+    /// Coupon admin permission must match Firestore rules.
+  /// Firebase UID is the ONLY authority; short/share IDs are display-only.
+  ///
+  /// IMPORTANT FIX:
+  /// - We require remote organizerUid/ownerUid to be loaded (from Firestore) before enabling coupon admin UI.
+  /// - If remote ids are unknown (offline/denied), the UI will not pretend you can manage coupons (prevents permission-denied surprises).
   bool _canManageCoupons(League league) {
     final auth = _currentAuthUid.trim();
     if (auth.isEmpty) return false;
 
-    return _isRulesOwnerForLeague(
-      league,
-      authUid: auth,
-      remoteOrganizerUid: _remoteOrganizerUid,
-      remoteOwnerUid: _remoteOwnerUid,
-    );
+    final ro = _remoteOrganizerUid.trim();
+    final rw = _remoteOwnerUid.trim();
+
+    // If we don't know remote owner ids yet, do not allow coupon actions (writes would likely fail).
+    if (ro.isEmpty && rw.isEmpty) return false;
+
+    return ro == auth || rw == auth;
   }
 
   // IMPORTANT: league.couponDiscountPercent is DISCOUNT percent (0..100)
@@ -734,7 +741,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               } on StateError catch (e) {
                 setStateSheet(() => errorText = e.message ?? e.toString());
               } catch (e) {
-                setStateSheet(() => errorText = e.toString());
+                final msg = e.toString();
+                if (msg.contains('permission-denied')) {
+                  setStateSheet(() => errorText = 'Permission denied. This account is not the league organizer (organizerUid mismatch). Fix organizerUid/ownerUid on the league doc or sign in as the creator.');
+                } else {
+                  setStateSheet(() => errorText = msg);
+                }
               } finally {
                 setStateSheet(() => generating = false);
               }
@@ -969,7 +981,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                       decoration: const InputDecoration(
                                         labelText: 'Custom code (single)',
                                         prefixIcon: Icon(Icons.edit),
-                                        hintText: 'ESL_BARCA_50%',
+                                        hintText: 'BARCA  (we will create: ESL_BARCA_<DISCOUNT>%)',
                                       ),
                                     ),
                                   ),
@@ -989,7 +1001,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                'Custom codes cannot contain "/". Creating one consumes 1 remaining coupon.',
+                                'Custom name cannot contain "/".
+Your final code will be: ESL_<NAME>_<DISCOUNT>% (DISCOUNT comes from coupon config).
+Creating one consumes 1 remaining coupon.',
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: onSurface.withOpacity(0.60),
                                   fontWeight: FontWeight.w600,
