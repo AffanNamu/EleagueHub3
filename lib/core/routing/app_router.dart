@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
@@ -93,8 +94,7 @@ class AuthRouterRefresh extends ChangeNotifier {
 
   bool get isSignedIn => _user != null;
 
-  bool get isCheckingProfile =>
-      isSignedIn && (_profileState == _ProfileState.unknown || _profileState == _ProfileState.checking);
+  bool get isCheckingProfile => isSignedIn && (_profileState == _ProfileState.unknown || _profileState == _ProfileState.checking);
 
   bool get needsOnboarding => isSignedIn && _profileState == _ProfileState.missing;
 
@@ -130,14 +130,8 @@ class AuthRouterRefresh extends ChangeNotifier {
     if (e is FirebaseAuthException) {
       return e.code == 'network-request-failed';
     }
-    // Firestore throws FirebaseException; some code paths may bubble it here.
-    if (e is dynamic && e.runtimeType.toString() == 'FirebaseException') {
-      try {
-        final code = (e as dynamic).code as String?;
-        return code == 'unavailable' || code == 'deadline-exceeded';
-      } catch (_) {
-        return false;
-      }
+    if (e is FirebaseException) {
+      return e.code == 'unavailable' || e.code == 'deadline-exceeded';
     }
     return false;
   }
@@ -265,7 +259,6 @@ final appRouter = GoRouter(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
     ),
-
     GoRoute(
       path: '/call',
       builder: (context, state) => const CallRoomScreen(),
@@ -302,7 +295,7 @@ final appRouter = GoRouter(
           builder: (context, state) => const GlobalLiveLeaguesScreen(),
         ),
 
-        // LIVE
+        // LIVE (screen-level gating enforces online-only)
         GoRoute(
           path: 'live/join',
           builder: (context, state) => const JoinMatchScreen(),
@@ -367,7 +360,6 @@ final appRouter = GoRouter(
                 ),
               ],
             ),
-
             GoRoute(
               path: ':leagueId/upgrade/payment',
               builder: (context, state) {
@@ -380,7 +372,6 @@ final appRouter = GoRouter(
                 return LeagueCreationPaymentScreen(leagueName: leagueName);
               },
             ),
-
             GoRoute(
               path: 'join-scanner',
               builder: (context, state) => const QRScannerScreen(),
@@ -440,8 +431,11 @@ final appRouter = GoRouter(
             ),
             GoRoute(
               path: ':leagueId/admin-scores',
-              builder: (context, state) => AdminScoreMgmtScreen(
+              builder: (context, state) => LeagueAccessGuard(
                 leagueId: state.pathParameters['leagueId']!,
+                child: AdminScoreMgmtScreen(
+                  leagueId: state.pathParameters['leagueId']!,
+                ),
               ),
             ),
             GoRoute(
@@ -452,9 +446,12 @@ final appRouter = GoRouter(
             ),
             GoRoute(
               path: ':leagueId/matches/:matchId',
-              builder: (context, state) => MatchDetailScreen(
+              builder: (context, state) => LeagueAccessGuard(
                 leagueId: state.pathParameters['leagueId']!,
-                matchId: state.pathParameters['matchId']!,
+                child: MatchDetailScreen(
+                  leagueId: state.pathParameters['leagueId']!,
+                  matchId: state.pathParameters['matchId']!,
+                ),
               ),
             ),
           ],

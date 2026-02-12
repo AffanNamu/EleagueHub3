@@ -4,13 +4,17 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/fixture_generator.dart';
+import '../models/fixture_match.dart';
+import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/team.dart';
-import 'standings_providers.dart';
 import '../widgets/glass_group_card.dart';
+import 'standings_providers.dart';
 
 class GroupDrawScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -28,7 +32,10 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   bool isDrawing = false;
   bool _isGeneratingFixtures = false;
 
-  // NEW: lock group draw once fixtures exist (critical integrity protection).
+  bool _loading = true;
+  String? _loadError;
+
+  // Lock group draw once fixtures exist (integrity protection).
   bool _drawLocked = false;
 
   static const int _groupSize = 4;
@@ -125,66 +132,87 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
   Future<void> _loadLeagueAndTeams() async {
     final l10n = context.l10n;
-    final repo = ref.read(localLeaguesRepositoryProvider);
-
-    final league = await repo.getLeagueById(widget.leagueId);
-    final teams = await repo.getTeams(widget.leagueId);
-    final matches = await repo.getMatches(widget.leagueId);
 
     if (!mounted) return;
-
-    _allTeams = teams;
-
-    if (league == null) {
-      _toastErr(l10n.tr('fixtures_league_not_found'));
-      return;
-    }
-    if (league.format != LeagueFormat.uclGroup) {
-      _toastErr(l10n.tr('group_draw_only_ucl_group'));
-      return;
-    }
-
-    final hasGroupFixtures = matches.any((m) => (m.groupId ?? '').trim().isNotEmpty);
-    _drawLocked = hasGroupFixtures;
-
-    if (!(teams.length == 16 || teams.length == 32)) {
-      _toastErr('${l10n.tr('admin_score_group_team_count_error_prefix')}${teams.length}.');
-      setState(() {
-        groups.clear();
-        remainingTeams.clear();
-      });
-      return;
-    }
-
-    final groupNames = _groupNamesForCount(teams.length);
-
-    groups.clear();
-    for (final g in groupNames) {
-      groups[g] = <Team>[];
-    }
-
-    final assignedIds = <String>{};
-    for (final t in teams) {
-      final gid = t.groupId?.trim();
-      if (gid == null || gid.isEmpty) continue;
-      if (!groups.containsKey(gid)) continue;
-
-      if (groups[gid]!.length < _groupSize) {
-        groups[gid]!.add(t);
-        assignedIds.add(t.id);
-      }
-    }
-
-    final rem = teams.where((t) => !assignedIds.contains(t.id)).toList()..shuffle(Random());
-
     setState(() {
-      remainingTeams
-        ..clear()
-        ..addAll(rem);
+      _loading = true;
+      _loadError = null;
     });
 
-    if (_drawLocked) {
-      _toastWarn(l10n.tr('group_draw_locked_toast'));
+    try {
+      final repo = ref.read(localLeaguesRepositoryProvider);
+
+      final League? league = await repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+      final List<Team> teams = await repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 25));
+      final List<FixtureMatch> matches = await repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+
+      if (!mounted) return;
+
+      _allTeams = teams;
+
+      if (league == null) {
+        setState(() {
+          _loadError = l10n.tr('fixtures_league_not_found');
+          _loading = false;
+        });
+        return;
+      }
+      if (league.format != LeagueFormat.uclGroup) {
+        setState(() {
+          _loadError = l10n.tr('group_draw_only_ucl_group');
+          _loading = false;
+        });
+        return;
+      }
+
+      _drawLocked = matches.any((m) => (m.groupId ?? '').trim().isNotEmpty);
+
+      if (!(teams.length == 16 || teams.length == 32)) {
+        _toastErr('${l10n.tr('admin_score_group_team_count_error_prefix')}${teams.length}.');
+        setState(() {
+          groups.clear();
+          remainingTeams.clear();
+          _loading = false;
+        });
+        return;
+      }
+
+      final groupNames = _groupNamesForCount(teams.length);
+
+      groups
+        ..clear()
+        ..addEntries(groupNames.map((g) => MapEntry(g, <Team>[])));
+
+      final assignedIds = <String>{};
+      for (final t in teams) {
+        final gid = t.groupId?.trim();
+        if (gid == null || gid.isEmpty) continue;
+        if (!groups.containsKey(gid)) continue;
+
+        if (groups[gid]!.length < _groupSize) {
+          groups[gid]!.add(t);
+          assignedIds.add(t.id);
+        }
+      }
+
+      final rem = teams.where((t) => !assignedIds.contains(t.id)).toList()..shuffle(Random());
+
+      setState(() {
+        remainingTeams
+          ..clear()
+          ..addAll(rem);
+        _loading = false;
+      });
+
+      if (_drawLocked) {
+        _toastWarn(l10n.tr('group_draw_locked_toast'));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = UserFriendlyError.toMessage(e);
+        _loading = false;
+      });
     }
   }
 
@@ -230,10 +258,10 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
     try {
       final repo = ref.read(localLeaguesRepositoryProvider);
-      await repo.saveTeams(widget.leagueId, _allTeams);
+      await repo.saveTeams(widget.leagueId, _allTeams).timeout(const Duration(seconds: 25));
       _toastOk(l10n.tr('group_draw_groups_saved_toast'));
     } catch (e) {
-      _toastErr('${l10n.tr('group_draw_failed_save_groups_prefix')}$e');
+      _toastErr(UserFriendlyError.toMessage(e));
     }
 
     if (!mounted) return;
@@ -258,17 +286,18 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
     try {
       final repo = ref.read(localLeaguesRepositoryProvider);
-      final league = await repo.getLeagueById(widget.leagueId);
+
+      final League? league = await repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
       if (league == null) {
         _toastErr(l10n.tr('fixtures_league_not_found'));
         return;
       }
 
-      final existing = await repo.getMatches(widget.leagueId);
+      final existing = await repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
       final hasGroupFixtures = existing.any((m) => (m.groupId ?? '').trim().isNotEmpty);
       if (hasGroupFixtures) {
         _toastWarn(l10n.tr('admin_score_group_fixtures_already_exist'));
-        _drawLocked = true;
+        if (mounted) setState(() => _drawLocked = true);
         return;
       }
 
@@ -284,13 +313,13 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         return;
       }
 
-      await repo.saveMatches(widget.leagueId, fixtures);
+      await repo.saveMatches(widget.leagueId, fixtures).timeout(const Duration(seconds: 25));
       _toastOk(
         '${l10n.tr('admin_score_group_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
       );
-      _drawLocked = true;
+      if (mounted) setState(() => _drawLocked = true);
     } catch (e) {
-      _toastErr('${l10n.tr('admin_score_failed_generate_fixtures')}: $e');
+      _toastErr(UserFriendlyError.toMessage(e));
     } finally {
       if (mounted) setState(() => _isGeneratingFixtures = false);
     }
@@ -299,8 +328,70 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
+
+    if (_loading) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: Text(l10n.tr('group_draw_appbar_title')),
+          backgroundColor: Colors.transparent,
+        ),
+        body: SafeArea(
+          child: Center(child: CircularProgressIndicator(color: cs.primary)),
+        ),
+      );
+    }
+
+    if (_loadError != null) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: Text(l10n.tr('group_draw_appbar_title')),
+          backgroundColor: Colors.transparent,
+          actions: [
+            IconButton(
+              tooltip: l10n.tr('admin_knockout_reload_tooltip'),
+              onPressed: _loadLeagueAndTeams,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Glass(
+                borderRadius: 20,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _loadError!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _loadLeagueAndTeams,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(l10n.tr('common_retry')),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextButton(
+                      onPressed: () => Navigator.maybePop(context),
+                      child: Text(l10n.tr('common_back')),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     if (!(_allTeams.length == 16 || _allTeams.length == 32) || groups.isEmpty) {
       return GlassScaffold(
@@ -364,9 +455,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
                     child: Text(
                       isDrawing
                           ? l10n.tr('group_draw_drawing_teams')
-                          : (remainingTeams.isNotEmpty
-                              ? l10n.tr('group_draw_resume_draw')
-                              : l10n.tr('group_draw_draw_complete')),
+                          : (remainingTeams.isNotEmpty ? l10n.tr('group_draw_resume_draw') : l10n.tr('group_draw_draw_complete')),
                     ),
                   ),
                 ),

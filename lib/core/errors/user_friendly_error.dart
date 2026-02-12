@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
+import 'package:flutter/services.dart';
 
 /// Centralized user-friendly error mapping.
 ///
@@ -17,12 +18,21 @@ class UserFriendlyError {
   UserFriendlyError._();
 
   static String toMessage(Object error) {
-    // Network
+    // Network (IO)
     if (error is SocketException) {
       return 'Your network appears to be offline. Please check your connection and try again.';
     }
     if (error is TimeoutException) {
       return 'Your internet connection seems unstable. Please try again.';
+    }
+    if (error is HandshakeException || error is TlsException) {
+      return 'Your internet connection seems unstable. Please try again.';
+    }
+
+    // Platform (permissions, channels, etc.)
+    if (error is PlatformException) {
+      // Never surface platform codes/messages directly to UI.
+      return "We couldn't complete this action. Please try again.";
     }
 
     // Firebase Auth
@@ -34,6 +44,8 @@ class UserFriendlyError {
           return 'Too many attempts. Please wait a moment and try again.';
         case 'user-disabled':
           return 'This account has been disabled. Please contact support.';
+        case 'unauthenticated':
+          return 'Please sign in and try again.';
         default:
           return "We couldn't sign you in right now. Please try again.";
       }

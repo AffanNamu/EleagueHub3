@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
@@ -30,6 +31,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   List<FixtureMatch> _matches = [];
   Map<String, String> _teamNames = {};
   bool _isLoading = true;
+  String? _loadError;
 
   LeagueFormat _format = LeagueFormat.classic;
   List<String> _groups = [];
@@ -39,6 +41,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   int _selectedRound = 1;
 
   bool _isGenerating = false;
+  final Set<String> _savingMatchIds = <String>{};
 
   Color _baseToastBg(ThemeData theme) {
     return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
@@ -94,81 +97,112 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   Future<void> _loadData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
-
-    final leagueFuture = _repo.getLeagueById(widget.leagueId);
-    final matchesFuture = _repo.getMatches(widget.leagueId);
-    final teamsFuture = _repo.getTeams(widget.leagueId);
-
-    final league = await leagueFuture;
-    final matches = await matchesFuture;
-    final teams = await teamsFuture;
-
-    final format = league?.format ?? LeagueFormat.classic;
-
-    // Collect groups (only relevant for UCL Group) from matches.
-    List<String> groups = [];
-    if (format == LeagueFormat.uclGroup) {
-      groups = matches
-          .map((m) => m.groupId)
-          .whereType<String>()
-          .map((g) => g.trim())
-          .where((g) => g.isNotEmpty)
-          .toSet()
-          .toList()
-        ..sort();
-    }
-
-    // Sort: pending first, finished last; then round/sortIndex
-    matches.sort((a, b) {
-      final aFinished = a.status == MatchStatus.completed || a.status == MatchStatus.played;
-      final bFinished = b.status == MatchStatus.completed || b.status == MatchStatus.played;
-
-      if (aFinished != bFinished) return aFinished ? 1 : -1;
-
-      final rr = a.roundNumber.compareTo(b.roundNumber);
-      if (rr != 0) return rr;
-
-      final ss = a.sortIndex.compareTo(b.sortIndex);
-      if (ss != 0) return ss;
-
-      return a.id.compareTo(b.id);
-    });
-
-    // Preserve selected group if still valid, else reset to All.
-    String? selectedGroup = _selectedGroup;
-    if (format != LeagueFormat.uclGroup) {
-      selectedGroup = null;
-    } else if (selectedGroup != null && !groups.contains(selectedGroup)) {
-      selectedGroup = null;
-    }
-
-    // Compute selected round given current data
-    Iterable<FixtureMatch> forRounds = matches;
-    if (format == LeagueFormat.uclGroup && selectedGroup != null) {
-      forRounds = forRounds.where((m) => m.groupId == selectedGroup);
-    }
-    final roundSet = forRounds.map((m) => m.roundNumber).toSet();
-    int selectedRound = _selectedRound;
-    if (roundSet.isEmpty) {
-      selectedRound = 1;
-    } else if (!roundSet.contains(selectedRound)) {
-      final sorted = roundSet.toList()..sort();
-      selectedRound = sorted.first;
-    }
-
-    if (!mounted) return;
     setState(() {
-      _league = league;
-      _teams = teams;
-      _format = format;
-      _groups = groups;
-      _selectedGroup = selectedGroup;
-      _matches = matches;
-      _teamNames = {for (var t in teams) t.id: t.name};
-      _selectedRound = selectedRound;
-      _isLoading = false;
+      _isLoading = true;
+      _loadError = null;
     });
+
+    try {
+      final leagueFuture = _repo.getLeagueById(widget.leagueId);
+      final matchesFuture = _repo.getMatches(widget.leagueId);
+      final teamsFuture = _repo.getTeams(widget.leagueId);
+
+      final results = await Future.wait([leagueFuture, matchesFuture, teamsFuture]).timeout(const Duration(seconds: 30));
+
+      final league = results[0] as League?;
+      final matches = results[1] as List<FixtureMatch>;
+      final teams = results[2] as List<Team>;
+
+      final l10n = context.l10n;
+      if (league == null) {
+        if (!mounted) return;
+        setState(() {
+          _league = null;
+          _teams = const [];
+          _matches = const [];
+          _teamNames = const {};
+          _format = LeagueFormat.classic;
+          _groups = const [];
+          _selectedGroup = null;
+          _selectedRound = 1;
+          _loadError = l10n.tr('fixtures_league_not_found');
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final format = league.format;
+
+      // Collect groups (only relevant for UCL Group) from matches.
+      List<String> groups = [];
+      if (format == LeagueFormat.uclGroup) {
+        groups = matches
+            .map((m) => m.groupId)
+            .whereType<String>()
+            .map((g) => g.trim())
+            .where((g) => g.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+      }
+
+      // Sort: pending first, finished last; then round/sortIndex
+      matches.sort((a, b) {
+        final aFinished = a.status == MatchStatus.completed || a.status == MatchStatus.played;
+        final bFinished = b.status == MatchStatus.completed || b.status == MatchStatus.played;
+
+        if (aFinished != bFinished) return aFinished ? 1 : -1;
+
+        final rr = a.roundNumber.compareTo(b.roundNumber);
+        if (rr != 0) return rr;
+
+        final ss = a.sortIndex.compareTo(b.sortIndex);
+        if (ss != 0) return ss;
+
+        return a.id.compareTo(b.id);
+      });
+
+      // Preserve selected group if still valid, else reset to All.
+      String? selectedGroup = _selectedGroup;
+      if (format != LeagueFormat.uclGroup) {
+        selectedGroup = null;
+      } else if (selectedGroup != null && !groups.contains(selectedGroup)) {
+        selectedGroup = null;
+      }
+
+      // Compute selected round given current data
+      Iterable<FixtureMatch> forRounds = matches;
+      if (format == LeagueFormat.uclGroup && selectedGroup != null) {
+        forRounds = forRounds.where((m) => m.groupId == selectedGroup);
+      }
+      final roundSet = forRounds.map((m) => m.roundNumber).toSet();
+      int selectedRound = _selectedRound;
+      if (roundSet.isEmpty) {
+        selectedRound = 1;
+      } else if (!roundSet.contains(selectedRound)) {
+        final sorted = roundSet.toList()..sort();
+        selectedRound = sorted.first;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _league = league;
+        _teams = teams;
+        _format = format;
+        _groups = groups;
+        _selectedGroup = selectedGroup;
+        _matches = matches;
+        _teamNames = {for (final t in teams) t.id: t.name};
+        _selectedRound = selectedRound;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = UserFriendlyError.toMessage(e);
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _updateScore(
@@ -178,26 +212,34 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   ) async {
     final l10n = context.l10n;
 
-    final updatedMatch = match.copyWith(
-      homeScore: hScore,
-      awayScore: aScore,
-      status: MatchStatus.completed,
-      updatedAtMs: DateTime.now().millisecondsSinceEpoch,
-    );
-    await _repo.saveMatches(widget.leagueId, [updatedMatch]);
+    if (_savingMatchIds.contains(match.id)) return;
+    setState(() => _savingMatchIds.add(match.id));
 
-    if (mounted) {
+    try {
+      final updatedMatch = match.copyWith(
+        homeScore: hScore,
+        awayScore: aScore,
+        status: MatchStatus.completed,
+        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+
+      await _repo.saveMatches(widget.leagueId, [updatedMatch]).timeout(const Duration(seconds: 25));
+
+      if (!mounted) return;
       _toastOk(l10n.tr('admin_score_toast_score_updated'));
-      _loadData();
+      await _loadData();
+    } catch (e) {
+      if (!mounted) return;
+      _toastErr(UserFriendlyError.toMessage(e));
+    } finally {
+      if (!mounted) return;
+      setState(() => _savingMatchIds.remove(match.id));
     }
   }
 
   bool get _hasAnyMatches => _matches.isNotEmpty;
-
   bool get _hasGroupFixtures => _matches.any((m) => (m.groupId ?? '').trim().isNotEmpty);
-
   bool get _isSwissValidTeamCount => _teams.length == 18 || _teams.length == 36;
-
   bool get _isGroupValidTeamCount => _teams.length == 16 || _teams.length == 32;
 
   bool _groupsAssignedAndFull() {
@@ -244,11 +286,13 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         return;
       }
 
-      await _repo.saveMatches(widget.leagueId, fixtures);
+      await _repo.saveMatches(widget.leagueId, fixtures).timeout(const Duration(seconds: 25));
       _toastOk(
         '${l10n.tr('admin_score_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
       );
       await _loadData();
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e));
     } finally {
       if (mounted) setState(() => _isGenerating = false);
     }
@@ -286,11 +330,13 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         return;
       }
 
-      await _repo.saveMatches(widget.leagueId, fixtures);
+      await _repo.saveMatches(widget.leagueId, fixtures).timeout(const Duration(seconds: 25));
       _toastOk(
         '${l10n.tr('admin_score_group_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
       );
       await _loadData();
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e));
     } finally {
       if (mounted) setState(() => _isGenerating = false);
     }
@@ -314,7 +360,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     try {
       final maxRounds = _league!.settings.swissRounds;
 
-      final existing = await _repo.getMatches(widget.leagueId);
+      final existing = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
       int currentMaxRound = 0;
       if (existing.isNotEmpty) {
         currentMaxRound = existing.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
@@ -368,13 +414,15 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         return;
       }
 
-      await _repo.saveMatches(widget.leagueId, newFixtures);
+      await _repo.saveMatches(widget.leagueId, newFixtures).timeout(const Duration(seconds: 25));
       _toastOk(
         '${l10n.tr('admin_score_swiss_round_generated_prefix')}$nextRound'
         '${l10n.tr('admin_score_swiss_round_generated_mid')}${newFixtures.length}'
         '${l10n.tr('admin_score_fixtures_generated_suffix')}',
       );
       await _loadData();
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e));
     } finally {
       if (mounted) setState(() => _isGenerating = false);
     }
@@ -383,11 +431,71 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
+
+    if (_isLoading) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: Text(l10n.tr('admin_score_appbar_title')),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
+        body: SafeArea(
+          child: Center(child: CircularProgressIndicator(color: cs.primary)),
+        ),
+      );
+    }
+
+    if (_loadError != null) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: Text(l10n.tr('admin_score_appbar_title')),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: isTablet ? 800 : 520),
+                child: Glass(
+                  borderRadius: 20,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _loadError!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _loadData,
+                          icon: const Icon(Icons.refresh),
+                          label: Text(l10n.tr('common_retry')),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextButton(
+                        onPressed: () => Navigator.maybePop(context),
+                        child: Text(l10n.tr('common_back')),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     // Available rounds based on current selection
     List<int> availableRounds = [];
@@ -418,148 +526,154 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         title: Text(l10n.tr('admin_score_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: l10n.tr('admin_knockout_reload_tooltip'),
+            onPressed: _loadData,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
       ),
       body: SafeArea(
-        child: _isLoading
-            ? Center(child: CircularProgressIndicator(color: cs.primary))
-            : Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: isTablet ? 1000 : 500),
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: SectionHeader(l10n.tr('admin_score_section_title')),
-                      ),
-                      const SizedBox(height: 6),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isTablet ? 1000 : 500),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SectionHeader(l10n.tr('admin_score_section_title')),
+                ),
+                const SizedBox(height: 6),
 
-                      // Fixture generation controls (admin-only screen)
-                      if (showGenerateClassic || showGenerateGroup || showGenerateSwiss)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Column(
-                            children: [
-                              if (showGenerateClassic)
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: cs.primary,
-                                      side: BorderSide(color: cs.primary),
-                                    ),
-                                    onPressed: _isGenerating ? null : _generateClassicFixtures,
-                                    icon: _isGenerating
-                                        ? SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                                          )
-                                        : const Icon(Icons.auto_awesome),
-                                    label: Text(
-                                      l10n.tr('admin_score_generate_classic'),
-                                      style: const TextStyle(fontWeight: FontWeight.w900),
-                                    ),
-                                  ),
-                                ),
-                              if (showGenerateGroup)
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: cs.primary,
-                                      side: BorderSide(color: cs.primary),
-                                    ),
-                                    onPressed: _isGenerating ? null : _generateGroupFixtures,
-                                    icon: _isGenerating
-                                        ? SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                                          )
-                                        : const Icon(Icons.groups_2),
-                                    label: Text(
-                                      l10n.tr('admin_score_generate_group'),
-                                      style: const TextStyle(fontWeight: FontWeight.w900),
-                                    ),
-                                  ),
-                                ),
-                              if (showGenerateSwiss)
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: cs.primary,
-                                      side: BorderSide(color: cs.primary),
-                                    ),
-                                    onPressed: _isGenerating ? null : _generateNextSwissRound,
-                                    icon: _isGenerating
-                                        ? SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                                          )
-                                        : const Icon(Icons.auto_mode),
-                                    label: Text(
-                                      l10n.tr('admin_score_generate_next_swiss_round'),
-                                      style: const TextStyle(fontWeight: FontWeight.w900),
-                                    ),
-                                  ),
-                                ),
-                              const SizedBox(height: 6),
-                            ],
-                          ),
-                        ),
-
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                        child: Text(
-                          l10n.tr('admin_score_help_text'),
-                          style: TextStyle(color: cs.onBackground.withOpacity(0.62), fontSize: 12),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
-                      if (availableRounds.isNotEmpty) _buildRoundSelector(availableRounds),
-
-                      const SizedBox(height: 4),
-                      Expanded(
-                        child: visibleMatches.isEmpty
-                            ? Center(
-                                child: Text(
-                                  l10n.tr('admin_score_no_matches_to_manage'),
-                                  style: TextStyle(color: cs.onBackground.withOpacity(0.70), fontWeight: FontWeight.w600),
-                                ),
-                              )
-                            : ListView.separated(
-                                padding: const EdgeInsets.all(16),
-                                itemCount: visibleMatches.length,
-                                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                                itemBuilder: (context, index) {
-                                  final match = visibleMatches[index];
-                                  return _ScoreEntryTile(
-                                    key: ValueKey(match.id),
-                                    match: match,
-                                    homeName: _teamNames[match.homeTeamId] ?? l10n.tr('admin_score_home_fallback'),
-                                    awayName: _teamNames[match.awayTeamId] ?? l10n.tr('admin_score_away_fallback'),
-                                    onSave: (h, a) => _updateScore(match, h, a),
-                                  );
-                                },
+                // Fixture generation controls (admin-only screen)
+                if (showGenerateClassic || showGenerateGroup || showGenerateSwiss)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      children: [
+                        if (showGenerateClassic)
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: cs.primary,
+                                side: BorderSide(color: cs.primary),
                               ),
-                      ),
-                    ],
+                              onPressed: _isGenerating ? null : _generateClassicFixtures,
+                              icon: _isGenerating
+                                  ? SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                                    )
+                                  : const Icon(Icons.auto_awesome),
+                              label: Text(
+                                l10n.tr('admin_score_generate_classic'),
+                                style: const TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          ),
+                        if (showGenerateGroup)
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: cs.primary,
+                                side: BorderSide(color: cs.primary),
+                              ),
+                              onPressed: _isGenerating ? null : _generateGroupFixtures,
+                              icon: _isGenerating
+                                  ? SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                                    )
+                                  : const Icon(Icons.groups_2),
+                              label: Text(
+                                l10n.tr('admin_score_generate_group'),
+                                style: const TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          ),
+                        if (showGenerateSwiss)
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: cs.primary,
+                                side: BorderSide(color: cs.primary),
+                              ),
+                              onPressed: _isGenerating ? null : _generateNextSwissRound,
+                              icon: _isGenerating
+                                  ? SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                                    )
+                                  : const Icon(Icons.auto_mode),
+                              label: Text(
+                                l10n.tr('admin_score_generate_next_swiss_round'),
+                                style: const TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 6),
+                      ],
+                    ),
+                  ),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Text(
+                    l10n.tr('admin_score_help_text'),
+                    style: TextStyle(color: cs.onBackground.withOpacity(0.62), fontSize: 12),
+                    textAlign: TextAlign.center,
                   ),
                 ),
-              ),
+                const SizedBox(height: 8),
+
+                if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
+                if (availableRounds.isNotEmpty) _buildRoundSelector(availableRounds),
+
+                const SizedBox(height: 4),
+                Expanded(
+                  child: visibleMatches.isEmpty
+                      ? Center(
+                          child: Text(
+                            l10n.tr('admin_score_no_matches_to_manage'),
+                            style: TextStyle(color: cs.onBackground.withOpacity(0.70), fontWeight: FontWeight.w600),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: visibleMatches.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final match = visibleMatches[index];
+                            final saving = _savingMatchIds.contains(match.id);
+                            return _ScoreEntryTile(
+                              key: ValueKey(match.id),
+                              match: match,
+                              homeName: _teamNames[match.homeTeamId] ?? l10n.tr('admin_score_home_fallback'),
+                              awayName: _teamNames[match.awayTeamId] ?? l10n.tr('admin_score_away_fallback'),
+                              saving: saving,
+                              onSave: (h, a) => _updateScore(match, h, a),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final unselectedBg = cs.onBackground.withOpacity(0.06);
     final unselectedBorder = cs.onBackground.withOpacity(0.14);
@@ -575,8 +689,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         children: [
           GestureDetector(
             onTap: () {
-              Iterable<FixtureMatch> forRounds = _matches;
-              final roundSet = forRounds.map((m) => m.roundNumber).toSet();
+              final roundSet = _matches.map((m) => m.roundNumber).toSet();
               int newRound = _selectedRound;
               if (roundSet.isEmpty) {
                 newRound = 1;
@@ -617,8 +730,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                 final isSelected = _selectedGroup == group;
                 return GestureDetector(
                   onTap: () {
-                    Iterable<FixtureMatch> forRounds = _matches.where((m) => m.groupId == group);
-                    final roundSet = forRounds.map((m) => m.roundNumber).toSet();
+                    final roundSet = _matches.where((m) => m.groupId == group).map((m) => m.roundNumber).toSet();
                     int newRound = _selectedRound;
                     if (roundSet.isEmpty) {
                       newRound = 1;
@@ -662,8 +774,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   Widget _buildRoundSelector(List<int> rounds) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final unselectedBg = cs.onBackground.withOpacity(0.06);
     final unselectedBorder = cs.onBackground.withOpacity(0.14);
@@ -712,12 +823,15 @@ class _ScoreEntryTile extends StatefulWidget {
   final FixtureMatch match;
   final String homeName;
   final String awayName;
-  final Function(int, int) onSave;
+  final bool saving;
+  final Future<void> Function(int, int) onSave;
+
   const _ScoreEntryTile({
     super.key,
     required this.match,
     required this.homeName,
     required this.awayName,
+    required this.saving,
     required this.onSave,
   });
 
@@ -736,17 +850,44 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     _awayScore = widget.match.awayScore ?? 0;
   }
 
+  @override
+  void didUpdateWidget(covariant _ScoreEntryTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.match.id != widget.match.id ||
+        oldWidget.match.homeScore != widget.match.homeScore ||
+        oldWidget.match.awayScore != widget.match.awayScore) {
+      _homeScore = widget.match.homeScore ?? 0;
+      _awayScore = widget.match.awayScore ?? 0;
+    }
+  }
+
   bool get _isCompleted => widget.match.status == MatchStatus.completed || widget.match.status == MatchStatus.played;
 
-  void _incHome() => setState(() => _homeScore++);
-  void _decHome() => setState(() {
-        if (_homeScore > 0) _homeScore--;
-      });
+  bool get _disabled => widget.saving;
 
-  void _incAway() => setState(() => _awayScore++);
-  void _decAway() => setState(() {
-        if (_awayScore > 0) _awayScore--;
-      });
+  void _incHome() {
+    if (_disabled) return;
+    setState(() => _homeScore++);
+  }
+
+  void _decHome() {
+    if (_disabled) return;
+    setState(() {
+      if (_homeScore > 0) _homeScore--;
+    });
+  }
+
+  void _incAway() {
+    if (_disabled) return;
+    setState(() => _awayScore++);
+  }
+
+  void _decAway() {
+    if (_disabled) return;
+    setState(() {
+      if (_awayScore > 0) _awayScore--;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -757,116 +898,128 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     final primary = cs.primary;
 
     final groupLabel = widget.match.groupId?.trim().isNotEmpty == true ? widget.match.groupId!.trim() : null;
+
     return Glass(
       padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (groupLabel != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(
-                  groupLabel,
-                  style: TextStyle(
-                    color: onSurface.withOpacity(0.55),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+      child: Opacity(
+        opacity: widget.saving ? 0.72 : 1,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (groupLabel != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    groupLabel,
+                    style: TextStyle(
+                      color: onSurface.withOpacity(0.55),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.homeName,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    l10n.tr('league_details_vs'),
+                    style: TextStyle(
+                      color: onSurface.withOpacity(0.30),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    widget.awayName,
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _isCompleted ? primary.withOpacity(0.14) : onSurface.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    _isCompleted ? l10n.tr('admin_knockout_status_completed') : l10n.tr('admin_knockout_status_pending'),
+                    style: TextStyle(
+                      color: _isCompleted ? primary : onSurface.withOpacity(0.55),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  widget.homeName,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _scoreStepper(
+                  value: _homeScore,
+                  onInc: _incHome,
+                  onDec: _decHome,
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  l10n.tr('league_details_vs'),
-                  style: TextStyle(
-                    color: onSurface.withOpacity(0.30),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  widget.awayName,
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _isCompleted ? primary.withOpacity(0.14) : onSurface.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  _isCompleted ? l10n.tr('admin_knockout_status_completed') : l10n.tr('admin_knockout_status_pending'),
-                  style: TextStyle(
-                    color: _isCompleted ? primary : onSurface.withOpacity(0.55),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    ":",
+                    style: TextStyle(
+                      color: onSurface.withOpacity(0.35),
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _scoreStepper(
-                value: _homeScore,
-                onInc: _incHome,
-                onDec: _decHome,
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  ":",
-                  style: TextStyle(
-                    color: onSurface.withOpacity(0.35),
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
+                _scoreStepper(
+                  value: _awayScore,
+                  onInc: _incAway,
+                  onDec: _decAway,
+                ),
+                const SizedBox(width: 24),
+                IconButton.filled(
+                  onPressed: _disabled
+                      ? null
+                      : () async {
+                          FocusScope.of(context).unfocus();
+                          await widget.onSave(_homeScore, _awayScore);
+                        },
+                  style: IconButton.styleFrom(
+                    backgroundColor: primary.withOpacity(0.18),
+                    foregroundColor: primary,
                   ),
+                  icon: widget.saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.done_all, size: 24),
                 ),
-              ),
-              _scoreStepper(
-                value: _awayScore,
-                onInc: _incAway,
-                onDec: _decAway,
-              ),
-              const SizedBox(width: 24),
-              IconButton.filled(
-                onPressed: () {
-                  widget.onSave(_homeScore, _awayScore);
-                  FocusScope.of(context).unfocus();
-                },
-                style: IconButton.styleFrom(
-                  backgroundColor: primary.withOpacity(0.18),
-                  foregroundColor: primary,
-                ),
-                icon: const Icon(Icons.done_all, size: 24),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -893,7 +1046,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
           _stepperButton(
             icon: Icons.remove,
             onPressed: value > 0 ? onDec : null,
-            enabled: value > 0,
+            enabled: value > 0 && !widget.saving,
           ),
           const SizedBox(width: 6),
           SizedBox(
@@ -910,8 +1063,8 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
           const SizedBox(width: 6),
           _stepperButton(
             icon: Icons.add,
-            onPressed: onInc,
-            enabled: true,
+            onPressed: widget.saving ? null : onInc,
+            enabled: !widget.saving,
           ),
         ],
       ),
@@ -923,8 +1076,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback? onPressed,
     required bool enabled,
   }) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
     final primary = cs.primary;
 

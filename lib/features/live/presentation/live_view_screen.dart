@@ -3,16 +3,20 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/platform/overlay_bridge.dart';
 import '../../../core/platform/overlay_platform.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../leagues/services/livekit_service.dart';
@@ -66,8 +70,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   bool _connected = false;
   String? _roomName;
-
-  String _uid = '';
 
   _PrimarySide _primary = _PrimarySide.home;
 
@@ -141,13 +143,37 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   LiveHostSide get _mySide => parseLiveHostSide(widget.hostSide);
 
+  String? _currentAuthUid() => FirebaseAuth.instance.currentUser?.uid.trim();
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<bool> _requireOnline({Duration timeout = const Duration(seconds: 4)}) async {
+    await ConnectivityService.instance.initialize();
+    final ok = await ConnectivityService.instance.recheckConnection(timeout: timeout);
+    if (ok) return true;
+
+    final msg = UserFriendlyError.toMessage(SocketException('offline'));
+    if (mounted) {
+      setState(() => _errorText = msg);
+      _showSnack(msg);
+    }
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
 
-    final prefs = ref.read(prefsServiceProvider);
-    _uid = prefs.getCurrentUserId() ?? '';
-
+    // Viewers connect automatically (online-only: will fail gracefully if offline).
     if (!widget.isHost) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await _connectOnline(publishIfHost: false);
@@ -213,6 +239,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   // Do NOT request overlay permission automatically.
   Future<void> _maybeStartOverlayBubbleIfGranted() async {
     if (!Platform.isAndroid) return;
+
+    // UI-only preference (allowed).
     final prefs = ref.read(prefsServiceProvider);
     if (!prefs.liveOverlayEnabled()) return;
 
@@ -226,8 +254,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   Future<void> _stopOverlayBubbleIfNotGloballyEnabled() async {
     if (!Platform.isAndroid) return;
 
-    // IMPORTANT:
-    // Overlay is "system-wide always available" when user enabled it globally.
+    // UI-only preference (allowed).
     final prefs = ref.read(prefsServiceProvider);
     if (prefs.liveOverlayEnabled()) return;
 
@@ -259,7 +286,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         ),
       );
     } catch (_) {
-      // If this fails, Android may kill the app in background.
+      // Non-fatal: if this fails, Android may kill the app in background.
     }
   }
 
@@ -273,18 +300,24 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   Future<void> _connectOnline({required bool publishIfHost}) async {
     if (_busy) return;
 
-    final l10n = context.l10n;
-
-    if (_uid.trim().isEmpty) {
-      setState(() {
-        _errorText = _trOr(
-          l10n,
-          'live_view_error_missing_user_id',
-          'Missing user ID. Please login/restart so current_user_id is set.',
-        );
+    final uid = _currentAuthUid();
+    if (uid == null || uid.isEmpty) {
+      // Router should prevent this, but enforce anyway.
+      if (mounted) {
+        setState(() {
+          _errorText = UserFriendlyError.toMessage(FirebaseAuthException(code: 'unauthenticated'));
+        });
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.go('/login');
       });
       return;
     }
+
+    // ONLINE-ONLY: never allow Live to start/connect offline.
+    final online = await _requireOnline();
+    if (!online) return;
 
     setState(() {
       _busy = true;
@@ -296,7 +329,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
       final tok = await LiveKitService.fetchMatchToken(
         matchId: widget.matchId,
-        userId: _uid,
+        userId: uid,
         isHost: widget.isHost,
         side: liveHostSideToWire(_mySide),
       );
@@ -367,7 +400,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         } catch (_) {}
       });
 
-      await room.connect(tok.url, tok.token);
+      // LiveKit connect can fail on bad networks; do not show raw errors.
+      await room.connect(tok.url, tok.token).timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
 
@@ -399,7 +433,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorText = e.toString());
+      setState(() => _errorText = UserFriendlyError.toMessage(e));
     } finally {
       if (!mounted) return;
       setState(() => _busy = false);
@@ -478,21 +512,20 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
     final l10n = context.l10n;
 
+    // ONLINE-ONLY: don't even attempt if we are offline.
+    final online = await _requireOnline();
+    if (!online) return;
+
     try {
-      await room.localParticipant?.setScreenShareEnabled(enabled);
+      await room.localParticipant?.setScreenShareEnabled(enabled).timeout(const Duration(seconds: 20));
       if (!mounted) return;
       setState(() => _hostScreenEnabled = enabled);
     } catch (e) {
       if (!mounted) return;
       setState(() => _hostScreenEnabled = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${_trOr(l10n, 'live_view_screen_share_failed_prefix', 'Screen share failed: ')}$e',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+
+      final msg = UserFriendlyError.toMessage(e);
+      _showSnack('${_trOr(l10n, 'live_view_screen_share_failed_prefix', 'Screen share failed. ')}$msg');
     }
   }
 
@@ -647,8 +680,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
   void _toggleViewerLayoutMode() {
     setState(() {
-      _viewerLayoutMode =
-          _viewerLayoutMode == _ViewerLayoutMode.single ? _ViewerLayoutMode.dual : _ViewerLayoutMode.single;
+      _viewerLayoutMode = _viewerLayoutMode == _ViewerLayoutMode.single ? _ViewerLayoutMode.dual : _ViewerLayoutMode.single;
     });
   }
 
@@ -768,12 +800,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                   '${_trOr(l10n, 'live_view_clipboard_match_prefix', 'Match: ')}${widget.matchId}\n'
                   '${_trOr(l10n, 'live_view_clipboard_room_prefix', 'Room: ')}${_roomName ?? notConnected}';
               Clipboard.setData(ClipboardData(text: txt));
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(_trOr(l10n, 'live_view_copied_match_info_toast', 'Copied match info')),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              _showSnack(_trOr(l10n, 'live_view_copied_match_info_toast', 'Copied match info'));
             },
             icon: const Icon(Icons.copy),
           ),
@@ -836,9 +863,30 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       return Glass(
         borderRadius: 18,
         padding: const EdgeInsets.all(12),
-        child: Text(
-          '${l10n.tr('common_error_prefix')}: $_errorText',
-          style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${l10n.tr('common_error_prefix')}: $_errorText',
+              style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _connectOnline(publishIfHost: widget.isHost),
+              icon: const Icon(Icons.refresh),
+              label: Text(_trOr(l10n, 'live_view_reconnect', 'Reconnect')),
+            ),
+            const SizedBox(height: 6),
+            TextButton(
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      await _disconnectRoom();
+                      if (mounted) Navigator.maybePop(context);
+                    },
+              child: Text(_trOr(l10n, 'common_back', 'Back')),
+            ),
+          ],
         ),
       );
     }
@@ -1002,9 +1050,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                     onPressed: _busy ? null : () => _connectOnline(publishIfHost: false),
                     icon: const Icon(Icons.refresh),
                     label: Text(
-                      _busy
-                          ? _trOr(l10n, 'live_view_connecting', 'Connecting...')
-                          : _trOr(l10n, 'live_view_reconnect', 'Reconnect'),
+                      _busy ? _trOr(l10n, 'live_view_connecting', 'Connecting...') : _trOr(l10n, 'live_view_reconnect', 'Reconnect'),
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),

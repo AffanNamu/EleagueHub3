@@ -6,6 +6,15 @@ final prefsServiceProvider = Provider<PreferencesService>((ref) {
   throw UnimplementedError('Override this in main()');
 });
 
+/// ONLINE-ONLY STORAGE POLICY
+/// --------------------------
+/// SharedPreferences may ONLY be used for minimal UI flags (theme/locale/toggles).
+/// It must NEVER be used as a domain cache (leagues/teams/matches/memberships/etc).
+///
+/// Enforcement approach:
+/// - Allowlist known UI-only keys/prefixes.
+/// - Block everything else by default.
+/// This prevents new “offline caching” from being accidentally reintroduced via new keys.
 class PreferencesService {
   PreferencesService._(this._sp);
   final SharedPreferences _sp;
@@ -22,20 +31,57 @@ class PreferencesService {
   @Deprecated('Online-only: do not persist auth uid locally for access control.')
   static const String kCurrentUserIdKey = 'current_user_id';
 
-  // Keys/prefixes that were used for offline-first domain caching.
-  // In online-only mode these must be blocked to prevent local persistence and
-  // accidental offline reads.
+  // -------------------------
+  // Allowlist (UI-only)
+  // -------------------------
+
+  static const Set<String> _allowedExactKeys = <String>{
+    // Theme / locale
+    _kThemeMode,
+    _kLocaleCode,
+    _kLocaleManualOverride,
+
+    // Notifications (UI preference only)
+    'notifications_enabled',
+    'notifications_marketing',
+    'notifications_match_reminders',
+
+    // Live viewer toggles (UI-only)
+    'live_viewer_chat_enabled',
+    'live_viewer_voice_enabled',
+    'live_viewer_reactions_enabled',
+
+    // Live overlay bubble toggle (UI-only)
+    'live_overlay_enabled',
+  };
+
+  static const List<String> _allowedPrefixes = <String>[
+    // Reserved for future UI-only flags (do NOT store domain data under these).
+    'ui_',
+  ];
+
+  // -------------------------
+  // Blocklist (legacy offline-first domain caching keys)
+  // -------------------------
+
   static const Set<String> _blockedExactKeys = <String>{
+    // Offline sync / caching artifacts
     'sync_queue_items',
     'cloud_last_pulled_at_ms',
+
+    // Domain caches (must never persist locally)
     'local_leagues',
     'local_memberships',
     'local_teams',
     'local_matches',
     'local_knockout_matches',
+
+    // Legacy cached auth identity
+    kCurrentUserIdKey,
   };
 
   static const List<String> _blockedPrefixes = <String>[
+    // Legacy offline-first caching prefixes
     'league_announcements_',
     'league_space_',
   ];
@@ -43,6 +89,14 @@ class PreferencesService {
   static Future<PreferencesService> create() async {
     final sp = await SharedPreferences.getInstance();
     return PreferencesService._(sp);
+  }
+
+  bool _isAllowedKey(String key) {
+    if (_allowedExactKeys.contains(key)) return true;
+    for (final p in _allowedPrefixes) {
+      if (key.startsWith(p)) return true;
+    }
+    return false;
   }
 
   bool _isBlockedKey(String key) {
@@ -53,6 +107,14 @@ class PreferencesService {
     return false;
   }
 
+  bool _shouldBlock(String key) {
+    // Blocklist always wins.
+    if (_isBlockedKey(key)) return true;
+
+    // Online-only: block anything not explicitly allowlisted.
+    return !_isAllowedKey(key);
+  }
+
   void _debugBlocked(String method, String key) {
     if (kDebugMode) {
       debugPrint('PreferencesService($method) blocked key="$key" (online-only).');
@@ -60,16 +122,16 @@ class PreferencesService {
   }
 
   /// -------------------------
-  /// Standard helpers
+  /// Generic helpers (STRICT: allowlist only)
   /// -------------------------
 
   String? getString(String key) {
-    if (_isBlockedKey(key)) return null;
+    if (_shouldBlock(key)) return null;
     return _sp.getString(key);
   }
 
   Future<void> setString(String key, String value) async {
-    if (_isBlockedKey(key)) {
+    if (_shouldBlock(key)) {
       _debugBlocked('setString', key);
       return;
     }
@@ -77,12 +139,12 @@ class PreferencesService {
   }
 
   int? getInt(String key) {
-    if (_isBlockedKey(key)) return null;
+    if (_shouldBlock(key)) return null;
     return _sp.getInt(key);
   }
 
   Future<void> setInt(String key, int value) async {
-    if (_isBlockedKey(key)) {
+    if (_shouldBlock(key)) {
       _debugBlocked('setInt', key);
       return;
     }
@@ -90,12 +152,12 @@ class PreferencesService {
   }
 
   bool? getBool(String key) {
-    if (_isBlockedKey(key)) return null;
+    if (_shouldBlock(key)) return null;
     return _sp.getBool(key);
   }
 
   Future<void> setBool(String key, bool value) async {
-    if (_isBlockedKey(key)) {
+    if (_shouldBlock(key)) {
       _debugBlocked('setBool', key);
       return;
     }
@@ -103,7 +165,7 @@ class PreferencesService {
   }
 
   Future<void> remove(String key) async {
-    if (_isBlockedKey(key)) {
+    if (_shouldBlock(key)) {
       _debugBlocked('remove', key);
       return;
     }
@@ -115,30 +177,30 @@ class PreferencesService {
   /// -------------------------
 
   @Deprecated('Online-only: do not persist auth uid locally for access control.')
-  String? getCurrentUserId() => _sp.getString(kCurrentUserIdKey);
+  String? getCurrentUserId() => null;
 
   @Deprecated('Online-only: do not persist auth uid locally for access control.')
   Future<void> setCurrentUserId(String userId) async {
-    // Keep as a no-op to avoid leaving a stale identity on device.
     _debugBlocked('setCurrentUserId', kCurrentUserIdKey);
   }
 
   @Deprecated('Online-only: do not persist auth uid locally for access control.')
   Future<void> clearCurrentUserId() async {
+    // Ensure it is removed if it exists from old installs.
     await _sp.remove(kCurrentUserIdKey);
   }
 
   /// -------------------------
-  /// Generic List helpers (blocked for offline-first keys)
+  /// Generic List helpers (STRICT: allowlist only)
   /// -------------------------
 
   List<String> getStringList(String key) {
-    if (_isBlockedKey(key)) return const <String>[];
+    if (_shouldBlock(key)) return const <String>[];
     return _sp.getStringList(key) ?? const <String>[];
   }
 
   Future<void> setStringList(String key, List<String> value) async {
-    if (_isBlockedKey(key)) {
+    if (_shouldBlock(key)) {
       _debugBlocked('setStringList', key);
       return;
     }

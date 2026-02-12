@@ -1,8 +1,13 @@
+import 'dart:io';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 
@@ -20,6 +25,8 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
 
   String? _errorKey;
 
+  bool _busy = false;
+
   @override
   void dispose() {
     _matchIdCtrl.dispose();
@@ -28,10 +35,41 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
     super.dispose();
   }
 
-  void _pushLiveView({
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<bool> _ensureSignedInAndOnline() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      _showSnack('Please sign in and try again.');
+      if (mounted) context.go('/login');
+      return false;
+    }
+
+    await ConnectivityService.instance.initialize();
+    final ok = await ConnectivityService.instance.recheckConnection(timeout: const Duration(seconds: 4));
+    if (!ok) {
+      _showSnack(UserFriendlyError.toMessage(SocketException('offline')));
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _pushLiveView({
     required bool isHost,
     required String side, // 'home' | 'away' | 'unknown'
-  }) {
+  }) async {
+    if (_busy) return;
+
     final matchId = _matchIdCtrl.text.trim();
     final homeName = _homeCtrl.text.trim();
     final awayName = _awayCtrl.text.trim();
@@ -43,15 +81,28 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
 
     setState(() => _errorKey = null);
 
-    context.push(
-      '/live/view/$matchId',
-      extra: <String, dynamic>{
-        'isHost': isHost,
-        if (homeName.isNotEmpty) 'homeName': homeName,
-        if (awayName.isNotEmpty) 'awayName': awayName,
-        'side': side.trim().isEmpty ? 'unknown' : side.trim(),
-      },
-    );
+    setState(() => _busy = true);
+    try {
+      final ok = await _ensureSignedInAndOnline();
+      if (!ok) return;
+      if (!mounted) return;
+
+      FocusScope.of(context).unfocus();
+
+      context.push(
+        '/live/view/$matchId',
+        extra: <String, dynamic>{
+          'isHost': isHost,
+          if (homeName.isNotEmpty) 'homeName': homeName,
+          if (awayName.isNotEmpty) 'awayName': awayName,
+          'side': side.trim().isEmpty ? 'unknown' : side.trim(),
+        },
+      );
+    } catch (e) {
+      _showSnack(UserFriendlyError.toMessage(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -171,6 +222,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
             ),
             onChanged: (_) {
               if (_errorKey != null) setState(() => _errorKey = null);
+              setState(() {}); // update button enable state
             },
           ),
           const SizedBox(height: 10),
@@ -243,7 +295,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
     final l10n = context.l10n;
 
     final matchId = _matchIdCtrl.text.trim();
-    final disabled = matchId.isEmpty;
+    final disabled = matchId.isEmpty || _busy;
 
     return Glass(
       borderRadius: 20,
@@ -254,7 +306,13 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: disabled ? null : () => _pushLiveView(isHost: false, side: 'unknown'),
-              icon: const Icon(Icons.play_arrow),
+              icon: _busy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.play_arrow),
               label: Text(l10n.tr('join_match_join_as_viewer')),
             ),
           ),
@@ -280,7 +338,6 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
               ],
             ),
           ] else ...[
-            // Small phones: stack buttons so they never get cramped/truncated.
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(

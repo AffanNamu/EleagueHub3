@@ -1,14 +1,26 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/services/connectivity_service.dart';
 import 'live_quality.dart';
 import 'local_discovery.dart';
 import 'local_lan_ip.dart';
 import 'local_signaling.dart';
+
+/// User-safe exception: if UI accidentally shows `$e`, it will still be a friendly message.
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 enum LocalLiveHostState {
   idle,
@@ -39,10 +51,11 @@ class LocalLiveHostSession {
   final String? awayName;
   final LiveHostSide side;
 
-  final ValueNotifier<LocalLiveHostState> state =
-      ValueNotifier<LocalLiveHostState>(LocalLiveHostState.idle);
+  final ValueNotifier<LocalLiveHostState> state = ValueNotifier<LocalLiveHostState>(LocalLiveHostState.idle);
 
+  /// Always a user-friendly message (never raw technical details).
   final ValueNotifier<String?> error = ValueNotifier<String?>(null);
+
   final ValueNotifier<int> viewerCount = ValueNotifier<int>(0);
   final ValueNotifier<String?> hostIp = ValueNotifier<String?>(null);
 
@@ -64,31 +77,57 @@ class LocalLiveHostSession {
 
   final Map<String, _ViewerPeer> _peers = {}; // viewerId -> peer
 
+  Future<void> _requireSignedInAndOnline() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      throw const UserFriendlyException('Please sign in and try again.');
+    }
+
+    await ConnectivityService.instance.initialize();
+    final ok = await ConnectivityService.instance.recheckConnection(timeout: const Duration(seconds: 4));
+    if (!ok) {
+      throw const UserFriendlyException(
+        'Your network appears to be offline. Please check your connection and try again.',
+      );
+    }
+  }
+
+  Never _fail(Object e) {
+    final msg = UserFriendlyError.toMessage(e);
+    state.value = LocalLiveHostState.error;
+    error.value = msg;
+    throw UserFriendlyException(msg);
+  }
+
   Future<void> start() async {
     if (_server != null) return;
 
     state.value = LocalLiveHostState.starting;
     error.value = null;
 
-    try {
-      await screenRenderer.initialize();
-      await cameraRenderer.initialize();
+    // ONLINE-ONLY: local LAN streaming must never start offline.
+    await _requireSignedInAndOnline();
 
-      final statuses = await [
+    try {
+      await screenRenderer.initialize().timeout(const Duration(seconds: 8));
+      await cameraRenderer.initialize().timeout(const Duration(seconds: 8));
+
+      final statuses = await <Permission>[
         Permission.camera,
         Permission.microphone,
       ].request();
 
       final denied = statuses.entries.where((e) => !e.value.isGranted).toList();
       if (denied.isNotEmpty) {
-        throw Exception(
-            'Permissions denied: ${denied.map((e) => e.key).join(', ')}');
+        throw const UserFriendlyException(
+          'Camera and microphone permissions are required to go live. Please enable them in Settings and try again.',
+        );
       }
 
-      hostIp.value = await LocalLanIp.findLocalIpv4();
+      hostIp.value = await LocalLanIp.findLocalIpv4().timeout(const Duration(seconds: 6));
 
       _server = LocalSignalingServer(port: port, matchId: liveMatchId);
-      await _server!.start();
+      await _server!.start().timeout(const Duration(seconds: 8));
       _serverSub = _server!.messages.listen(_onSignalMessage);
 
       _server!.viewerCount.addListener(() {
@@ -103,7 +142,7 @@ class LocalLiveHostSession {
         awayName: awayName,
         side: side,
       );
-      await _broadcaster!.start();
+      await _broadcaster!.start().timeout(const Duration(seconds: 8));
 
       // Screen capture (try constraints; fallback to simple)
       try {
@@ -114,12 +153,12 @@ class LocalLiveHostSession {
             'height': captureConfig.screenHeight,
           },
           'audio': false,
-        });
+        }).timeout(const Duration(seconds: 20));
       } catch (_) {
         _screenStream = await navigator.mediaDevices.getDisplayMedia({
           'video': true,
           'audio': false,
-        });
+        }).timeout(const Duration(seconds: 20));
       }
 
       // Front camera + mic
@@ -131,24 +170,13 @@ class LocalLiveHostSession {
           'height': captureConfig.cameraHeight,
           'frameRate': captureConfig.cameraFps,
         },
-      });
-
-      // DEBUG: print track info
-      if (kDebugMode) {
-        final sv = _screenStream?.getVideoTracks().length ?? 0;
-        final sa = _screenStream?.getAudioTracks().length ?? 0;
-        final cv = _cameraStream?.getVideoTracks().length ?? 0;
-        final ca = _cameraStream?.getAudioTracks().length ?? 0;
-        print('[Host] Screen tracks: video=$sv audio=$sa');
-        print('[Host] Camera tracks: video=$cv audio=$ca');
-      }
+      }).timeout(const Duration(seconds: 20));
 
       // Ensure screen capture actually has a video track
       final screenVideoTracks = _screenStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
       if (screenVideoTracks.isEmpty) {
-        throw Exception(
-          'Screen capture returned no video track. '
-          'Check screen recording permission or device support.',
+        throw const UserFriendlyException(
+          'We couldn’t start screen sharing on this device. Please try again or update your permissions.',
         );
       }
 
@@ -159,14 +187,17 @@ class LocalLiveHostSession {
       _applyMicEnabled(micEnabled.value);
 
       state.value = LocalLiveHostState.waitingForViewers;
-    } catch (e) {
-      if (kDebugMode) {
-        print('[Host] ERROR in start(): $e');
-      }
+    } on UserFriendlyException catch (e) {
+      error.value = e.message;
       state.value = LocalLiveHostState.error;
-      error.value = e.toString();
       await stop();
-      rethrow;
+      throw e;
+    } catch (e) {
+      final msg = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+      error.value = msg;
+      state.value = LocalLiveHostState.error;
+      await stop();
+      throw UserFriendlyException(msg);
     }
   }
 
@@ -243,7 +274,7 @@ class LocalLiveHostSession {
     final pc = await createPeerConnection({
       'sdpSemantics': 'unified-plan',
       'iceServers': <Map<String, dynamic>>[],
-    });
+    }).timeout(const Duration(seconds: 12));
 
     final peer = _ViewerPeer(viewerId: viewerId, pc: pc);
     _peers[viewerId] = peer;
@@ -274,7 +305,7 @@ class LocalLiveHostSession {
 
     dc.onDataChannelState = (s) {
       if (kDebugMode) {
-        print('[Host] DataChannel state for $viewerId: $s');
+        debugPrint('[Host] DataChannel state for $viewerId: $s');
       }
       if (s == RTCDataChannelState.RTCDataChannelOpen) {
         _sendTrackMappingToViewer(viewerId);
@@ -297,24 +328,15 @@ class LocalLiveHostSession {
 
     if (screenStream != null) {
       for (final t in screenStream.getVideoTracks()) {
-        if (kDebugMode) {
-          print('[Host] Adding SCREEN video track ${t.id} to viewer $viewerId');
-        }
         pc.addTrack(t, screenStream);
       }
     }
 
     if (cameraStream != null) {
       for (final t in cameraStream.getVideoTracks()) {
-        if (kDebugMode) {
-          print('[Host] Adding CAMERA video track ${t.id} to viewer $viewerId');
-        }
         pc.addTrack(t, cameraStream);
       }
       for (final t in cameraStream.getAudioTracks()) {
-        if (kDebugMode) {
-          print('[Host] Adding CAMERA audio track ${t.id} to viewer $viewerId');
-        }
         pc.addTrack(t, cameraStream);
       }
     }
@@ -322,9 +344,9 @@ class LocalLiveHostSession {
     final offer = await pc.createOffer({
       'offerToReceiveAudio': false,
       'offerToReceiveVideo': false,
-    });
+    }).timeout(const Duration(seconds: 12));
 
-    await pc.setLocalDescription(offer);
+    await pc.setLocalDescription(offer).timeout(const Duration(seconds: 12));
 
     server.sendToViewer(viewerId, {
       'type': 'offer',
@@ -354,23 +376,17 @@ class LocalLiveHostSession {
   }
 
   void _sendTrackMappingToViewer(String viewerId) {
-    final screenTracks =
-        _screenStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
-    final cameraTracks =
-        _cameraStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+    final screenTracks = _screenStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+    final cameraTracks = _cameraStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
 
     final screenTrackId = screenTracks.isNotEmpty ? screenTracks.first.id : null;
     final cameraTrackId = cameraTracks.isNotEmpty ? cameraTracks.first.id : null;
 
     if (kDebugMode) {
-      print('[Host] sendTrackMappingToViewer($viewerId) '
-          'screenTrackId=$screenTrackId cameraTrackId=$cameraTrackId');
+      debugPrint('[Host] sendTrackMappingToViewer($viewerId) screenTrackId=$screenTrackId cameraTrackId=$cameraTrackId');
     }
 
-    if (screenTrackId == null ||
-        screenTrackId.isEmpty ||
-        cameraTrackId == null ||
-        cameraTrackId.isEmpty) {
+    if (screenTrackId == null || screenTrackId.isEmpty || cameraTrackId == null || cameraTrackId.isEmpty) {
       return;
     }
 

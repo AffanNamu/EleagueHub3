@@ -105,7 +105,8 @@ class LocalLeaguesRepository {
           .collection('leagues')
           .where('code', isEqualTo: code)
           .limit(1)
-          .get(const GetOptions(source: Source.server));
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
       if (snap.docs.isEmpty) return code;
     }
     throw const UserFriendlyException("We couldn't create a join code. Please try again.");
@@ -194,7 +195,7 @@ class LocalLeaguesRepository {
 
       Future<void> deleteAllDocsIn(String sub) async {
         final col = leagueRef.collection(sub);
-        final snap = await col.get(const GetOptions(source: Source.server));
+        final snap = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 30));
         if (snap.docs.isEmpty) return;
 
         const chunkSize = 450;
@@ -204,7 +205,7 @@ class LocalLeaguesRepository {
           for (final d in chunk) {
             batch.delete(d.reference);
           }
-          await batch.commit();
+          await batch.commit().timeout(const Duration(seconds: 30));
         }
       }
 
@@ -235,8 +236,7 @@ class LocalLeaguesRepository {
       final now = DateTime.now().millisecondsSinceEpoch;
       final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
 
-      final code =
-          league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
+      final code = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
 
       final stored = league.copyWith(
         id: leagueId,
@@ -547,11 +547,14 @@ class LocalLeaguesRepository {
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          final chunk = existing.docs.sublist(
+            i,
+            (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize,
+          );
           for (final d in chunk) {
             batch.delete(d.reference);
           }
-          await batch.commit();
+          await batch.commit().timeout(const Duration(seconds: 30));
         }
       }
 
@@ -563,7 +566,7 @@ class LocalLeaguesRepository {
           final data = t.copyWith(id: id, leagueId: leagueId).toRemoteMap();
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
-        await batch.commit();
+        await batch.commit().timeout(const Duration(seconds: 30));
       }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
@@ -611,7 +614,7 @@ class LocalLeaguesRepository {
           final data = m.copyWith(id: id, leagueId: leagueId).toJson();
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
-        await batch.commit();
+        await batch.commit().timeout(const Duration(seconds: 30));
       }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
@@ -630,11 +633,14 @@ class LocalLeaguesRepository {
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          final chunk = existing.docs.sublist(
+            i,
+            (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize,
+          );
           for (final d in chunk) {
             batch.delete(d.reference);
           }
-          await batch.commit();
+          await batch.commit().timeout(const Duration(seconds: 30));
         }
       }
 
@@ -717,11 +723,14 @@ class LocalLeaguesRepository {
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          final chunk = existing.docs.sublist(
+            i,
+            (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize,
+          );
           for (final d in chunk) {
             batch.delete(d.reference);
           }
-          await batch.commit();
+          await batch.commit().timeout(const Duration(seconds: 30));
         }
       }
 
@@ -733,7 +742,7 @@ class LocalLeaguesRepository {
           final data = m.copyWith(id: id, leagueId: leagueId).toJson();
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
-        await batch.commit();
+        await batch.commit().timeout(const Duration(seconds: 30));
       }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));

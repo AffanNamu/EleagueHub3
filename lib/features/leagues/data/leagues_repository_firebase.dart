@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/league.dart';
@@ -102,26 +103,31 @@ class LeaguesRepositoryFirebase {
     }
   }
 
-  /// ONLINE-ONLY:
-  /// Watches ONLY member leagues (not the entire leagues collection).
+  /// ONLINE-ONLY STREAM POLICY:
+  /// Firestore snapshots can produce cached events (even with disk persistence disabled).
+  /// To avoid showing stale/offline data, we:
+  /// - enable metadata changes
+  /// - ignore any snapshot where `metadata.isFromCache == true`
   ///
-  /// Never emits raw Firebase errors to UI; it falls back to an empty list.
+  /// If the device is offline, no server snapshots will arrive; UI should show offline UX.
   Stream<List<League>> watchLeagues() {
     try {
       final uid = _requireAuthUid();
 
-      final stream = _leaguesCol.where('memberIds', arrayContains: uid).snapshots().map(
+      final base = _leaguesCol
+          .where('memberIds', arrayContains: uid)
+          .snapshots(includeMetadataChanges: true);
+
+      final serverOnly = base.where((snap) => !snap.metadata.isFromCache).map(
             (snapshot) => snapshot.docs.map(_docToLeague).toList(growable: false),
           );
 
-      return stream.transform(
-        StreamTransformer<List<League>, List<League>>.fromHandlers(
-          handleError: (error, stack, sink) {
-            // Do not surface raw errors to UI.
-            sink.add(const <League>[]);
-          },
-        ),
-      );
+      // Never emit raw errors to UI.
+      return serverOnly.handleError((error, stack) {
+        if (kDebugMode) {
+          debugPrint('LeaguesRepositoryFirebase.watchLeagues error: $error');
+        }
+      });
     } catch (_) {
       // If not signed in, router should have redirected already. Fail gracefully.
       return const Stream<List<League>>.empty();

@@ -2,11 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../core/services/connectivity_service.dart';
 import 'local_lan_ip.dart';
 
 const int kLocalLiveDiscoveryPort = 54545;
+
+/// User-safe exception: if UI accidentally shows `$e`, it will still be a friendly message.
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 /// Optional hint so viewers can map hosts to the correct side.
 enum LiveHostSide { home, away, unknown }
@@ -30,6 +41,21 @@ String liveHostSideToWire(LiveHostSide side) {
       return 'away';
     case LiveHostSide.unknown:
       return 'unknown';
+  }
+}
+
+Future<void> _requireSignedInAndOnline() async {
+  final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  if (uid.isEmpty) {
+    throw const UserFriendlyException('Please sign in and try again.');
+  }
+
+  await ConnectivityService.instance.initialize();
+  final ok = await ConnectivityService.instance.recheckConnection(timeout: const Duration(seconds: 4));
+  if (!ok) {
+    throw const UserFriendlyException(
+      'Your network appears to be offline. Please check your connection and try again.',
+    );
   }
 }
 
@@ -74,6 +100,10 @@ class DiscoveredHost {
 }
 
 /// Host side: broadcasts "I'm hosting matchId on port" on LAN using UDP broadcast.
+///
+/// ONLINE-ONLY ENFORCEMENT:
+/// This can never start when the device is offline/unreachable.
+/// (Prevents the Live feature from functioning offline.)
 class LocalLiveDiscoveryBroadcaster {
   LocalLiveDiscoveryBroadcaster({
     required this.matchId,
@@ -99,6 +129,9 @@ class LocalLiveDiscoveryBroadcaster {
 
   Future<void> start() async {
     if (_socket != null) return;
+
+    // ONLINE-ONLY: never allow discovery to run while offline.
+    await _requireSignedInAndOnline();
 
     _localIp = await LocalLanIp.findLocalIpv4();
 
@@ -187,17 +220,22 @@ class LocalLiveDiscoveryBroadcaster {
 }
 
 /// Viewer side: listens for LAN broadcasts and maintains a list of discovered hosts.
+///
+/// ONLINE-ONLY ENFORCEMENT:
+/// This can never start when the device is offline/unreachable.
 class LocalLiveDiscoveryListener {
   RawDatagramSocket? _socket;
   Timer? _cleanupTimer;
 
-  final ValueNotifier<List<DiscoveredHost>> hosts =
-      ValueNotifier<List<DiscoveredHost>>([]);
+  final ValueNotifier<List<DiscoveredHost>> hosts = ValueNotifier<List<DiscoveredHost>>([]);
 
   final Map<String, DiscoveredHost> _byKey = {};
 
   Future<void> start() async {
     if (_socket != null) return;
+
+    // ONLINE-ONLY: never allow discovery to run while offline.
+    await _requireSignedInAndOnline();
 
     _socket = await RawDatagramSocket.bind(
       InternetAddress.anyIPv4,
@@ -220,8 +258,7 @@ class LocalLiveDiscoveryListener {
         if (matchId.isEmpty || port <= 0) return;
 
         final ip = (msg['ip'] as String?)?.trim();
-        final hostIp =
-            (ip != null && ip.isNotEmpty) ? ip : dg.address.address;
+        final hostIp = (ip != null && ip.isNotEmpty) ? ip : dg.address.address;
 
         final deviceName = (msg['deviceName'] as String?)?.trim();
         final homeName = (msg['homeName'] as String?)?.trim();
@@ -234,13 +271,9 @@ class LocalLiveDiscoveryListener {
           port: port,
           matchId: matchId,
           lastSeen: now,
-          deviceName: (deviceName == null || deviceName.isEmpty)
-              ? null
-              : deviceName,
-          homeName:
-              (homeName == null || homeName.isEmpty) ? null : homeName,
-          awayName:
-              (awayName == null || awayName.isEmpty) ? null : awayName,
+          deviceName: (deviceName == null || deviceName.isEmpty) ? null : deviceName,
+          homeName: (homeName == null || homeName.isEmpty) ? null : homeName,
+          awayName: (awayName == null || awayName.isEmpty) ? null : awayName,
           side: side,
         );
 
@@ -261,8 +294,7 @@ class LocalLiveDiscoveryListener {
   }
 
   void _emit() {
-    final list = _byKey.values.toList()
-      ..sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
+    final list = _byKey.values.toList()..sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
     hosts.value = list;
   }
 

@@ -1,10 +1,15 @@
+import 'dart:io';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/status_badge.dart';
@@ -31,6 +36,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   late final LocalLeaguesRepository _repo;
 
   bool _busy = false;
+  bool _loading = true;
+  String? _loadError;
 
   // Keep as a stable status code (do not localize this string directly).
   // If we need localized rendering, we should update StatusBadge to map codes -> l10n.
@@ -66,9 +73,19 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   }
 
   Future<void> _loadMatch() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+
     try {
-      final matches = await _repo.getMatches(widget.leagueId);
-      final teams = await _repo.getTeams(widget.leagueId);
+      final matchesFuture = _repo.getMatches(widget.leagueId);
+      final teamsFuture = _repo.getTeams(widget.leagueId);
+
+      final results = await Future.wait([matchesFuture, teamsFuture]).timeout(const Duration(seconds: 25));
+      final matches = results[0] as List<FixtureMatch>;
+      final teams = results[1] as List<Team>;
 
       FixtureMatch? m;
       for (final x in matches) {
@@ -82,10 +99,27 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
       setState(() {
         _match = m;
         _teamsById = {for (final t in teams) t.id: t};
+        _status = (m?.isPlayed ?? false) ? 'Completed' : 'Pending';
+        _loading = false;
       });
-    } catch (_) {
-      // fallback (keep prior state)
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = UserFriendlyError.toMessage(e);
+        _loading = false;
+      });
     }
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Future<void> _copyLiveId() async {
@@ -93,18 +127,35 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
     await Clipboard.setData(ClipboardData(text: _liveMatchId));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${l10n.tr('match_detail_live_id_copied_prefix')}$_liveMatchId'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    _showSnack('${l10n.tr('match_detail_live_id_copied_prefix')}$_liveMatchId');
   }
 
-  Future<void> _startLocalLive() async {
+  Future<bool> _ensureSignedInAndOnline() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      _showSnack('Please sign in and try again.');
+      if (mounted) context.go('/login');
+      return false;
+    }
+
+    await ConnectivityService.instance.initialize();
+    final ok = await ConnectivityService.instance.recheckConnection(timeout: const Duration(seconds: 4));
+    if (!ok) {
+      _showSnack(UserFriendlyError.toMessage(SocketException('offline')));
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _openLive() async {
     if (_busy) return;
 
     final l10n = context.l10n;
+
+    final ok = await _ensureSignedInAndOnline();
+    if (!ok) return;
+    if (!mounted) return;
 
     final side = await showModalBottomSheet<LiveHostSide>(
       context: context,
@@ -160,10 +211,11 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
     if (!mounted) return;
 
-    const port = 8765;
-
     setState(() => _busy = true);
     try {
+      // Port is legacy for older LAN flows; LiveViewScreen enforces online-only and ignores port for LiveKit.
+      const port = 8765;
+
       await context.push(
         '/live/view/$_liveMatchId',
         extra: {
@@ -176,6 +228,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           'side': (side == null) ? 'unknown' : liveHostSideToWire(side),
         },
       );
+    } catch (e) {
+      _showSnack(UserFriendlyError.toMessage(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -194,19 +248,63 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         title: Text(l10n.tr('match_detail_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: l10n.tr('admin_knockout_reload_tooltip'),
+            onPressed: _loading ? null : _loadMatch,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: isWide ? 700 : 500),
-            child: ListView(
-              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 16),
-              children: [
-                _buildHeader(context),
-                const SizedBox(height: 16),
-                _buildLiveSection(context),
-              ],
-            ),
+            child: _loading
+                ? Center(child: CircularProgressIndicator(color: cs.primary))
+                : (_loadError != null)
+                    ? Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Glass(
+                          padding: const EdgeInsets.all(16),
+                          borderRadius: 20,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _loadError!,
+                                style: TextStyle(
+                                  color: cs.error,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: _loadMatch,
+                                  icon: const Icon(Icons.refresh),
+                                  label: Text(l10n.tr('common_retry')),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              TextButton(
+                                onPressed: () => Navigator.maybePop(context),
+                                child: Text(l10n.tr('common_back')),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView(
+                        padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 16),
+                        children: [
+                          _buildHeader(context),
+                          const SizedBox(height: 16),
+                          _buildLiveSection(context),
+                        ],
+                      ),
           ),
         ),
       ),
@@ -296,7 +394,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _busy ? null : _startLocalLive,
+              onPressed: _busy ? null : _openLive,
               icon: _busy
                   ? SizedBox(
                       width: 18,

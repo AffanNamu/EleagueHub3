@@ -4,6 +4,15 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+/// User-safe exception: if UI accidentally shows `$e`, it will still be a friendly message.
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 /// Global connectivity service (ONLINE-ONLY UX helper)
 /// - Tracks online/offline state for UI (e.g., OfflineBanner)
 /// - Verifies real internet access (not just network interface)
@@ -25,10 +34,12 @@ class ConnectivityService {
   StreamSubscription<List<ConnectivityResult>>? _subscription;
 
   bool _initialized = false;
+  bool _disposed = false;
   Future<void>? _initializing;
 
   /// Must be called once (e.g. in main.dart). Safe to call multiple times.
   Future<void> initialize() {
+    if (_disposed) return Future.value();
     if (_initialized) return Future.value();
     return _initializing ??= _initializeInternal();
   }
@@ -51,6 +62,8 @@ class ConnectivityService {
 
   /// Forces a manual recheck (e.g., "Retry" buttons / status cards).
   Future<bool> recheckConnection({Duration timeout = const Duration(seconds: 4)}) async {
+    if (_disposed) return false;
+
     try {
       final results = await _connectivity.checkConnectivity().timeout(timeout);
       await _updateStatus(results);
@@ -61,7 +74,21 @@ class ConnectivityService {
     }
   }
 
+  /// Online-only convenience:
+  /// Throws a user-friendly exception if the device isn't online.
+  Future<void> requireOnline({Duration timeout = const Duration(seconds: 4)}) async {
+    await initialize();
+    final ok = await recheckConnection(timeout: timeout);
+    if (!ok) {
+      throw const UserFriendlyException(
+        'Your network appears to be offline. Please check your connection and try again.',
+      );
+    }
+  }
+
   Future<void> _updateStatus(List<ConnectivityResult> results) async {
+    if (_disposed) return;
+
     final hasNetwork = results.isNotEmpty && !results.contains(ConnectivityResult.none);
 
     if (!hasNetwork) {
@@ -74,9 +101,15 @@ class ConnectivityService {
   }
 
   void _setConnected(bool connected) {
+    if (_disposed) return;
     if (isConnected.value == connected) return;
+
     isConnected.value = connected;
-    _connectionController.add(connected);
+
+    // Avoid bad state if someone calls after dispose.
+    if (!_connectionController.isClosed) {
+      _connectionController.add(connected);
+    }
   }
 
   /// Real internet check (DNS lookup).
@@ -100,8 +133,16 @@ class ConnectivityService {
   }
 
   void dispose() {
-    _subscription?.cancel();
+    if (_disposed) return;
+    _disposed = true;
+
+    try {
+      _subscription?.cancel();
+    } catch (_) {}
     _subscription = null;
-    _connectionController.close();
+
+    try {
+      _connectionController.close();
+    } catch (_) {}
   }
 }
