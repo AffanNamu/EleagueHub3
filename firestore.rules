@@ -4,6 +4,10 @@ service cloud.firestore {
 
     function signedIn() { return request.auth != null; }
 
+    function looksLikeFirebaseUid(s) {
+      return (s is string) && (s.size() > 20);
+    }
+
     // --------------------------
     // Pricing admins + super admin (app creator)
     // --------------------------
@@ -16,8 +20,8 @@ service cloud.firestore {
         request.auth.uid == 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'
         ||
         (adminsDoc().exists()
-         && (adminsDoc().data.pricingAdmins is list)
-         && (request.auth.uid in adminsDoc().data.pricingAdmins))
+          && (adminsDoc().data.pricingAdmins is list)
+          && (request.auth.uid in adminsDoc().data.pricingAdmins))
       );
     }
 
@@ -34,9 +38,18 @@ service cloud.firestore {
         && (
           (('organizerUid' in ld.data) && (ld.data.organizerUid is string) && (ld.data.organizerUid == request.auth.uid))
           || (('ownerUid' in ld.data) && (ld.data.ownerUid is string) && (ld.data.ownerUid == request.auth.uid))
-          // Backward-compat only if these contain Firebase UID (NOT short/share id)
-          || (('organizerUserId' in ld.data) && (ld.data.organizerUserId is string) && (ld.data.organizerUserId == request.auth.uid))
-          || (('ownerId' in ld.data) && (ld.data.ownerId is string) && (ld.data.ownerId == request.auth.uid))
+
+          // Backward-compat ONLY if these fields contain Firebase UID (not short/shareId)
+          || (
+            ('organizerUserId' in ld.data)
+            && looksLikeFirebaseUid(ld.data.organizerUserId)
+            && (ld.data.organizerUserId == request.auth.uid)
+          )
+          || (
+            ('ownerId' in ld.data)
+            && looksLikeFirebaseUid(ld.data.ownerId)
+            && (ld.data.ownerId == request.auth.uid)
+          )
         );
     }
 
@@ -335,9 +348,8 @@ service cloud.firestore {
         return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponCodes/$(codeId));
       }
 
-      // IMPORTANT:
-      // You said super admin manages ONLY global pricing (/app/pricing).
-      // So coupons are managed ONLY by league organizer/owner.
+      // SUPER ADMIN IS PRICING ONLY.
+      // Coupons are managed ONLY by the league owner/organizer.
       function isCouponManager(leagueId) {
         return isOwner(leagueId);
       }
