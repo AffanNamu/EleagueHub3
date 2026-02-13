@@ -26,7 +26,6 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
-import '../models/membership.dart';
 
 enum LeagueCreationType {
   series,
@@ -280,13 +279,22 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           .timeout(const Duration(seconds: 12));
       if (snap.docs.isEmpty) return code;
     }
+
     throw StateError("We couldn't create a join code. Please try again.");
   }
 
-  /// Fixes persistent permission-denied caused by "update vs create" confusion:
-  /// - We use `docRef.create()` so the first write is always a CREATE (rules: allow create).
-  /// - If the doc already exists (rare collision / previous partial state), we generate a new leagueId and retry.
-  /// - Then we write organizer membership AFTER the league exists.
+  class _LeagueIdInUse implements Exception {
+    const _LeagueIdInUse();
+  }
+
+  /// Reliable online-only creation that avoids:
+  /// - batch timing issues with rules
+  /// - accidental "update" when the doc unexpectedly exists
+  ///
+  /// Strategy:
+  /// 1) Transaction: ensure doc does not exist, then set league (CREATE path).
+  /// 2) After league exists, write organizer membership as a follow-up write (best-effort).
+  /// 3) Read back from server.
   Future<League> _createLeagueOnline({
     required League league,
     required String organizerAuthUid,
@@ -299,13 +307,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // try with draft id first, then fall back to a new id if it already exists
     final candidateIds = <String>[
       league.id.trim().isNotEmpty ? league.id.trim() : _draftLeagueId,
-      _uuid.v4(),
+      _uuid.v4(), // fallback if somehow the first ID exists
     ];
 
-    FirebaseException? lastFirebase;
     Object? lastError;
 
     for (final leagueId in candidateIds) {
@@ -317,7 +323,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         'id': leagueId,
         'updatedAtMs': now,
 
-        // Ensure bool
+        // Ensure bool (rules handle bool/int, but bool is safest)
         'isPrivate': _privacy == LeaguePrivacy.private,
 
         // Auth-owned fields
@@ -328,21 +334,26 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         'organizerUserId': organizerUserId,
         'ownerId': uid,
 
-        // Explicit list (not arrayUnion) to guarantee access
+        // Explicit list to satisfy create rules reliably
         'memberIds': <String>[uid],
       };
 
       try {
-        // 1) CREATE league doc (will fail if doc exists)
-        await leagueRef.create(leaguePayload).timeout(const Duration(seconds: 25));
+        await _firestore
+            .runTransaction<void>((tx) async {
+              final snap = await tx.get(leagueRef);
+              if (snap.exists) throw const _LeagueIdInUse();
+              tx.set(leagueRef, leaguePayload);
+            })
+            .timeout(const Duration(seconds: 25));
 
-        // 2) Create organizer membership after league exists (best-effort)
+        // Organizer membership (best-effort; should succeed now because league exists + isOwner == true)
         final membershipPayload = <String, dynamic>{
           'id': uid,
           'leagueId': leagueId,
           'userId': uid,
           'teamId': null,
-          'role': LeagueRole.organizer.index,
+          'role': LeagueRole.organizer.index, // expected 1
           'updatedAtMs': now,
           'version': 1,
         };
@@ -350,10 +361,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         try {
           await membershipRef.set(membershipPayload, SetOptions(merge: true)).timeout(const Duration(seconds: 20));
         } catch (_) {
-          // non-fatal
+          // Non-fatal. League ownership is based on organizerUid/ownerUid anyway.
         }
 
-        // 3) Verify readable from server
         final fresh = await leagueRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 15));
         if (!fresh.exists) {
           throw StateError("We created your league, but couldn't open it yet. Please try again.");
@@ -363,22 +373,15 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         data['id'] = data['id'] is String && (data['id'] as String).trim().isNotEmpty ? data['id'] : fresh.id;
 
         return League.fromRemoteMap(data);
-      } on FirebaseException catch (e) {
-        lastFirebase = e;
+      } on _LeagueIdInUse catch (e) {
         lastError = e;
-        // If doc already exists, retry with next id. Otherwise stop.
-        if (e.code == 'already-exists') {
-          continue;
-        }
-        rethrow;
+        continue; // try next ID
       } catch (e) {
         lastError = e;
         rethrow;
       }
     }
 
-    // If we exhausted retries, surface a friendly failure.
-    if (lastFirebase != null) throw lastFirebase!;
     throw StateError(lastError?.toString() ?? "We couldn't create your league right now. Please try again.");
   }
 
@@ -391,7 +394,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth >= 900;
 
-    // REQUIRED: League creation must be tied to Firebase Auth UID so Firestore rules can authorize.
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (authUid.trim().isEmpty) {
       return GlassScaffold(
@@ -601,7 +603,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     );
   }
 
-  Widget _buildMainCard(BuildContext context) {
+Widget _buildMainCard(BuildContext context) {
     return Glass(
       padding: const EdgeInsets.all(16),
       borderRadius: 28,
