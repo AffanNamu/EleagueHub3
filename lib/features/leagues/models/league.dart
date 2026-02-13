@@ -54,11 +54,9 @@ class League {
   final String organizerUserId;
 
   /// Join/invite code (Join ID).
-  /// Must be generated even offline.
   final String code;
 
   /// QR payload to encode into QR (stable even offline).
-  /// Example payload: "eleaguehub://join?code=ABC123&id=<leagueId>"
   /// If empty in old data, we auto-derive at runtime (see [qrPayload]).
   final String qrPayloadOverride;
 
@@ -108,6 +106,8 @@ class League {
     return 'eleaguehub://join?code=$code&id=$id';
   }
 
+  /// IMPORTANT (online-only + rules):
+  /// `isPrivate` must be a **bool** on Firestore, not 0/1.
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -126,7 +126,7 @@ class League {
         'couponCount': couponCount,
 
         'format': format.index,
-        'isPrivate': isPrivate ? 1 : 0,
+        'isPrivate': isPrivate, // bool (not 0/1)
         'region': region,
         'maxTeams': maxTeams,
         'season': season,
@@ -142,10 +142,11 @@ class League {
         'version': version,
       };
 
-  /// Stored locally as a JSON string in SharedPreferences
+  /// Stored locally as a JSON string in SharedPreferences (legacy/offline-first).
+  /// Online-only migration: should not be used for domain persistence.
   String toJsonString() => jsonEncode(toJson());
 
-  /// Parse local stored JSON string
+  /// Parse legacy JSON string (best-effort).
   static League fromJsonString(String raw) {
     final map = (jsonDecode(raw) as Map).cast<String, dynamic>();
     return fromRemoteMap(map);
@@ -232,6 +233,8 @@ class League {
       organizerUid = organizerUserId.trim();
     }
 
+    final isPrivate = _boolFromAny(map['isPrivate'], fallback: false);
+
     return League(
       id: id,
       name: name,
@@ -243,7 +246,7 @@ class League {
       couponDiscountPercent: couponDiscountPercent,
       couponCount: safeCouponCount,
       format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
-      privacy: (map['isPrivate'] == 1 || map['isPrivate'] == true) ? LeaguePrivacy.private : LeaguePrivacy.public,
+      privacy: isPrivate ? LeaguePrivacy.private : LeaguePrivacy.public,
       region: map['region'] as String? ?? 'Global',
       maxTeams: (map['maxTeams'] as num?)?.toInt() ?? 20,
       season: map['season'] as String? ?? '2026',

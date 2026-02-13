@@ -1,12 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
 import '../models/league.dart';
@@ -63,6 +64,11 @@ class LocalLeaguesRepository {
     return uid;
   }
 
+  Future<void> _requireOnline() async {
+    // Online-only: fail fast when offline with a friendly message.
+    await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+  }
+
   bool _isNetworkFirebaseException(FirebaseException e) {
     return e.code == 'unavailable' || e.code == 'deadline-exceeded';
   }
@@ -70,8 +76,26 @@ class LocalLeaguesRepository {
   Never _rethrowFriendly(Object e) {
     if (e is UserFriendlyException) throw e;
 
+    if (e is SocketException || e is HandshakeException) {
+      throw const UserFriendlyException(
+        'Your network appears to be offline. Please check your connection and try again.',
+      );
+    }
+
     if (e is TimeoutException) {
       throw const UserFriendlyException('Your internet connection seems unstable. Please try again.');
+    }
+
+    if (e is FirebaseAuthException) {
+      if (e.code == 'network-request-failed') {
+        throw const UserFriendlyException(
+          'Your network appears to be offline. Please check your connection and try again.',
+        );
+      }
+      if (e.code == 'unauthenticated') {
+        throw const UserFriendlyException('Please sign in and try again.');
+      }
+      throw const UserFriendlyException("We couldn't complete this action. Please try again.");
     }
 
     if (e is FirebaseException) {
@@ -128,6 +152,7 @@ class LocalLeaguesRepository {
   Future<List<League>> getAllLeagues() async {
     try {
       final authUid = _requireAuthUid();
+      await _requireOnline();
 
       final snapshot = await _firestore
           .collection('leagues')
@@ -144,6 +169,7 @@ class LocalLeaguesRepository {
   Future<League?> getLeagueById(String id) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final doc = await _firestore
           .collection('leagues')
@@ -157,13 +183,22 @@ class LocalLeaguesRepository {
     }
   }
 
+  /// ONLINE-ONLY save.
+  ///
+  /// Ensures (server authoritative):
+  /// - organizerUid/ownerUid are request.auth.uid
+  /// - memberIds contains request.auth.uid
+  /// - isPrivate is a bool (not 0/1), to avoid rule type errors
+  /// - organizer membership doc is at memberships/{uid} (common rules use exists())
   Future<void> saveLeague(League league) async {
     try {
       final authUid = _requireAuthUid();
+      await _requireOnline();
 
       final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
-      final fixedCode =
-          league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
+      final fixedCode = league.code.trim().isNotEmpty
+          ? league.code.trim().toUpperCase()
+          : await _generateUniqueJoinCode();
 
       final fixed = league.copyWith(
         id: leagueId,
@@ -172,16 +207,50 @@ class LocalLeaguesRepository {
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
 
-      await _firestore.collection('leagues').doc(leagueId).set(
+      final leagueRef = _firestore.collection('leagues').doc(leagueId);
+      final organizerMembershipRef = leagueRef.collection('memberships').doc(authUid);
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final batch = _firestore.batch();
+
+      batch.set(
+        leagueRef,
         {
           ...fixed.toJson(),
+
+          // Enforce server-authoritative fields.
           'organizerUid': authUid,
           'ownerUid': authUid,
+
+          // Legacy compatibility fields (keep UID if present).
           'ownerId': authUid,
+
+          // IMPORTANT: write as bool, not 0/1.
+          'isPrivate': fixed.isPrivate,
+
+          // Required for list queries and access guards.
           'memberIds': FieldValue.arrayUnion([authUid]),
+
+          'updatedAtMs': now,
         },
         SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 25));
+      );
+
+      // Ensure organizer membership exists at memberships/{uid}.
+      final membership = Membership(
+        id: authUid, // IMPORTANT: doc id aligns with uid for rules `exists()`
+        leagueId: leagueId,
+        userId: authUid,
+        teamId: null,
+        role: LeagueRole.organizer,
+        updatedAtMs: now,
+        version: 1,
+      );
+
+      batch.set(organizerMembershipRef, membership.toRemoteMap(), SetOptions(merge: true));
+
+      await batch.commit().timeout(const Duration(seconds: 25));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -190,6 +259,7 @@ class LocalLeaguesRepository {
   Future<void> deleteLeagueCompletely(String leagueId) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
 
@@ -226,17 +296,25 @@ class LocalLeaguesRepository {
   // CREATE (online-only)
   // ------------------------------------------------------
 
+  /// Backward-compatible method name kept.
+  ///
+  /// ONLINE-ONLY:
+  /// - No local persistence
+  /// - Writes league + organizer membership directly to Firestore
+  /// - Membership doc id is request.auth.uid (for rules that use exists()).
   Future<League> createLeagueLocally({
     required League league,
     required String organizerUserId,
   }) async {
     try {
       final authUid = _requireAuthUid();
+      await _requireOnline();
 
       final now = DateTime.now().millisecondsSinceEpoch;
       final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
-
-      final code = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
+      final code = league.code.trim().isNotEmpty
+          ? league.code.trim().toUpperCase()
+          : await _generateUniqueJoinCode();
 
       final stored = league.copyWith(
         id: leagueId,
@@ -246,19 +324,30 @@ class LocalLeaguesRepository {
         updatedAtMs: now,
       );
 
-      await _firestore.collection('leagues').doc(leagueId).set(
+      final leagueRef = _firestore.collection('leagues').doc(leagueId);
+      final organizerMembershipRef = leagueRef.collection('memberships').doc(authUid);
+
+      final batch = _firestore.batch();
+
+      batch.set(
+        leagueRef,
         {
           ...stored.toJson(),
           'organizerUid': authUid,
           'ownerUid': authUid,
           'ownerId': authUid,
+
+          // IMPORTANT: write as bool (not 0/1) to avoid rules type errors.
+          'isPrivate': stored.isPrivate,
+
           'memberIds': FieldValue.arrayUnion([authUid]),
+          'updatedAtMs': now,
         },
         SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 25));
+      );
 
       final membership = Membership(
-        id: _uuid.v4(),
+        id: authUid, // IMPORTANT: doc id aligns with uid
         leagueId: leagueId,
         userId: authUid,
         teamId: null,
@@ -267,13 +356,9 @@ class LocalLeaguesRepository {
         version: 1,
       );
 
-      await _firestore
-          .collection('leagues')
-          .doc(leagueId)
-          .collection('memberships')
-          .doc(membership.id)
-          .set(membership.toRemoteMap(), SetOptions(merge: true))
-          .timeout(const Duration(seconds: 20));
+      batch.set(organizerMembershipRef, membership.toRemoteMap(), SetOptions(merge: true));
+
+      await batch.commit().timeout(const Duration(seconds: 25));
 
       return stored;
     } catch (e) {
@@ -293,6 +378,7 @@ class LocalLeaguesRepository {
   }) async {
     try {
       final authUid = _requireAuthUid();
+      await _requireOnline();
 
       final code = joinCode.trim().toUpperCase();
       if (code.isEmpty) {
@@ -313,28 +399,40 @@ class LocalLeaguesRepository {
       final leagueDoc = query.docs.first;
       final leagueId = leagueDoc.id;
 
-      await _firestore.collection('leagues').doc(leagueId).set(
-        {
-          'memberIds': FieldValue.arrayUnion([authUid]),
-          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-        },
-        SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 20));
+      final leagueRef = _firestore.collection('leagues').doc(leagueId);
+
+      // Always add as a league member (viewer access).
+      await leagueRef
+          .set(
+            {
+              'memberIds': FieldValue.arrayUnion([authUid]),
+              'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+
+              // Defensive normalization (helps avoid rules type errors if old data mixed types).
+              // Do not overwrite if missing; this write is merge:true anyway.
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 20));
 
       if (mode == LeagueJoinMode.participant) {
-        final existing = await _firestore
-            .collection('leagues')
-            .doc(leagueId)
-            .collection('memberships')
-            .where('userId', isEqualTo: authUid)
-            .limit(1)
-            .get(const GetOptions(source: Source.server))
-            .timeout(const Duration(seconds: 20));
+        final membershipRef = leagueRef.collection('memberships').doc(authUid);
 
-        if (existing.docs.isEmpty) {
+        // Avoid accidentally downgrading an organizer.
+        final existing = await membershipRef
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 12));
+
+        final existingRoleIdx = (existing.data()?['role'] as num?)?.toInt();
+        final existingRole = (existingRoleIdx != null && existingRoleIdx >= 0 && existingRoleIdx < LeagueRole.values.length)
+            ? LeagueRole.values[existingRoleIdx]
+            : null;
+
+        if (!existing.exists || existingRole == null || existingRole == LeagueRole.member) {
           final now = DateTime.now().millisecondsSinceEpoch;
+
           final membership = Membership(
-            id: _uuid.v4(),
+            id: authUid, // IMPORTANT: doc id aligns with uid
             leagueId: leagueId,
             userId: authUid,
             teamId: null,
@@ -343,19 +441,13 @@ class LocalLeaguesRepository {
             version: 1,
           );
 
-          await _firestore
-              .collection('leagues')
-              .doc(leagueId)
-              .collection('memberships')
-              .doc(membership.id)
+          await membershipRef
               .set(membership.toRemoteMap(), SetOptions(merge: true))
               .timeout(const Duration(seconds: 20));
         }
       }
 
-      final fresh = await _firestore
-          .collection('leagues')
-          .doc(leagueId)
+      final fresh = await leagueRef
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
@@ -372,6 +464,7 @@ class LocalLeaguesRepository {
   Future<List<Membership>> listMemberships() async {
     try {
       final authUid = _requireAuthUid();
+      await _requireOnline();
 
       final leaguesSnap = await _firestore
           .collection('leagues')
@@ -416,10 +509,32 @@ class LocalLeaguesRepository {
   }) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final uid = userId.trim();
       if (uid.isEmpty) return null;
 
+      // Preferred (new standard): memberships/{uid}
+      final direct = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('memberships')
+          .doc(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+
+      if (direct.exists) {
+        final map = <String, dynamic>{...(direct.data() ?? <String, dynamic>{})};
+        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : direct.id;
+        map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+        map['userId'] = (map['userId'] as String?) ?? uid;
+        map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+        map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+        map['version'] = (map['version'] as num?)?.toInt() ?? 1;
+        return Membership.fromRemoteMap(map);
+      }
+
+      // Backward compat: older docs may have random IDs; query by userId.
       final snap = await _firestore
           .collection('leagues')
           .doc(leagueId)
@@ -452,26 +567,27 @@ class LocalLeaguesRepository {
   }) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final uid = userId.trim();
       if (uid.isEmpty) {
         throw const UserFriendlyException('Please select a valid user.');
       }
 
-      final existing = await _firestore
+      final membershipRef = _firestore
           .collection('leagues')
           .doc(leagueId)
           .collection('memberships')
-          .where('userId', isEqualTo: uid)
-          .limit(1)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 20));
+          .doc(uid);
 
       final now = DateTime.now().millisecondsSinceEpoch;
+      final existing = await membershipRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
 
-      if (existing.docs.isEmpty) {
+      if (!existing.exists) {
         final membership = Membership(
-          id: _uuid.v4(),
+          id: uid,
           leagueId: leagueId,
           userId: uid,
           teamId: teamId,
@@ -480,29 +596,26 @@ class LocalLeaguesRepository {
           version: 1,
         );
 
-        await _firestore
-            .collection('leagues')
-            .doc(leagueId)
-            .collection('memberships')
-            .doc(membership.id)
+        await membershipRef
             .set(membership.toRemoteMap(), SetOptions(merge: true))
             .timeout(const Duration(seconds: 20));
 
         return;
       }
 
-      final doc = existing.docs.first;
-      final data = doc.data();
+      final data = existing.data() ?? <String, dynamic>{};
       final currentVersion = (data['version'] as num?)?.toInt() ?? 1;
 
-      await doc.reference.set(
-        {
-          'teamId': teamId,
-          'updatedAtMs': now,
-          'version': currentVersion + 1,
-        },
-        SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 20));
+      await membershipRef
+          .set(
+            {
+              'teamId': teamId,
+              'updatedAtMs': now,
+              'version': currentVersion + 1,
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 20));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -515,6 +628,7 @@ class LocalLeaguesRepository {
   Future<List<Team>> getTeams(String leagueId) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final snap = await _firestore
           .collection('leagues')
@@ -537,6 +651,7 @@ class LocalLeaguesRepository {
   Future<void> saveTeams(String leagueId, List<Team> allTeams) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final col = _firestore.collection('leagues').doc(leagueId).collection('teams');
 
@@ -580,6 +695,7 @@ class LocalLeaguesRepository {
   Future<List<FixtureMatch>> getMatches(String leagueId) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final snap = await _firestore
           .collection('leagues')
@@ -602,6 +718,7 @@ class LocalLeaguesRepository {
   Future<void> saveMatches(String leagueId, List<FixtureMatch> matches) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
 
@@ -633,6 +750,7 @@ class LocalLeaguesRepository {
   Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
       final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
@@ -666,6 +784,7 @@ class LocalLeaguesRepository {
   Future<List<KnockoutMatch>> getKnockoutMatches(String leagueId) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final snap = await _firestore
           .collection('leagues')
@@ -722,6 +841,7 @@ class LocalLeaguesRepository {
   Future<void> saveKnockoutMatches(String leagueId, List<KnockoutMatch> matches) async {
     try {
       _requireAuthUid();
+      await _requireOnline();
 
       final col = _firestore.collection('leagues').doc(leagueId).collection('knockout');
 

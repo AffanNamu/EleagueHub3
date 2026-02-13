@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,14 +12,13 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
-import '../data/leagues_repository_local.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
@@ -25,6 +26,7 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import '../models/membership.dart';
 
 enum LeagueCreationType {
   series,
@@ -41,6 +43,7 @@ class LeagueCreationDashboard extends ConsumerStatefulWidget {
 
 class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboard> {
   final Uuid _uuid = const Uuid();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   late final String _draftLeagueId;
 
@@ -258,6 +261,98 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _uploadingSponsorImage = false;
       });
     }
+  }
+
+  String _generateJoinCode({int length = 6}) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final rnd = Random.secure();
+    return List.generate(length, (_) => chars[rnd.nextInt(chars.length)]).join();
+  }
+
+  Future<String> _generateUniqueJoinCode() async {
+    for (var i = 0; i < 6; i++) {
+      final code = _generateJoinCode();
+      final snap = await _firestore
+          .collection('leagues')
+          .where('code', isEqualTo: code)
+          .limit(1)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+      if (snap.docs.isEmpty) return code;
+    }
+    throw StateError("We couldn't create a join code. Please try again.");
+  }
+
+  Future<League> _createLeagueOnline({
+    required League league,
+    required String organizerAuthUid,
+    required String organizerUserId,
+  }) async {
+    // Online-only enforcement.
+    await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+    final uid = organizerAuthUid.trim();
+    if (uid.isEmpty) throw FirebaseAuthException(code: 'unauthenticated');
+
+    final leagueId = league.id.trim().isEmpty ? _draftLeagueId : league.id.trim();
+
+    // IMPORTANT:
+    // Some security rules patterns rely on membership doc id == uid via exists().
+    // So we write organizer membership at: leagues/{leagueId}/memberships/{uid}
+    final leagueRef = _firestore.collection('leagues').doc(leagueId);
+    final membershipRef = leagueRef.collection('memberships').doc(uid);
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Base payload from model (keeps schema consistent across app),
+    // then enforce critical auth-owned fields and safe types.
+    final base = <String, dynamic>{
+      ...league.toJson(),
+      'id': leagueId,
+      'updatedAtMs': now,
+
+      // Ensure a boolean (some rules use negation `!isPrivate` which errors if numeric).
+      'isPrivate': _privacy == LeaguePrivacy.private,
+
+      // Auth-owned fields required by rules/guards.
+      'organizerUid': uid,
+      'ownerUid': uid,
+
+      // Legacy compatibility fields (some UI/rules may still reference them).
+      'organizerUserId': organizerUserId,
+      'ownerId': uid,
+
+      // Access control list for membership queries and guards.
+      'memberIds': FieldValue.arrayUnion([uid]),
+    };
+
+    final membership = Membership(
+      id: uid, // critical: doc id aligns with uid
+      leagueId: leagueId,
+      userId: uid,
+      teamId: null,
+      role: LeagueRole.organizer,
+      updatedAtMs: now,
+      version: 1,
+    );
+
+    final batch = _firestore.batch();
+    batch.set(leagueRef, base, SetOptions(merge: true));
+    batch.set(membershipRef, membership.toRemoteMap(), SetOptions(merge: true));
+
+    await batch.commit().timeout(const Duration(seconds: 25));
+
+    // Server-verify we can read the league back (prevents "created" UI when rules/schema block access).
+    final fresh = await leagueRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 15));
+
+    if (!fresh.exists) {
+      throw StateError("We created your league, but couldn't open it yet. Please try again.");
+    }
+
+    final data = (fresh.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    data['id'] = data['id'] is String && (data['id'] as String).trim().isNotEmpty ? data['id'] : fresh.id;
+
+    return League.fromRemoteMap(data);
   }
 
   @override
@@ -1224,6 +1319,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 12),
+
+        // Primary CTA in step body.
+        // Footer "DONE" now triggers the same creation action as well (see _buildFooterActions).
         FilledButton(
           onPressed: (_submitting || !canCreate) ? null : () => _create(context),
           style: FilledButton.styleFrom(
@@ -1357,7 +1455,16 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final canGoBack = !_submitting;
     final canGoNext = !_submitting;
 
-    final nextLabel = isLast ? l10n.tr('common_done') : l10n.tr('common_next');
+    // IMPORTANT UX FIX:
+    // If user reaches the last step and taps the footer button,
+    // it should CREATE the league if not created yet.
+    // Previously it just popped the screen ("Done") and nothing was created.
+    final bool willCreateOnNext = isLast && _createdLeague == null;
+
+    final nextLabel = isLast
+        ? (willCreateOnNext ? l10n.tr('league_create_create_league_button_upper') : l10n.tr('common_done'))
+        : l10n.tr('common_next');
+
     final backLabel = _step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back');
 
     return Row(
@@ -1388,11 +1495,18 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                 ? null
                 : () async {
                     if (isLast) {
-                      if (_createdLeague == null) context.pop();
+                      if (_createdLeague != null) {
+                        context.pop();
+                        return;
+                      }
+
+                      // Make footer "Done/Create" behave the same as the "Create League" button.
+                      await _create(context);
                       return;
                     }
+
                     final ok = await _validateAndAdvance(context);
-                    if (ok) setState(() => _step++);
+                    if (ok && mounted) setState(() => _step++);
                   },
             style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
             child: Text(nextLabel.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w900)),
@@ -1469,13 +1583,17 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       return;
     }
 
+    if (_submitting) return;
     setState(() => _submitting = true);
 
     try {
       final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
       if (organizerAuthUid.isEmpty) {
-        throw StateError('unauthenticated');
+        if (mounted) context.go('/login');
+        throw FirebaseAuthException(code: 'unauthenticated');
       }
+
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       // UI-only identity (short share id). Rules never use this.
       final derivedShareId = UserProfile.deriveShareIdFromUid(organizerAuthUid).trim();
@@ -1498,6 +1616,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       final couponsEnabled = _couponsEnabled;
       final discountPercent = _discountPercent.clamp(0, 100);
       final couponCount = _couponCount < 0 ? 0 : _couponCount;
+
+      final joinCode = await _generateUniqueJoinCode().timeout(const Duration(seconds: 12));
 
       final league = League(
         id: leagueId,
@@ -1524,20 +1644,18 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         organizerUid: organizerAuthUid, // Firebase UID authority (rules)
         organizerUserId: organizerUserId, // short/shareId for UI
 
-        code: '',
+        code: joinCode,
         qrPayloadOverride: '',
         settings: settings,
         updatedAtMs: now,
         version: 1,
       );
 
-      final repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
-      final stored = await repo
-          .createLeagueLocally(
-            league: league,
-            organizerUserId: organizerUserId,
-          )
-          .timeout(const Duration(seconds: 25));
+      final created = await _createLeagueOnline(
+        league: league,
+        organizerAuthUid: organizerAuthUid,
+        organizerUserId: organizerUserId,
+      ).timeout(const Duration(seconds: 35));
 
       // Coupons: league doc is already written. Create/update coupon config online.
       if (couponsEnabled && couponCount > 0) {
@@ -1548,7 +1666,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
           await CouponConfigService()
               .createOrIncrementOnPurchase(
-                leagueId: leagueId,
+                leagueId: created.id,
                 organizerUserId: organizerAuthUid,
                 qtyPurchased: couponCount,
                 discountPercent: discountPercent,
@@ -1570,7 +1688,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
       if (!mounted) return;
       setState(() {
-        _createdLeague = stored;
+        _createdLeague = created;
         _submitting = false;
       });
     } catch (e) {

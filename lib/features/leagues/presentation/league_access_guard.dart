@@ -73,13 +73,18 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
       }
 
       final data = doc.data() ?? <String, dynamic>{};
-      final memberIdsRaw = data['memberIds'];
 
+      final memberIdsRaw = data['memberIds'];
       final memberIds = (memberIdsRaw is List)
           ? memberIdsRaw.map((e) => (e ?? '').toString().trim()).where((s) => s.isNotEmpty).toSet()
           : <String>{};
 
-      final allowed = memberIds.contains(uid);
+      final organizerUid = (data['organizerUid'] ?? '').toString().trim();
+      final ownerUid = (data['ownerUid'] ?? '').toString().trim();
+
+      // REQUIRED: allow if memberIds contains uid OR organizerUid == uid OR ownerUid == uid.
+      // Handle missing fields gracefully.
+      final allowed = memberIds.contains(uid) || organizerUid == uid || ownerUid == uid;
 
       if (!mounted) return;
       setState(() {
