@@ -283,10 +283,10 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     throw StateError("We couldn't create a join code. Please try again.");
   }
 
-  /// IMPORTANT (fixes permission-denied):
-  /// Do NOT create league + organizer membership in one batch.
-  /// Create league first, then create organizer membership after the league exists
-  /// so `isOwner(leagueId)` resolves true in rules.
+  /// Fixes persistent permission-denied caused by "update vs create" confusion:
+  /// - We use `docRef.create()` so the first write is always a CREATE (rules: allow create).
+  /// - If the doc already exists (rare collision / previous partial state), we generate a new leagueId and retry.
+  /// - Then we write organizer membership AFTER the league exists.
   Future<League> _createLeagueOnline({
     required League league,
     required String organizerAuthUid,
@@ -297,69 +297,89 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final uid = organizerAuthUid.trim();
     if (uid.isEmpty) throw FirebaseAuthException(code: 'unauthenticated');
 
-    final leagueId = league.id.trim().isEmpty ? _draftLeagueId : league.id.trim();
-
-    final leagueRef = _firestore.collection('leagues').doc(leagueId);
-    final membershipRef = leagueRef.collection('memberships').doc(uid);
-
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // 1) Create/update league doc (must satisfy /leagues create rule)
-    final leaguePayload = <String, dynamic>{
-      ...league.toJson(),
-      'id': leagueId,
-      'updatedAtMs': now,
+    // try with draft id first, then fall back to a new id if it already exists
+    final candidateIds = <String>[
+      league.id.trim().isNotEmpty ? league.id.trim() : _draftLeagueId,
+      _uuid.v4(),
+    ];
 
-      // Ensure bool (rules support bool/int but bool is safest)
-      'isPrivate': _privacy == LeaguePrivacy.private,
+    FirebaseException? lastFirebase;
+    Object? lastError;
 
-      // Auth-owned fields
-      'organizerUid': uid,
-      'ownerUid': uid,
+    for (final leagueId in candidateIds) {
+      final leagueRef = _firestore.collection('leagues').doc(leagueId);
+      final membershipRef = leagueRef.collection('memberships').doc(uid);
 
-      // Legacy compatibility
-      'organizerUserId': organizerUserId,
-      'ownerId': uid,
+      final leaguePayload = <String, dynamic>{
+        ...league.toJson(),
+        'id': leagueId,
+        'updatedAtMs': now,
 
-      // Use a real list to satisfy rules checks reliably
-      'memberIds': <String>[uid],
-    };
+        // Ensure bool
+        'isPrivate': _privacy == LeaguePrivacy.private,
 
-    await leagueRef
-        .set(leaguePayload, SetOptions(merge: true))
-        .timeout(const Duration(seconds: 25));
+        // Auth-owned fields
+        'organizerUid': uid,
+        'ownerUid': uid,
 
-    // 2) Create organizer membership AFTER league exists (so isOwner() is true)
-    // Write explicit map to match rules keys exactly (avoid serialization mismatches).
-    final membershipPayload = <String, dynamic>{
-      'id': uid,
-      'leagueId': leagueId,
-      'userId': uid,
-      'teamId': null,
-      'role': LeagueRole.organizer.index, // should be 1
-      'updatedAtMs': now,
-      'version': 1,
-    };
+        // Legacy compatibility
+        'organizerUserId': organizerUserId,
+        'ownerId': uid,
 
-    try {
-      await membershipRef
-          .set(membershipPayload, SetOptions(merge: true))
-          .timeout(const Duration(seconds: 20));
-    } catch (_) {
-      // Non-fatal: league is still created and organizerUid/ownerUid authorizes admin actions.
-      // We intentionally do NOT fail the whole flow here.
+        // Explicit list (not arrayUnion) to guarantee access
+        'memberIds': <String>[uid],
+      };
+
+      try {
+        // 1) CREATE league doc (will fail if doc exists)
+        await leagueRef.create(leaguePayload).timeout(const Duration(seconds: 25));
+
+        // 2) Create organizer membership after league exists (best-effort)
+        final membershipPayload = <String, dynamic>{
+          'id': uid,
+          'leagueId': leagueId,
+          'userId': uid,
+          'teamId': null,
+          'role': LeagueRole.organizer.index,
+          'updatedAtMs': now,
+          'version': 1,
+        };
+
+        try {
+          await membershipRef.set(membershipPayload, SetOptions(merge: true)).timeout(const Duration(seconds: 20));
+        } catch (_) {
+          // non-fatal
+        }
+
+        // 3) Verify readable from server
+        final fresh = await leagueRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 15));
+        if (!fresh.exists) {
+          throw StateError("We created your league, but couldn't open it yet. Please try again.");
+        }
+
+        final data = (fresh.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        data['id'] = data['id'] is String && (data['id'] as String).trim().isNotEmpty ? data['id'] : fresh.id;
+
+        return League.fromRemoteMap(data);
+      } on FirebaseException catch (e) {
+        lastFirebase = e;
+        lastError = e;
+        // If doc already exists, retry with next id. Otherwise stop.
+        if (e.code == 'already-exists') {
+          continue;
+        }
+        rethrow;
+      } catch (e) {
+        lastError = e;
+        rethrow;
+      }
     }
 
-    // 3) Server-verify we can read it back
-    final fresh = await leagueRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 15));
-    if (!fresh.exists) {
-      throw StateError("We created your league, but couldn't open it yet. Please try again.");
-    }
-
-    final data = (fresh.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    data['id'] = data['id'] is String && (data['id'] as String).trim().isNotEmpty ? data['id'] : fresh.id;
-
-    return League.fromRemoteMap(data);
+    // If we exhausted retries, surface a friendly failure.
+    if (lastFirebase != null) throw lastFirebase!;
+    throw StateError(lastError?.toString() ?? "We couldn't create your league right now. Please try again.");
   }
 
   @override
@@ -371,8 +391,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth >= 900;
 
-    // REQUIRED: League creation must be tied to Firebase Auth UID so Firestore rules
-    // can authorize organizer-only actions (coupon config / coupon codes).
+    // REQUIRED: League creation must be tied to Firebase Auth UID so Firestore rules can authorize.
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (authUid.trim().isEmpty) {
       return GlassScaffold(
@@ -835,7 +854,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     }
   }
 
-  // ---- UI step widgets unchanged from your original (below) ----
+  // ---- UI step widgets (unchanged) ----
 
   Widget _stepLeagueType(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
@@ -902,17 +921,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                   },
                 ),
             ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _format == LeagueFormat.uclGroup
-                ? '${l10n.tr('league_create_groups_will_be_prefix')} ${_maxTeams ~/ 4} ${l10n.tr('league_create_groups_will_be_suffix')}'
-                : '${l10n.tr('league_create_swiss_table_prefix')} $_maxTeams ${l10n.tr('league_create_swiss_table_suffix')}',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.55),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
           ),
         ],
       ],
@@ -1057,12 +1065,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
           onClear: () => setState(() => _sponsorImageUrl.text = ''),
         ),
-        const SizedBox(height: 12),
-        _infoBanner(
-          icon: _typeIcon,
-          title: '$_typeLabel • ${l10n.tr('league_create_info_type_max_teams_prefix')} $_maxTeams',
-          subtitle: '${l10n.tr('league_create_info_format_prefix')} ${_format.displayName}',
-        ),
       ],
     );
   }
@@ -1169,9 +1171,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       );
     }
 
-    final statusTitle = _paymentCompleted
-        ? l10n.tr('league_create_payment_completed_title')
-        : l10n.tr('league_create_payment_required_title');
+    final statusTitle =
+        _paymentCompleted ? l10n.tr('league_create_payment_completed_title') : l10n.tr('league_create_payment_required_title');
     final statusSubtitle = _paymentCompleted
         ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}'
         : l10n.tr('league_create_payment_required_subtitle');
@@ -1201,7 +1202,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                       'addonsOnly': false,
                       'existingCouponsEnabled': _couponsEnabled,
                       'existingCouponCount': _couponCount,
-                      'existingCouponDiscountPercent': _discountPercent, // discount %
+                      'existingCouponDiscountPercent': _discountPercent,
                     },
                   );
 
@@ -1210,20 +1211,14 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                   if (result != null && result.success) {
                     setState(() => _payment = result);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(l10n.tr('league_create_payment_successful')),
-                        behavior: SnackBarBehavior.floating,
-                      ),
+                      SnackBar(content: Text(l10n.tr('league_create_payment_successful')), behavior: SnackBarBehavior.floating),
                     );
                     return;
                   }
 
                   if (result == null) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(l10n.tr('league_create_payment_cancelled')),
-                        behavior: SnackBarBehavior.floating,
-                      ),
+                      SnackBar(content: Text(l10n.tr('league_create_payment_cancelled')), behavior: SnackBarBehavior.floating),
                     );
                     return;
                   }
@@ -1236,9 +1231,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                   );
                 },
           style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-          child: Text(
-            _paymentCompleted ? l10n.tr('league_create_payment_done_view_receipt') : l10n.tr('league_create_pay_now'),
-          ),
+          child: Text(_paymentCompleted ? l10n.tr('league_create_payment_done_view_receipt') : l10n.tr('league_create_pay_now')),
         ),
       ],
     );
@@ -1263,19 +1256,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           subtitle: _name.text.trim().isEmpty ? l10n.tr('league_create_league_name_not_set') : _name.text.trim(),
         ),
         const SizedBox(height: 10),
-        _confirmRow(
-          Icons.lock,
-          l10n.tr('league_create_confirm_privacy_label'),
-          _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
-        ),
+        _confirmRow(Icons.lock, l10n.tr('league_create_confirm_privacy_label'),
+            _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public')),
         _confirmRow(Icons.groups, l10n.tr('league_create_confirm_max_teams_label'), '$_maxTeams'),
         if (_couponsEnabled)
-          _confirmRow(
-            Icons.confirmation_number_outlined,
-            'Coupons',
-            _couponLabel.replaceFirst('Coupons: ', ''),
-            valueColor: cs.primary,
-          ),
+          _confirmRow(Icons.confirmation_number_outlined, 'Coupons', _couponLabel.replaceFirst('Coupons: ', ''),
+              valueColor: cs.primary),
         _confirmRow(
           _creationRequiresPayment ? (_paymentCompleted ? Icons.verified : Icons.lock_outline) : Icons.verified,
           l10n.tr('league_create_confirm_creation_fee_label'),
@@ -1299,10 +1285,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             contentPadding: EdgeInsets.zero,
             title: Text(
               l10n.tr('league_create_creator_participate_title'),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface,
-                fontWeight: FontWeight.w900,
-              ),
+              style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
             ),
             subtitle: Text(
               l10n.tr('league_create_creator_participate_subtitle'),
@@ -1328,9 +1311,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         const SizedBox(height: 12),
         FilledButton(
           onPressed: (_submitting || !canCreate) ? null : () => _create(context),
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
+          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
           child: _submitting
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : Text(l10n.tr('league_create_create_league_button_upper'), style: const TextStyle(fontWeight: FontWeight.w900)),
@@ -1351,18 +1332,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           const SizedBox(width: 10),
           Text(
             '$label: ',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.70),
-              fontWeight: FontWeight.w900,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.70), fontWeight: FontWeight.w900),
           ),
           Expanded(
             child: Text(
               value,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: valueColor ?? cs.onSurface,
-                fontWeight: FontWeight.w900,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(color: valueColor ?? cs.onSurface, fontWeight: FontWeight.w900),
             ),
           ),
         ],
@@ -1389,11 +1364,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         const SizedBox(width: 10),
         Text(
           text,
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: cs.onSurface,
-            fontWeight: FontWeight.w900,
-            fontSize: 16,
-          ),
+          style: theme.textTheme.titleMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900, fontSize: 16),
         ),
       ],
     );
@@ -1407,7 +1378,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   }) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-
     final a = accent ?? cs.primary;
 
     return Container(
@@ -1426,13 +1396,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
+                Text(title, style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 6),
                 Text(
                   subtitle,
@@ -1456,23 +1420,17 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final cs = Theme.of(context).colorScheme;
 
     final isLast = _step == 4;
-    final canGoBack = !_submitting;
-    final canGoNext = !_submitting;
-
-    // If user reaches last step and taps footer button, it should CREATE (if not created yet).
-    final bool willCreateOnNext = isLast && _createdLeague == null;
-
-    final nextLabel = isLast
-        ? (willCreateOnNext ? l10n.tr('league_create_create_league_button_upper') : l10n.tr('common_done'))
-        : l10n.tr('common_next');
 
     final backLabel = _step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back');
+    final nextLabel = isLast
+        ? ((_createdLeague == null) ? l10n.tr('league_create_create_league_button_upper') : l10n.tr('common_done'))
+        : l10n.tr('common_next');
 
     return Row(
       children: [
         Expanded(
           child: OutlinedButton(
-            onPressed: !canGoBack
+            onPressed: _submitting
                 ? null
                 : () {
                     if (_step == 0) {
@@ -1492,7 +1450,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         const SizedBox(width: 12),
         Expanded(
           child: FilledButton(
-            onPressed: !canGoNext
+            onPressed: _submitting
                 ? null
                 : () async {
                     if (isLast) {
@@ -1594,7 +1552,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-      // UI-only identity (short share id). Rules never use this.
       final derivedShareId = UserProfile.deriveShareIdFromUid(organizerAuthUid).trim();
       final organizerUserId = derivedShareId.isNotEmpty ? derivedShareId : organizerAuthUid;
 
@@ -1606,9 +1563,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         }
       }
 
-      final leagueId = _draftLeagueId;
       final now = DateTime.now().millisecondsSinceEpoch;
-
       final settings = LeagueSettings.defaultsFor(_format).copyWith(lastPulledAtMs: 0);
 
       final couponsEnabled = _couponsEnabled;
@@ -1618,7 +1573,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       final joinCode = await _generateUniqueJoinCode().timeout(const Duration(seconds: 12));
 
       final league = League(
-        id: leagueId,
+        id: _draftLeagueId,
         name: _name.text.trim(),
         description: _description.text.trim(),
         leagueImageUrl: _leagueImageUrl.text.trim(),
@@ -1647,7 +1602,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         organizerUserId: organizerUserId,
       ).timeout(const Duration(seconds: 35));
 
-      // Coupons: league doc is already written. Create/update coupon config online.
       if (couponsEnabled && couponCount > 0) {
         try {
           final plan = await RemotePricingService.instance
@@ -1746,7 +1700,8 @@ class _OptionalImageField extends StatelessWidget {
                 ? Image.network(
                     url,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
+                    errorBuilder: (_, __, ___) =>
+                        Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
                   )
                 : Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55))),
       ),
