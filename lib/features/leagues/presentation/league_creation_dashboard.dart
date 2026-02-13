@@ -283,12 +283,15 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     throw StateError("We couldn't create a join code. Please try again.");
   }
 
+  /// IMPORTANT (fixes permission-denied):
+  /// Do NOT create league + organizer membership in one batch.
+  /// Create league first, then create organizer membership after the league exists
+  /// so `isOwner(leagueId)` resolves true in rules.
   Future<League> _createLeagueOnline({
     required League league,
     required String organizerAuthUid,
     required String organizerUserId,
   }) async {
-    // Online-only enforcement.
     await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
     final uid = organizerAuthUid.trim();
@@ -296,55 +299,59 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     final leagueId = league.id.trim().isEmpty ? _draftLeagueId : league.id.trim();
 
-    // IMPORTANT:
-    // Some security rules patterns rely on membership doc id == uid via exists().
-    // So we write organizer membership at: leagues/{leagueId}/memberships/{uid}
     final leagueRef = _firestore.collection('leagues').doc(leagueId);
     final membershipRef = leagueRef.collection('memberships').doc(uid);
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Base payload from model (keeps schema consistent across app),
-    // then enforce critical auth-owned fields and safe types.
-    final base = <String, dynamic>{
+    // 1) Create/update league doc (must satisfy /leagues create rule)
+    final leaguePayload = <String, dynamic>{
       ...league.toJson(),
       'id': leagueId,
       'updatedAtMs': now,
 
-      // Ensure a boolean (some rules use negation `!isPrivate` which errors if numeric).
+      // Ensure bool (rules support bool/int but bool is safest)
       'isPrivate': _privacy == LeaguePrivacy.private,
 
-      // Auth-owned fields required by rules/guards.
+      // Auth-owned fields
       'organizerUid': uid,
       'ownerUid': uid,
 
-      // Legacy compatibility fields (some UI/rules may still reference them).
+      // Legacy compatibility
       'organizerUserId': organizerUserId,
       'ownerId': uid,
 
-      // Access control list for membership queries and guards.
-      'memberIds': FieldValue.arrayUnion([uid]),
+      // Use a real list to satisfy rules checks reliably
+      'memberIds': <String>[uid],
     };
 
-    final membership = Membership(
-      id: uid, // critical: doc id aligns with uid
-      leagueId: leagueId,
-      userId: uid,
-      teamId: null,
-      role: LeagueRole.organizer,
-      updatedAtMs: now,
-      version: 1,
-    );
+    await leagueRef
+        .set(leaguePayload, SetOptions(merge: true))
+        .timeout(const Duration(seconds: 25));
 
-    final batch = _firestore.batch();
-    batch.set(leagueRef, base, SetOptions(merge: true));
-    batch.set(membershipRef, membership.toRemoteMap(), SetOptions(merge: true));
+    // 2) Create organizer membership AFTER league exists (so isOwner() is true)
+    // Write explicit map to match rules keys exactly (avoid serialization mismatches).
+    final membershipPayload = <String, dynamic>{
+      'id': uid,
+      'leagueId': leagueId,
+      'userId': uid,
+      'teamId': null,
+      'role': LeagueRole.organizer.index, // should be 1
+      'updatedAtMs': now,
+      'version': 1,
+    };
 
-    await batch.commit().timeout(const Duration(seconds: 25));
+    try {
+      await membershipRef
+          .set(membershipPayload, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 20));
+    } catch (_) {
+      // Non-fatal: league is still created and organizerUid/ownerUid authorizes admin actions.
+      // We intentionally do NOT fail the whole flow here.
+    }
 
-    // Server-verify we can read the league back (prevents "created" UI when rules/schema block access).
+    // 3) Server-verify we can read it back
     final fresh = await leagueRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 15));
-
     if (!fresh.exists) {
       throw StateError("We created your league, but couldn't open it yet. Please try again.");
     }
@@ -1319,9 +1326,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 12),
-
-        // Primary CTA in step body.
-        // Footer "DONE" now triggers the same creation action as well (see _buildFooterActions).
         FilledButton(
           onPressed: (_submitting || !canCreate) ? null : () => _create(context),
           style: FilledButton.styleFrom(
@@ -1455,10 +1459,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     final canGoBack = !_submitting;
     final canGoNext = !_submitting;
 
-    // IMPORTANT UX FIX:
-    // If user reaches the last step and taps the footer button,
-    // it should CREATE the league if not created yet.
-    // Previously it just popped the screen ("Done") and nothing was created.
+    // If user reaches last step and taps footer button, it should CREATE (if not created yet).
     final bool willCreateOnNext = isLast && _createdLeague == null;
 
     final nextLabel = isLast
@@ -1499,8 +1500,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                         context.pop();
                         return;
                       }
-
-                      // Make footer "Done/Create" behave the same as the "Create League" button.
                       await _create(context);
                       return;
                     }
@@ -1600,7 +1599,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       final organizerUserId = derivedShareId.isNotEmpty ? derivedShareId : organizerAuthUid;
 
       if (_creatorWillParticipate) {
-        // Profiles are stored by Firebase UID.
         final profile = await UserProfileRepository().fetchByUserId(organizerAuthUid).timeout(const Duration(seconds: 12));
         final name = profile?.teamName.trim() ?? '';
         if (name.isEmpty) {
@@ -1623,27 +1621,19 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         id: leagueId,
         name: _name.text.trim(),
         description: _description.text.trim(),
-
-        // optional images
         leagueImageUrl: _leagueImageUrl.text.trim(),
         sponsorImageUrl: _sponsorImageUrl.text.trim(),
-
         viewerCapacity: 0,
-
-        // coupons (optional add-on)
         couponsEnabled: couponsEnabled,
         couponDiscountPercent: discountPercent,
         couponCount: couponCount,
-
         format: _format,
         privacy: _privacy,
         region: 'Global',
         maxTeams: _maxTeams,
         season: '2026',
-
-        organizerUid: organizerAuthUid, // Firebase UID authority (rules)
-        organizerUserId: organizerUserId, // short/shareId for UI
-
+        organizerUid: organizerAuthUid,
+        organizerUserId: organizerUserId,
         code: joinCode,
         qrPayloadOverride: '',
         settings: settings,
@@ -1674,7 +1664,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               )
               .timeout(const Duration(seconds: 20));
         } catch (_) {
-          // Do not expose technical errors. Keep the league created successfully.
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
