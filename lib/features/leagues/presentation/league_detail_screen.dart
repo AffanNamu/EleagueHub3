@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,7 @@ import 'package:intl/intl.dart' hide TextDirection;
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
@@ -252,6 +254,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   }
 
   Future<Map<String, dynamic>> _loadData() async {
+    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (authUid.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.go('/login');
+      });
+      throw FirebaseAuthException(code: 'unauthenticated');
+    }
+
+    await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
     final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
     if (league == null) {
       throw const _L10nException('leagues_error_not_found_local_storage');
@@ -263,16 +275,12 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final announcements = await _loadAnnouncements(widget.leagueId);
 
-    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-
-    final membership = authUid.isEmpty
-        ? null
-        : await _repo
-            .getMembership(
-              leagueId: widget.leagueId,
-              userId: authUid,
-            )
-            .timeout(const Duration(seconds: 12));
+    final membership = await _repo
+        .getMembership(
+          leagueId: widget.leagueId,
+          userId: authUid,
+        )
+        .timeout(const Duration(seconds: 12));
 
     final teamNames = {for (final t in teams) t.id: t.name};
 
@@ -343,6 +351,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         return;
       }
 
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
       await _firestore
           .collection('leagues')
           .doc(league.id)
@@ -354,8 +366,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           'hostUserId': currentUserId,
           'title': '${league.name} ${context.l10n.tr('league_details_space_title_suffix')}',
           'isLive': true,
-          'startedAtMs': DateTime.now().millisecondsSinceEpoch,
-          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+          'startedAtMs': now,
+          'updatedAtMs': now,
         },
         SetOptions(merge: true),
       ).timeout(const Duration(seconds: 15));
@@ -370,6 +382,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   Future<void> _onEndSpace(League league) async {
     try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
       await _firestore
           .collection('leagues')
           .doc(league.id)
@@ -378,8 +394,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           .set(
         {
           'isLive': false,
-          'endedAtMs': DateTime.now().millisecondsSinceEpoch,
-          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+          'endedAtMs': now,
+          'updatedAtMs': now,
         },
         SetOptions(merge: true),
       ).timeout(const Duration(seconds: 15));
@@ -392,8 +408,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     }
   }
 
-  void _onOpenSpace(League league) {
-    context.push('/leagues/${league.id}/space');
+  Future<void> _onOpenSpace(League league) async {
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      if (!mounted) return;
+      context.push('/leagues/${league.id}/space');
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
   }
 
   @override
@@ -515,7 +537,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               _ensureAnnounceAutoScroll(announcements.length);
 
               final isOwnerByMembership = membership?.role == LeagueRole.organizer;
-              final isOwnerByLeague = league.organizerUid.trim().isNotEmpty && league.organizerUid.trim() == currentUserId.trim();
+              final isOwnerByLeague =
+                  league.organizerUid.trim().isNotEmpty && league.organizerUid.trim() == currentUserId.trim();
               final isOwner = isOwnerByMembership || isOwnerByLeague;
 
               final spaceLive = space?['isLive'] == true;
@@ -910,7 +933,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       style: TextButton.styleFrom(
                         foregroundColor: hasKnockouts ? cs.primary : cs.onSurface.withOpacity(0.30),
                       ),
-                      onPressed: hasKnockouts ? () => context.push('/leagues/${widget.leagueId}/knockout') : showNeedKnockoutsSnack,
+                      onPressed: hasKnockouts
+                          ? () => context.push('/leagues/${widget.leagueId}/knockout')
+                          : showNeedKnockoutsSnack,
                       icon: const Icon(Icons.account_tree_outlined, size: 18),
                       label: Text(
                         l10n.tr('league_details_view_knockout_bracket'),
@@ -958,20 +983,38 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    if (!isLive && !isOwner) return const SizedBox.shrink();
-
-    if (!isLive && isOwner) {
-      return Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: TextButton.icon(
-          style: TextButton.styleFrom(foregroundColor: cs.primary),
-          onPressed: () => _onStartSpace(league, currentUserId),
-          icon: const Icon(Icons.mic, size: 18),
-          label: Text(
-            l10n.tr('league_details_start_space'),
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+    // Always show a Space button (your router already has /leagues/:id/space).
+    if (!isLive) {
+      return Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: cs.primary,
+                side: BorderSide(color: cs.primary.withOpacity(0.55)),
+              ),
+              onPressed: () => _onOpenSpace(league),
+              icon: const Icon(Icons.spatial_audio_off, size: 18),
+              label: const Text(
+                'Space',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+              ),
+            ),
           ),
-        ),
+          if (isOwner) ...[
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: () => _onStartSpace(league, currentUserId),
+                icon: const Icon(Icons.mic, size: 18),
+                label: Text(
+                  l10n.tr('league_details_start_space'),
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                ),
+              ),
+            ),
+          ],
+        ],
       );
     }
 
@@ -1264,6 +1307,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         return;
       }
 
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
       final existing = await _repo.getKnockoutMatches(league.id);
       if (existing.isNotEmpty) {
         _toastWarn(l10n.tr('league_details_knockout_already_generated'));
@@ -1333,6 +1378,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         _toastWarn(l10n.tr('league_details_groups_only_action'));
         return;
       }
+
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final existing = await _repo.getKnockoutMatches(league.id);
       if (existing.isNotEmpty) {
