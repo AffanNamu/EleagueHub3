@@ -1,6 +1,11 @@
-import 'dart:convert';
+import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 
 class LeagueChargesReceipt {
   final String leagueId;
@@ -36,44 +41,124 @@ class LeagueChargesReceipt {
   }
 }
 
+/// User-safe exception (picked up by UserFriendlyError mapper).
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// ONLINE-ONLY League charges store.
+///
+/// Source of truth is Firestore:
+///   users/{uid}/leagueCharges/{leagueId}
+///
+/// IMPORTANT:
+/// - SharedPreferences is NOT used for domain storage anymore.
+/// - The legacy prefs-based constructor is kept only for compile compatibility
+///   while older UI code is being migrated.
 class LeagueChargesStore {
-  LeagueChargesStore(this._prefs);
-  final PreferencesService _prefs;
+  /// Legacy constructor kept for compatibility. Preferences are not used.
+  LeagueChargesStore(
+    // ignore: avoid_unused_constructor_parameters
+    PreferencesService prefs, {
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance;
 
-  String _key({
-    required String userId,
-    required String leagueId,
-  }) =>
-      'league_charges_receipt.$userId.$leagueId';
+  LeagueChargesStore.online({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance;
 
-  bool hasPaidCharges({
-    required String userId,
-    required String leagueId,
-  }) {
-    final raw = _prefs.getString(_key(userId: userId, leagueId: leagueId));
-    return raw != null && raw.trim().isNotEmpty;
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
+
+  String _requireAuthUid() {
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      throw const UserFriendlyException('Please sign in and try again.');
+    }
+    return uid;
   }
 
-  LeagueChargesReceipt? getReceipt({
+  DocumentReference<Map<String, dynamic>> _receiptRef({
     required String userId,
     required String leagueId,
   }) {
-    final raw = _prefs.getString(_key(userId: userId, leagueId: leagueId));
-    if (raw == null || raw.trim().isEmpty) return null;
+    return _firestore.collection('users').doc(userId).collection('leagueCharges').doc(leagueId);
+  }
 
+  /// Fast check: true if a receipt doc exists for this user+league.
+  ///
+  /// If offline/unavailable, returns false (callers should require online before using it
+  /// for payment gating).
+  Future<bool> hasPaidCharges({
+    required String userId,
+    required String leagueId,
+  }) async {
     try {
-      final map = (jsonDecode(raw) as Map).cast<String, dynamic>();
-      return LeagueChargesReceipt.fromMap(map);
+      final authUid = _requireAuthUid();
+      if (authUid != userId.trim()) return false;
+
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final snap = await _receiptRef(userId: authUid, leagueId: leagueId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+      return snap.exists;
     } catch (_) {
-      return null;
+      return false;
+    }
+  }
+
+  Future<LeagueChargesReceipt?> getReceipt({
+    required String userId,
+    required String leagueId,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+      if (authUid != userId.trim()) return null;
+
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final snap = await _receiptRef(userId: authUid, leagueId: leagueId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+      if (!snap.exists) return null;
+
+      final data = snap.data();
+      if (data == null) return null;
+
+      return LeagueChargesReceipt.fromMap(data);
+    } catch (e) {
+      throw UserFriendlyException(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
   Future<void> storeReceipt(LeagueChargesReceipt receipt) async {
-    final raw = jsonEncode(receipt.toMap());
-    await _prefs.setString(
-      _key(userId: receipt.userId, leagueId: receipt.leagueId),
-      raw,
-    );
+    try {
+      final authUid = _requireAuthUid();
+      if (receipt.userId.trim() != authUid) {
+        throw const UserFriendlyException('You don’t have permission to do that right now.');
+      }
+
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final ref = _receiptRef(userId: authUid, leagueId: receipt.leagueId);
+
+      await ref
+          .set(
+            receipt.toMap(),
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      throw UserFriendlyException(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
   }
 }

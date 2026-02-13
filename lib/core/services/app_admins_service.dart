@@ -1,10 +1,11 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 /// Centralized, runtime-loaded admins list (from /app/admins).
 /// - Used to allow more pricing-admin UIDs without app updates.
-/// - Firestore rules already allow reads to /app/admins for signed-in users.
+/// - Firestore rules allow reads to /app/admins for signed-in users.
 ///
 /// Firestore doc shape (collection: app, doc: admins)
 /// {
@@ -32,33 +33,40 @@ class AppAdminsService {
 
   void ensureStarted() {
     if (_started) return;
+
+    // Auth rule: do not assume a user locally; only start when FirebaseAuth has a current user.
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) return;
+
     _started = true;
 
-    _sub = _firestore.collection('app').doc('admins').snapshots().listen(
+    _sub = _firestore.collection('app').doc('admins').snapshots(includeMetadataChanges: true).listen(
       (snap) {
         try {
+          // Online-only: ignore cache snapshots to avoid using stale admin lists while offline.
+          if (snap.metadata.isFromCache) return;
+
           _dynamicPricingAdmins.clear();
-          if (snap.exists) {
-            final data = (snap.data() ?? <String, dynamic>{});
-            final list = data['pricingAdmins'];
-            if (list is List) {
-              for (final v in list) {
-                if (v is String) {
-                  final s = v.trim();
-                  // Only accept real Firebase UIDs
-                  if (s.isNotEmpty && _looksLikeFirebaseUid(s)) {
-                    _dynamicPricingAdmins.add(s);
-                  }
-                }
-              }
+          if (!snap.exists) return;
+
+          final data = (snap.data() ?? <String, dynamic>{});
+          final list = data['pricingAdmins'];
+          if (list is! List) return;
+
+          for (final v in list) {
+            if (v is! String) continue;
+            final s = v.trim();
+            // Only accept real Firebase UIDs
+            if (s.isNotEmpty && _looksLikeFirebaseUid(s)) {
+              _dynamicPricingAdmins.add(s);
             }
           }
         } catch (_) {
-          // ignore: best-effort
+          // best-effort: ignore
         }
       },
       onError: (_) {
-        // ignore: best-effort
+        // best-effort: ignore (offline/perms/etc.)
       },
     );
   }
@@ -80,5 +88,6 @@ class AppAdminsService {
     await _sub?.cancel();
     _sub = null;
     _started = false;
+    _dynamicPricingAdmins.clear();
   }
 }

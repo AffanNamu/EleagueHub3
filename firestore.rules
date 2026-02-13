@@ -202,6 +202,32 @@ service cloud.firestore {
         );
 
       allow delete: if false;
+
+      // ------------------------------------------------------------
+      // Online-only receipts: users/{uid}/leagueCharges/{leagueId}
+      // ------------------------------------------------------------
+      match /leagueCharges/{leagueId} {
+        allow get, list: if signedIn() && request.auth.uid == userId;
+
+        // Create/update receipt doc by the same user only.
+        allow create, update: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'leagueId',
+            'userId',
+            'receiptId',
+            'provider',
+            'paidAtMs'
+          ])
+          && (request.resource.data.leagueId is string)
+          && (request.resource.data.userId is string)
+          && (request.resource.data.userId == request.auth.uid)
+          && (request.resource.data.receiptId is string) && (request.resource.data.receiptId.size() > 0) && (request.resource.data.receiptId.size() <= 200)
+          && (request.resource.data.provider is string) && (request.resource.data.provider.size() > 0) && (request.resource.data.provider.size() <= 50)
+          && (request.resource.data.paidAtMs is int) && (request.resource.data.paidAtMs > 0);
+
+        allow delete: if false;
+      }
     }
 
     // --------------------------
@@ -286,11 +312,30 @@ service cloud.firestore {
         allow get: if isOwner(leagueId) || isMember(leagueId);
         allow list: if isOwner(leagueId) || isMember(leagueId);
 
+        // Organizer can fully manage memberships.
         allow create, update: if isOwner(leagueId)
+
+          // Self membership: allow create as member only (prevents role escalation).
           || (
             signedIn()
-            && request.resource.data.userId == request.auth.uid
-            && request.resource.data.leagueId == leagueId
+            && !exists(/databases/$(database)/documents/leagues/$(leagueId)/memberships/$(membershipId))
+            && (request.resource.data.userId == request.auth.uid)
+            && (request.resource.data.leagueId == leagueId)
+            && (request.resource.data.role is int)
+            && (request.resource.data.role == 0) // LeagueRole.member (matches app enum index)
+          )
+
+          // Self membership: allow limited updates only (no role changes).
+          || (
+            signedIn()
+            && (resource.data.userId == request.auth.uid)
+            && (resource.data.leagueId == leagueId)
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'teamId',
+              'updatedAtMs',
+              'version'
+            ])
+            && (resource.data.role == request.resource.data.role) // prevent role escalation
           );
 
         allow delete: if isOwner(leagueId);

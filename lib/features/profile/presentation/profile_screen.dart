@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -5,10 +7,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/persistence/prefs_service.dart';
 import '../../../core/routing/league_mode_provider.dart';
 import '../../../core/services/app_admins_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -30,11 +33,40 @@ class ProfileScreen extends ConsumerWidget {
     return 'Discount $discountPercent%';
   }
 
-  void _showCouponConfigSheet(
+  void _snack(BuildContext context, String msg) {
+    final trimmed = msg.trim();
+    if (trimmed.isEmpty) return;
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        content: Text(trimmed),
+      ),
+    );
+  }
+
+  Future<void> _showCouponConfigSheet(
     BuildContext context, {
     required String leagueId,
     required String leagueName,
-  }) {
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      if (context.mounted) context.go('/login');
+      return;
+    }
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+    } catch (e) {
+      if (context.mounted) _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      return;
+    }
+
+    if (!context.mounted) return;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -95,14 +127,16 @@ class ProfileScreen extends ConsumerWidget {
                           stream: cfgStream,
                           builder: (context, snap) {
                             if (snap.hasError) {
+                              final msg = UserFriendlyError.toMessage(snap.error as Object);
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
                                 child: Text(
-                                  'Failed to load coupon configuration.',
+                                  msg,
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: cs.error,
                                     fontWeight: FontWeight.w700,
                                   ),
+                                  textAlign: TextAlign.center,
                                 ),
                               );
                             }
@@ -145,14 +179,17 @@ class ProfileScreen extends ConsumerWidget {
                                         child: FilledButton.icon(
                                           onPressed: () {
                                             Navigator.of(ctx).pop();
-                                            GoRouter.of(context).push('/leagues/$leagueId/upgrade/payment', extra: {
-                                              'leagueId': leagueId,
-                                              'leagueName': leagueName,
-                                              'addonsOnly': true,
-                                              'existingCouponsEnabled': false,
-                                              'existingCouponCount': 0,
-                                              'existingCouponDiscountPercent': 0, // discount %
-                                            });
+                                            GoRouter.of(context).push(
+                                              '/leagues/$leagueId/upgrade/payment',
+                                              extra: {
+                                                'leagueId': leagueId,
+                                                'leagueName': leagueName,
+                                                'addonsOnly': true,
+                                                'existingCouponsEnabled': false,
+                                                'existingCouponCount': 0,
+                                                'existingCouponDiscountPercent': 0,
+                                              },
+                                            );
                                           },
                                           icon: const Icon(Icons.add_shopping_cart),
                                           label: const Text('Buy / enable'),
@@ -201,15 +238,17 @@ class ProfileScreen extends ConsumerWidget {
                                       child: FilledButton.icon(
                                         onPressed: () {
                                           Navigator.of(ctx).pop();
-                                          GoRouter.of(context).push('/leagues/$leagueId/upgrade/payment', extra: {
-                                            'leagueId': leagueId,
-                                            'leagueName': leagueName,
-                                            'addonsOnly': true,
-                                            'existingCouponsEnabled': true,
-                                            // IMPORTANT: total purchased, not remaining.
-                                            'existingCouponCount': cfg.qtyTotal,
-                                            'existingCouponDiscountPercent': cfg.discountPercent, // discount %
-                                          });
+                                          GoRouter.of(context).push(
+                                            '/leagues/$leagueId/upgrade/payment',
+                                            extra: {
+                                              'leagueId': leagueId,
+                                              'leagueName': leagueName,
+                                              'addonsOnly': true,
+                                              'existingCouponsEnabled': true,
+                                              'existingCouponCount': cfg.qtyTotal,
+                                              'existingCouponDiscountPercent': cfg.discountPercent,
+                                            },
+                                          );
                                         },
                                         icon: const Icon(Icons.add_shopping_cart),
                                         label: const Text('Buy more / adjust'),
@@ -232,13 +271,15 @@ class ProfileScreen extends ConsumerWidget {
                                     stream: redemptionsQuery.snapshots(),
                                     builder: (context, rs) {
                                       if (rs.hasError) {
+                                        final msg = UserFriendlyError.toMessage(rs.error as Object);
                                         return Center(
                                           child: Text(
-                                            'Failed to load redemptions.',
+                                            msg,
                                             style: theme.textTheme.bodySmall?.copyWith(
                                               color: cs.error,
                                               fontWeight: FontWeight.w700,
                                             ),
+                                            textAlign: TextAlign.center,
                                           ),
                                         );
                                       }
@@ -292,7 +333,9 @@ class ProfileScreen extends ConsumerWidget {
                                               ),
                                             ),
                                             subtitle: Text(
-                                              isPaid ? 'Paid • $provider • $when' : 'Pending • ${money(expected)} $currency',
+                                              isPaid
+                                                  ? 'Paid • $provider • $when'
+                                                  : 'Pending • ${money(expected)} $currency',
                                               style: theme.textTheme.bodySmall?.copyWith(
                                                 color: onSurface.withOpacity(0.65),
                                                 fontWeight: FontWeight.w700,
@@ -333,6 +376,9 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Ensure connectivity service is started (safe if already initialized in main()).
+    unawaited(ConnectivityService.instance.initialize());
+
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final t = theme.textTheme;
@@ -386,8 +432,9 @@ class ProfileScreen extends ConsumerWidget {
                     ? profile.teamName.trim()
                     : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
 
-                final shortUserId =
-                    (profile != null) ? profile.effectiveShareId : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
+                final shortUserId = (profile != null)
+                    ? profile.effectiveShareId
+                    : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
 
                 final iconMuted = onSurface.withOpacity(0.72);
                 final iconDim = onSurface.withOpacity(0.55);
@@ -452,7 +499,9 @@ class ProfileScreen extends ConsumerWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  uid.isEmpty ? l10n.tr('profile_not_signed_in') : '${l10n.tr('profile_userid_prefix')} $shortUserId',
+                                  uid.isEmpty
+                                      ? l10n.tr('profile_not_signed_in')
+                                      : '${l10n.tr('profile_userid_prefix')} $shortUserId',
                                   style: t.bodySmall?.copyWith(
                                     color: onSurface.withOpacity(0.72),
                                   ),
@@ -511,10 +560,13 @@ class ProfileScreen extends ConsumerWidget {
                         final ok = await _confirmLogout(context);
                         if (!ok) return;
 
-                        // --- DO NOT CHANGE LOGIC BELOW ---
-                        final prefs = ref.read(prefsServiceProvider);
-                        await AuthService().signOut();
-                        await prefs.clearCurrentUserId();
+                        try {
+                          await AuthService().signOut();
+                        } catch (e) {
+                          if (context.mounted) _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                          return;
+                        }
+
                         if (!context.mounted) return;
                         context.go('/login');
                       },
@@ -574,14 +626,17 @@ class ProfileScreen extends ConsumerWidget {
             Glass(
               padding: const EdgeInsets.all(14),
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                // IMPORTANT:
                 // Authorization is based on Firebase UID ONLY.
-                // We list organizer leagues by organizerUid to match Firestore rules.
-                stream: FirebaseFirestore.instance.collection('leagues').where('organizerUid', isEqualTo: uid).limit(25).snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('leagues')
+                    .where('organizerUid', isEqualTo: uid)
+                    .limit(25)
+                    .snapshots(),
                 builder: (context, snap) {
                   if (snap.hasError) {
+                    final msg = UserFriendlyError.toMessage(snap.error as Object);
                     return Text(
-                      'Failed to load coupons.',
+                      msg,
                       style: t.bodyMedium?.copyWith(
                         color: theme.colorScheme.error,
                         fontWeight: FontWeight.w700,
@@ -880,9 +935,18 @@ class ProfileScreen extends ConsumerWidget {
       );
 
       if (next == null) return;
-      if (next.isEmpty) return;
+      final cleaned = next.trim();
+      if (cleaned.isEmpty) return;
 
-      await repo.updateTeamName(userId: userId, teamName: next);
+      try {
+        await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+        await repo.updateTeamName(userId: userId, teamName: cleaned);
+      } catch (e) {
+        if (context.mounted) {
+          _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+        }
+        return;
+      }
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -611,7 +611,16 @@ class LocalLeaguesRepository {
         final chunk = matches.sublist(i, (i + chunkSize > matches.length) ? matches.length : i + chunkSize);
         for (final m in chunk) {
           final id = m.id.trim().isEmpty ? _uuid.v4() : m.id.trim();
-          final data = m.copyWith(id: id, leagueId: leagueId).toJson();
+
+          // IMPORTANT:
+          // FixtureMatch.copyWith in your codebase does NOT reliably expose `id`.
+          // So we write JSON then override identifiers explicitly to avoid build breaks.
+          final data = <String, dynamic>{
+            ...m.toJson(),
+            'id': id,
+            'leagueId': leagueId,
+          };
+
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
         await batch.commit().timeout(const Duration(seconds: 30));

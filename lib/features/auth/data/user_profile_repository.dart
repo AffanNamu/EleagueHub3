@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 
 import '../models/user_profile.dart';
 
@@ -34,8 +37,27 @@ class UserProfileRepository {
   Never _rethrowFriendly(Object error) {
     if (error is UserFriendlyException) throw error;
 
+    if (error is SocketException) {
+      throw const UserFriendlyException(
+        'Your network appears to be offline. Please check your connection and try again.',
+      );
+    }
+
     if (error is TimeoutException) {
       throw const UserFriendlyException('Your internet connection seems unstable. Please try again.');
+    }
+
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'network-request-failed':
+          throw const UserFriendlyException(
+            'Your network appears to be offline. Please check your connection and try again.',
+          );
+        case 'too-many-requests':
+          throw const UserFriendlyException('Too many attempts. Please wait a moment and try again.');
+        default:
+          throw const UserFriendlyException("We couldn't complete this action. Please try again.");
+      }
     }
 
     if (error is FirebaseException) {
@@ -47,6 +69,8 @@ class UserProfileRepository {
           );
         case 'permission-denied':
           throw const UserFriendlyException('You don’t have permission to do that right now.');
+        case 'unauthenticated':
+          throw const UserFriendlyException('Please sign in and try again.');
         default:
           throw const UserFriendlyException("We couldn't load your profile right now. Please try again.");
       }
@@ -55,11 +79,31 @@ class UserProfileRepository {
     throw const UserFriendlyException('Something went wrong. Please try again.');
   }
 
-  Stream<T> _safeStream<T>(Stream<T> source, T fallback) {
+  /// ONLINE-ONLY stream guard:
+  /// - When Firestore emits a cache snapshot (offline / stale), emit the provided fallback instead.
+  /// - When a stream errors, emit fallback (never leak raw errors to UI).
+  Stream<T> _safeOnlineStream<T>({
+    required Stream<DocumentSnapshot<Map<String, dynamic>>> source,
+    required T Function(DocumentSnapshot<Map<String, dynamic>> snap) mapper,
+    required T fallback,
+  }) {
     return source.transform(
-      StreamTransformer<T, T>.fromHandlers(
+      StreamTransformer<DocumentSnapshot<Map<String, dynamic>>, T>.fromHandlers(
+        handleData: (snap, sink) {
+          // Online-only: do not treat cache/in-memory snapshots as authoritative.
+          // Emit fallback so UI doesn't show stale data as "live".
+          if (snap.metadata.isFromCache) {
+            sink.add(fallback);
+            return;
+          }
+
+          try {
+            sink.add(mapper(snap));
+          } catch (_) {
+            sink.add(fallback);
+          }
+        },
         handleError: (error, stack, sink) {
-          // Do not surface raw errors to UI; return fallback instead.
           sink.add(fallback);
         },
       ),
@@ -145,43 +189,55 @@ class UserProfileRepository {
   }
 
   Stream<UserProfile?> watchByUserId(String userId) {
-    final stream = _users.doc(userId).snapshots().map((doc) {
-      if (!doc.exists) return null;
-      final data = doc.data();
-      if (data == null) return null;
-      return UserProfile.fromFirestore(userId: doc.id, data: data);
-    });
+    final src = _users.doc(userId).snapshots(includeMetadataChanges: true);
 
-    return _safeStream<UserProfile?>(stream, null);
+    return _safeOnlineStream<UserProfile?>(
+      source: src,
+      fallback: null,
+      mapper: (doc) {
+        if (!doc.exists) return null;
+        final data = doc.data();
+        if (data == null) return null;
+        return UserProfile.fromFirestore(userId: doc.id, data: data);
+      },
+    );
   }
 
   Stream<bool> watchIsPremium(String userId) {
-    final stream = _users.doc(userId).snapshots().map((doc) {
-      if (!doc.exists) return false;
-      final data = doc.data();
-      if (data == null) return false;
-      return data['isPremium'] == true;
-    });
+    final src = _users.doc(userId).snapshots(includeMetadataChanges: true);
 
-    return _safeStream<bool>(stream, false);
+    return _safeOnlineStream<bool>(
+      source: src,
+      fallback: false,
+      mapper: (doc) {
+        if (!doc.exists) return false;
+        final data = doc.data();
+        if (data == null) return false;
+        return data['isPremium'] == true;
+      },
+    );
   }
 
   Stream<List<String>> watchQuickMessagesCustom(String userId) {
-    final stream = _users.doc(userId).snapshots().map((doc) {
-      if (!doc.exists) return const <String>[];
-      final data = doc.data();
-      if (data == null) return const <String>[];
+    final src = _users.doc(userId).snapshots(includeMetadataChanges: true);
 
-      final raw = data['quickMessagesCustom'];
-      if (raw is! List) return const <String>[];
+    return _safeOnlineStream<List<String>>(
+      source: src,
+      fallback: const <String>[],
+      mapper: (doc) {
+        if (!doc.exists) return const <String>[];
+        final data = doc.data();
+        if (data == null) return const <String>[];
 
-      return raw
-          .map((e) => (e ?? '').toString().trim())
-          .where((s) => s.isNotEmpty)
-          .toList(growable: false);
-    });
+        final raw = data['quickMessagesCustom'];
+        if (raw is! List) return const <String>[];
 
-    return _safeStream<List<String>>(stream, const <String>[]);
+        return raw
+            .map((e) => (e ?? '').toString().trim())
+            .where((s) => s.isNotEmpty)
+            .toList(growable: false);
+      },
+    );
   }
 
   Future<void> updateQuickMessagesCustom({

@@ -1,12 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 
 class LeagueAccessGuard extends StatefulWidget {
@@ -28,7 +28,7 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
 
   bool _loading = true;
   bool _allowed = false;
-  Object? _error;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -37,43 +37,23 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
     _checkAccess();
   }
 
-  String _friendlyMessage(Object error) {
-    if (error is SocketException) {
-      return 'Your network appears to be offline. Please check your connection and try again.';
-    }
-    if (error is TimeoutException) {
-      return 'Your internet connection seems unstable. Please try again.';
-    }
-    if (error is FirebaseException) {
-      switch (error.code) {
-        case 'unavailable':
-        case 'deadline-exceeded':
-          return 'Your network appears to be offline. Please check your connection and try again.';
-        case 'permission-denied':
-          return 'You don’t have access to this league.';
-        case 'unauthenticated':
-          return 'Please sign in and try again.';
-        default:
-          return "We couldn't verify access right now. Please try again.";
-      }
-    }
-    return "We couldn't verify access right now. Please try again.";
-  }
-
   Future<void> _checkAccess() async {
     setState(() {
       _loading = true;
       _allowed = false;
-      _error = null;
+      _errorMessage = null;
     });
 
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       if (uid.isEmpty) {
-        // Router should already redirect, but keep guard safe.
+        // Protected resources require auth; router should also guard, but keep this safe.
         if (mounted) context.go('/login');
         return;
       }
+
+      // Online-only: fail fast when offline with a friendly message.
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final doc = await _firestore
           .collection('leagues')
@@ -82,7 +62,14 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
           .timeout(const Duration(seconds: 15));
 
       if (!doc.exists) {
-        throw const FirebaseException(plugin: 'cloud_firestore', code: 'permission-denied');
+        // Do not reveal existence; treat as restricted.
+        if (!mounted) return;
+        setState(() {
+          _allowed = false;
+          _loading = false;
+          _errorMessage = 'You don’t have access to this league.';
+        });
+        return;
       }
 
       final data = doc.data() ?? <String, dynamic>{};
@@ -98,12 +85,21 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
       setState(() {
         _allowed = allowed;
         _loading = false;
-        _error = allowed ? null : const FirebaseException(plugin: 'cloud_firestore', code: 'permission-denied');
+        _errorMessage = allowed ? null : 'You don’t have access to this league.';
       });
     } catch (e) {
       if (!mounted) return;
+
+      // Never show raw Firebase/technical errors.
+      var msg = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+
+      // This guard is league-specific; keep the UX clear.
+      if (msg == 'You don’t have permission to do that right now.') {
+        msg = 'You don’t have access to this league.';
+      }
+
       setState(() {
-        _error = e;
+        _errorMessage = msg;
         _loading = false;
         _allowed = false;
       });
@@ -123,7 +119,7 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
       );
     }
 
-    final message = _error == null ? 'You don’t have access to this league.' : _friendlyMessage(_error as Object);
+    final message = (_errorMessage ?? 'You don’t have access to this league.').trim();
 
     return Center(
       child: Padding(

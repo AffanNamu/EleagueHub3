@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/glass_search_bar.dart';
@@ -101,7 +102,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
     try {
       final effectiveUserId = _authUidOrEmpty();
       if (effectiveUserId.isEmpty) {
-        throw const FirebaseAuthException(code: 'network-request-failed', message: 'Unauthenticated');
+        // Router should already redirect; fail gracefully if this screen is reached anyway.
+        throw FirebaseAuthException(code: 'unauthenticated');
       }
 
       final leagues = await _repo.listLeagues().timeout(const Duration(seconds: 20));
@@ -1015,9 +1017,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen> with Auto
                                               selectedColor: cs.primary.withOpacity(0.18),
                                               backgroundColor: onSurface.withOpacity(0.06),
                                               labelStyle: TextStyle(
-                                                color: mode == LeagueJoinMode.participant
-                                                    ? cs.primary
-                                                    : onSurface.withOpacity(0.72),
+                                                color: mode == LeagueJoinMode.participant ? cs.primary : onSurface.withOpacity(0.72),
                                                 fontWeight: FontWeight.w800,
                                               ),
                                             ),

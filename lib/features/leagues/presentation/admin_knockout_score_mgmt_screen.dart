@@ -1,8 +1,14 @@
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
@@ -25,9 +31,15 @@ class AdminKnockoutScoreMgmtScreen extends ConsumerStatefulWidget {
 
 class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScoreMgmtScreen> {
   late LocalLeaguesRepository _repo;
+
   bool _isLoading = true;
+  String? _loadError;
+
   List<KnockoutMatch> _matches = [];
   Map<String, String> _teamNames = {};
+
+  // Prevent double-submit / duplicate writes.
+  String? _savingMatchId;
 
   static const _roundOrder = <String>[
     'Play-off',
@@ -42,6 +54,7 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   void initState() {
     super.initState();
     _repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+    // ignore: discarded_futures
     _loadData();
   }
 
@@ -89,6 +102,10 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
     _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.22), baseBg), fg: cs.error);
+  }
+
+  void _toastFromError(Object error) {
+    _toastErr(UserFriendlyError.toMessage(error));
   }
 
   String _pairKey(String a, String b) => (a.compareTo(b) < 0) ? '$a|$b' : '$b|$a';
@@ -223,41 +240,61 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-
-    final teams = await _repo.getTeams(widget.leagueId);
-    final matches = await _repo.getKnockoutMatches(widget.leagueId);
-
-    // Stable order: round order; for Play-off order by nextMatchId then leg.
-    matches.sort((a, b) {
-      final ai = _roundOrder.indexOf(a.roundName);
-      final bi = _roundOrder.indexOf(b.roundName);
-      if (ai != bi) {
-        if (ai == -1) return 1;
-        if (bi == -1) return -1;
-        return ai.compareTo(bi);
-      }
-
-      if (a.roundName == 'Play-off' && b.roundName == 'Play-off') {
-        final an = (a.nextMatchId ?? '');
-        final bn = (b.nextMatchId ?? '');
-        final c1 = an.compareTo(bn);
-        if (c1 != 0) return c1;
-
-        // Leg 1 first
-        final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
-        if (c2 != 0) return c2;
-      }
-
-      return a.id.compareTo(b.id);
-    });
-
-    if (!mounted) return;
     setState(() {
-      _matches = matches;
-      _teamNames = {for (final t in teams) t.id: t.name};
-      _isLoading = false;
+      _isLoading = true;
+      _loadError = null;
     });
+
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      if (uid.isEmpty) {
+        if (mounted) context.go('/login');
+        return;
+      }
+
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+      final matches = await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+
+      // Stable order: round order; for Play-off order by nextMatchId then leg.
+      matches.sort((a, b) {
+        final ai = _roundOrder.indexOf(a.roundName);
+        final bi = _roundOrder.indexOf(b.roundName);
+        if (ai != bi) {
+          if (ai == -1) return 1;
+          if (bi == -1) return -1;
+          return ai.compareTo(bi);
+        }
+
+        if (a.roundName == 'Play-off' && b.roundName == 'Play-off') {
+          final an = (a.nextMatchId ?? '');
+          final bn = (b.nextMatchId ?? '');
+          final c1 = an.compareTo(bn);
+          if (c1 != 0) return c1;
+
+          // Leg 1 first
+          final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
+          if (c2 != 0) return c2;
+        }
+
+        return a.id.compareTo(b.id);
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _matches = matches;
+        _teamNames = {for (final t in teams) t.id: t.name};
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+      });
+      _toastErr(_loadError!);
+    }
   }
 
   Future<void> _updateScore(
@@ -267,128 +304,148 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   ) async {
     final l10n = context.l10n;
 
-    var updatedMatch = match.copyWith(
-      homeScore: hScore,
-      awayScore: aScore,
-      status: MatchStatus.completed,
-    );
-
-    // Apply to local list.
-    final all = [..._matches];
-    final idx = all.indexWhere((m) => m.id == match.id);
-    if (idx != -1) {
-      all[idx] = updatedMatch;
-    } else {
-      all.add(updatedMatch);
+    if (_savingMatchId != null) {
+      _toastWarn(l10n.tr('common_please_wait'));
+      return;
     }
 
-    // ------------------------------------------------------------------
-    // single-match knockout rounds must not end as a draw unless a winner is provided.
-    // Applies to: R16/QF/SF/Final/3rd Place (NOT Play-off).
-    // ------------------------------------------------------------------
-    if (updatedMatch.roundName != 'Play-off') {
-      final hId = updatedMatch.homeTeamId;
-      final aId = updatedMatch.awayTeamId;
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      if (mounted) context.go('/login');
+      return;
+    }
 
-      if (hId == null || aId == null) {
-        if (hScore == aScore) {
-          _toastErr(l10n.tr('admin_knockout_cannot_save_draw_tbd'));
-          return;
-        }
+    setState(() => _savingMatchId = match.id);
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      var updatedMatch = match.copyWith(
+        homeScore: hScore,
+        awayScore: aScore,
+        status: MatchStatus.completed,
+      );
+
+      // Apply to local list.
+      final all = [..._matches];
+      final idx = all.indexWhere((m) => m.id == match.id);
+      if (idx != -1) {
+        all[idx] = updatedMatch;
       } else {
-        if (hScore == aScore) {
-          final winner = await _promptPenaltyWinner(
-            homeId: hId,
-            awayId: aId,
-            contextLabel: l10n.tr('admin_knockout_draw_requires_winner'),
-          );
-          if (winner == null) {
-            _toastErr(l10n.tr('admin_knockout_winner_required'));
+        all.add(updatedMatch);
+      }
+
+      // ------------------------------------------------------------------
+      // Single-match knockout rounds must not end as a draw unless a winner is provided.
+      // Applies to: R16/QF/SF/Final/3rd Place (NOT Play-off).
+      // ------------------------------------------------------------------
+      if (updatedMatch.roundName != 'Play-off') {
+        final hId = updatedMatch.homeTeamId;
+        final aId = updatedMatch.awayTeamId;
+
+        if (hId == null || aId == null) {
+          if (hScore == aScore) {
+            _toastErr(l10n.tr('admin_knockout_cannot_save_draw_tbd'));
             return;
           }
-          updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: winner);
         } else {
-          // Clear any previously set penalty winner when score is decisive.
-          if (updatedMatch.tiebreakWinnerTeamId != null) {
-            updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: null);
-          }
-        }
-
-        final idx2 = all.indexWhere((m) => m.id == updatedMatch.id);
-        if (idx2 != -1) all[idx2] = updatedMatch;
-      }
-    }
-
-    // ------------------------------------------------------------------
-    // Play-off (two-legged) aggregate handling:
-    // - Only applies to SECOND leg when BOTH legs are finished.
-    // - If aggregate tied after leg 2 -> require penalties winner on leg 2.
-    // ------------------------------------------------------------------
-    if (updatedMatch.roundName == 'Play-off' && updatedMatch.isSecondLeg) {
-      final other = _findOtherPlayoffLeg(leg: updatedMatch, all: all);
-      if (other != null && _isFinished(updatedMatch) && _isFinished(other)) {
-        final aId = updatedMatch.homeTeamId;
-        final bId = updatedMatch.awayTeamId;
-
-        if (aId != null && bId != null) {
-          final totals = <String, int>{aId: 0, bId: 0};
-
-          void add(KnockoutMatch m) {
-            totals[m.homeTeamId!] = (totals[m.homeTeamId!] ?? 0) + m.homeScore!;
-            totals[m.awayTeamId!] = (totals[m.awayTeamId!] ?? 0) + m.awayScore!;
-          }
-
-          add(updatedMatch);
-          add(other);
-
-          final aTot = totals[aId] ?? 0;
-          final bTot = totals[bId] ?? 0;
-
-          if (aTot == bTot) {
+          if (hScore == aScore) {
             final winner = await _promptPenaltyWinner(
-              homeId: aId,
-              awayId: bId,
-              contextLabel: l10n.tr('admin_knockout_aggregate_tied_after_leg2'),
+              homeId: hId,
+              awayId: aId,
+              contextLabel: l10n.tr('admin_knockout_draw_requires_winner'),
             );
             if (winner == null) {
-              _toastErr(l10n.tr('admin_knockout_aggregate_winner_required'));
+              _toastErr(l10n.tr('admin_knockout_winner_required'));
               return;
             }
-
             updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: winner);
-
-            final idx2 = all.indexWhere((m) => m.id == updatedMatch.id);
-            if (idx2 != -1) all[idx2] = updatedMatch;
           } else {
+            // Clear any previously set penalty winner when score is decisive.
             if (updatedMatch.tiebreakWinnerTeamId != null) {
               updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: null);
+            }
+          }
+
+          final idx2 = all.indexWhere((m) => m.id == updatedMatch.id);
+          if (idx2 != -1) all[idx2] = updatedMatch;
+        }
+      }
+
+      // ------------------------------------------------------------------
+      // Play-off (two-legged) aggregate handling:
+      // - Only applies to SECOND leg when BOTH legs are finished.
+      // - If aggregate tied after leg 2 -> require penalties winner on leg 2.
+      // ------------------------------------------------------------------
+      if (updatedMatch.roundName == 'Play-off' && updatedMatch.isSecondLeg) {
+        final other = _findOtherPlayoffLeg(leg: updatedMatch, all: all);
+        if (other != null && _isFinished(updatedMatch) && _isFinished(other)) {
+          final aId = updatedMatch.homeTeamId;
+          final bId = updatedMatch.awayTeamId;
+
+          if (aId != null && bId != null) {
+            final totals = <String, int>{aId: 0, bId: 0};
+
+            void add(KnockoutMatch m) {
+              totals[m.homeTeamId!] = (totals[m.homeTeamId!] ?? 0) + m.homeScore!;
+              totals[m.awayTeamId!] = (totals[m.awayTeamId!] ?? 0) + m.awayScore!;
+            }
+
+            add(updatedMatch);
+            add(other);
+
+            final aTot = totals[aId] ?? 0;
+            final bTot = totals[bId] ?? 0;
+
+            if (aTot == bTot) {
+              final winner = await _promptPenaltyWinner(
+                homeId: aId,
+                awayId: bId,
+                contextLabel: l10n.tr('admin_knockout_aggregate_tied_after_leg2'),
+              );
+              if (winner == null) {
+                _toastErr(l10n.tr('admin_knockout_aggregate_winner_required'));
+                return;
+              }
+
+              updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: winner);
+
               final idx2 = all.indexWhere((m) => m.id == updatedMatch.id);
               if (idx2 != -1) all[idx2] = updatedMatch;
+            } else {
+              if (updatedMatch.tiebreakWinnerTeamId != null) {
+                updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: null);
+                final idx2 = all.indexWhere((m) => m.id == updatedMatch.id);
+                if (idx2 != -1) all[idx2] = updatedMatch;
+              }
             }
           }
         }
       }
+
+      // Auto-advance winners.
+      final advanced = TournamentController.processMatchResult(
+        completedMatch: updatedMatch,
+        allMatches: all,
+      );
+
+      await _repo.saveKnockoutMatches(widget.leagueId, advanced).timeout(const Duration(seconds: 30));
+
+      if (!mounted) return;
+      setState(() => _matches = advanced);
+
+      _toastOk(l10n.tr('admin_knockout_score_updated_toast'));
+    } catch (e) {
+      if (mounted) _toastFromError(e is Object ? e : Exception('unknown'));
+    } finally {
+      if (mounted) setState(() => _savingMatchId = null);
     }
-
-    // Auto-advance winners.
-    final advanced = TournamentController.processMatchResult(
-      completedMatch: updatedMatch,
-      allMatches: all,
-    );
-
-    await _repo.saveKnockoutMatches(widget.leagueId, advanced);
-
-    if (!mounted) return;
-    setState(() => _matches = advanced);
-
-    _toastOk(l10n.tr('admin_knockout_score_updated_toast'));
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
@@ -400,7 +457,7 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         elevation: 0,
         actions: [
           IconButton(
-            onPressed: _loadData,
+            onPressed: _isLoading ? null : _loadData,
             tooltip: l10n.tr('admin_knockout_reload_tooltip'),
             icon: const Icon(Icons.refresh),
           ),
@@ -411,49 +468,114 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
             ? Center(
                 child: CircularProgressIndicator(color: cs.primary),
               )
-            : Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: isTablet ? 1000 : 600,
-                  ),
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: SectionHeader(l10n.tr('admin_knockout_section_title')),
+            : (_loadError != null
+                ? _buildLoadErrorState(_loadError!)
+                : Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: isTablet ? 1000 : 600,
                       ),
-                      const SizedBox(height: 4),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Text(
-                          l10n.tr('admin_knockout_section_description'),
-                          style: TextStyle(
-                            color: cs.onBackground.withOpacity(0.60),
-                            fontSize: 12,
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: SectionHeader(l10n.tr('admin_knockout_section_title')),
                           ),
-                          textAlign: TextAlign.center,
+                          const SizedBox(height: 4),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              l10n.tr('admin_knockout_section_description'),
+                              style: TextStyle(
+                                color: cs.onBackground.withOpacity(0.60),
+                                fontSize: 12,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Expanded(
+                            child: _matches.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      l10n.tr('admin_knockout_empty_state'),
+                                      style: TextStyle(
+                                        color: cs.onBackground.withOpacity(0.72),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  )
+                                : _buildGroupedList(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )),
+      ),
+    );
+  }
+
+  Widget _buildLoadErrorState(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Glass(
+            borderRadius: 24,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_off_rounded, color: cs.primary, size: 44),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Couldn’t load matches',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    msg,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface.withOpacity(0.70),
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => context.pop(),
+                          child: const Text('Back'),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: _matches.isEmpty
-                            ? Center(
-                                child: Text(
-                                  l10n.tr('admin_knockout_empty_state'),
-                                  style: TextStyle(
-                                    color: cs.onBackground.withOpacity(0.72),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              )
-                            : _buildGroupedList(),
+                        child: FilledButton(
+                          onPressed: _loadData,
+                          child: const Text('Retry'),
+                        ),
                       ),
                     ],
                   ),
-                ),
+                ],
               ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -505,6 +627,7 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                     match: m,
                     homeName: _teamNames[m.homeTeamId ?? ''] ?? (m.homeTeamId ?? 'TBD'),
                     awayName: _teamNames[m.awayTeamId ?? ''] ?? (m.awayTeamId ?? 'TBD'),
+                    isSaving: _savingMatchId == m.id,
                     onSave: (h, a) => _updateScore(m, h, a),
                   ),
                 ),
@@ -520,7 +643,8 @@ class _ScoreEntryTile extends StatefulWidget {
   final KnockoutMatch match;
   final String homeName;
   final String awayName;
-  final Function(int, int) onSave;
+  final Future<void> Function(int, int) onSave;
+  final bool isSaving;
 
   const _ScoreEntryTile({
     super.key,
@@ -528,6 +652,7 @@ class _ScoreEntryTile extends StatefulWidget {
     required this.homeName,
     required this.awayName,
     required this.onSave,
+    required this.isSaving,
   });
 
   @override
@@ -677,15 +802,25 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               ),
               const SizedBox(width: 24),
               IconButton.filled(
-                onPressed: () {
-                  widget.onSave(_homeScore, _awayScore);
-                  FocusScope.of(context).unfocus();
-                },
+                onPressed: widget.isSaving
+                    ? null
+                    : () async {
+                        FocusScope.of(context).unfocus();
+                        await widget.onSave(_homeScore, _awayScore);
+                      },
                 style: IconButton.styleFrom(
                   backgroundColor: primary.withOpacity(0.18),
                   foregroundColor: primary,
+                  disabledBackgroundColor: onSurface.withOpacity(0.06),
+                  disabledForegroundColor: onSurface.withOpacity(0.30),
                 ),
-                icon: const Icon(Icons.done_all, size: 24),
+                icon: widget.isSaving
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                      )
+                    : const Icon(Icons.done_all, size: 24),
               ),
             ],
           ),

@@ -14,6 +14,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
@@ -165,7 +166,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     try {
       await _scannerController.start();
       _scannerStarted = true;
-    } catch (e) {
+    } catch (_) {
       _scannerStarted = false;
       _setError('We couldn’t access your camera. Please try again.');
     }
@@ -794,9 +795,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                           ],
                           const SizedBox(height: 10),
                           Text(
-                            showUnlock
-                                ? l10n.tr('qr_scanner_requires_charges_message')
-                                : l10n.tr('qr_scanner_can_open_league_message'),
+                            showUnlock ? l10n.tr('qr_scanner_requires_charges_message') : l10n.tr('qr_scanner_can_open_league_message'),
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: cs.onSurface.withOpacity(0.72),
@@ -1109,9 +1108,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
                                         IconButton(
-                                          tooltip: _torchOn
-                                              ? l10n.tr('qr_scanner_torch_off_tooltip')
-                                              : l10n.tr('qr_scanner_torch_on_tooltip'),
+                                          tooltip: _torchOn ? l10n.tr('qr_scanner_torch_off_tooltip') : l10n.tr('qr_scanner_torch_on_tooltip'),
                                           icon: Icon(
                                             _torchOn ? Icons.flash_on : Icons.flash_off,
                                             color: Colors.white,
@@ -1130,9 +1127,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                           onPressed: !_cameraPermissionGranted || _joining
                                               ? null
                                               : () async {
-                                                  final newFacing = _facing == CameraFacing.back
-                                                      ? CameraFacing.front
-                                                      : CameraFacing.back;
+                                                  final newFacing = _facing == CameraFacing.back ? CameraFacing.front : CameraFacing.back;
                                                   await _scannerController.switchCamera();
                                                   setState(() => _facing = newFacing);
                                                 },

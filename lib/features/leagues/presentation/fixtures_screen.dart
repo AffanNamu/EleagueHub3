@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
@@ -184,8 +185,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     try {
       final authUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       if (authUid.isEmpty) {
-        throw const FirebaseAuthException(code: 'unauthenticated');
+        if (mounted) context.go('/login');
+        return;
       }
+
+      // Online-only: fail fast with a friendly message when offline.
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
       final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
@@ -285,6 +290,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
     setState(() => _isGeneratingNextRound = true);
     try {
+      final authUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      if (authUid.isEmpty) {
+        if (mounted) context.go('/login');
+        return;
+      }
+
+      // Online-only: fail fast with a friendly message when offline.
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
       final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
       if (league == null) {
         _snack(l10n.tr('fixtures_league_not_found'));

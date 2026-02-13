@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -1482,9 +1483,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
       if (_creatorWillParticipate) {
         // Profiles are stored by Firebase UID.
-        final profile = await UserProfileRepository()
-            .fetchByUserId(organizerAuthUid)
-            .timeout(const Duration(seconds: 12));
+        final profile = await UserProfileRepository().fetchByUserId(organizerAuthUid).timeout(const Duration(seconds: 12));
         final name = profile?.teamName.trim() ?? '';
         if (name.isEmpty) {
           throw StateError(l10n.tr('league_create_error_profile_team_name_missing'));
@@ -1640,8 +1639,7 @@ class _OptionalImageField extends StatelessWidget {
                 ? Image.network(
                     url,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
+                    errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
                   )
                 : Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55))),
       ),

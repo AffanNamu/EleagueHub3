@@ -1,104 +1,110 @@
-import '../../../core/database/db_helper.dart';
+import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../../core/services/connectivity_service.dart';
+
+/// User-safe exception: if UI accidentally shows `$e`, it will still be a friendly message.
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// ONLINE-ONLY Admin service.
+///
+/// This replaces the legacy SQLite/offline-sync implementation.
+/// All writes go directly to Firestore, and reads come from Firestore.
+/// No local persistence, no background sync, no unsynced queues.
 class AdminService {
-  final db = DbHelper.instance;
+  AdminService({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance;
 
-  /// Update a match score locally
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
+
+  String _requireAuthUid() {
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      throw const UserFriendlyException('Please sign in and try again.');
+    }
+    return uid;
+  }
+
+  CollectionReference<Map<String, dynamic>> _matchesCol(String leagueId) {
+    return _firestore.collection('leagues').doc(leagueId).collection('matches');
+  }
+
+  /// Legacy signature kept for compatibility with older call sites.
+  ///
+  /// IMPORTANT:
+  /// - Firestore match document IDs are typically strings (UUIDs).
+  /// - This method uses `matchId.toString()` as the doc id.
+  /// - Prefer using [updateScoreByDocId] in newer code paths.
   Future<void> updateScore(int matchId, int hScore, int aScore, String leagueId) async {
-    final database = await db.database;
-
-    // 1. Update the Match Score locally and mark as unsynced
-    await database.update(
-      'matches',
-      {'homeScore': hScore, 'awayScore': aScore, 'isSynced': 0},
-      where: 'id = ?',
-      whereArgs: [matchId],
+    await updateScoreByDocId(
+      leagueId: leagueId,
+      matchDocId: matchId.toString(),
+      homeScore: hScore,
+      awayScore: aScore,
     );
-
-    // 2. Recalculate standings locally
-    await _recalculateStandings(leagueId);
   }
 
-  /// Recalculate standings based on all scored matches locally
-  Future<void> _recalculateStandings(String leagueId) async {
-    final database = await db.database;
+  /// Preferred method: update a match score by Firestore document id.
+  ///
+  /// Notes:
+  /// - We only update score fields + updatedAtMs to avoid breaking existing schema.
+  /// - Status is intentionally not forced here because different deployments
+  ///   may store it as int or string; higher-level flows usually update full
+  ///   match docs via repositories/models.
+  Future<void> updateScoreByDocId({
+    required String leagueId,
+    required String matchDocId,
+    required int homeScore,
+    required int awayScore,
+  }) async {
+    try {
+      _requireAuthUid();
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-    final matches = await database.query(
-      'matches',
-      where: 'leagueId = ? AND homeScore IS NOT NULL',
-      whereArgs: [leagueId],
-    );
+      final h = homeScore < 0 ? 0 : homeScore;
+      final a = awayScore < 0 ? 0 : awayScore;
 
-    Map<int, Map<String, int>> stats = {};
-
-    for (var m in matches) {
-      int hId = m['homeTeamId'] as int;
-      int aId = m['awayTeamId'] as int;
-      int hG = m['homeScore'] as int;
-      int aG = m['awayScore'] as int;
-
-      stats.putIfAbsent(hId, () => {'p': 0, 'pts': 0, 'gf': 0, 'ga': 0});
-      stats.putIfAbsent(aId, () => {'p': 0, 'pts': 0, 'gf': 0, 'ga': 0});
-
-      stats[hId]!['gf'] = stats[hId]!['gf']! + hG;
-      stats[hId]!['ga'] = stats[hId]!['ga']! + aG;
-      stats[aId]!['gf'] = stats[aId]!['gf']! + aG;
-      stats[aId]!['ga'] = stats[aId]!['ga']! + hG;
-      stats[hId]!['p'] = stats[hId]!['p']! + 1;
-      stats[aId]!['p'] = stats[aId]!['p']! + 1;
-
-      if (hG > aG) {
-        stats[hId]!['pts'] = stats[hId]!['pts']! + 3;
-      } else if (hG < aG) {
-        stats[aId]!['pts'] = stats[aId]!['pts']! + 3;
-      } else {
-        stats[hId]!['pts'] = stats[hId]!['pts']! + 1;
-        stats[aId]!['pts'] = stats[aId]!['pts']! + 1;
+      final ref = _matchesCol(leagueId).doc(matchDocId.trim());
+      final snap = await ref.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
+      if (!snap.exists) {
+        throw const UserFriendlyException("We couldn't find this match. Please refresh and try again.");
       }
-    }
 
-    for (var teamId in stats.keys) {
-      var s = stats[teamId]!;
-      await database.insert(
-        'standings',
-        {
-          'leagueId': leagueId,
-          'teamId': teamId,
-          'played': s['p'],
-          'points': s['pts'],
-          'goalsFor': s['gf'],
-          'goalsAgainst': s['ga'],
+      await ref.set(
+        <String, dynamic>{
+          'homeScore': h,
+          'awayScore': a,
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
         },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      if (e is UserFriendlyException) rethrow;
+      throw const UserFriendlyException("We couldn't update the score right now. Please try again.");
     }
   }
 
-  /// Get all unsynced matches
+  /// ONLINE-ONLY: unsynced local matches do not exist anymore.
+  /// Kept for compatibility; always returns empty.
   Future<List<Map<String, dynamic>>> getUnsyncedMatches() async {
-    final database = await db.database;
-    return await database.query(
-      'matches',
-      where: 'isSynced = 0',
-    );
+    return const <Map<String, dynamic>>[];
   }
 
-  /// Sync unsynced matches to server (placeholder for online API call)
+  /// ONLINE-ONLY: background/offline sync is removed.
+  /// Kept for compatibility; this is a no-op.
   Future<void> syncScoresOnline(Future<bool> Function(Map<String, dynamic>) uploadMatch) async {
-    final unsynced = await getUnsyncedMatches();
-
-    for (var match in unsynced) {
-      bool success = await uploadMatch(match); // Call your API here
-      if (success) {
-        // Mark as synced locally
-        final database = await db.database;
-        await database.update(
-          'matches',
-          {'isSynced': 1},
-          where: 'id = ?',
-          whereArgs: [match['id']],
-        );
-      }
-    }
+    return;
   }
 }

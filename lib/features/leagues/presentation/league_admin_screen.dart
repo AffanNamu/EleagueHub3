@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -31,6 +32,15 @@ import '../models/team.dart';
 import 'add_teams_screen.dart';
 import 'league_participants_screen.dart';
 import 'utils/roster_csv_exporter.dart';
+
+/// User-safe exception (picked up by UserFriendlyError mapper).
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 class LeagueAdminScreen extends ConsumerStatefulWidget {
   final bool hasPendingChanges;
@@ -86,9 +96,27 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   void _snack(String msg) {
     if (!mounted) return;
+
+    final trimmed = msg.trim();
+    if (trimmed.isEmpty) return;
+
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+      SnackBar(content: Text(trimmed), behavior: SnackBarBehavior.floating),
     );
+  }
+
+  String? _authUidOrRedirect() {
+    final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (uid.isEmpty) {
+      if (mounted) context.go('/login');
+      return null;
+    }
+    return uid;
+  }
+
+  Future<void> _requireOnline() async {
+    await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
   }
 
   /// Rules-authoritative owner detection (Firebase UID only).
@@ -200,41 +228,42 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     String remoteOwnerUid = '';
 
     try {
-      currentAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      currentAuthUid = _authUidOrRedirect() ?? '';
+      if (currentAuthUid.isEmpty) return;
+
+      await _requireOnline();
 
       league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
       space = await _spaceRepo.getSpace(widget.leagueId).timeout(const Duration(seconds: 10));
 
       // Fetch rules-authoritative organizer/owner uid from Firestore (server).
-      if (currentAuthUid.isNotEmpty) {
-        try {
-          final snap = await _firestore
-              .collection('leagues')
-              .doc(widget.leagueId)
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 10));
-          final data = snap.data();
-          if (data != null) {
-            remoteOrganizerUid = (data['organizerUid'] as String?)?.trim() ?? '';
-            remoteOwnerUid = (data['ownerUid'] as String?)?.trim() ?? '';
+      try {
+        final snap = await _firestore
+            .collection('leagues')
+            .doc(widget.leagueId)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 10));
+        final data = snap.data();
+        if (data != null) {
+          remoteOrganizerUid = (data['organizerUid'] as String?)?.trim() ?? '';
+          remoteOwnerUid = (data['ownerUid'] as String?)?.trim() ?? '';
 
-            // Backward compat ONLY if legacy fields contain Firebase UID and match current auth.
-            if (remoteOrganizerUid.isEmpty) {
-              final legacyOrg = (data['organizerUserId'] as String?)?.trim() ?? '';
-              if (legacyOrg.isNotEmpty && legacyOrg == currentAuthUid) {
-                remoteOrganizerUid = currentAuthUid;
-              }
-            }
-            if (remoteOwnerUid.isEmpty) {
-              final legacyOwner = (data['ownerId'] as String?)?.trim() ?? '';
-              if (legacyOwner.isNotEmpty && legacyOwner == currentAuthUid) {
-                remoteOwnerUid = currentAuthUid;
-              }
+          // Backward compat ONLY if legacy fields contain Firebase UID and match current auth.
+          if (remoteOrganizerUid.isEmpty) {
+            final legacyOrg = (data['organizerUserId'] as String?)?.trim() ?? '';
+            if (legacyOrg.isNotEmpty && legacyOrg == currentAuthUid) {
+              remoteOrganizerUid = currentAuthUid;
             }
           }
-        } catch (_) {
-          // ignore (offline / denied / missing)
+          if (remoteOwnerUid.isEmpty) {
+            final legacyOwner = (data['ownerId'] as String?)?.trim() ?? '';
+            if (legacyOwner.isNotEmpty && legacyOwner == currentAuthUid) {
+              remoteOwnerUid = currentAuthUid;
+            }
+          }
         }
+      } catch (_) {
+        // ignore: best-effort
       }
 
       if (league != null) {
@@ -287,6 +316,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     setState(() => _processingUpgradePayment = true);
 
     try {
+      final authUid = _authUidOrRedirect();
+      if (authUid == null) return;
+
+      await _requireOnline();
+
       final result = await context.push<LeagueCreationPaymentResult?>(
         '/leagues/${league.id}/upgrade/payment',
         extra: <String, dynamic>{
@@ -335,16 +369,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             .getPlanForLocale(Localizations.maybeLocaleOf(context))
             .timeout(const Duration(seconds: 15));
 
-        final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-        if (organizerAuthUid.isEmpty) {
-          throw const FirebaseAuthException(code: 'unauthenticated');
-        }
-
         if (result.buyCouponsForParticipants) {
           await CouponConfigService()
               .createOrIncrementOnPurchase(
                 leagueId: league.id,
-                organizerUserId: organizerAuthUid,
+                organizerUserId: authUid,
                 qtyPurchased: addCoupons,
                 discountPercent: nextDiscountPercent,
                 plan: plan,
@@ -434,11 +463,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
                                 child: Text(
-                                  'Failed to load coupon configuration.',
+                                  UserFriendlyError.toMessage(snap.error as Object),
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: cs.error,
                                     fontWeight: FontWeight.w700,
                                   ),
+                                  textAlign: TextAlign.center,
                                 ),
                               );
                             }
@@ -575,6 +605,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       return;
     }
 
+    final countCtrl = TextEditingController(text: '10');
+    final customCtrl = TextEditingController();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -593,9 +626,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             .orderBy('createdAtMs', descending: true)
             .limit(300);
 
-        final countCtrl = TextEditingController(text: '10');
-        final customCtrl = TextEditingController();
-
         bool customMode = false;
         bool generating = false;
         String? errorText;
@@ -604,6 +634,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           builder: (ctx, setStateSheet) {
             Future<void> _initConfigIfMissing() async {
               try {
+                final authUid = _authUidOrRedirect();
+                if (authUid == null) return;
+
+                await _requireOnline();
+
                 await CouponConfigService()
                     .ensureConfigInitializedFromLeague(league.id)
                     .timeout(const Duration(seconds: 15));
@@ -623,10 +658,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               });
 
               try {
-                final organizerAuthUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-                if (organizerAuthUid.isEmpty) {
-                  throw const FirebaseAuthException(code: 'unauthenticated');
-                }
+                final organizerAuthUid = _authUidOrRedirect();
+                if (organizerAuthUid == null) return;
+
+                await _requireOnline();
 
                 final svc = CouponCodesService();
 
@@ -730,6 +765,20 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               stream: cfgStream,
                               builder: (context, snap) {
                                 final cfg = snap.data;
+
+                                if (snap.hasError) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Text(
+                                      UserFriendlyError.toMessage(snap.error as Object),
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: cs.error,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  );
+                                }
 
                                 if (snap.connectionState == ConnectionState.waiting) {
                                   return Padding(
@@ -938,11 +987,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   if (snap.hasError) {
                                     return Center(
                                       child: Text(
-                                        'Failed to load codes.',
+                                        UserFriendlyError.toMessage(snap.error as Object),
                                         style: theme.textTheme.bodyMedium?.copyWith(
                                           color: cs.error,
                                           fontWeight: FontWeight.w700,
                                         ),
+                                        textAlign: TextAlign.center,
                                       ),
                                     );
                                   }
@@ -1021,7 +1071,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      countCtrl.dispose();
+      customCtrl.dispose();
+    });
   }
 
   Widget _kv(String k, String v, ThemeData theme, ColorScheme cs) {
@@ -1070,10 +1123,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     setState(() => _addingMeAsParticipant = true);
 
     try {
-      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-      if (authUid.isEmpty) {
-        throw const FirebaseAuthException(code: 'unauthenticated');
-      }
+      final authUid = _authUidOrRedirect();
+      if (authUid == null) return;
+
+      await _requireOnline();
 
       final isOwnerByRules = _isRulesOwnerForLeague(
         league,
@@ -1083,14 +1136,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
 
       if (!isOwnerByRules) {
-        throw StateError(l10n.tr('league_admin_only_organizer_action'));
+        throw UserFriendlyException(l10n.tr('league_admin_only_organizer_action'));
       }
 
       if (league.format == LeagueFormat.uclGroup && !(league.maxTeams == 16 || league.maxTeams == 32)) {
-        throw StateError(l10n.tr('league_admin_ucl_group_maxteams_error'));
+        throw UserFriendlyException(l10n.tr('league_admin_ucl_group_maxteams_error'));
       }
       if (league.format == LeagueFormat.uclSwiss && !(league.maxTeams == 18 || league.maxTeams == 36)) {
-        throw StateError(l10n.tr('league_admin_swiss_maxteams_error'));
+        throw UserFriendlyException(l10n.tr('league_admin_swiss_maxteams_error'));
       }
 
       final existingTeams = await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
@@ -1103,13 +1156,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       if (existingTeams.length >= league.maxTeams) {
         final prefix = l10n.tr('league_admin_league_full_prefix');
         final suffix = l10n.tr('league_admin_league_full_suffix');
-        throw StateError('$prefix${league.maxTeams}$suffix');
+        throw UserFriendlyException('$prefix${league.maxTeams}$suffix');
       }
 
       final profile = await UserProfileRepository().fetchByUserId(authUid).timeout(const Duration(seconds: 12));
       final teamName = profile?.teamName.trim() ?? '';
       if (teamName.isEmpty) {
-        throw StateError(l10n.tr('league_admin_profile_team_name_missing'));
+        throw UserFriendlyException(l10n.tr('league_admin_profile_team_name_missing'));
       }
 
       String? groupId;
@@ -1117,7 +1170,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final allowedGroups = _allowedGroupsForUclGroup(league);
         final picked = _pickGroupWithSpace(teams: existingTeams, allowedGroups: allowedGroups);
         if (picked == null) {
-          throw StateError(l10n.tr('league_admin_all_groups_full'));
+          throw UserFriendlyException(l10n.tr('league_admin_all_groups_full'));
         }
         groupId = picked;
       } else {
@@ -1184,6 +1237,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     setState(() => _exportingRoster = true);
     try {
+      final authUid = _authUidOrRedirect();
+      if (authUid == null) return;
+
+      await _requireOnline();
+
       await RosterCsvExporter.shareRosterCsv(
         repo: _repo,
         league: league,
@@ -1211,10 +1269,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     }
 
     try {
-      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-      if (authUid.isEmpty) {
-        throw const FirebaseAuthException(code: 'unauthenticated');
-      }
+      final authUid = _authUidOrRedirect();
+      if (authUid == null) return;
+
+      await _requireOnline();
 
       final isOwnerByRules = _isRulesOwnerForLeague(
         league,
@@ -1224,7 +1282,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
 
       if (!isOwnerByRules) {
-        throw StateError(l10n.tr('league_admin_only_organizer_start_space'));
+        throw UserFriendlyException(l10n.tr('league_admin_only_organizer_start_space'));
       }
 
       final leagueName = league.name;
@@ -1265,10 +1323,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     if (league == null) return;
 
     try {
-      final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-      if (authUid.isEmpty) {
-        throw const FirebaseAuthException(code: 'unauthenticated');
-      }
+      final authUid = _authUidOrRedirect();
+      if (authUid == null) return;
+
+      await _requireOnline();
 
       final isOwnerByRules = _isRulesOwnerForLeague(
         league,
@@ -1278,7 +1336,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
 
       if (!isOwnerByRules) {
-        throw StateError(l10n.tr('league_admin_only_organizer_end_space'));
+        throw UserFriendlyException(l10n.tr('league_admin_only_organizer_end_space'));
       }
 
       final updated = await _spaceRepo.endSpace(league.id).timeout(const Duration(seconds: 20));
@@ -1816,11 +1874,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       return;
     }
 
-    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-    if (authUid.isEmpty) {
-      _snack('Please sign in and try again.');
-      return;
-    }
+    final authUid = _authUidOrRedirect();
+    if (authUid == null) return;
 
     final isOwnerByRules = _isRulesOwnerForLeague(
       league,
@@ -1923,6 +1978,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   );
 
                                   try {
+                                    await _requireOnline();
+
                                     await _firestore
                                         .collection('leagues')
                                         .doc(widget.leagueId)
@@ -1963,7 +2020,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           ),
         );
       },
-    );
+    ).whenComplete(() {
+      titleController.dispose();
+      messageController.dispose();
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -2099,8 +2159,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     showDialog(
       context: context,
       builder: (ctx) {
-        final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
+        final cs = Theme.of(ctx).colorScheme;
         final onSurface = cs.onSurface;
 
         return AlertDialog(
@@ -2122,6 +2181,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               style: FilledButton.styleFrom(backgroundColor: cs.error),
               onPressed: () async {
                 try {
+                  final uid = _authUidOrRedirect();
+                  if (uid == null) return;
+
+                  await _requireOnline();
+
                   await _repo.deleteLeagueCompletely(widget.leagueId).timeout(const Duration(seconds: 30));
                   if (!mounted) return;
                   Navigator.of(ctx).pop();

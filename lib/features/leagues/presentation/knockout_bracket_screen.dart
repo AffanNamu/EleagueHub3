@@ -1,10 +1,15 @@
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/bracket_painter.dart';
@@ -27,7 +32,10 @@ class KnockoutBracketScreen extends ConsumerStatefulWidget {
 
 class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   late LocalLeaguesRepository _repo;
+
   bool _isLoading = true;
+  String? _loadError;
+
   List<KnockoutMatch> _matches = [];
   Map<String, Team> _teamsById = {};
 
@@ -53,20 +61,41 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   void initState() {
     super.initState();
     _repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+    // ignore: discarded_futures
     _loadData();
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    final teams = await _repo.getTeams(widget.leagueId);
-    final koMatches = await _repo.getKnockoutMatches(widget.leagueId);
-
-    if (!mounted) return;
     setState(() {
-      _teamsById = {for (final t in teams) t.id: t};
-      _matches = koMatches;
-      _isLoading = false;
+      _isLoading = true;
+      _loadError = null;
     });
+
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      if (uid.isEmpty) {
+        if (mounted) context.go('/login');
+        return;
+      }
+
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+      final koMatches = await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+
+      if (!mounted) return;
+      setState(() {
+        _teamsById = {for (final t in teams) t.id: t};
+        _matches = koMatches;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+      });
+    }
   }
 
   String _roundDisplayName(String roundName) {
@@ -223,18 +252,83 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
         leading: const BackButton(),
         actions: [
           IconButton(
-            onPressed: _loadData,
-            icon: Icon(Icons.sync_rounded, color: cs.primary),
-            tooltip: l10n.tr('knockout_bracket_reload_tooltip'),
+            onPressed: _isLoading ? null : _loadData,
+            icon: Icon(Icons.refresh, color: cs.primary),
+            tooltip: l10n.tr('common_refresh'),
           ),
         ],
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: cs.primary))
-          : Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _matches.isEmpty ? _buildEmptyState() : _buildPremiumBracket(),
+          : (_loadError != null
+              ? _buildLoadErrorState(_loadError!)
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _matches.isEmpty ? _buildEmptyState() : _buildPremiumBracket(),
+                )),
+    );
+  }
+
+  Widget _buildLoadErrorState(String msg) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Glass(
+            borderRadius: 24,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_off_rounded, color: cs.primary, size: 44),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Couldn’t load bracket',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    msg,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface.withOpacity(0.70),
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => context.pop(),
+                          child: const Text('Back'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _loadData,
+                          child: const Text('Retry'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
+          ),
+        ),
+      ),
     );
   }
 
