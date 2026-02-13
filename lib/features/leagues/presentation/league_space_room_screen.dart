@@ -1,15 +1,18 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/persistence/prefs_service.dart';
 import '../../../core/platform/overlay_bridge.dart';
 import '../../../core/platform/overlay_platform.dart';
-import '../../../core/services/sync_trigger.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
@@ -71,11 +74,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   String _youLabel = 'You';
 
-  DocumentReference<Map<String, dynamic>> get _spaceDoc => _firestore
-      .collection('leagues')
-      .doc(widget.leagueId)
-      .collection('space')
-      .doc('current');
+  DocumentReference<Map<String, dynamic>> get _spaceDoc =>
+      _firestore.collection('leagues').doc(widget.leagueId).collection('space').doc('current');
 
   CollectionReference<Map<String, dynamic>> get _requestsCol => _spaceDoc.collection('requests');
   CollectionReference<Map<String, dynamic>> get _speakersCol => _spaceDoc.collection('speakers');
@@ -92,7 +92,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   @override
   void initState() {
     super.initState();
-    _init();
+    unawaited(_init());
   }
 
   String _shortUid(String userId) {
@@ -121,7 +121,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     unawaited(() async {
       try {
-        final profile = await _profiles.fetchByUserId(uid);
+        final profile = await _profiles.fetchByUserId(uid).timeout(const Duration(seconds: 10));
         final name = profile?.teamName.trim() ?? '';
         if (!mounted) return;
 
@@ -202,19 +202,32 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Future<void> _init() async {
-    final l10n = context.l10n;
+    final authUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (authUid.isEmpty) {
+      if (mounted) context.go('/login');
+      return;
+    }
 
-    await SyncTrigger.trySync();
-
-    final prefs = await PreferencesService.create();
-    _uid = prefs.getCurrentUserId() ?? '';
-
+    _uid = authUid;
     _ensureDisplayNameLoaded(_uid);
 
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+      });
+      return;
+    }
+
+    // Request mic permission (best-effort; listeners can still join muted).
     await _requestMicPermissionOnJoin();
 
-    _spaceSub = _spaceDoc.snapshots().listen((snap) async {
+    _spaceSub = _spaceDoc.snapshots(includeMetadataChanges: true).listen((snap) async {
       if (!mounted) return;
+      if (snap.metadata.isFromCache) return;
 
       if (!snap.exists) {
         setState(() {
@@ -247,14 +260,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       } catch (e) {
         setState(() {
           _loading = false;
-          _error = '${l10n.tr('league_space_failed_to_parse_space_prefix')} $e';
+          _error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
         });
       }
     }, onError: (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '${l10n.tr('league_space_stream_error_prefix')} $e';
+        _error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
       });
     });
   }
@@ -301,11 +314,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _myRequestStatus = '';
         });
       }
-      _syncMicWithSpaceState();
+      unawaited(_syncMicWithSpaceState());
       return;
     }
 
-    _mySpeakerSub ??= _mySpeakerDoc.snapshots().listen((snap) async {
+    _mySpeakerSub ??= _mySpeakerDoc.snapshots(includeMetadataChanges: true).listen((snap) async {
+      if (snap.metadata.isFromCache) return;
+
       final approved = snap.exists;
       final muted = (snap.data()?['muted'] == true);
 
@@ -326,7 +341,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (prevMuted != muted && !muted && approved) _toastOk(l10n.tr('league_space_toast_host_unmuted_you'));
     });
 
-    _myRequestSub ??= _myRequestDoc.snapshots().listen((snap) {
+    _myRequestSub ??= _myRequestDoc.snapshots(includeMetadataChanges: true).listen((snap) {
+      if (snap.metadata.isFromCache) return;
+
       if (!mounted) return;
       if (!snap.exists) {
         setState(() => _myRequestStatus = '');
@@ -435,13 +452,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     });
 
     try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
       await _requestMicPermissionOnJoin();
 
       final token = await LiveKitService.fetchToken(
         leagueId: widget.leagueId,
         userId: _uid,
         isHost: _isHost,
-      );
+      ).timeout(const Duration(seconds: 20));
 
       final room = Room(
         roomOptions: const RoomOptions(
@@ -474,7 +492,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
       });
 
-      await room.connect(token.url, token.token);
+      await room.connect(token.url, token.token).timeout(const Duration(seconds: 25));
       await _maybeStartAudioPlayback(room);
 
       if (!mounted) return;
@@ -498,8 +516,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (!mounted) return;
       setState(() {
         _joiningAudio = false;
-        _error = '${l10n.tr('league_space_audio_connect_failed_prefix')} $e';
+        _error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
       });
+      _toastErr('${l10n.tr('league_space_audio_connect_failed_prefix')} $_error');
     }
   }
 
@@ -631,15 +650,19 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     }
 
     try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
       await _myRequestDoc.set({
         'userId': _uid,
         'status': 'pending',
-        'createdAtMs': DateTime.now().millisecondsSinceEpoch,
-        'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-      }, SetOptions(merge: true));
+        'createdAtMs': now,
+        'updatedAtMs': now,
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 12));
+
       _toastOk(l10n.tr('league_space_request_sent'));
     } catch (e) {
-      _toastErr('${l10n.tr('league_space_request_failed_prefix')} $e');
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
@@ -648,10 +671,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     if (_uid.isEmpty) return;
     try {
-      await _myRequestDoc.delete();
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await _myRequestDoc.delete().timeout(const Duration(seconds: 12));
       _toastOk(l10n.tr('league_space_request_removed'));
     } catch (e) {
-      _toastErr('${l10n.tr('league_space_failed_prefix')} $e');
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
@@ -660,24 +684,30 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     if (!_isHost) return;
 
-    final batch = _firestore.batch();
-    final now = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-    batch.set(_speakersCol.doc(userId), {
-      'userId': userId,
-      'approvedBy': _uid,
-      'approvedAtMs': now,
-      'muted': false,
-    }, SetOptions(merge: true));
+      final batch = _firestore.batch();
+      final now = DateTime.now().millisecondsSinceEpoch;
 
-    batch.set(_requestsCol.doc(userId), {
-      'userId': userId,
-      'status': 'approved',
-      'updatedAtMs': now,
-    }, SetOptions(merge: true));
+      batch.set(_speakersCol.doc(userId), {
+        'userId': userId,
+        'approvedBy': _uid,
+        'approvedAtMs': now,
+        'muted': false,
+      }, SetOptions(merge: true));
 
-    await batch.commit();
-    _toastOk('${l10n.tr('league_space_approved_prefix')}${_displayName(userId)}');
+      batch.set(_requestsCol.doc(userId), {
+        'userId': userId,
+        'status': 'approved',
+        'updatedAtMs': now,
+      }, SetOptions(merge: true));
+
+      await batch.commit().timeout(const Duration(seconds: 15));
+      _toastOk('${l10n.tr('league_space_approved_prefix')}${_displayName(userId)}');
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
   }
 
   Future<void> _denyRequest(String userId) async {
@@ -685,34 +715,50 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     if (!_isHost) return;
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-    await _requestsCol.doc(userId).set({
-      'userId': userId,
-      'status': 'denied',
-      'updatedAtMs': now,
-    }, SetOptions(merge: true));
+      final now = DateTime.now().millisecondsSinceEpoch;
 
-    await _speakersCol.doc(userId).delete().catchError((_) {});
-    _toastWarn('${l10n.tr('league_space_denied_prefix')}${_displayName(userId)}');
+      await _requestsCol.doc(userId).set({
+        'userId': userId,
+        'status': 'denied',
+        'updatedAtMs': now,
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 12));
+
+      await _speakersCol.doc(userId).delete().timeout(const Duration(seconds: 12));
+      _toastWarn('${l10n.tr('league_space_denied_prefix')}${_displayName(userId)}');
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
   }
 
   Future<void> _removeSpeaker(String userId) async {
     final l10n = context.l10n;
 
     if (!_isHost) return;
-    await _speakersCol.doc(userId).delete();
-    _toastWarn('${l10n.tr('league_space_removed_speaker_prefix')}${_displayName(userId)}');
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await _speakersCol.doc(userId).delete().timeout(const Duration(seconds: 12));
+      _toastWarn('${l10n.tr('league_space_removed_speaker_prefix')}${_displayName(userId)}');
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
   }
 
   Future<void> _toggleMuteSpeaker(String userId, bool muted) async {
     final l10n = context.l10n;
 
     if (!_isHost) return;
-    await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true));
-    _toast(muted
-        ? '${l10n.tr('league_space_muted_prefix')}${_displayName(userId)}'
-        : '${l10n.tr('league_space_unmuted_prefix')}${_displayName(userId)}');
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true)).timeout(const Duration(seconds: 12));
+      _toast(muted
+          ? '${l10n.tr('league_space_muted_prefix')}${_displayName(userId)}'
+          : '${l10n.tr('league_space_unmuted_prefix')}${_displayName(userId)}');
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
   }
 
   @override
@@ -728,12 +774,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: l10n.tr('league_details_sync_tooltip'),
+            tooltip: l10n.tr('common_refresh'),
             onPressed: () async {
-              await SyncTrigger.trySync();
-              _toastOk(l10n.tr('league_details_synced_toast'));
+              final ok = await ConnectivityService.instance.recheckConnection();
+              if (!mounted) return;
+              _toastOk(ok ? l10n.tr('common_done') : l10n.tr('common_retry'));
             },
-            icon: const Icon(Icons.sync),
+            icon: const Icon(Icons.refresh),
           ),
         ],
       ),
@@ -968,8 +1015,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     builder: (context, snap) {
                       if (snap.hasError) {
                         return Text(
-                          '${l10n.tr('league_space_requests_error_prefix')} ${snap.error}',
+                          UserFriendlyError.toMessage(snap.error as Object),
                           style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
+                          textAlign: TextAlign.center,
                         );
                       }
                       if (!snap.hasData) return const SizedBox.shrink();
@@ -1019,23 +1067,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                 spacing: 8,
                                 children: [
                                   OutlinedButton(
-                                    onPressed: () async {
-                                      try {
-                                        await _denyRequest(userId);
-                                      } catch (e) {
-                                        _toastErr('${l10n.tr('league_space_deny_failed_prefix')} $e');
-                                      }
-                                    },
+                                    onPressed: () => _denyRequest(userId),
                                     child: Text(l10n.tr('league_space_deny')),
                                   ),
                                   FilledButton(
-                                    onPressed: () async {
-                                      try {
-                                        await _approveRequest(userId);
-                                      } catch (e) {
-                                        _toastErr('${l10n.tr('league_space_approve_failed_prefix')} $e');
-                                      }
-                                    },
+                                    onPressed: () => _approveRequest(userId),
                                     child: Text(l10n.tr('league_space_approve')),
                                   ),
                                 ],
@@ -1061,8 +1097,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     builder: (context, snap) {
                       if (snap.hasError) {
                         return Text(
-                          '${l10n.tr('league_space_speakers_error_prefix')} ${snap.error}',
+                          UserFriendlyError.toMessage(snap.error as Object),
                           style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
+                          textAlign: TextAlign.center,
                         );
                       }
                       if (!snap.hasData) return const SizedBox.shrink();
@@ -1114,23 +1151,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                 spacing: 8,
                                 children: [
                                   OutlinedButton(
-                                    onPressed: () async {
-                                      try {
-                                        await _toggleMuteSpeaker(userId, !muted);
-                                      } catch (e) {
-                                        _toastErr('${l10n.tr('league_space_mute_failed_prefix')} $e');
-                                      }
-                                    },
+                                    onPressed: () => _toggleMuteSpeaker(userId, !muted),
                                     child: Text(muted ? l10n.tr('league_space_unmute') : l10n.tr('league_space_mute')),
                                   ),
                                   OutlinedButton(
-                                    onPressed: () async {
-                                      try {
-                                        await _removeSpeaker(userId);
-                                      } catch (e) {
-                                        _toastErr('${l10n.tr('league_space_remove_failed_prefix')} $e');
-                                      }
-                                    },
+                                    onPressed: () => _removeSpeaker(userId),
                                     child: Text(l10n.tr('league_space_remove')),
                                   ),
                                 ],

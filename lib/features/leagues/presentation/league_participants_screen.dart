@@ -1,13 +1,14 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
@@ -45,35 +46,14 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
     unawaited(_load());
   }
 
-  String _friendlyMessageForError(Object error) {
-    if (error is SocketException) {
-      return 'Your network appears to be offline. Please check your connection and try again.';
-    }
-    if (error is TimeoutException) {
-      return 'Your internet connection seems unstable. Please try again.';
-    }
-
-    if (error is FirebaseException) {
-      switch (error.code) {
-        case 'unavailable':
-        case 'deadline-exceeded':
-          return 'Your network appears to be offline. Please check your connection and try again.';
-        case 'permission-denied':
-          return 'You don’t have access to this league.';
-        case 'unauthenticated':
-          return 'Please sign in and try again.';
-        default:
-          return "We couldn't load participants right now. Please try again.";
-      }
-    }
-
-    return 'Something went wrong. Please try again.';
-  }
-
   void _showSnack(String message) {
     if (!mounted) return;
+    final msg = message.trim();
+    if (msg.isEmpty) return;
+
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
     );
   }
 
@@ -86,8 +66,11 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       if (uid.isEmpty) {
-        throw const FirebaseException(plugin: 'firebase_auth', code: 'unauthenticated');
+        if (mounted) context.go('/login');
+        return;
       }
+
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final membershipsSnap = await _firestore
           .collection('leagues')
@@ -153,7 +136,7 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
         _error = e;
         _loading = false;
       });
-      _showSnack(_friendlyMessageForError(e is Object ? e : Exception('unknown')));
+      _showSnack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
@@ -167,6 +150,13 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
         title: Text(l10n.tr('league_participants_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: l10n.tr('common_refresh'),
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Center(
@@ -184,6 +174,8 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
   Widget _buildErrorState() {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+
+    final msg = UserFriendlyError.toMessage(_error as Object);
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -207,7 +199,7 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
               ),
               const SizedBox(height: 8),
               Text(
-                'Please check your network and try again.',
+                msg,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: cs.onSurface.withOpacity(0.70),
                   fontSize: 12,
