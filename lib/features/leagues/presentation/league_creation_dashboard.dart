@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
@@ -27,6 +26,7 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import '../models/membership.dart';
 
 enum LeagueCreationType {
   series,
@@ -56,7 +56,6 @@ class _LeagueCreationDashboardState
   final TextEditingController _name = TextEditingController();
   final TextEditingController _description = TextEditingController();
 
-  // OPTIONAL images (URLs or data:image;base64,...)
   final TextEditingController _leagueImageUrl = TextEditingController();
   final TextEditingController _sponsorImageUrl = TextEditingController();
 
@@ -284,6 +283,11 @@ class _LeagueCreationDashboardState
     throw StateError("We couldn't create a join code. Please try again.");
   }
 
+  /// FIXED: Uses WriteBatch so league doc + organizer membership doc
+  /// are created atomically. This ensures:
+  /// 1. Firestore rules can use getAfter() for the membership path
+  /// 2. No partial state if one write fails
+  /// 3. Matches the pattern used in LocalLeaguesRepository
   Future<League> _createLeagueOnline({
     required League league,
     required String organizerAuthUid,
@@ -298,48 +302,62 @@ class _LeagueCreationDashboardState
     final leagueId =
         league.id.trim().isNotEmpty ? league.id.trim() : _draftLeagueId;
     final leagueRef = _firestore.collection('leagues').doc(leagueId);
+    final membershipRef = leagueRef.collection('memberships').doc(uid);
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
+    // ── Build league payload ──
     final leaguePayload = <String, dynamic>{
       ...league.toJson(),
       'id': leagueId,
       'updatedAtMs': now,
+
+      // IMPORTANT: write as bool (not 0/1) to satisfy rules type checks
       'isPrivate': _privacy == LeaguePrivacy.private,
+
+      // Server-authoritative owner fields
       'organizerUid': uid,
       'ownerUid': uid,
       'organizerUserId': organizerUserId,
       'ownerId': uid,
-      'memberIds': <String>[uid],
+
+      // Use FieldValue.arrayUnion so merge works correctly on retries
+      'memberIds': FieldValue.arrayUnion(<String>[uid]),
     };
 
-    await leagueRef
-        .set(leaguePayload, SetOptions(merge: true))
-        .timeout(const Duration(seconds: 25));
+    // ── Build membership payload ──
+    final membership = Membership(
+      id: uid,
+      leagueId: leagueId,
+      userId: uid,
+      teamId: null,
+      role: LeagueRole.organizer,
+      updatedAtMs: now,
+      version: 1,
+    );
 
-    try {
-      final membershipRef = leagueRef.collection('memberships').doc(uid);
-      await membershipRef
-          .set(
-            <String, dynamic>{
-              'id': uid,
-              'leagueId': leagueId,
-              'userId': uid,
-              'teamId': null,
-              'role': 1,
-              'updatedAtMs': now,
-              'version': 1,
-            },
-            SetOptions(merge: true),
-          )
-          .timeout(const Duration(seconds: 20));
-    } catch (_) {
-      // ignore
-    }
+    // ── Atomic batch write ──
+    final batch = _firestore.batch();
 
+    batch.set(
+      leagueRef,
+      leaguePayload,
+      SetOptions(merge: true),
+    );
+
+    batch.set(
+      membershipRef,
+      membership.toRemoteMap(),
+      SetOptions(merge: true),
+    );
+
+    await batch.commit().timeout(const Duration(seconds: 25));
+
+    // ── Read back the created league ──
     final fresh = await leagueRef
         .get(const GetOptions(source: Source.server))
         .timeout(const Duration(seconds: 15));
+
     if (!fresh.exists) {
       throw StateError(
           "We created your league, but couldn't open it yet. Please try again.");
