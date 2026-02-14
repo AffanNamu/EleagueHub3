@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-/// Simple per-league audio room ("space") model.
 @immutable
 class LeagueSpace {
   final String id;
@@ -49,19 +48,31 @@ class LeagueSpace {
       'title': title,
       'isLive': isLive,
       'createdAtMs': createdAtMs,
+      'startedAtMs': createdAtMs,
       'endedAtMs': endedAtMs,
     };
   }
 
+  Map<String, dynamic> toMap() => toJson();
+
   factory LeagueSpace.fromJson(Map<String, dynamic> json) {
     return LeagueSpace(
-      id: json['id'] as String,
-      leagueId: json['leagueId'] as String,
-      hostUserId: json['hostUserId'] as String,
+      id: json['id'] as String? ?? '',
+      leagueId: json['leagueId'] as String? ?? '',
+      hostUserId: json['hostUserId'] as String? ?? '',
       title: json['title'] as String?,
       isLive: json['isLive'] as bool? ?? false,
-      createdAtMs: json['createdAtMs'] as int? ?? 0,
-      endedAtMs: json['endedAtMs'] as int?,
+      createdAtMs: _intFrom(json['createdAtMs'] ?? json['startedAtMs']),
+      endedAtMs: json['endedAtMs'] != null ? _intFrom(json['endedAtMs']) : null,
     );
+  }
+
+  factory LeagueSpace.fromMap(Map<String, dynamic> map) => LeagueSpace.fromJson(map);
+
+  static int _intFrom(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
   }
 }

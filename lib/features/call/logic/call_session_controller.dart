@@ -3,20 +3,19 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../../core/persistence/prefs_service.dart';
 import '../../../core/platform/overlay_bridge.dart';
 import '../../../core/platform/overlay_platform.dart';
 import '../../leagues/services/livekit_service.dart';
 
 final callSessionControllerProvider =
     StateNotifierProvider<CallSessionController, CallSessionState>((ref) {
-  final prefs = ref.read(prefsServiceProvider);
-  return CallSessionController(prefs);
+  return CallSessionController();
 });
 
 @immutable
@@ -28,7 +27,6 @@ class CallSessionState {
   final bool micPermissionGranted;
   final String error;
 
-  // Quick message received (in-app only)
   final String? incomingQuickText;
   final String? incomingQuickFrom;
   final int incomingQuickAtMs;
@@ -83,31 +81,27 @@ class CallSessionState {
 }
 
 class CallSessionController extends StateNotifier<CallSessionState> {
-  CallSessionController(this._prefs) : super(CallSessionState.initial());
-
-  final PreferencesService _prefs;
+  CallSessionController() : super(CallSessionState.initial());
 
   Room? _room;
   EventsListener<RoomEvent>? _listener;
 
-  String get _uid => _prefs.getCurrentUserId() ?? '';
+  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   static final RegExp _codeRe = RegExp(r'^\d{8}$');
 
-  /// Create new 8-digit numeric code (leading zeros allowed), join as host.
   Future<String> createAndJoin() async {
     final code = _generate8DigitCode();
     await joinByCode(code, isHost: true);
     return code;
   }
 
-  /// Join existing room by 8-digit code.
   Future<void> joinByCode(String code, {bool isHost = false}) async {
     final uid = _uid.trim();
     final callId = code.trim();
 
     if (uid.isEmpty) {
-      state = state.copyWith(error: 'Missing user id');
+      state = state.copyWith(error: 'Please sign in first');
       return;
     }
 
@@ -130,7 +124,6 @@ class CallSessionController extends StateNotifier<CallSessionState> {
     try {
       await _disconnectInternal(clearCode: false);
 
-      // Request mic permission (best-effort)
       var micGranted = false;
       try {
         final st = await Permission.microphone.request();
@@ -171,7 +164,6 @@ class CallSessionController extends StateNotifier<CallSessionState> {
         unawaited(OverlayPlatform.stopOverlayVoiceForegroundService());
       });
 
-      // Quick messages over data channel
       _listener!.on<RoomEvent>((event) {
         final type = event.runtimeType.toString().toLowerCase();
         if (!type.contains('data')) return;
@@ -209,7 +201,6 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
       _room = room;
 
-      // Enable mic by default if permission granted; otherwise join as listener.
       if (micGranted) {
         try {
           await room.localParticipant?.setMicrophoneEnabled(true);
@@ -224,10 +215,8 @@ class CallSessionController extends StateNotifier<CallSessionState> {
         unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
       }
 
-      // Register overlay handlers (so overlay mic + quick + end work while minimized/outside app)
       _registerOverlayHandlers();
 
-      // Start voice foreground notification for background stability
       unawaited(
         OverlayPlatform.startOverlayVoiceForegroundService(
           title: 'Voice room',
@@ -363,9 +352,8 @@ class CallSessionController extends StateNotifier<CallSessionState> {
   }
 
   static String _generate8DigitCode() {
-    // Leading zeros allowed; 8 digits always.
     final rnd = Random.secure();
-    final n = rnd.nextInt(100000000); // 0..99,999,999
+    final n = rnd.nextInt(100000000);
     return n.toString().padLeft(8, '0');
   }
 }

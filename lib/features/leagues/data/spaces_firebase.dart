@@ -10,13 +10,14 @@ class LeagueSpacesFirebase {
     required String title,
   }) async {
     final id = _collection.doc().id;
+    final now = DateTime.now().millisecondsSinceEpoch;
     final space = LeagueSpace(
       id: id,
       leagueId: leagueId,
       hostUserId: hostUserId,
       title: title,
       isLive: true,
-      startedAtMs: DateTime.now().millisecondsSinceEpoch,
+      createdAtMs: now,
     );
     await _collection.doc(id).set(space.toMap());
     return space;
@@ -28,15 +29,15 @@ class LeagueSpacesFirebase {
         .where('isLive', isEqualTo: true)
         .limit(1)
         .get();
-        
+
     if (snapshot.docs.isEmpty) return null;
-    
+
     final doc = snapshot.docs.first;
     await doc.reference.update({
-      'isLive': false, 
-      'endedAtMs': DateTime.now().millisecondsSinceEpoch
+      'isLive': false,
+      'endedAtMs': DateTime.now().millisecondsSinceEpoch,
     });
-    
+
     return LeagueSpace.fromMap(doc.data());
   }
 
@@ -45,8 +46,8 @@ class LeagueSpacesFirebase {
         .where('leagueId', isEqualTo: leagueId)
         .where('isLive', isEqualTo: true)
         .snapshots()
-        .map((snap) => snap.docs.isEmpty 
-            ? null 
+        .map((snap) => snap.docs.isEmpty
+            ? null
             : LeagueSpace.fromMap(snap.docs.first.data()));
   }
 }
