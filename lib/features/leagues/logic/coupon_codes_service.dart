@@ -152,7 +152,7 @@ class CouponCodesService {
     required String leagueId,
     String? organizerAuthUid,
     required int count,
-    String? customCode, // base name: e.g. "BARCA"
+    String? customCode,
   }) async {
     final authUid = _auth.currentUser?.uid ?? '';
     if (authUid.trim().isEmpty) throw StateError('Not signed in (no Firebase UID).');
@@ -166,6 +166,123 @@ class CouponCodesService {
     final organizerUidForWrite =
         (organizerAuthUid != null && organizerAuthUid.trim() == authUid) ? authUid : authUid;
 
+    // ============================================================
+    // DEBUG BLOCK START — remove after fixing
+    // ============================================================
+    print('');
+    print('========================================');
+    print('=== COUPON GENERATE DEBUG ===');
+    print('========================================');
+    print('Auth UID: $authUid');
+    print('Auth UID length: ${authUid.length}');
+    print('League ID: $leagueId');
+    print('Count: $effectiveCount');
+    print('Is custom: $isCustom');
+    print('');
+
+    // Check league document
+    try {
+      final leagueSnap = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .get(const GetOptions(source: Source.server));
+      print('--- LEAGUE DOC ---');
+      print('League exists: ${leagueSnap.exists}');
+      if (leagueSnap.exists) {
+        final ld = leagueSnap.data()!;
+        final orgUid = ld['organizerUid'];
+        final ownerUid = ld['ownerUid'];
+        final orgUserId = ld['organizerUserId'];
+        final ownerId = ld['ownerId'];
+        print('organizerUid: "$orgUid" (type: ${orgUid.runtimeType}) match: ${orgUid == authUid}');
+        print('ownerUid: "$ownerUid" (type: ${ownerUid.runtimeType}) match: ${ownerUid == authUid}');
+        print('organizerUserId: "$orgUserId" (type: ${orgUserId.runtimeType}) length: ${orgUserId?.toString().length ?? 0}');
+        print('ownerId: "$ownerId" (type: ${ownerId.runtimeType}) match: ${ownerId == authUid}');
+
+        // Check all keys for any owner-like field
+        final ownerKeys = ld.keys.where((k) =>
+            k.toLowerCase().contains('owner') ||
+            k.toLowerCase().contains('organizer') ||
+            k.toLowerCase().contains('uid'));
+        print('All owner-like keys: ${ownerKeys.toList()}');
+        for (final k in ownerKeys) {
+          print('  $k = "${ld[k]}" (${ld[k].runtimeType})');
+        }
+      }
+    } catch (e) {
+      print('League doc read error: $e');
+    }
+
+    // Check coupon config
+    try {
+      final cfgSnap = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('couponConfig')
+          .doc('config')
+          .get(const GetOptions(source: Source.server));
+      print('');
+      print('--- COUPON CONFIG ---');
+      print('Config exists: ${cfgSnap.exists}');
+      if (cfgSnap.exists) {
+        final cfg = cfgSnap.data()!;
+        print('qtyRemaining: ${cfg['qtyRemaining']} (${cfg['qtyRemaining'].runtimeType})');
+        print('qtyTotal: ${cfg['qtyTotal']} (${cfg['qtyTotal'].runtimeType})');
+        print('currency: ${cfg['currency']} (${cfg['currency'].runtimeType})');
+        print('discountPercent: ${cfg['discountPercent']} (${cfg['discountPercent'].runtimeType})');
+        print('organizerUserId: ${cfg['organizerUserId']} (${cfg['organizerUserId'].runtimeType})');
+        print('unitPrice: ${cfg['unitPrice']} (${cfg['unitPrice'].runtimeType})');
+        print('effectiveUnit: ${cfg['effectiveUnit']} (${cfg['effectiveUnit'].runtimeType})');
+        print('leagueId in config: ${cfg['leagueId']} match: ${cfg['leagueId'] == leagueId}');
+        print('threshold: ${cfg['threshold']} (${cfg['threshold'].runtimeType})');
+        print('thresholdDiscountPercent: ${cfg['thresholdDiscountPercent']} (${cfg['thresholdDiscountPercent'].runtimeType})');
+        print('userPaysPercent: ${cfg['userPaysPercent']} (${cfg['userPaysPercent'].runtimeType})');
+        print('organizerPaysPercent: ${cfg['organizerPaysPercent']} (${cfg['organizerPaysPercent'].runtimeType})');
+        print('createdAtMs: ${cfg['createdAtMs']} (${cfg['createdAtMs'].runtimeType})');
+        print('updatedAtMs: ${cfg['updatedAtMs']} (${cfg['updatedAtMs'].runtimeType})');
+        print('version: ${cfg['version']} (${cfg['version'].runtimeType})');
+        print('All config keys: ${cfg.keys.toList()}');
+      }
+    } catch (e) {
+      print('Config read error: $e');
+    }
+
+    // Check pricing doc
+    try {
+      final pricingSnap = await _firestore
+          .collection('app')
+          .doc('pricing')
+          .get(const GetOptions(source: Source.server));
+      print('');
+      print('--- PRICING DOC ---');
+      print('Pricing exists: ${pricingSnap.exists}');
+      if (pricingSnap.exists) {
+        final p = pricingSnap.data()!;
+        print('Pricing keys: ${p.keys.toList()}');
+        if (p.containsKey('usd') && p['usd'] is Map) {
+          final usd = (p['usd'] as Map).cast<String, dynamic>();
+          print('USD accessFee: ${usd['accessFee']} (${usd['accessFee'].runtimeType})');
+          print('USD couponUnit: ${usd['couponUnit']} (${usd['couponUnit'].runtimeType})');
+        }
+        if (p.containsKey('ngn') && p['ngn'] is Map) {
+          final ngn = (p['ngn'] as Map).cast<String, dynamic>();
+          print('NGN accessFee: ${ngn['accessFee']} (${ngn['accessFee'].runtimeType})');
+          print('NGN couponUnit: ${ngn['couponUnit']} (${ngn['couponUnit'].runtimeType})');
+        }
+      }
+    } catch (e) {
+      print('Pricing read error: $e');
+    }
+
+    print('');
+    print('========================================');
+    print('=== END DEBUG — NOW ATTEMPTING GENERATE ===');
+    print('========================================');
+    print('');
+    // ============================================================
+    // DEBUG BLOCK END
+    // ============================================================
+
     // Rules require cfgCurrent.exists for couponCodes create => ensure config exists.
     await _cfgService.ensureConfigInitializedFromLeague(leagueId);
 
@@ -174,65 +291,99 @@ class CouponCodesService {
     if (isCustom) {
       final base = _sanitizeCustomBase(customRaw);
 
-      await _firestore.runTransaction((tx) async {
-        final cfgSnap = await tx.get(_cfgRef(leagueId));
-        if (!cfgSnap.exists) throw StateError('noConfig');
+      try {
+        await _firestore.runTransaction((tx) async {
+          final cfgSnap = await tx.get(_cfgRef(leagueId));
+          if (!cfgSnap.exists) throw StateError('noConfig');
 
-        final cfg = (cfgSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
-        if (remaining <= 0) throw StateError('noRemaining');
+          final cfg = (cfgSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+          final remaining = (cfg['qtyRemaining'] as num?)?.toInt() ?? 0;
+          if (remaining <= 0) throw StateError('noRemaining');
 
-        final discountPercent = _discountPercentFromConfig(cfg);
-        final codeId = _buildCustomCodeId(base: base, discountPercent: discountPercent);
-        final docRef = _codeRef(leagueId, codeId);
+          final discountPercent = _discountPercentFromConfig(cfg);
+          final codeId = _buildCustomCodeId(base: base, discountPercent: discountPercent);
+          final docRef = _codeRef(leagueId, codeId);
 
-        final codeSnap = await tx.get(docRef);
-        if (codeSnap.exists) throw StateError('customCollision');
+          final codeSnap = await tx.get(docRef);
+          if (codeSnap.exists) throw StateError('customCollision');
 
-        final pricingSnap = await tx.get(_pricingRef());
-        final pricingMap = (pricingSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+          final pricingSnap = await tx.get(_pricingRef());
+          final pricingMap = (pricingSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
 
-        final cfgCurrency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
-        double accessFee = _accessFeeForCurrency(pricingMap, cfgCurrency);
-        String currencyUsed = cfgCurrency;
+          final cfgCurrency = ((cfg['currency'] as String?) ?? 'USD').toUpperCase();
+          double accessFee = _accessFeeForCurrency(pricingMap, cfgCurrency);
+          String currencyUsed = cfgCurrency;
 
-        if (accessFee <= 0) {
-          final other = (cfgCurrency == 'NGN') ? 'USD' : 'NGN';
-          final otherFee = _accessFeeForCurrency(pricingMap, other);
-          if (otherFee > 0) {
-            accessFee = otherFee;
-            currencyUsed = other;
+          if (accessFee <= 0) {
+            final other = (cfgCurrency == 'NGN') ? 'USD' : 'NGN';
+            final otherFee = _accessFeeForCurrency(pricingMap, other);
+            if (otherFee > 0) {
+              accessFee = otherFee;
+              currencyUsed = other;
+            }
           }
+          if (accessFee <= 0) throw StateError('pricingMissing');
+
+          final expectedRaw = accessFee * ((100 - discountPercent) / 100.0);
+          final expectedAmount = (currencyUsed == 'NGN') ? expectedRaw.roundToDouble() : _round2(expectedRaw);
+
+          final prevUpdatedAtMs = (cfg['updatedAtMs'] as num?)?.toInt() ?? 0;
+          final wallNowMs = DateTime.now().millisecondsSinceEpoch;
+          final writeNowMs = (wallNowMs > prevUpdatedAtMs) ? wallNowMs : (prevUpdatedAtMs + 1);
+
+          final codeData = <String, dynamic>{
+            'leagueId': leagueId,
+            'organizerUserId': organizerUidForWrite,
+            'currency': currencyUsed,
+            'discountPercent': discountPercent,
+            'expectedAmount': expectedAmount,
+            'usedBy': '',
+            'usedAtMs': 0,
+            'createdAtMs': writeNowMs,
+            'updatedAtMs': writeNowMs,
+            'version': 1,
+          };
+
+          final cfgUpdateData = <String, dynamic>{
+            'qtyRemaining': remaining - 1,
+            'updatedAtMs': writeNowMs,
+          };
+
+          // DEBUG: Print exact write data
+          print('');
+          print('=== WRITING COUPON CODE (custom) ===');
+          print('Doc path: leagues/$leagueId/couponCodes/$codeId');
+          for (final e in codeData.entries) {
+            print('  ${e.key}: ${e.value} (${e.value.runtimeType})');
+          }
+          print('');
+          print('=== WRITING CONFIG UPDATE ===');
+          print('Doc path: leagues/$leagueId/couponConfig/config');
+          for (final e in cfgUpdateData.entries) {
+            print('  ${e.key}: ${e.value} (${e.value.runtimeType})');
+          }
+          print('  current qtyRemaining: $remaining');
+          print('  new qtyRemaining: ${remaining - 1}');
+          print('');
+
+          tx.set(docRef, codeData);
+          tx.update(_cfgRef(leagueId), cfgUpdateData);
+
+          out.add(codeId);
+        });
+      } catch (e) {
+        print('');
+        print('!!! CUSTOM CODE TRANSACTION FAILED !!!');
+        print('Error type: ${e.runtimeType}');
+        print('Error: $e');
+        if (e is FirebaseException) {
+          print('Firebase code: ${(e).code}');
+          print('Firebase message: ${(e).message}');
+          print('Firebase plugin: ${(e).plugin}');
         }
-        if (accessFee <= 0) throw StateError('pricingMissing');
-
-        final expectedRaw = accessFee * ((100 - discountPercent) / 100.0);
-        final expectedAmount = (currencyUsed == 'NGN') ? expectedRaw.roundToDouble() : _round2(expectedRaw);
-
-        final prevUpdatedAtMs = (cfg['updatedAtMs'] as num?)?.toInt() ?? 0;
-        final wallNowMs = DateTime.now().millisecondsSinceEpoch;
-        final writeNowMs = (wallNowMs > prevUpdatedAtMs) ? wallNowMs : (prevUpdatedAtMs + 1);
-
-        tx.set(docRef, <String, dynamic>{
-          'leagueId': leagueId,
-          'organizerUserId': organizerUidForWrite, // informational only
-          'currency': currencyUsed,
-          'discountPercent': discountPercent,
-          'expectedAmount': expectedAmount,
-          'usedBy': '',
-          'usedAtMs': 0,
-          'createdAtMs': writeNowMs,
-          'updatedAtMs': writeNowMs,
-          'version': 1,
-        });
-
-        tx.update(_cfgRef(leagueId), <String, dynamic>{
-          'qtyRemaining': remaining - 1, // rules require exactly -1
-          'updatedAtMs': writeNowMs,
-        });
-
-        out.add(codeId);
-      });
+        print('');
+        rethrow;
+      }
 
       return out;
     }
@@ -286,7 +437,7 @@ class CouponCodesService {
             final wallNowMs = DateTime.now().millisecondsSinceEpoch;
             final writeNowMs = (wallNowMs > prevUpdatedAtMs) ? wallNowMs : (prevUpdatedAtMs + 1);
 
-            tx.set(docRef, <String, dynamic>{
+            final codeData = <String, dynamic>{
               'leagueId': leagueId,
               'organizerUserId': organizerUidForWrite,
               'currency': currencyUsed,
@@ -297,18 +448,56 @@ class CouponCodesService {
               'createdAtMs': writeNowMs,
               'updatedAtMs': writeNowMs,
               'version': 1,
-            });
+            };
 
-            tx.update(_cfgRef(leagueId), <String, dynamic>{
+            final cfgUpdateData = <String, dynamic>{
               'qtyRemaining': remaining - 1,
               'updatedAtMs': writeNowMs,
-            });
+            };
+
+            // DEBUG: Print exact write data (first attempt of first code only)
+            if (i == 0 && attempts == 1) {
+              print('');
+              print('=== WRITING COUPON CODE (random) ===');
+              print('Doc path: leagues/$leagueId/couponCodes/$codeId');
+              for (final e in codeData.entries) {
+                print('  ${e.key}: ${e.value} (${e.value.runtimeType})');
+              }
+              print('');
+              print('=== WRITING CONFIG UPDATE ===');
+              print('Doc path: leagues/$leagueId/couponConfig/config');
+              for (final e in cfgUpdateData.entries) {
+                print('  ${e.key}: ${e.value} (${e.value.runtimeType})');
+              }
+              print('  current qtyRemaining: $remaining');
+              print('  new qtyRemaining: ${remaining - 1}');
+              print('');
+            }
+
+            tx.set(docRef, codeData);
+            tx.update(_cfgRef(leagueId), cfgUpdateData);
           });
 
           out.add(codeId);
           break;
         } on StateError catch (e) {
           if (e.message == 'collision') continue;
+          print('');
+          print('!!! RANDOM CODE FAILED (StateError) !!!');
+          print('Error: ${e.message}');
+          print('');
+          rethrow;
+        } catch (e) {
+          print('');
+          print('!!! RANDOM CODE TRANSACTION FAILED !!!');
+          print('Error type: ${e.runtimeType}');
+          print('Error: $e');
+          if (e is FirebaseException) {
+            print('Firebase code: ${(e).code}');
+            print('Firebase message: ${(e).message}');
+            print('Firebase plugin: ${(e).plugin}');
+          }
+          print('');
           rethrow;
         }
       }
