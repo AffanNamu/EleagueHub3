@@ -120,9 +120,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final ts = DateTime.now().millisecondsSinceEpoch;
 
     http.MultipartFile filePart;
+
+    final bytes = picked.bytes;
     final path = (picked.path ?? '').trim();
 
-    if (path.isNotEmpty) {
+    if (bytes != null && bytes.isNotEmpty) {
+      filePart = http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: picked.name,
+      );
+    } else if (path.isNotEmpty) {
       filePart = await http.MultipartFile.fromPath(
         'file',
         path,
@@ -197,23 +205,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: false,
-        withData: false,
-        withReadStream: true,
-        lockParentWindow: true,
+
+        // IMPORTANT:
+        // Some Android 10 devices/ROMs crash with withReadStream=true immediately after selection.
+        // We use withData=true (bytes) to avoid native stream/URI permission issues.
+        withData: true,
+        withReadStream: false,
+
+        lockParentWindow: false,
       );
 
       if (result == null || result.files.isEmpty) return;
 
       final picked = result.files.first;
 
-      if (picked.size > _maxBytes) {
+      final size = picked.size;
+      if (size > _maxBytes) {
         throw StateError('Image too large. Max allowed is 5 MB.');
+      }
+
+      final bytes = picked.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        // Fallback: if bytes are missing for any reason, we still try upload using path/readStream in _uploadToCloudinary.
+        // But for Android 10 stability, withData=true should provide bytes here.
       }
 
       final secureUrl = await _uploadToCloudinary(picked: picked);
 
-      // Persist to Firestore user doc (merge).
-      // IMPORTANT: update `updatedAt` (matches your existing user doc schema + rules).
       final now = DateTime.now().millisecondsSinceEpoch;
       await FirebaseFirestore.instance
           .collection('users')
@@ -229,13 +247,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           )
           .timeout(const Duration(seconds: 15));
 
-      // Best-effort update Firebase Auth profile too.
       try {
         await FirebaseAuth.instance.currentUser?.updatePhotoURL(secureUrl);
       } catch (_) {}
 
       if (!context.mounted) return;
       _snack(context, context.l10n.tr('common_done'));
+    } on PlatformException catch (e) {
+      if (!context.mounted) return;
+      _snack(context, UserFriendlyError.toMessage(e));
     } catch (e) {
       if (!context.mounted) return;
       _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
@@ -659,7 +679,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Ensure connectivity service is started (safe if already initialized in main()).
     unawaited(ConnectivityService.instance.initialize());
 
     final l10n = context.l10n;
@@ -702,7 +721,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
           const SizedBox(height: 16),
 
-          /// USER CARD
           Glass(
             padding: const EdgeInsets.all(14),
             child: StreamBuilder<UserProfile?>(
@@ -871,7 +889,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                     ),
 
-                    /// THEME TOGGLE
                     IconButton(
                       tooltip: l10n.tr('profile_toggle_theme_tooltip'),
                       icon: Icon(
@@ -884,7 +901,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       },
                     ),
 
-                    /// LOGOUT (WITH GLASS WARNING)
                     IconButton(
                       tooltip: l10n.tr('profile_logout_tooltip'),
                       icon: Icon(Icons.logout, color: iconMuted),
@@ -912,13 +928,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
 
           const SizedBox(height: 22),
-
-          /// LEAGUE MODE SWITCHER (APP STANDARD)
           const LeagueSwitcher(),
-
           const SizedBox(height: 22),
 
-          /// STATS
           SectionHeader(l10n.tr('profile_section_league_overview')),
           const SizedBox(height: 12),
 
@@ -942,7 +954,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
           const SizedBox(height: 22),
 
-          /// COUPONS (organizer)
           SectionHeader('Coupons'),
           const SizedBox(height: 12),
           if (uid.isEmpty)
@@ -1028,7 +1039,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
           const SizedBox(height: 22),
 
-          /// PRICING ADMIN (owner/dynamic-admin only)
           if (isPricingAdmin) ...[
             SectionHeader('Admin'),
             const SizedBox(height: 12),
