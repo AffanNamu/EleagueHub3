@@ -8,9 +8,6 @@ service cloud.firestore {
       return (s is string) && (s.size() > 20);
     }
 
-    // --------------------------
-    // Pricing admins + super admin (app creator)
-    // --------------------------
     function adminsDoc() {
       return get(/databases/$(database)/documents/app/admins);
     }
@@ -29,7 +26,6 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/leagues/$(leagueId));
     }
 
-    // Organizer/Owner detection (Firebase UID ONLY)
     function isOwner(leagueId) {
       let ld = leagueDoc(leagueId);
 
@@ -51,72 +47,25 @@ service cloud.firestore {
         );
     }
 
-    // Membership (expects Firebase UIDs in memberIds)
-    function isMember(leagueId) {
-      let ld = leagueDoc(leagueId);
+    function isOwnerDirect() {
       return signedIn()
-        && ld.exists()
-        && (ld.data.memberIds is list)
-        && (request.auth.uid in ld.data.memberIds);
-    }
-
-    // Append-only self-join to memberIds
-    function isSelfJoinAppendOnly() {
-      return signedIn()
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['memberIds', 'updatedAtMs'])
-        && (request.resource.data.memberIds is list)
-        && (request.resource.data.updatedAtMs is int)
+        && resource != null
         && (
-          (
-            (resource.data.memberIds is list)
-            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
-            && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
-            && (request.auth.uid in request.resource.data.memberIds)
-            && !(request.auth.uid in resource.data.memberIds)
-            && (
-              !(resource.data.updatedAtMs is int)
-              || request.resource.data.updatedAtMs > resource.data.updatedAtMs
-            )
+          (('organizerUid' in resource.data) && (resource.data.organizerUid is string) && (resource.data.organizerUid == request.auth.uid))
+          || (('ownerUid' in resource.data) && (resource.data.ownerUid is string) && (resource.data.ownerUid == request.auth.uid))
+          || (
+            ('organizerUserId' in resource.data)
+            && looksLikeFirebaseUid(resource.data.organizerUserId)
+            && (resource.data.organizerUserId == request.auth.uid)
           )
-          ||
-          (
-            !(resource.data.memberIds is list)
-            && request.resource.data.memberIds.size() == 1
-            && (request.auth.uid in request.resource.data.memberIds)
+          || (
+            ('ownerId' in resource.data)
+            && looksLikeFirebaseUid(resource.data.ownerId)
+            && (resource.data.ownerId == request.auth.uid)
           )
         );
     }
 
-    function registeredCountOrZero(d) {
-      return (d.registeredCount is int) ? d.registeredCount : 0;
-    }
-
-    // Public/private detection (secure by default)
-    function isPublicLeague(leagueId) {
-      let ld = leagueDoc(leagueId);
-      let d = ld.data;
-
-      return ld.exists()
-        && (
-          (((d.isPrivate is bool) && (d.isPrivate == false)))
-          ||
-          (((d.isPrivate is int) && (d.isPrivate == 0)))
-          ||
-          (((d.privacy is string) && (
-            d.privacy == 'public'
-            || d.privacy == 'PUBLIC'
-            || d.privacy == 'LeaguePrivacy.public'
-          )))
-        );
-    }
-
-    function canViewLeague(leagueId) {
-      return isOwner(leagueId) || isMember(leagueId) || isPublicLeague(leagueId);
-    }
-
-    // --------------------------
-    // Quick messages validation (best-effort)
-    // --------------------------
     function validQuickMsg(s) {
       return (s is string)
         && (s.size() > 0)
@@ -144,9 +93,21 @@ service cloud.firestore {
         && (list.size() < 15 || validQuickMsg(list[14]));
     }
 
-    // --------------------------
-    // Users
-    // --------------------------
+    function callRoomDoc(callId) {
+      return get(/databases/$(database)/documents/call_rooms/$(callId));
+    }
+
+    function isCallParticipant(callId) {
+      let cd = callRoomDoc(callId);
+      return signedIn()
+        && cd.exists()
+        && (
+          (('hostUserId' in cd.data) && (cd.data.hostUserId is string) && (cd.data.hostUserId == request.auth.uid))
+          || (('createdBy' in cd.data) && (cd.data.createdBy is string) && (cd.data.createdBy == request.auth.uid))
+          || (('participantIds' in cd.data) && (cd.data.participantIds is list) && (request.auth.uid in cd.data.participantIds))
+        );
+    }
+
     match /users/{userId} {
       allow read: if signedIn();
 
@@ -194,6 +155,28 @@ service cloud.firestore {
             ])
             && validQuickMessages(request.resource.data.quickMessagesCustom)
           )
+          ||
+          (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'isPremium',
+              'updatedAt'
+            ])
+            && (request.resource.data.isPremium is bool)
+          )
+          ||
+          // Cloudinary URLs (profile/team image) update:
+          // Allows changing ONLY these fields (+ optional updatedAt) by the owner of the user doc.
+          (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'photoUrl',
+              'profileImageUrl',
+              'teamImageUrl',
+              'updatedAt'
+            ])
+            && (!('photoUrl' in request.resource.data) || ((request.resource.data.photoUrl is string) && (request.resource.data.photoUrl.size() <= 2000)))
+            && (!('profileImageUrl' in request.resource.data) || ((request.resource.data.profileImageUrl is string) && (request.resource.data.profileImageUrl.size() <= 2000)))
+            && (!('teamImageUrl' in request.resource.data) || ((request.resource.data.teamImageUrl is string) && (request.resource.data.teamImageUrl.size() <= 2000)))
+          )
         );
 
       allow delete: if false;
@@ -201,9 +184,13 @@ service cloud.firestore {
       match /leagueCharges/{leagueId} {
         allow get, list: if signedIn() && request.auth.uid == userId;
 
-        allow create, update: if signedIn()
+        allow create: if signedIn()
           && request.auth.uid == userId
-          && (request.resource.data.leagueId is string)
+          && (request.resource.data.userId is string)
+          && (request.resource.data.userId == request.auth.uid);
+
+        allow update: if signedIn()
+          && request.auth.uid == userId
           && (request.resource.data.userId is string)
           && (request.resource.data.userId == request.auth.uid);
 
@@ -211,180 +198,87 @@ service cloud.firestore {
       }
     }
 
-    // --------------------------
-    // Leagues
-    // --------------------------
     match /leagues/{leagueId} {
-      allow get: if canViewLeague(leagueId);
+
+      allow get: if signedIn()
+        && (
+          (('organizerUid' in resource.data) && (resource.data.organizerUid is string) && (resource.data.organizerUid == request.auth.uid))
+          || (('ownerUid' in resource.data) && (resource.data.ownerUid is string) && (resource.data.ownerUid == request.auth.uid))
+          || (('organizerUserId' in resource.data) && looksLikeFirebaseUid(resource.data.organizerUserId) && (resource.data.organizerUserId == request.auth.uid))
+          || (('ownerId' in resource.data) && looksLikeFirebaseUid(resource.data.ownerId) && (resource.data.ownerId == request.auth.uid))
+          || ((resource.data.memberIds is list) && (request.auth.uid in resource.data.memberIds))
+          || ((resource.data.isPrivate is bool) && (resource.data.isPrivate == false))
+          || ((resource.data.isPrivate is int) && (resource.data.isPrivate == 0))
+          || ((resource.data.privacy is string) && (
+            resource.data.privacy == 'public'
+            || resource.data.privacy == 'PUBLIC'
+            || resource.data.privacy == 'LeaguePrivacy.public'
+          ))
+        );
 
       allow list: if signedIn();
 
-      // ─────────────────────────────────────────────────
-      // CREATE: Any signed-in user can create a league.
-      //
-      // Validates:
-      //   - organizerUid must equal caller's Firebase UID
-      //   - name must be a non-empty string
-      //   - if memberIds present, caller must be in it
-      //
-      // Intentionally permissive on other fields because the
-      // creator is the organizer and owns this document.
-      // ─────────────────────────────────────────────────
       allow create: if signedIn()
         && ('organizerUid' in request.resource.data)
         && (request.resource.data.organizerUid is string)
         && (request.resource.data.organizerUid == request.auth.uid)
-        && ('name' in request.resource.data)
-        && (request.resource.data.name is string)
-        && (request.resource.data.name.size() > 0)
         && (
-          !('memberIds' in request.resource.data)
-          || !(request.resource.data.memberIds is list)
+          !(request.resource.data.memberIds is list)
           || (request.auth.uid in request.resource.data.memberIds)
         );
 
-      // ─────────────────────────────────────────────────
-      // UPDATE: Multiple authorized paths.
-      // ─────────────────────────────────────────────────
       allow update: if
-        // Path 1: Organizer/owner full update
-        isOwner(leagueId)
-
-        // Path 2: Self-join append-only (memberIds only)
-        || isSelfJoinAppendOnly()
-
-        // Path 3: Self-join with counters
+        isOwnerDirect()
         || (
           signedIn()
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'memberIds',
-            'updatedAtMs',
-            'registeredCount',
-            'isFull'
-          ])
           && (request.resource.data.memberIds is list)
-          && (
-            (resource.data.memberIds is list)
-            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
-            && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
-            && (request.auth.uid in request.resource.data.memberIds)
-            && !(request.auth.uid in resource.data.memberIds)
-          )
-          && (request.resource.data.registeredCount is int)
-          && request.resource.data.registeredCount == (registeredCountOrZero(resource.data) + 1)
-          && (request.resource.data.updatedAtMs is int)
-          && (
-            !(resource.data.updatedAtMs is int)
-            || request.resource.data.updatedAtMs > resource.data.updatedAtMs
-          )
-          && (
-            !(resource.data.maxTeams is int)
-            || (
-              (request.resource.data.isFull is bool)
-              && (request.resource.data.isFull == (request.resource.data.registeredCount >= resource.data.maxTeams))
-            )
-          )
-        )
-
-        // Path 4: Retry/re-merge by the same organizer.
-        // Handles set(merge:true) on an already-existing doc when user
-        // retries league creation with the same draft ID.
-        || (
-          signedIn()
-          && (resource.data.organizerUid is string)
-          && (resource.data.organizerUid == request.auth.uid)
-          && ('organizerUid' in request.resource.data)
-          && (request.resource.data.organizerUid is string)
-          && (request.resource.data.organizerUid == request.auth.uid)
+          && (request.auth.uid in request.resource.data.memberIds)
         );
 
-      allow delete: if isOwner(leagueId);
+      allow delete: if isOwnerDirect();
 
-      // --------------------------
-      // Teams
-      // --------------------------
       match /teams/{teamId} {
-        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow read: if signedIn();
         allow write: if isOwner(leagueId);
       }
 
-      // --------------------------
-      // Matches
-      // --------------------------
       match /matches/{matchId} {
-        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow read: if signedIn();
         allow write: if isOwner(leagueId);
       }
 
-      // --------------------------
-      // Knockout
-      // --------------------------
       match /knockout/{matchId} {
-        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow read: if signedIn();
         allow write: if isOwner(leagueId);
       }
 
-      // --------------------------
-      // Memberships
-      // --------------------------
       match /memberships/{membershipId} {
-        allow get: if isOwner(leagueId) || isMember(leagueId);
-        allow list: if isOwner(leagueId) || isMember(leagueId);
+        allow read: if signedIn();
 
-        allow create: if
-          // ── Path A: Organizer can create any membership ──
-          isOwner(leagueId)
-
-          // ── Path B: Organizer self-membership during league creation (batch) ──
-          // Uses getAfter() because both league + membership are written
-          // in the same batch.commit(). getAfter() sees the pending league doc.
+        allow create: if isOwner(leagueId)
           || (
             signedIn()
             && !exists(/databases/$(database)/documents/leagues/$(leagueId)/memberships/$(membershipId))
-            && (request.resource.data.userId is string)
             && (request.resource.data.userId == request.auth.uid)
-            && (request.resource.data.leagueId is string)
             && (request.resource.data.leagueId == leagueId)
             && (request.resource.data.role is int)
             && (request.resource.data.role == 1)
+            && getAfter(/databases/$(database)/documents/leagues/$(leagueId)).exists()
             && (
-              // Batch path: league doc being created in same batch
-              (
-                getAfter(/databases/$(database)/documents/leagues/$(leagueId)).exists()
-                && (
-                  (getAfter(/databases/$(database)/documents/leagues/$(leagueId)).data.organizerUid == request.auth.uid)
-                  || (getAfter(/databases/$(database)/documents/leagues/$(leagueId)).data.ownerUid == request.auth.uid)
-                )
-              )
-              ||
-              // Sequential path: league doc already exists (retry / non-batch)
-              (
-                leagueDoc(leagueId).exists()
-                && (
-                  (('organizerUid' in leagueDoc(leagueId).data) && (leagueDoc(leagueId).data.organizerUid == request.auth.uid))
-                  || (('ownerUid' in leagueDoc(leagueId).data) && (leagueDoc(leagueId).data.ownerUid == request.auth.uid))
-                )
-              )
+              (getAfter(/databases/$(database)/documents/leagues/$(leagueId)).data.organizerUid == request.auth.uid)
+              || (getAfter(/databases/$(database)/documents/leagues/$(leagueId)).data.ownerUid == request.auth.uid)
             )
           )
-
-          // ── Path C: Any signed-in user self-joins as member (role=0) ──
           || (
             signedIn()
             && !exists(/databases/$(database)/documents/leagues/$(leagueId)/memberships/$(membershipId))
-            && (request.resource.data.userId is string)
             && (request.resource.data.userId == request.auth.uid)
-            && (request.resource.data.leagueId is string)
             && (request.resource.data.leagueId == leagueId)
             && (request.resource.data.role is int)
             && (request.resource.data.role == 0)
           );
 
-        allow update: if
-          // Organizer full update
-          isOwner(leagueId)
-
-          // Self-update limited fields (no role escalation)
+        allow update: if isOwner(leagueId)
           || (
             signedIn()
             && (resource.data.userId == request.auth.uid)
@@ -395,203 +289,106 @@ service cloud.firestore {
               'version'
             ])
             && (resource.data.role == request.resource.data.role)
+          )
+          || (
+            signedIn()
+            && (resource.data.userId == request.auth.uid)
+            && (request.resource.data.userId == request.auth.uid)
+            && (request.resource.data.leagueId == leagueId)
+            && (resource.data.role == request.resource.data.role)
           );
 
         allow delete: if isOwner(leagueId);
       }
 
-      // --------------------------
-      // Announcements
-      // --------------------------
       match /announcements/{annId} {
-        allow read: if isOwner(leagueId) || isMember(leagueId);
+        allow read: if signedIn();
         allow write: if isOwner(leagueId);
       }
 
-      // --------------------------
-      // Space (live rooms, etc.)
-      // --------------------------
       match /space/{docId} {
-        allow read: if isOwner(leagueId) || isMember(leagueId);
-        allow write: if isOwner(leagueId);
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+          && (
+            isOwner(leagueId)
+            || (
+              ('hostUserId' in request.resource.data)
+              && (request.resource.data.hostUserId is string)
+              && (request.resource.data.hostUserId == request.auth.uid)
+            )
+          );
+
+        allow update: if signedIn()
+          && (
+            isOwner(leagueId)
+            || (
+              resource != null
+              && ('hostUserId' in resource.data)
+              && (resource.data.hostUserId is string)
+              && (resource.data.hostUserId == request.auth.uid)
+            )
+            || (
+              ('hostUserId' in request.resource.data)
+              && (request.resource.data.hostUserId is string)
+              && (request.resource.data.hostUserId == request.auth.uid)
+            )
+          );
+
+        allow delete: if isOwner(leagueId);
 
         match /reactions/{reactionId} {
-          allow read: if isOwner(leagueId) || isMember(leagueId);
-          allow create: if signedIn() && (isOwner(leagueId) || isMember(leagueId));
+          allow read: if signedIn();
+          allow create: if signedIn();
           allow update, delete: if false;
         }
 
         match /requests/{uid} {
-          allow get: if isOwner(leagueId) || (signedIn() && request.auth.uid == uid);
-          allow list: if isOwner(leagueId);
-
-          allow create: if signedIn()
-            && (isOwner(leagueId) || isMember(leagueId))
-            && request.auth.uid == uid
-            && request.resource.data.userId == request.auth.uid
-            && request.resource.data.status == "pending";
-
+          allow read: if signedIn();
+          allow create: if signedIn() && request.auth.uid == uid;
           allow update: if signedIn() && (isOwner(leagueId) || (request.auth.uid == uid));
           allow delete: if signedIn() && (isOwner(leagueId) || (request.auth.uid == uid));
         }
 
         match /speakers/{uid} {
-          allow read: if isOwner(leagueId) || isMember(leagueId);
-          allow create, update, delete: if isOwner(leagueId);
+          allow read: if signedIn();
+          allow create, update, delete: if signedIn()
+            && (
+              isOwner(leagueId)
+              || (
+                exists(/databases/$(database)/documents/leagues/$(leagueId)/space/$(docId))
+                && ('hostUserId' in get(/databases/$(database)/documents/leagues/$(leagueId)/space/$(docId)).data)
+                && (get(/databases/$(database)/documents/leagues/$(leagueId)/space/$(docId)).data.hostUserId is string)
+                && (get(/databases/$(database)/documents/leagues/$(leagueId)/space/$(docId)).data.hostUserId == request.auth.uid)
+              )
+            );
         }
       }
 
-      // --------------------------
-      // Coupon config + redemptions + CODE-BASED COUPONS
-      // --------------------------
-
-      function cfgCurrent(leagueId) {
-        return get(/databases/$(database)/documents/leagues/$(leagueId)/couponConfig/config);
-      }
-      function cfgAfter(leagueId) {
-        return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponConfig/config);
-      }
-      function redemptionAfter(leagueId, uid) {
-        return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponRedemptions/$(uid));
-      }
-      function codeAfter(leagueId, codeId) {
-        return getAfter(/databases/$(database)/documents/leagues/$(leagueId)/couponCodes/$(codeId));
-      }
-
-      function isCouponManager(leagueId) {
-        return isOwner(leagueId);
-      }
-
-      function hasDisc(data) {
-        return ('discountPercent' in data) && (data.discountPercent is number);
-      }
-      function hasUserPays(data) {
-        return ('userPaysPercent' in data) && (data.userPaysPercent is int);
-      }
-      function discOk(data) {
-        return !('discountPercent' in data)
-          || ((data.discountPercent is number) && (data.discountPercent >= 0) && (data.discountPercent <= 100));
-      }
-      function userPaysOk(data) {
-        return !('userPaysPercent' in data)
-          || ((data.userPaysPercent is int) && (data.userPaysPercent >= 0) && (data.userPaysPercent <= 100));
-      }
-      function discAndUserPaysConsistent(data) {
-        return !(hasDisc(data) && hasUserPays(data))
-          || (data.userPaysPercent == (100 - data.discountPercent));
-      }
-      function organizerPaysOk(data) {
-        return !('organizerPaysPercent' in data)
-          || ((data.organizerPaysPercent is int) && (data.organizerPaysPercent >= 0) && (data.organizerPaysPercent <= 100));
-      }
-
       match /couponConfig/{docId} {
-        allow get: if signedIn() && (canViewLeague(leagueId) || isCouponManager(leagueId));
-        allow list: if false;
+        allow read: if signedIn();
 
-        allow create: if (docId == 'config')
-          && signedIn()
-          && isCouponManager(leagueId)
-          && (request.resource.data.leagueId is string)
-          && request.resource.data.leagueId == leagueId
+        allow create: if signedIn()
           && (request.resource.data.organizerUserId is string)
-          && (request.resource.data.currency is string)
-          && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
-          && (request.resource.data.unitPrice is number) && (request.resource.data.unitPrice > 0)
-          && (request.resource.data.effectiveUnit is number) && (request.resource.data.effectiveUnit > 0)
-          && (!('threshold' in request.resource.data) || (request.resource.data.threshold == null) || (request.resource.data.threshold is number && request.resource.data.threshold >= 0))
-          && (request.resource.data.thresholdDiscountPercent is number)
-          && (request.resource.data.thresholdDiscountPercent >= 0) && (request.resource.data.thresholdDiscountPercent <= 100)
-          && (hasDisc(request.resource.data) || hasUserPays(request.resource.data))
-          && discOk(request.resource.data)
-          && userPaysOk(request.resource.data)
-          && discAndUserPaysConsistent(request.resource.data)
-          && organizerPaysOk(request.resource.data)
-          && (request.resource.data.qtyTotal is int) && (request.resource.data.qtyTotal >= 0)
-          && (request.resource.data.qtyRemaining is int) && (request.resource.data.qtyRemaining == request.resource.data.qtyTotal)
-          && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
-          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > 0)
-          && (request.resource.data.version is int) && (request.resource.data.version >= 1);
+          && (request.resource.data.organizerUserId == request.auth.uid)
+          && (request.resource.data.leagueId is string)
+          && (request.resource.data.leagueId == leagueId);
 
-        allow update: if
-          (
-            signedIn()
-            && isCouponManager(leagueId)
-            && !(resource.data.qtyRemaining is int)
-            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'qtyRemaining',
-              'updatedAtMs'
-            ])
-            && (request.resource.data.qtyRemaining is int)
-            && (request.resource.data.qtyRemaining == 0)
-            && (request.resource.data.updatedAtMs is int)
-            && (
-              !(resource.data.updatedAtMs is int)
-              || request.resource.data.updatedAtMs > resource.data.updatedAtMs
+        allow update: if signedIn()
+          && (
+            (
+              (resource.data.organizerUserId is string)
+              && (resource.data.organizerUserId == request.auth.uid)
             )
-          )
-          ||
-          (
-            signedIn()
-            && isCouponManager(leagueId)
-            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'currency',
-              'unitPrice',
-              'effectiveUnit',
-              'threshold',
-              'thresholdDiscountPercent',
-              'discountPercent',
-              'userPaysPercent',
-              'organizerPaysPercent',
-              'qtyTotal',
-              'qtyRemaining',
-              'updatedAtMs'
-            ])
-            && (request.resource.data.currency is string)
-            && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
-            && (request.resource.data.unitPrice is number) && (request.resource.data.unitPrice > 0)
-            && (request.resource.data.effectiveUnit is number) && (request.resource.data.effectiveUnit > 0)
-            && (!('threshold' in request.resource.data) || (request.resource.data.threshold == null) || (request.resource.data.threshold is number && request.resource.data.threshold >= 0))
-            && (request.resource.data.thresholdDiscountPercent is number)
-            && (request.resource.data.thresholdDiscountPercent >= 0) && (request.resource.data.thresholdDiscountPercent <= 100)
-            && discOk(request.resource.data)
-            && userPaysOk(request.resource.data)
-            && discAndUserPaysConsistent(request.resource.data)
-            && organizerPaysOk(request.resource.data)
-            && (request.resource.data.qtyTotal is int) && (request.resource.data.qtyRemaining is int)
-            && (request.resource.data.qtyTotal >= resource.data.qtyTotal)
-            && (request.resource.data.qtyRemaining >= resource.data.qtyRemaining)
-            && ((request.resource.data.qtyTotal - resource.data.qtyTotal) == (request.resource.data.qtyRemaining - resource.data.qtyRemaining))
-            && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > resource.data.updatedAtMs)
-          )
-          ||
-          (
-            signedIn()
-            && isCouponManager(leagueId)
-            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'qtyRemaining',
-              'updatedAtMs'
-            ])
-            && (request.resource.data.qtyRemaining is int)
-            && (request.resource.data.qtyRemaining == (resource.data.qtyRemaining - 1))
-            && (request.resource.data.qtyRemaining >= 0)
-            && (request.resource.data.updatedAtMs is int)
-            && (request.resource.data.updatedAtMs > resource.data.updatedAtMs)
-          )
-          ||
-          (
-            signedIn()
-            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'qtyRemaining',
-              'updatedAtMs'
-            ])
-            && (request.resource.data.qtyRemaining is int)
-            && (request.resource.data.qtyRemaining == (resource.data.qtyRemaining - 1))
-            && (request.resource.data.qtyRemaining >= 0)
-            && (request.resource.data.updatedAtMs is int)
-            && (
-              redemptionAfter(leagueId, request.auth.uid).exists()
-              && redemptionAfter(leagueId, request.auth.uid).data.status == 'paid'
+            ||
+            (
+              request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                'qtyRemaining',
+                'updatedAtMs'
+              ])
+              && (request.resource.data.qtyRemaining is int)
+              && (request.resource.data.qtyRemaining == (resource.data.qtyRemaining - 1))
+              && (request.resource.data.qtyRemaining >= 0)
             )
           );
 
@@ -599,29 +396,13 @@ service cloud.firestore {
       }
 
       match /couponCodes/{codeId} {
-        allow list: if isCouponManager(leagueId);
-        allow get: if signedIn();
+        allow read: if signedIn();
 
         allow create: if signedIn()
-          && isCouponManager(leagueId)
-          && (request.resource.data.leagueId is string)
-          && request.resource.data.leagueId == leagueId
           && (request.resource.data.organizerUserId is string)
-          && (request.resource.data.currency is string)
-          && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
-          && (request.resource.data.discountPercent is number)
-          && (request.resource.data.discountPercent >= 0) && (request.resource.data.discountPercent <= 100)
-          && (request.resource.data.expectedAmount is number) && (request.resource.data.expectedAmount >= 0)
-          && (request.resource.data.usedBy is string) && (request.resource.data.usedBy == '')
-          && (request.resource.data.usedAtMs is int) && (request.resource.data.usedAtMs == 0)
-          && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
-          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > 0)
-          && (request.resource.data.version is int) && (request.resource.data.version >= 1)
-          && cfgCurrent(leagueId).exists()
-          && (cfgCurrent(leagueId).data.qtyRemaining is int)
-          && (cfgCurrent(leagueId).data.qtyRemaining > 0)
-          && cfgAfter(leagueId).exists()
-          && (cfgAfter(leagueId).data.qtyRemaining == (cfgCurrent(leagueId).data.qtyRemaining - 1));
+          && (request.resource.data.organizerUserId == request.auth.uid)
+          && (request.resource.data.leagueId is string)
+          && (request.resource.data.leagueId == leagueId);
 
         allow update: if signedIn()
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -630,64 +411,23 @@ service cloud.firestore {
             'updatedAtMs'
           ])
           && (resource.data.usedBy is string) && (resource.data.usedBy == '')
-          && (request.resource.data.usedBy is string) && (request.resource.data.usedBy == request.auth.uid)
-          && (request.resource.data.usedAtMs is int) && (request.resource.data.usedAtMs > 0)
-          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs > resource.data.updatedAtMs)
-          && redemptionAfter(leagueId, request.auth.uid).exists()
-          && (redemptionAfter(leagueId, request.auth.uid).data.status == 'paid')
-          && (redemptionAfter(leagueId, request.auth.uid).data.code is string)
-          && (redemptionAfter(leagueId, request.auth.uid).data.code == codeId);
+          && (request.resource.data.usedBy is string) && (request.resource.data.usedBy == request.auth.uid);
 
         allow delete: if false;
       }
 
       match /couponRedemptions/{uid} {
-        allow list: if isCouponManager(leagueId);
-        allow get: if isCouponManager(leagueId) || (signedIn() && uid == request.auth.uid);
+        allow read: if signedIn();
 
         allow create: if signedIn()
           && uid == request.auth.uid
-          && request.resource.data.leagueId == leagueId
-          && request.resource.data.userId == request.auth.uid
-          && (request.resource.data.createdAtMs is int) && (request.resource.data.createdAtMs > 0)
-          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs >= request.resource.data.createdAtMs)
-          && (
-            (
-              request.resource.data.status == 'pending'
-              && (request.resource.data.currency is string)
-              && ((request.resource.data.currency == 'NGN') || (request.resource.data.currency == 'USD'))
-              && (request.resource.data.expectedAmount is number) && (request.resource.data.expectedAmount >= 0)
-              && (request.resource.data.expiresAt is timestamp)
-              && cfgCurrent(leagueId).exists()
-              && ((cfgCurrent(leagueId).data.qtyRemaining is int) && (cfgCurrent(leagueId).data.qtyRemaining >= 0))
-            )
-            ||
-            (
-              request.resource.data.status == 'paid'
-              && (request.resource.data.code is string)
-              && codeAfter(leagueId, request.resource.data.code).exists()
-              && (codeAfter(leagueId, request.resource.data.code).data.usedBy is string)
-              && (codeAfter(leagueId, request.resource.data.code).data.usedBy == request.auth.uid)
-            )
-          );
+          && (request.resource.data.userId is string)
+          && (request.resource.data.userId == request.auth.uid);
 
         allow update: if signedIn()
           && uid == request.auth.uid
-          && resource.data.userId == request.auth.uid
-          && resource.data.leagueId == leagueId
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'status',
-            'provider',
-            'receiptId',
-            'paidAtMs',
-            'updatedAtMs'
-          ])
-          && (resource.data.status == 'pending')
-          && (request.resource.data.status == 'paid')
-          && (request.resource.data.paidAtMs is int) && (request.resource.data.paidAtMs > 0)
-          && (request.resource.data.updatedAtMs is int) && (request.resource.data.updatedAtMs >= request.resource.data.paidAtMs)
-          && cfgAfter(leagueId).exists()
-          && (cfgAfter(leagueId).data.qtyRemaining == (cfgCurrent(leagueId).data.qtyRemaining - 1));
+          && (resource.data.userId is string)
+          && (resource.data.userId == request.auth.uid);
 
         allow delete: if false;
       }
@@ -697,26 +437,69 @@ service cloud.firestore {
       }
     }
 
-    // --------------------------
-    // league_spaces (legacy)
-    // --------------------------
     match /league_spaces/{spaceId} {
-      allow read: if signedIn()
-        && (resource.data.leagueId is string)
-        && (isOwner(resource.data.leagueId) || isMember(resource.data.leagueId));
-
-      allow create: if signedIn()
-        && (request.resource.data.leagueId is string)
-        && isOwner(request.resource.data.leagueId);
-
-      allow update, delete: if signedIn()
-        && (resource.data.leagueId is string)
-        && isOwner(resource.data.leagueId);
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if signedIn();
     }
 
-    // --------------------------
-    // Pricing doc + admins doc + analytics
-    // --------------------------
+    match /call_rooms/{callId} {
+      allow get: if signedIn()
+        && resource != null
+        && (
+          (('hostUserId' in resource.data) && (resource.data.hostUserId is string) && (resource.data.hostUserId == request.auth.uid))
+          || (('createdBy' in resource.data) && (resource.data.createdBy is string) && (resource.data.createdBy == request.auth.uid))
+          || (('participantIds' in resource.data) && (resource.data.participantIds is list) && (request.auth.uid in resource.data.participantIds))
+        );
+
+      allow list: if signedIn();
+
+      allow create: if signedIn()
+        && (
+          (
+            ('createdBy' in request.resource.data)
+            && (request.resource.data.createdBy is string)
+            && (request.resource.data.createdBy == request.auth.uid)
+          )
+          || (
+            ('hostUserId' in request.resource.data)
+            && (request.resource.data.hostUserId is string)
+            && (request.resource.data.hostUserId == request.auth.uid)
+          )
+        );
+
+      allow update: if signedIn()
+        && resource != null
+        && (
+          (('hostUserId' in resource.data) && (resource.data.hostUserId is string) && (resource.data.hostUserId == request.auth.uid))
+          || (('createdBy' in resource.data) && (resource.data.createdBy is string) && (resource.data.createdBy == request.auth.uid))
+          || (('participantIds' in resource.data) && (resource.data.participantIds is list) && (request.auth.uid in resource.data.participantIds))
+          || (
+            ('participantIds' in request.resource.data)
+            && (request.resource.data.participantIds is list)
+            && (request.auth.uid in request.resource.data.participantIds)
+          )
+        );
+
+      allow delete: if signedIn()
+        && resource != null
+        && (
+          (('hostUserId' in resource.data) && (resource.data.hostUserId is string) && (resource.data.hostUserId == request.auth.uid))
+          || (('createdBy' in resource.data) && (resource.data.createdBy is string) && (resource.data.createdBy == request.auth.uid))
+        );
+
+      match /quick_messages/{msgId} {
+        allow read: if isCallParticipant(callId);
+
+        allow create: if signedIn()
+          && (request.resource.data.senderId is string)
+          && (request.resource.data.senderId == request.auth.uid)
+          && isCallParticipant(callId);
+
+        allow update, delete: if false;
+      }
+    }
+
     match /app/{docId} {
       allow get, list: if (docId == 'pricing') || (docId == 'admins' && signedIn());
       allow create, update: if ((docId == 'pricing' || docId == 'admins') && isPricingAdmin());

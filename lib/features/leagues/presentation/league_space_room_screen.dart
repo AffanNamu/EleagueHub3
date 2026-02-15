@@ -49,28 +49,24 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool _joiningAudio = false;
   bool _connected = false;
 
-  /// True iff the local mic is currently unmuted (sending).
   bool _micEnabled = false;
-
-  /// True iff we have already caused LiveKit to create+publish the mic track once for this join.
   bool _micPrimed = false;
 
   bool _requestedMicPermissionOnJoin = false;
 
-  // ---- Overlay/FGS integration ----
   bool _voiceFgsRunning = false;
 
-  // ---- Spaces (requests/speakers) state ----
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _mySpeakerSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _myRequestSub;
 
   bool _isSpeakerApproved = false;
   bool _speakerMutedByHost = false;
-  String _myRequestStatus = ''; // '', 'pending', 'approved', 'denied'
+  String _myRequestStatus = '';
 
-  // ---- Display name cache (profile.teamName) ----
   final Map<String, String> _displayNameByUserId = <String, String>{};
   final Set<String> _displayNameLoading = <String>{};
+
+  final Map<String, String> _avatarUrlByUserId = <String, String>{};
 
   String _youLabel = 'You';
 
@@ -111,10 +107,74 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     return _shortUid(userId);
   }
 
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int width = 96,
+    int height = 96,
+  }) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  String _bestEffortProfileImageUrlFromProfile(dynamic profile) {
+    String url = '';
+    try {
+      final dyn = profile as dynamic;
+      final v = (dyn.photoUrl as String?) ?? '';
+      if (v.trim().isNotEmpty) url = v.trim();
+    } catch (_) {}
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v = (dyn.profileImageUrl as String?) ?? '';
+        if (v.trim().isNotEmpty) url = v.trim();
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v = (dyn.teamImageUrl as String?) ?? '';
+        if (v.trim().isNotEmpty) url = v.trim();
+      } catch (_) {}
+    }
+    return url;
+  }
+
   void _ensureDisplayNameLoaded(String userId) {
     final uid = userId.trim();
     if (uid.isEmpty) return;
-    if (_displayNameByUserId.containsKey(uid)) return;
+    if (_displayNameByUserId.containsKey(uid) && _avatarUrlByUserId.containsKey(uid)) return;
     if (_displayNameLoading.contains(uid)) return;
 
     _displayNameLoading.add(uid);
@@ -122,12 +182,27 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     unawaited(() async {
       try {
         final profile = await _profiles.fetchByUserId(uid).timeout(const Duration(seconds: 10));
-        final name = profile?.teamName.trim() ?? '';
+
+        final String name;
+        try {
+          final dyn = profile as dynamic;
+          name = (dyn.teamName as String?)?.trim() ?? '';
+        } catch (_) {
+          name = '';
+        }
+
+        final avatar = _bestEffortProfileImageUrlFromProfile(profile).trim();
+
         if (!mounted) return;
 
         setState(() {
           if (name.isNotEmpty) {
             _displayNameByUserId[uid] = name;
+          }
+          if (avatar.isNotEmpty) {
+            _avatarUrlByUserId[uid] = avatar;
+          } else {
+            _avatarUrlByUserId.putIfAbsent(uid, () => '');
           }
         });
       } catch (_) {
@@ -136,6 +211,13 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _displayNameLoading.remove(uid);
       }
     }());
+  }
+
+  String _avatarUrl(String userId) {
+    final raw = (_avatarUrlByUserId[userId] ?? '').trim();
+    if (raw.isEmpty) return '';
+    if (_looksLikeHttpUrl(raw)) return _cloudinaryOptimizedUrl(raw, width: 96, height: 96);
+    return raw;
   }
 
   Color _baseToastBg(ThemeData theme) {
@@ -222,7 +304,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       return;
     }
 
-    // Request mic permission (best-effort; listeners can still join muted).
     await _requestMicPermissionOnJoin();
 
     _spaceSub = _spaceDoc.snapshots(includeMetadataChanges: true).listen((snap) async {
@@ -488,7 +569,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           _micEnabled = false;
           _micPrimed = false;
         });
-        // Best-effort: show muted icon when session ends.
         unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
       });
 
@@ -553,7 +633,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (shouldBeUnmuted) {
         _toastWarn(l10n.tr('league_space_mic_not_primed_toast'));
       }
-      // Keep overlay icon muted if we cannot unmute.
       unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
       return;
     }
@@ -572,7 +651,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         _micEnabled = enabled;
       });
 
-      // Push real mic state to Android overlay icon.
       unawaited(OverlayPlatform.setOverlayMicMutedState(muted: !enabled));
     } catch (e) {
       debugPrint('setMicrophoneEnabled($enabled) failed: $e');
@@ -583,7 +661,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     await _stopVoiceFgs();
     OverlayBridge.clearHandlers();
 
-    // Best-effort: when no active voice, show muted icon.
     unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
 
     try {
@@ -878,13 +955,22 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ],
         ),
         const SizedBox(height: 10),
-        Text(
-          '${l10n.tr('league_space_host_prefix')}${_displayName(space.hostUserId)}',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: cs.onSurface.withOpacity(0.65),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
+        Row(
+          children: [
+            _UserThumb(url: _avatarUrl(space.hostUserId), size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${l10n.tr('league_space_host_prefix')}${_displayName(space.hostUserId)}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurface.withOpacity(0.65),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         Glass(
@@ -1048,6 +1134,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                             ),
                             child: ListTile(
                               dense: true,
+                              leading: _UserThumb(url: _avatarUrl(userId), size: 32),
                               title: Text(
                                 _displayName(userId),
                                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -1132,6 +1219,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                             ),
                             child: ListTile(
                               dense: true,
+                              leading: _UserThumb(url: _avatarUrl(userId), size: 32),
                               title: Text(
                                 _displayName(userId),
                                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -1172,6 +1260,58 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _UserThumb extends StatelessWidget {
+  const _UserThumb({
+    required this.url,
+    required this.size,
+  });
+
+  final String url;
+  final double size;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+
+    final px = (size * 3).clamp(48, 120).toInt();
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                raw,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: px,
+                cacheHeight: px,
+                errorBuilder: (_, __, ___) => Icon(Icons.person, size: size * 0.70, color: cs.onSurface.withOpacity(0.55)),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(Icons.person, size: size * 0.70, color: cs.onSurface.withOpacity(0.55));
+                },
+              )
+            : Icon(Icons.person, size: size * 0.70, color: cs.onSurface.withOpacity(0.55)),
+      ),
     );
   }
 }

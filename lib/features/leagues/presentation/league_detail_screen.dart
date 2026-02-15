@@ -225,14 +225,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final out = <LeagueAnnouncement>[];
     for (final d in snap.docs) {
       final data = d.data();
-      // Defensive normalization
       data['createdAtMs'] = _intFrom(data['createdAtMs'], fallback: 0);
       data['id'] = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? data['id'] : d.id;
       try {
         out.add(LeagueAnnouncement.fromMap(data));
-      } catch (_) {
-        // Skip malformed announcement
-      }
+      } catch (_) {}
     }
     return out;
   }
@@ -283,6 +280,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         .timeout(const Duration(seconds: 12));
 
     final teamNames = {for (final t in teams) t.id: t.name};
+    final teamImageUrls = {for (final t in teams) t.id: t.teamImageUrl.trim()};
 
     final space = await _loadSpaceCurrent(widget.leagueId);
 
@@ -291,6 +289,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       'fixtures': fixtures,
       'teams': teams,
       'teamNames': teamNames,
+      'teamImageUrls': teamImageUrls,
       'currentUserId': authUid,
       'membership': membership,
       'knockouts': knockouts,
@@ -504,6 +503,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               final fixtures = snapshot.data!['fixtures'] as List<FixtureMatch>;
               final teams = snapshot.data!['teams'] as List<Team>;
               final teamNames = snapshot.data!['teamNames'] as Map<String, String>;
+              final teamImageUrls = snapshot.data!['teamImageUrls'] as Map<String, String>;
               final currentUserId = snapshot.data!['currentUserId'] as String;
               final membership = snapshot.data!['membership'] as Membership?;
               final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
@@ -572,6 +572,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                         context,
                         fixtures: upcoming,
                         names: teamNames,
+                        teamImageUrls: teamImageUrls,
                         rounds: rounds,
                         selectedRound: selectedRound,
                         onRoundSelected: (r) => _persistRound(r),
@@ -983,7 +984,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    // Always show a Space button (your router already has /leagues/:id/space).
     if (!isLive) {
       return Row(
         children: [
@@ -1064,6 +1064,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     BuildContext context, {
     required List<FixtureMatch> fixtures,
     required Map<String, String> names,
+    required Map<String, String> teamImageUrls,
     required List<int> rounds,
     required int selectedRound,
     required void Function(int) onRoundSelected,
@@ -1120,7 +1121,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             Column(
               children: [
                 for (final f in unplayedFixtures) ...[
-                  _fixtureRow(context, f, names),
+                  _fixtureRow(context, f, names, teamImageUrls),
                   const SizedBox(height: 10),
                 ],
               ],
@@ -1166,7 +1167,12 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     );
   }
 
-  Widget _fixtureRow(BuildContext context, FixtureMatch f, Map<String, String> names) {
+  Widget _fixtureRow(
+    BuildContext context,
+    FixtureMatch f,
+    Map<String, String> names,
+    Map<String, String> teamImageUrls,
+  ) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
@@ -1175,6 +1181,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final homeName = names[f.homeTeamId] ?? f.homeTeamId;
     final awayName = names[f.awayTeamId] ?? f.awayTeamId;
+
+    final homeUrl = (teamImageUrls[f.homeTeamId] ?? '').trim();
+    final awayUrl = (teamImageUrls[f.awayTeamId] ?? '').trim();
 
     final chevronIcon = isRtl ? Icons.chevron_left : Icons.chevron_right;
 
@@ -1200,16 +1209,25 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                homeName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurface,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Flexible(
+                    child: Text(
+                      homeName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _TeamThumb(url: homeUrl, size: 20),
+                ],
               ),
             ),
             Padding(
@@ -1220,16 +1238,24 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ),
             Expanded(
-              child: Text(
-                awayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.start,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurface,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
+              child: Row(
+                children: [
+                  _TeamThumb(url: awayUrl, size: 20),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      awayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.start,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 8),
@@ -1494,6 +1520,49 @@ class _LeagueHero extends StatelessWidget {
   final String leagueImageUrl;
   final String sponsorImageUrl;
 
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 1200, int height = 600, String crop = 'fill'}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = <String>[
+      'f_auto',
+      'q_auto',
+      if (width > 0) 'w_$width',
+      if (height > 0) 'h_$height',
+      (crop == 'fit') ? 'c_fit' : 'c_fill',
+      if (crop != 'fit') 'g_auto',
+    ].join(',');
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
   Uint8List? _tryDecodeDataUri(String raw) {
     final s = raw.trim();
     if (!s.startsWith('data:image')) return null;
@@ -1507,7 +1576,14 @@ class _LeagueHero extends StatelessWidget {
     }
   }
 
-  Widget _imageOrPlaceholder(BuildContext context, String url, {BoxFit fit = BoxFit.cover}) {
+  Widget _imageOrPlaceholder(
+    BuildContext context,
+    String url, {
+    BoxFit fit = BoxFit.cover,
+    int cacheWidth = 1200,
+    int cacheHeight = 600,
+    bool optimizeCloudinary = true,
+  }) {
     final cs = Theme.of(context).colorScheme;
 
     final u = url.trim();
@@ -1515,6 +1591,35 @@ class _LeagueHero extends StatelessWidget {
 
     if (bytes != null) {
       return Image.memory(bytes, fit: fit, gaplessPlayback: true);
+    }
+
+    if (u.isNotEmpty && _looksLikeHttpUrl(u)) {
+      final deliver = optimizeCloudinary ? _cloudinaryOptimizedUrl(u, width: cacheWidth, height: cacheHeight) : u;
+
+      return Image.network(
+        deliver,
+        fit: fit,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+        cacheWidth: cacheWidth,
+        cacheHeight: cacheHeight,
+        errorBuilder: (_, __, ___) => Center(
+          child: Icon(Icons.emoji_events_outlined, size: 36, color: cs.onSurface.withOpacity(0.55)),
+        ),
+        loadingBuilder: (context, child, event) {
+          if (event == null) return child;
+          return Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: cs.primary.withOpacity(0.85),
+              ),
+            ),
+          );
+        },
+      );
     }
 
     if (u.isNotEmpty) {
@@ -1565,7 +1670,14 @@ class _LeagueHero extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _imageOrPlaceholder(context, mainUrl),
+            _imageOrPlaceholder(
+              context,
+              mainUrl,
+              fit: BoxFit.cover,
+              cacheWidth: 1200,
+              cacheHeight: 600,
+              optimizeCloudinary: true,
+            ),
             if (sponsorUrl.isNotEmpty)
               PositionedDirectional(
                 end: 10,
@@ -1580,12 +1692,104 @@ class _LeagueHero extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: cs.onSurface.withOpacity(0.12)),
                     ),
-                    child: _imageOrPlaceholder(context, sponsorUrl, fit: BoxFit.contain),
+                    child: _imageOrPlaceholder(
+                      context,
+                      sponsorUrl,
+                      fit: BoxFit.contain,
+                      cacheWidth: 160,
+                      cacheHeight: 160,
+                      optimizeCloudinary: true,
+                    ),
                   ),
                 ),
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TeamThumb extends StatelessWidget {
+  const _TeamThumb({
+    required this.url,
+    required this.size,
+  });
+
+  final String url;
+  final double size;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+
+    final px = (size * 3).clamp(48, 96).toInt();
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: px, height: px) : '';
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                d,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: px,
+                cacheHeight: px,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.emoji_events_outlined, size: size * 0.70, color: cs.onSurface.withOpacity(0.55)),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(Icons.emoji_events_outlined, size: size * 0.70, color: cs.onSurface.withOpacity(0.55));
+                },
+              )
+            : Icon(Icons.emoji_events_outlined, size: size * 0.70, color: cs.onSurface.withOpacity(0.55)),
       ),
     );
   }

@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
@@ -22,8 +25,17 @@ import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 
-class ProfileScreen extends ConsumerWidget {
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  static const int _maxBytes = 5 * 1024 * 1024;
+
+  bool _uploadingAvatar = false;
 
   String _couponLeagueSubtitle({
     required bool enabled,
@@ -45,6 +57,247 @@ class ProfileScreen extends ConsumerWidget {
         content: Text(trimmed),
       ),
     );
+  }
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int? width,
+    int? height,
+    String crop = 'fill', // fill | fit
+  }) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = <String>[
+      'f_auto',
+      'q_auto',
+      if (width != null && width > 0) 'w_$width',
+      if (height != null && height > 0) 'h_$height',
+      (crop == 'fit') ? 'c_fit' : 'c_fill',
+      if (crop != 'fit') 'g_auto',
+    ].join(',');
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  Future<String> _uploadToCloudinary({
+    required PlatformFile picked,
+  }) async {
+    final cloudName = const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
+    final uploadPreset = const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
+
+    if (cloudName.isEmpty || uploadPreset.isEmpty) {
+      throw StateError('Cloudinary is not configured.');
+    }
+
+    final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final ts = DateTime.now().millisecondsSinceEpoch;
+
+    http.MultipartFile filePart;
+    final path = (picked.path ?? '').trim();
+
+    if (path.isNotEmpty) {
+      filePart = await http.MultipartFile.fromPath(
+        'file',
+        path,
+        filename: picked.name,
+      );
+    } else if (picked.readStream != null) {
+      filePart = http.MultipartFile(
+        'file',
+        picked.readStream!,
+        picked.size,
+        filename: picked.name,
+      );
+    } else {
+      throw StateError('Selected image file is not accessible.');
+    }
+
+    final req = http.MultipartRequest('POST', uploadUrl)
+      ..fields['upload_preset'] = uploadPreset
+      ..fields['resource_type'] = 'image'
+      ..fields['folder'] = 'eleaguehub/users'
+      ..fields['public_id'] = 'user_avatar_$ts'
+      ..files.add(filePart);
+
+    final client = http.Client();
+    try {
+      final streamed = await client.send(req).timeout(const Duration(seconds: 40));
+      final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 40));
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        String message = 'Upload failed (HTTP ${resp.statusCode}).';
+        try {
+          final decoded = jsonDecode(resp.body);
+          final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
+          final msg = (err is Map<String, dynamic>) ? (err['message']?.toString() ?? '') : '';
+          if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
+        } catch (_) {}
+        throw StateError(message);
+      }
+
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) {
+        throw StateError('Upload failed: invalid response.');
+      }
+
+      final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
+      if (secureUrl.isEmpty) {
+        throw StateError('Upload failed: secure_url missing.');
+      }
+
+      return secureUrl;
+    } on TimeoutException {
+      throw StateError('Upload timed out. Please try again.');
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> _pickAndUploadAvatar(BuildContext context) async {
+    if (_uploadingAvatar) return;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      if (context.mounted) context.go('/login');
+      return;
+    }
+
+    setState(() => _uploadingAvatar = true);
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: false,
+        withReadStream: true,
+        lockParentWindow: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final picked = result.files.first;
+
+      if (picked.size > _maxBytes) {
+        throw StateError('Image too large. Max allowed is 5 MB.');
+      }
+
+      final secureUrl = await _uploadToCloudinary(picked: picked);
+
+      // Persist to Firestore user doc (merge).
+      // IMPORTANT: update `updatedAt` (matches your existing user doc schema + rules).
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set(
+            <String, dynamic>{
+              'photoUrl': secureUrl,
+              'profileImageUrl': secureUrl,
+              'teamImageUrl': secureUrl,
+              'updatedAt': now,
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      // Best-effort update Firebase Auth profile too.
+      try {
+        await FirebaseAuth.instance.currentUser?.updatePhotoURL(secureUrl);
+      } catch (_) {}
+
+      if (!context.mounted) return;
+      _snack(context, context.l10n.tr('common_done'));
+    } catch (e) {
+      if (!context.mounted) return;
+      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } finally {
+      if (!mounted) return;
+      setState(() => _uploadingAvatar = false);
+    }
+  }
+
+  Future<void> _clearAvatar(BuildContext context) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      if (context.mounted) context.go('/login');
+      return;
+    }
+
+    final cs = Theme.of(context).colorScheme;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
+        title: const Text('Remove photo?'),
+        content: const Text('This will remove your profile/team photo.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set(
+            <String, dynamic>{
+              'photoUrl': '',
+              'profileImageUrl': '',
+              'teamImageUrl': '',
+              'updatedAt': now,
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      try {
+        await FirebaseAuth.instance.currentUser?.updatePhotoURL(null);
+      } catch (_) {}
+
+      if (!context.mounted) return;
+      _snack(context, 'Removed.');
+    } catch (e) {
+      if (!context.mounted) return;
+      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
   }
 
   Future<void> _showCouponConfigSheet(
@@ -374,8 +627,38 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
+  String _readProfileImageUrl(UserProfile? profile, User? authUser) {
+    String url = '';
+
+    try {
+      final dyn = profile as dynamic;
+      final v1 = (dyn.photoUrl as String?) ?? '';
+      if (v1.trim().isNotEmpty) url = v1.trim();
+    } catch (_) {}
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v2 = (dyn.profileImageUrl as String?) ?? '';
+        if (v2.trim().isNotEmpty) url = v2.trim();
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v3 = (dyn.teamImageUrl as String?) ?? '';
+        if (v3.trim().isNotEmpty) url = v3.trim();
+      } catch (_) {}
+    }
+
+    if (url.isEmpty) {
+      url = (authUser?.photoURL ?? '').trim();
+    }
+
+    return url;
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     // Ensure connectivity service is started (safe if already initialized in main()).
     unawaited(ConnectivityService.instance.initialize());
 
@@ -388,7 +671,6 @@ class ProfileScreen extends ConsumerWidget {
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid ?? '';
 
-    // Start dynamic admins watcher only when signed in (matches Firestore rules).
     if (uid.trim().isNotEmpty) {
       AppAdminsService.instance.ensureStarted();
     }
@@ -439,6 +721,11 @@ class ProfileScreen extends ConsumerWidget {
                 final iconMuted = onSurface.withOpacity(0.72);
                 final iconDim = onSurface.withOpacity(0.55);
 
+                final rawAvatarUrl = _readProfileImageUrl(profile, user);
+                final avatarUrl = rawAvatarUrl.isNotEmpty && _looksLikeHttpUrl(rawAvatarUrl)
+                    ? _cloudinaryOptimizedUrl(rawAvatarUrl, width: 256, height: 256, crop: 'fill')
+                    : rawAvatarUrl;
+
                 return Row(
                   children: [
                     Container(
@@ -452,10 +739,55 @@ class ProfileScreen extends ConsumerWidget {
                           ),
                         ],
                       ),
-                      child: CircleAvatar(
-                        radius: 28,
-                        backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.85),
-                        child: const Icon(Icons.person, color: Colors.white, size: 28),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          InkWell(
+                            borderRadius: BorderRadius.circular(999),
+                            onTap: uid.isEmpty ? null : () => _pickAndUploadAvatar(context),
+                            onLongPress: uid.isEmpty ? null : () => _clearAvatar(context),
+                            child: CircleAvatar(
+                              radius: 28,
+                              backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.85),
+                              child: ClipOval(
+                                child: SizedBox(
+                                  width: 56,
+                                  height: 56,
+                                  child: (avatarUrl.trim().isNotEmpty && _looksLikeHttpUrl(avatarUrl))
+                                      ? Image.network(
+                                          avatarUrl,
+                                          fit: BoxFit.cover,
+                                          gaplessPlayback: true,
+                                          filterQuality: FilterQuality.low,
+                                          errorBuilder: (_, __, ___) =>
+                                              const Icon(Icons.person, color: Colors.white, size: 28),
+                                          loadingBuilder: (context, child, event) {
+                                            if (event == null) return child;
+                                            return const Icon(Icons.person, color: Colors.white, size: 28);
+                                          },
+                                        )
+                                      : const Icon(Icons.person, color: Colors.white, size: 28),
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (_uploadingAvatar)
+                            const Positioned.fill(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Color(0x66000000),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -563,7 +895,9 @@ class ProfileScreen extends ConsumerWidget {
                         try {
                           await AuthService().signOut();
                         } catch (e) {
-                          if (context.mounted) _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                          if (context.mounted) {
+                            _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                          }
                           return;
                         }
 
@@ -626,7 +960,6 @@ class ProfileScreen extends ConsumerWidget {
             Glass(
               padding: const EdgeInsets.all(14),
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                // Authorization is based on Firebase UID ONLY.
                 stream: FirebaseFirestore.instance
                     .collection('leagues')
                     .where('organizerUid', isEqualTo: uid)

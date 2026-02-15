@@ -16,6 +16,7 @@ import '../../auth/models/user_profile.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
 import '../logic/fixture_generator.dart';
+import '../logic/team_media_service.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/membership.dart';
@@ -49,10 +50,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   late LocalLeaguesRepository _localRepo;
   final UserProfileRepository _profiles = UserProfileRepository();
 
+  final TeamMediaService _teamMedia = TeamMediaService();
+
   League? _league;
 
   /// Temp entries are uid-driven (Firebase uid):
-  /// { userId, teamName, group }
+  /// { userId, teamName, group, teamImageUrl? }
   final List<Map<String, String>> _tempTeams = [];
 
   List<Team> _existingTeams = [];
@@ -241,6 +244,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           'userId': uid, // internal uid
           'teamName': name,
           'group': defaultGroup,
+          'teamImageUrl': '',
         });
       }
 
@@ -376,6 +380,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         'userId': resolved.userId, // internal uid
         'teamName': resolved.teamName,
         'group': groupToUse,
+        'teamImageUrl': '',
       });
 
       if (_isGroupLeague && (groupOverride == null || groupOverride.trim().isEmpty)) {
@@ -551,7 +556,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                // UI: show shareId prominently
                                 '${l10n.tr('add_teams_uid_prefix')}$resolvedShare',
                                 style: TextStyle(
                                   color: onSurface.withOpacity(0.65),
@@ -561,7 +565,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                // Support/debug: internal uid
                                 'Internal uid: ${resolved!.userId}',
                                 style: TextStyle(
                                   color: onSurface.withOpacity(0.45),
@@ -988,12 +991,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
         final userId = t['userId']!;
         final teamName = t['teamName']!;
+        final teamImageUrl = (t['teamImageUrl'] ?? '').trim();
 
         return Team(
           id: userId, // internal uid
           leagueId: widget.leagueId,
           name: teamName,
           groupId: groupId,
+          teamImageUrl: teamImageUrl,
           updatedAtMs: now,
           version: 1,
         );
@@ -1059,13 +1064,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
       final existingFixtures = await _localRepo.getMatches(widget.leagueId);
 
-      // Swiss: never allow generating league fixtures if any already exist.
       if (widget.format == LeagueFormat.uclSwiss && existingFixtures.isNotEmpty) {
         _snackErr(l10n.tr('add_teams_swiss_fixtures_already_exist'));
         return;
       }
 
-      // Classic/Group: if fixtures exist, confirm regeneration.
       if (existingFixtures.isNotEmpty && widget.format != LeagueFormat.uclSwiss) {
         final ok = await showDialog<bool>(
               context: context,
@@ -1493,8 +1496,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
     final primary = cs.primary;
 
@@ -1538,8 +1540,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       ),
                       onSelected: _busy
                           ? null
-                          : (selected) {
-                              if (!selected) return;
+                          : (v) {
+                              if (!v) return;
                               setState(() => _selectedGroup = g);
                             },
                     ),
@@ -1637,6 +1639,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           index: i,
                           name: team.name,
                           label: label,
+                          imageUrl: team.teamImageUrl,
                           isNew: false,
                           onTap: _busy ? null : () => _editExistingTeam(i),
                           onRemove: null,
@@ -1654,8 +1657,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           index: i,
                           name: team['teamName']!,
                           label: label,
+                          imageUrl: (team['teamImageUrl'] ?? '').trim(),
                           isNew: true,
-                          onTap: null,
+                          onTap: _busy ? null : () => _editTempTeam(idx),
                           onRemove: _busy
                               ? null
                               : () {
@@ -1718,6 +1722,206 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
+  Future<void> _editTempTeam(int idx) async {
+    final l10n = context.l10n;
+
+    final temp = _tempTeams[idx];
+    final uid = (temp['userId'] ?? '').trim();
+    final short = _shareId(uid);
+
+    String selectedGroup = (temp['group'] ?? '').trim();
+    if (!_isGroupLeague) selectedGroup = _leaguePoolGroup;
+
+    String imageUrl = (temp['teamImageUrl'] ?? '').trim();
+    bool uploading = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+        final primary = cs.primary;
+
+        final activeGroups = _activeGroups;
+
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom).add(const EdgeInsets.all(16)),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    child: StatefulBuilder(
+                      builder: (ctx, setModalState) {
+                        Future<void> doUpload() async {
+                          if (uploading) return;
+
+                          setModalState(() => uploading = true);
+                          try {
+                            final url = await _teamMedia.pickAndUploadOnly(
+                              leagueId: widget.leagueId,
+                              teamId: uid.isEmpty ? 'temp_$idx' : uid,
+                            );
+                            if (url == null || url.trim().isEmpty) return;
+
+                            setModalState(() => imageUrl = url.trim());
+                          } catch (e) {
+                            _snackErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                          } finally {
+                            if (ctx.mounted) setModalState(() => uploading = false);
+                          }
+                        }
+
+                        Future<void> doClear() async {
+                          setModalState(() => imageUrl = '');
+                        }
+
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              l10n.tr('add_teams_team_details_title'),
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                _TeamThumb(url: imageUrl, size: 44),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        temp['teamName'] ?? '',
+                                        style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'UserId (short): $short',
+                                        style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 12),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            if (_isGroupLeague) ...[
+                              Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: Text(
+                                  l10n.tr('add_teams_group_label'),
+                                  style: TextStyle(color: onSurface.withOpacity(0.72), fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: activeGroups.contains(selectedGroup) ? selectedGroup : (activeGroups.isNotEmpty ? activeGroups.first : 'Group A'),
+                                  dropdownColor: cs.surface,
+                                  style: TextStyle(color: primary, fontWeight: FontWeight.w800),
+                                  isExpanded: true,
+                                  items: _groupsAll
+                                      .map(
+                                        (g) => DropdownMenuItem(
+                                          value: g,
+                                          child: Text(_groupDisplayName(l10n, g)),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (v) {
+                                    if (v == null) return;
+                                    setModalState(() => selectedGroup = v);
+                                  },
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: uploading ? null : doUpload,
+                                    icon: uploading
+                                        ? SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                                          )
+                                        : const Icon(Icons.image),
+                                    label: Text(l10n.tr('common_upload')),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: primary,
+                                      side: BorderSide(color: primary),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: uploading ? null : doClear,
+                                    icon: const Icon(Icons.clear),
+                                    label: Text(l10n.tr('common_clear')),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: onSurface.withOpacity(0.80),
+                                      side: BorderSide(color: onSurface.withOpacity(0.18)),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(),
+                                    child: Text(l10n.tr('profile_close_tooltip')),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _tempTeams[idx] = {
+                                          ..._tempTeams[idx],
+                                          'group': selectedGroup,
+                                          'teamImageUrl': imageUrl.trim(),
+                                        };
+                                      });
+                                      Navigator.of(ctx).pop();
+                                    },
+                                    child: Text(l10n.tr('add_teams_save_changes')),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _editExistingTeam(int index) {
     final l10n = context.l10n;
 
@@ -1730,6 +1934,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
 
     final short = _shareId(team.id);
+
+    String imageUrl = team.teamImageUrl.trim();
+    bool uploading = false;
 
     showModalBottomSheet(
       context: context,
@@ -1753,6 +1960,61 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                     child: StatefulBuilder(
                       builder: (ctx, setModalState) {
+                        Future<void> doUpload() async {
+                          if (uploading) return;
+                          setModalState(() => uploading = true);
+
+                          try {
+                            final url = await _teamMedia.pickUploadAndSaveTeamImage(
+                              leagueId: widget.leagueId,
+                              teamId: team.id,
+                              teamName: team.name,
+                            );
+
+                            if (url == null || url.trim().isEmpty) return;
+
+                            setState(() {
+                              _existingTeams[index] = _existingTeams[index].copyWith(
+                                teamImageUrl: url.trim(),
+                                updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+                              );
+                            });
+
+                            setModalState(() => imageUrl = url.trim());
+                            _snackOk(l10n.tr('common_done'));
+                          } catch (e) {
+                            _snackErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                          } finally {
+                            if (ctx.mounted) setModalState(() => uploading = false);
+                          }
+                        }
+
+                        Future<void> doClear() async {
+                          if (uploading) return;
+                          setModalState(() => uploading = true);
+
+                          try {
+                            await _teamMedia.clearTeamImage(
+                              leagueId: widget.leagueId,
+                              teamId: team.id,
+                            );
+
+                            setState(() {
+                              _existingTeams[index] = _existingTeams[index].copyWith(
+                                teamImageUrl: '',
+                                updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+                              );
+                            });
+
+                            setModalState(() => imageUrl = '');
+                            _snackOk(l10n.tr('common_done'));
+                          } catch (e) {
+                            _snackErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                          } finally {
+                            if (ctx.mounted) setModalState(() => uploading = false);
+                          }
+                        }
+
                         return Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1764,38 +2026,31 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               ),
                             ),
                             const SizedBox(height: 10),
-                            Align(
-                              alignment: AlignmentDirectional.centerStart,
-                              child: Text(
-                                l10n.tr('add_teams_team_name_label'),
-                                style: TextStyle(color: onSurface.withOpacity(0.72), fontSize: 12, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Align(
-                              alignment: AlignmentDirectional.centerStart,
-                              child: Text(
-                                team.name,
-                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
-                              ),
+                            Row(
+                              children: [
+                                _TeamThumb(url: imageUrl, size: 44),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        team.name,
+                                        style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'UserId (short): $short',
+                                        style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 12),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 10),
-                            Align(
-                              alignment: AlignmentDirectional.centerStart,
-                              child: Text(
-                                'UserId (short)',
-                                style: TextStyle(color: onSurface.withOpacity(0.72), fontSize: 12, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Align(
-                              alignment: AlignmentDirectional.centerStart,
-                              child: Text(
-                                short,
-                                style: TextStyle(color: primary, fontWeight: FontWeight.w900),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
                             Align(
                               alignment: AlignmentDirectional.centerStart,
                               child: Text(
@@ -1833,6 +2088,40 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 ),
                               ),
                             ],
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: uploading ? null : doUpload,
+                                    icon: uploading
+                                        ? SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                                          )
+                                        : const Icon(Icons.image),
+                                    label: Text(l10n.tr('common_upload')),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: primary,
+                                      side: BorderSide(color: primary),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: uploading ? null : doClear,
+                                    icon: const Icon(Icons.clear),
+                                    label: Text(l10n.tr('common_clear')),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: onSurface.withOpacity(0.80),
+                                      side: BorderSide(color: onSurface.withOpacity(0.18)),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 12),
                             Row(
                               children: [
@@ -1891,6 +2180,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     required int index,
     required String name,
     required String label,
+    required String imageUrl,
     required bool isNew,
     required VoidCallback? onTap,
     required VoidCallback? onRemove,
@@ -1922,6 +2212,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     style: TextStyle(color: numberColor, fontSize: 12, fontWeight: FontWeight.w800),
                   ),
                 ),
+                const SizedBox(width: 8),
+                _TeamThumb(url: imageUrl, size: 18),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -2022,6 +2314,100 @@ class _MiniChip extends StatelessWidget {
           fontSize: 10,
           fontWeight: FontWeight.w800,
         ),
+      ),
+    );
+  }
+}
+
+class _TeamThumb extends StatelessWidget {
+  const _TeamThumb({
+    required this.url,
+    this.size = 18,
+  });
+
+  final String url;
+  final double size;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                d,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: 64,
+                cacheHeight: 64,
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.emoji_events_outlined,
+                  size: size * 0.70,
+                  color: cs.onSurface.withOpacity(0.55),
+                ),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(
+                    Icons.emoji_events_outlined,
+                    size: size * 0.70,
+                    color: cs.onSurface.withOpacity(0.55),
+                  );
+                },
+              )
+            : Icon(
+                Icons.emoji_events_outlined,
+                size: size * 0.70,
+                color: cs.onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }

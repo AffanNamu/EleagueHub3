@@ -39,8 +39,8 @@ class LiveViewScreen extends ConsumerStatefulWidget {
     super.key,
     required this.matchId,
     required this.isHost,
-    this.hostAddress, // legacy (ignored for online)
-    this.port, // legacy (ignored for online)
+    this.hostAddress,
+    this.port,
     this.homeName,
     this.awayName,
     this.hostSide,
@@ -81,11 +81,8 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   bool _hostCameraEnabled = true;
   bool _hostScreenEnabled = false;
 
-  // If true, host will start screen sharing right after "Start Broadcast"
-  // (Android will show a system prompt; user must accept).
   final bool _autoStartScreenShareOnBroadcast = true;
 
-  // Incoming quick message overlay
   Timer? _incomingQuickTimer;
   String? _incomingQuickText;
   String? _incomingQuickFrom;
@@ -173,7 +170,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   void initState() {
     super.initState();
 
-    // Viewers connect automatically (online-only: will fail gracefully if offline).
     if (!widget.isHost) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await _connectOnline(publishIfHost: false);
@@ -197,7 +193,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   }
 
   Future<void> _pushOverlayMicState() async {
-    // Only hosts have mic publishing in this screen.
     if (!widget.isHost) return;
     try {
       await OverlayPlatform.setOverlayMicMutedState(muted: !_hostMicEnabled);
@@ -236,11 +231,9 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     };
   }
 
-  // Do NOT request overlay permission automatically.
   Future<void> _maybeStartOverlayBubbleIfGranted() async {
     if (!Platform.isAndroid) return;
 
-    // UI-only preference (allowed).
     final prefs = ref.read(prefsServiceProvider);
     if (!prefs.liveOverlayEnabled()) return;
 
@@ -254,7 +247,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
   Future<void> _stopOverlayBubbleIfNotGloballyEnabled() async {
     if (!Platform.isAndroid) return;
 
-    // UI-only preference (allowed).
     final prefs = ref.read(prefsServiceProvider);
     if (prefs.liveOverlayEnabled()) return;
 
@@ -285,9 +277,7 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
           'Broadcasting online • Keep app alive in background',
         ),
       );
-    } catch (_) {
-      // Non-fatal: if this fails, Android may kill the app in background.
-    }
+    } catch (_) {}
   }
 
   Future<void> _stopHostForegroundService() async {
@@ -302,7 +292,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
     final uid = _currentAuthUid();
     if (uid == null || uid.isEmpty) {
-      // Router should prevent this, but enforce anyway.
       if (mounted) {
         setState(() {
           _errorText = UserFriendlyError.toMessage(FirebaseAuthException(code: 'unauthenticated'));
@@ -315,7 +304,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
       return;
     }
 
-    // ONLINE-ONLY: never allow Live to start/connect offline.
     final online = await _requireOnline();
     if (!online) return;
 
@@ -359,7 +347,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         }
       });
 
-      // Data event handling (quick messages)
       _listener!.on<RoomEvent>((event) {
         final type = event.runtimeType.toString().toLowerCase();
         if (!type.contains('data')) return;
@@ -400,7 +387,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         } catch (_) {}
       });
 
-      // LiveKit connect can fail on bad networks; do not show raw errors.
       await room.connect(tok.url, tok.token).timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
@@ -427,7 +413,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
         unawaited(_pushOverlayMicState());
 
         if (_autoStartScreenShareOnBroadcast) {
-          // This will show Android “Start now” prompt; user must accept.
           await _setHostScreenShareEnabled(true);
         }
       }
@@ -512,7 +497,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
     final l10n = context.l10n;
 
-    // ONLINE-ONLY: don't even attempt if we are offline.
     final online = await _requireOnline();
     if (!online) return;
 
@@ -1067,7 +1051,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
 
     final waitingShort = _trOr(l10n, 'live_view_waiting_short', 'Waiting…');
 
-    // Prefer real LiveKit sources:
     final homeScreen = _remoteVideoForSide(LiveHostSide.home, TrackSource.screenShareVideo);
     final awayScreen = _remoteVideoForSide(LiveHostSide.away, TrackSource.screenShareVideo);
 

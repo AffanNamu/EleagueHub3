@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,13 +40,16 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   List<KnockoutMatch> _matches = [];
   Map<String, Team> _teamsById = {};
 
-  // Premium bracket layout constants.
+  Map<String, String> _teamImageUrls = {};
+  final Set<String> _requestedUserImageIds = <String>{};
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   static const double _colWidth = 240;
   static const double _centerWidth = 320;
   static const double _connectorWidth = 56;
 
   static const double _matchCardHeight = 132;
-  static const double _baseGap = 22; // earliest-round vertical gap
+  static const double _baseGap = 22;
   static const double _unit = _matchCardHeight + _baseGap;
 
   static const _roundOrder = <String>[
@@ -61,8 +65,86 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   void initState() {
     super.initState();
     _repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
-    // ignore: discarded_futures
     _loadData();
+  }
+
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
+  String _bestUserImageUrlFromUserDoc(Map<String, dynamic> data) {
+    final teamImageUrl = (data['teamImageUrl'] as String?)?.trim() ?? '';
+    if (teamImageUrl.isNotEmpty) return teamImageUrl;
+
+    final profileImageUrl = (data['profileImageUrl'] as String?)?.trim() ?? '';
+    if (profileImageUrl.isNotEmpty) return profileImageUrl;
+
+    final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+    if (photoUrl.isNotEmpty) return photoUrl;
+
+    return '';
+  }
+
+  Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
+    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    if (clean.isEmpty) return const <String, String>{};
+
+    final out = <String, String>{};
+
+    const chunkSize = 10;
+    for (var i = 0; i < clean.length; i += chunkSize) {
+      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+
+      final snap = await _firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      for (final d in snap.docs) {
+        final url = _bestUserImageUrlFromUserDoc(d.data());
+        if (url.trim().isNotEmpty) out[d.id] = url.trim();
+      }
+    }
+
+    return out;
+  }
+
+  Future<void> _ensureUserImagesForTeamIds(Iterable<String?> ids) async {
+    final missing = <String>[];
+    for (final id in ids) {
+      final clean = (id ?? '').trim();
+      if (clean.isEmpty) continue;
+      if (!_looksLikeFirebaseUid(clean)) continue;
+      if (_requestedUserImageIds.contains(clean)) continue;
+      _requestedUserImageIds.add(clean);
+
+      if ((_teamImageUrls[clean] ?? '').trim().isNotEmpty) continue;
+      missing.add(clean);
+    }
+
+    if (missing.isEmpty) return;
+
+    try {
+      final userImages = await _fetchUserImagesByIds(missing);
+      if (!mounted) return;
+      if (userImages.isEmpty) return;
+
+      setState(() {
+        _teamImageUrls = {..._teamImageUrls, ...userImages};
+      });
+    } catch (_) {}
+  }
+
+  String _teamImageUrlForId(String? id) {
+    final clean = (id ?? '').trim();
+    if (clean.isEmpty) return '';
+
+    final fromTeam = _teamsById[clean]?.teamImageUrl.trim() ?? '';
+    if (fromTeam.isNotEmpty) return fromTeam;
+
+    final fromMap = (_teamImageUrls[clean] ?? '').trim();
+    if (fromMap.isNotEmpty) return fromMap;
+
+    return '';
   }
 
   Future<void> _loadData() async {
@@ -83,12 +165,26 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
       final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
       final koMatches = await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
+      final localImages = <String, String>{};
+      for (final t in teams) {
+        final id = t.id.trim();
+        final url = t.teamImageUrl.trim();
+        if (id.isNotEmpty && url.isNotEmpty) localImages[id] = url;
+      }
+
       if (!mounted) return;
       setState(() {
         _teamsById = {for (final t in teams) t.id: t};
+        _teamImageUrls = localImages;
         _matches = koMatches;
         _isLoading = false;
       });
+
+      final idsFromMatches = <String?>{
+        for (final m in koMatches) m.homeTeamId,
+        for (final m in koMatches) m.awayTeamId,
+      };
+      unawaited(_ensureUserImagesForTeamIds(idsFromMatches));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -358,8 +454,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
 
   Widget _buildPremiumBracket() {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final rounds = <String, List<KnockoutMatch>>{};
     for (final m in _matches) {
@@ -376,7 +471,6 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
         return ai.compareTo(bi);
       });
 
-    // Stable ordering inside each round (especially Play-off).
     for (final rn in roundNames) {
       final list = rounds[rn]!;
       list.sort((a, b) {
@@ -392,11 +486,16 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
       });
     }
 
-    final thirdPlace = (rounds['3rd Place'] ?? const <KnockoutMatch>[]);
-    final thirdPlaceMatch = thirdPlace.isNotEmpty ? thirdPlace.first : null;
+    final thirdPlaceMatches = List<KnockoutMatch>.from(rounds['3rd Place'] ?? const <KnockoutMatch>[])
+      ..sort((a, b) {
+        final aReady = (a.homeTeamId != null && a.awayTeamId != null) ? 0 : 1;
+        final bReady = (b.homeTeamId != null && b.awayTeamId != null) ? 0 : 1;
+        final c = aReady.compareTo(bReady);
+        if (c != 0) return c;
+        return a.id.compareTo(b.id);
+      });
+    final thirdPlaceMatch = thirdPlaceMatches.isNotEmpty ? thirdPlaceMatches.first : null;
 
-    // We build the premium bracket for the single-leg rounds only.
-    // (Play-off is two-legged and should be displayed separately for clarity.)
     final playoffMatches = (rounds['Play-off'] ?? const <KnockoutMatch>[]);
 
     final bracketRounds = <String>[
@@ -409,7 +508,6 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
 
     final preFinalRounds = bracketRounds.where((rn) => rn != 'Final').toList();
 
-    // If we don't have any bracket rounds, fall back to a simple list presentation.
     if (preFinalRounds.isEmpty && finalMatch == null) {
       return Center(
         child: Text(
@@ -419,7 +517,6 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
       );
     }
 
-    // Split left/right for each pre-final round.
     final leftByRound = <String, List<KnockoutMatch>>{};
     final rightByRound = <String, List<KnockoutMatch>>{};
 
@@ -431,16 +528,22 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
       final right = list.sublist(math.min(leftCount, list.length));
 
       leftByRound[rn] = left;
-      rightByRound[rn] = right.reversed.toList(); // mirror feel
+      rightByRound[rn] = right.reversed.toList();
     }
 
-    // Determine earliest round used for spacing.
     final firstRound = preFinalRounds.isNotEmpty ? preFinalRounds.first : null;
     final maxMatches = (firstRound == null) ? 1 : (leftByRound[firstRound]?.length ?? 1);
 
-    // If it’s not power-of-two, don’t draw bracket lines (avoid broken visuals).
     final canDraw = _isPowerOfTwo(maxMatches);
     final totalHeight = _totalHeightForMaxMatches(maxMatches);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ignore: discarded_futures
+      _ensureUserImagesForTeamIds(<String?>[
+        for (final m in _matches) m.homeTeamId,
+        for (final m in _matches) m.awayTeamId,
+      ]);
+    });
 
     return Column(
       children: [
@@ -465,7 +568,6 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // LEFT SIDE (normal LTR progression to center)
                       _buildSideBracket(
                         sideTitleRounds: preFinalRounds,
                         byRound: leftByRound,
@@ -475,16 +577,12 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                         canDraw: canDraw,
                         textDirection: TextDirection.ltr,
                       ),
-
-                      // CENTER FINAL (cup watermark + final match positioned in bracket space)
                       _buildCenterFinalColumn(
                         maxMatches: maxMatches,
                         totalHeight: totalHeight,
                         finalMatch: finalMatch,
                         canDraw: canDraw,
                       ),
-
-                      // RIGHT SIDE (RTL layout so early rounds sit far right, progression to center)
                       _buildSideBracket(
                         sideTitleRounds: preFinalRounds,
                         byRound: rightByRound,
@@ -584,7 +682,6 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
         ),
       );
 
-      // Connector to next round (or to center final)
       children.add(
         SizedBox(
           width: _connectorWidth,
@@ -662,7 +759,6 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
             height: totalHeight,
             child: Stack(
               children: [
-                // Cup watermark in the true center of the bracket.
                 Align(
                   alignment: Alignment.center,
                   child: Icon(
@@ -809,7 +905,6 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
             ],
           ),
         ),
-        // RoundIndex used implicitly through centerY() math; keep var to validate logic in future.
         if (roundIndex < 0) const SizedBox.shrink(),
       ],
     );
@@ -853,6 +948,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
             children: [
               Expanded(
                 child: _finalTeamTile(
+                  teamId: homeId,
                   name: homeName,
                   score: m?.homeScore,
                   emphasis: isHomeWinner,
@@ -878,6 +974,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
               ),
               Expanded(
                 child: _finalTeamTile(
+                  teamId: awayId,
                   name: awayName,
                   score: m?.awayScore,
                   emphasis: isAwayWinner,
@@ -927,6 +1024,7 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
   }
 
   Widget _finalTeamTile({
+    required String? teamId,
     required String name,
     required int? score,
     required bool emphasis,
@@ -939,19 +1037,36 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
     final resolvedNameColor = emphasis ? cs.primary : onSurface;
     final resolvedScoreColor = emphasis ? cs.primary : onSurface.withOpacity(0.85);
 
+    final url = _teamImageUrlForId(teamId);
+
     return Column(
       crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
-        Text(
-          name.toUpperCase(),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
-          style: theme.textTheme.titleSmall?.copyWith(
-            color: resolvedNameColor,
-            fontWeight: emphasis ? FontWeight.w900 : FontWeight.w800,
-            letterSpacing: 0.6,
-          ),
+        Row(
+          mainAxisAlignment: alignEnd ? MainAxisAlignment.end : MainAxisAlignment.start,
+          children: [
+            if (!alignEnd) ...[
+              _TeamThumb(url: url, size: 18),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: Text(
+                name.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: resolvedNameColor,
+                  fontWeight: emphasis ? FontWeight.w900 : FontWeight.w800,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ),
+            if (alignEnd) ...[
+              const SizedBox(width: 8),
+              _TeamThumb(url: url, size: 18),
+            ],
+          ],
         ),
         const SizedBox(height: 8),
         Container(
@@ -1017,6 +1132,9 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
 
     final homeName = _teamName(match.homeTeamId) ?? (match.homeTeamId ?? l10n.tr('fixtures_tbd'));
     final awayName = _teamName(match.awayTeamId) ?? (match.awayTeamId ?? l10n.tr('fixtures_tbd'));
+
+    final homeUrl = _teamImageUrlForId(match.homeTeamId);
+    final awayUrl = _teamImageUrlForId(match.awayTeamId);
 
     final isTBD = match.homeTeamId == null || match.awayTeamId == null;
 
@@ -1147,11 +1265,21 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  _buildTeamRow(homeName, match.homeScore?.toString() ?? "-", isHomeWinner),
+                  _buildTeamRow(
+                    url: homeUrl,
+                    name: homeName,
+                    score: match.homeScore?.toString() ?? "-",
+                    isWinner: isHomeWinner,
+                  ),
                   const SizedBox(height: 8),
                   Divider(color: onSurface.withOpacity(0.10), height: 1),
                   const SizedBox(height: 8),
-                  _buildTeamRow(awayName, match.awayScore?.toString() ?? "-", isAwayWinner),
+                  _buildTeamRow(
+                    url: awayUrl,
+                    name: awayName,
+                    score: match.awayScore?.toString() ?? "-",
+                    isWinner: isAwayWinner,
+                  ),
                   const Spacer(),
                   if (footer != null)
                     Align(
@@ -1191,7 +1319,12 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
     );
   }
 
-  Widget _buildTeamRow(String name, String score, bool isWinner) {
+  Widget _buildTeamRow({
+    required String url,
+    required String name,
+    required String score,
+    required bool isWinner,
+  }) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
@@ -1201,6 +1334,8 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
 
     return Row(
       children: [
+        _TeamThumb(url: url, size: 18),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(
             name.toUpperCase(),
@@ -1232,6 +1367,91 @@ class _KnockoutBracketScreenState extends ConsumerState<KnockoutBracketScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TeamThumb extends StatelessWidget {
+  const _TeamThumb({
+    required this.url,
+    required this.size,
+  });
+
+  final String url;
+  final double size;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+
+    final px = (size * 3).clamp(48, 96).toInt();
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: px, height: px) : '';
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                d,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: px,
+                cacheHeight: px,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.emoji_events_outlined, size: size * 0.68, color: cs.onSurface.withOpacity(0.55)),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(Icons.emoji_events_outlined, size: size * 0.68, color: cs.onSurface.withOpacity(0.55));
+                },
+              )
+            : Icon(Icons.emoji_events_outlined, size: size * 0.68, color: cs.onSurface.withOpacity(0.55)),
+      ),
     );
   }
 }

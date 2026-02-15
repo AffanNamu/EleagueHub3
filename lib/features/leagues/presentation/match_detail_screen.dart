@@ -39,8 +39,6 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   bool _loading = true;
   String? _loadError;
 
-  // Keep as a stable status code (do not localize this string directly).
-  // If we need localized rendering, we should update StatusBadge to map codes -> l10n.
   String _status = 'Pending';
 
   FixtureMatch? _match;
@@ -60,6 +58,18 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     final m = _match;
     if (m == null) return l10n.tr('admin_score_away_fallback');
     return _teamsById[m.awayTeamId]?.name ?? l10n.tr('admin_score_away_fallback');
+  }
+
+  String _homeImageUrl() {
+    final m = _match;
+    if (m == null) return '';
+    return (_teamsById[m.homeTeamId]?.teamImageUrl ?? '').trim();
+  }
+
+  String _awayImageUrl() {
+    final m = _match;
+    if (m == null) return '';
+    return (_teamsById[m.awayTeamId]?.teamImageUrl ?? '').trim();
   }
 
   int get _homeScore => _match?.homeScore ?? 0;
@@ -213,7 +223,6 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
     setState(() => _busy = true);
     try {
-      // Port is legacy for older LAN flows; LiveViewScreen enforces online-only and ignores port for LiveKit.
       const port = 8765;
 
       await context.push(
@@ -238,8 +247,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     final isWide = MediaQuery.of(context).size.width > 600;
 
@@ -316,21 +324,58 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    final homeName = _homeName(context);
+    final awayName = _awayName(context);
+
+    final homeUrl = _homeImageUrl();
+    final awayUrl = _awayImageUrl();
+
     return Glass(
       padding: const EdgeInsets.all(16),
       borderRadius: 20,
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              '${_homeName(context)}  ${l10n.tr('match_detail_vs')}  ${_awayName(context)}',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                color: cs.onSurface,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Row(
+              children: [
+                _TeamThumb(url: homeUrl),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    homeName,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  l10n.tr('match_detail_vs'),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.40),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    awayName,
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _TeamThumb(url: awayUrl),
+              ],
             ),
           ),
+          const SizedBox(width: 10),
           StatusBadge(_status),
         ],
       ),
@@ -419,6 +464,87 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TeamThumb extends StatelessWidget {
+  const _TeamThumb({
+    required this.url,
+  });
+
+  final String url;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
+
+    return Container(
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                d,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: 64,
+                cacheHeight: 64,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55));
+                },
+              )
+            : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
       ),
     );
   }

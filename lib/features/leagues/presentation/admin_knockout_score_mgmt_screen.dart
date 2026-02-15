@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +17,7 @@ import '../data/leagues_repository_local.dart';
 import '../domain/logic/tournament_controller.dart';
 import '../models/enums.dart';
 import '../models/knockout_match.dart';
+import '../models/team.dart';
 
 class AdminKnockoutScoreMgmtScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -38,7 +40,10 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   List<KnockoutMatch> _matches = [];
   Map<String, String> _teamNames = {};
 
-  // Prevent double-submit / duplicate writes.
+  Map<String, String> _teamImageUrls = {};
+  final Set<String> _requestedUserImageIds = <String>{};
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   String? _savingMatchId;
 
   static const _roundOrder = <String>[
@@ -54,12 +59,76 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   void initState() {
     super.initState();
     _repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
-    // ignore: discarded_futures
     _loadData();
   }
 
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
+  String _bestUserImageUrlFromUserDoc(Map<String, dynamic> data) {
+    final teamImageUrl = (data['teamImageUrl'] as String?)?.trim() ?? '';
+    if (teamImageUrl.isNotEmpty) return teamImageUrl;
+
+    final profileImageUrl = (data['profileImageUrl'] as String?)?.trim() ?? '';
+    if (profileImageUrl.isNotEmpty) return profileImageUrl;
+
+    final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+    if (photoUrl.isNotEmpty) return photoUrl;
+
+    return '';
+  }
+
+  Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
+    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    if (clean.isEmpty) return const <String, String>{};
+
+    final out = <String, String>{};
+
+    const chunkSize = 10;
+    for (var i = 0; i < clean.length; i += chunkSize) {
+      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+
+      final snap = await _firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      for (final d in snap.docs) {
+        final url = _bestUserImageUrlFromUserDoc(d.data());
+        if (url.trim().isNotEmpty) out[d.id] = url.trim();
+      }
+    }
+
+    return out;
+  }
+
+  Future<void> _ensureUserImagesForTeamIds(Iterable<String?> ids) async {
+    final missing = <String>[];
+    for (final id in ids) {
+      final clean = (id ?? '').trim();
+      if (clean.isEmpty) continue;
+      if (!_looksLikeFirebaseUid(clean)) continue;
+      if (_requestedUserImageIds.contains(clean)) continue;
+      _requestedUserImageIds.add(clean);
+
+      if ((_teamImageUrls[clean] ?? '').trim().isNotEmpty) continue;
+      missing.add(clean);
+    }
+
+    if (missing.isEmpty) return;
+
+    try {
+      final userImages = await _fetchUserImagesByIds(missing);
+      if (!mounted) return;
+      if (userImages.isEmpty) return;
+
+      setState(() {
+        _teamImageUrls = {..._teamImageUrls, ...userImages};
+      });
+    } catch (_) {}
+  }
+
   Color _baseToastBg(ThemeData theme) {
-    // Premium dark overlay (works well across both themes).
     return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
   }
 
@@ -257,7 +326,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
       final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
       final matches = await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
-      // Stable order: round order; for Play-off order by nextMatchId then leg.
       matches.sort((a, b) {
         final ai = _roundOrder.indexOf(a.roundName);
         final bi = _roundOrder.indexOf(b.roundName);
@@ -273,7 +341,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
           final c1 = an.compareTo(bn);
           if (c1 != 0) return c1;
 
-          // Leg 1 first
           final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
           if (c2 != 0) return c2;
         }
@@ -281,12 +348,26 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         return a.id.compareTo(b.id);
       });
 
+      final images = <String, String>{};
+      for (final t in teams) {
+        final id = t.id.trim();
+        final url = t.teamImageUrl.trim();
+        if (id.isNotEmpty && url.isNotEmpty) images[id] = url;
+      }
+
       if (!mounted) return;
       setState(() {
         _matches = matches;
         _teamNames = {for (final t in teams) t.id: t.name};
+        _teamImageUrls = images;
         _isLoading = false;
       });
+
+      final idsFromMatches = <String?>{
+        for (final m in matches) m.homeTeamId,
+        for (final m in matches) m.awayTeamId,
+      };
+      unawaited(_ensureUserImagesForTeamIds(idsFromMatches));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -326,7 +407,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         status: MatchStatus.completed,
       );
 
-      // Apply to local list.
       final all = [..._matches];
       final idx = all.indexWhere((m) => m.id == match.id);
       if (idx != -1) {
@@ -335,10 +415,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         all.add(updatedMatch);
       }
 
-      // ------------------------------------------------------------------
-      // Single-match knockout rounds must not end as a draw unless a winner is provided.
-      // Applies to: R16/QF/SF/Final/3rd Place (NOT Play-off).
-      // ------------------------------------------------------------------
       if (updatedMatch.roundName != 'Play-off') {
         final hId = updatedMatch.homeTeamId;
         final aId = updatedMatch.awayTeamId;
@@ -361,7 +437,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
             }
             updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: winner);
           } else {
-            // Clear any previously set penalty winner when score is decisive.
             if (updatedMatch.tiebreakWinnerTeamId != null) {
               updatedMatch = updatedMatch.copyWith(tiebreakWinnerTeamId: null);
             }
@@ -372,11 +447,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         }
       }
 
-      // ------------------------------------------------------------------
-      // Play-off (two-legged) aggregate handling:
-      // - Only applies to SECOND leg when BOTH legs are finished.
-      // - If aggregate tied after leg 2 -> require penalties winner on leg 2.
-      // ------------------------------------------------------------------
       if (updatedMatch.roundName == 'Play-off' && updatedMatch.isSecondLeg) {
         final other = _findOtherPlayoffLeg(leg: updatedMatch, all: all);
         if (other != null && _isFinished(updatedMatch) && _isFinished(other)) {
@@ -423,7 +493,6 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         }
       }
 
-      // Auto-advance winners.
       final advanced = TournamentController.processMatchResult(
         completedMatch: updatedMatch,
         allMatches: all,
@@ -599,6 +668,14 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         return ai.compareTo(bi);
       });
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ignore: discarded_futures
+      _ensureUserImagesForTeamIds(<String?>[
+        for (final m in _matches) m.homeTeamId,
+        for (final m in _matches) m.awayTeamId,
+      ]);
+    });
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: rounds.length,
@@ -627,6 +704,8 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                     match: m,
                     homeName: _teamNames[m.homeTeamId ?? ''] ?? (m.homeTeamId ?? 'TBD'),
                     awayName: _teamNames[m.awayTeamId ?? ''] ?? (m.awayTeamId ?? 'TBD'),
+                    homeImageUrl: (_teamImageUrls[m.homeTeamId ?? ''] ?? '').trim(),
+                    awayImageUrl: (_teamImageUrls[m.awayTeamId ?? ''] ?? '').trim(),
                     isSaving: _savingMatchId == m.id,
                     onSave: (h, a) => _updateScore(m, h, a),
                   ),
@@ -643,6 +722,8 @@ class _ScoreEntryTile extends StatefulWidget {
   final KnockoutMatch match;
   final String homeName;
   final String awayName;
+  final String homeImageUrl;
+  final String awayImageUrl;
   final Future<void> Function(int, int) onSave;
   final bool isSaving;
 
@@ -651,6 +732,8 @@ class _ScoreEntryTile extends StatefulWidget {
     required this.match,
     required this.homeName,
     required this.awayName,
+    required this.homeImageUrl,
+    required this.awayImageUrl,
     required this.onSave,
     required this.isSaving,
   });
@@ -685,15 +768,31 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
 
   bool get _isCompleted => widget.match.status == MatchStatus.completed || widget.match.status == MatchStatus.played;
 
-  void _incHome() => setState(() => _homeScore++);
-  void _decHome() => setState(() {
-        if (_homeScore > 0) _homeScore--;
-      });
+  bool get _disabled => widget.isSaving;
 
-  void _incAway() => setState(() => _awayScore++);
-  void _decAway() => setState(() {
-        if (_awayScore > 0) _awayScore--;
-      });
+  void _incHome() {
+    if (_disabled) return;
+    setState(() => _homeScore++);
+  }
+
+  void _decHome() {
+    if (_disabled) return;
+    setState(() {
+      if (_homeScore > 0) _homeScore--;
+    });
+  }
+
+  void _incAway() {
+    if (_disabled) return;
+    setState(() => _awayScore++);
+  }
+
+  void _decAway() {
+    if (_disabled) return;
+    setState(() {
+      if (_awayScore > 0) _awayScore--;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -728,12 +827,20 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  widget.homeName,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                child: Row(
+                  children: [
+                    _TeamThumb(url: widget.homeImageUrl),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.homeName,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               Padding(
@@ -748,13 +855,22 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 ),
               ),
               Expanded(
-                child: Text(
-                  widget.awayName,
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.awayName,
+                        textAlign: TextAlign.end,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _TeamThumb(url: widget.awayImageUrl),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
@@ -848,7 +964,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _stepperButton(icon: Icons.remove, onPressed: value > 0 ? onDec : null, enabled: value > 0),
+          _stepperButton(icon: Icons.remove, onPressed: value > 0 ? onDec : null, enabled: value > 0 && !widget.isSaving),
           const SizedBox(width: 6),
           SizedBox(
             width: 28,
@@ -862,7 +978,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
             ),
           ),
           const SizedBox(width: 6),
-          _stepperButton(icon: Icons.add, onPressed: onInc, enabled: true),
+          _stepperButton(icon: Icons.add, onPressed: widget.isSaving ? null : onInc, enabled: !widget.isSaving),
         ],
       ),
     );
@@ -889,6 +1005,87 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
           shape: BoxShape.circle,
         ),
         child: Icon(icon, size: 18, color: enabled ? primary : onSurface.withOpacity(0.30)),
+      ),
+    );
+  }
+}
+
+class _TeamThumb extends StatelessWidget {
+  const _TeamThumb({
+    required this.url,
+  });
+
+  final String url;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
+
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                d,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: 64,
+                cacheHeight: 64,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55));
+                },
+              )
+            : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
       ),
     );
   }

@@ -25,7 +25,6 @@ class CallRoomScreen extends ConsumerStatefulWidget {
 
 class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
   final TextEditingController _codeCtrl = TextEditingController();
-
   Timer? _incomingHideTimer;
 
   @override
@@ -44,13 +43,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     final st = ref.watch(callSessionControllerProvider);
     final ctrl = ref.read(callSessionControllerProvider.notifier);
 
-    // Auto-hide incoming quick message banner after 3s.
     if (st.incomingQuickText != null) {
       _incomingHideTimer?.cancel();
       _incomingHideTimer = Timer(const Duration(seconds: 3), () {
         if (!mounted) return;
-        // Clear banner by leaving state as-is; simplest is re-join state update not needed.
-        // We just rebuild with same state; so instead we show it only if "fresh".
         setState(() {});
       });
     }
@@ -95,20 +91,57 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      if (st.error.isNotEmpty)
-                        Text(
-                          st.error,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.error,
-                            fontWeight: FontWeight.w800,
+                      if (st.error.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: st.reconnecting
+                                ? const Color(0xFFF59E0B).withOpacity(0.12)
+                                : cs.error.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: st.reconnecting
+                                  ? const Color(0xFFF59E0B).withOpacity(0.30)
+                                  : cs.error.withOpacity(0.25),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              if (st.reconnecting) ...[
+                                const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Color(0xFFF59E0B),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                              ] else ...[
+                                Icon(Icons.info_outline, size: 16, color: cs.error),
+                                const SizedBox(width: 10),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  st.error,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: st.reconnecting
+                                        ? const Color(0xFFF59E0B)
+                                        : cs.error,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      const SizedBox(height: 8),
+                        const SizedBox(height: 8),
+                      ],
                       Row(
                         children: [
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: st.joining ? null : () async => ctrl.createAndJoin(),
+                              onPressed: (st.joining || st.reconnecting) ? null : () async => ctrl.createAndJoin(),
                               icon: st.joining
                                   ? const SizedBox(
                                       width: 16,
@@ -122,7 +155,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: (!st.connected && !st.joining)
+                              onPressed: (!st.connected && !st.joining && !st.reconnecting)
                                   ? () async {
                                       final code = _codeCtrl.text.trim();
                                       await ctrl.joinByCode(code);
@@ -137,7 +170,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                       const SizedBox(height: 10),
                       TextField(
                         controller: _codeCtrl,
-                        enabled: !st.connected && !st.joining,
+                        enabled: !st.connected && !st.joining && !st.reconnecting,
                         keyboardType: TextInputType.number,
                         maxLength: 8,
                         decoration: InputDecoration(
@@ -163,14 +196,33 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                       const SizedBox(height: 10),
                       Row(
                         children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: st.connected
+                                  ? const Color(0xFF22C55E)
+                                  : st.reconnecting
+                                      ? const Color(0xFFF59E0B)
+                                      : cs.onSurface.withOpacity(0.30),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               st.connected
                                   ? '${_trOr(l10n, 'call_room_connected', 'Connected')} • ${_trOr(l10n, 'call_room_code', 'Code')}: ${st.callId}'
-                                  : _trOr(l10n, 'call_room_not_connected', 'Not connected'),
+                                  : st.reconnecting
+                                      ? _trOr(l10n, 'call_room_reconnecting', 'Reconnecting...')
+                                      : _trOr(l10n, 'call_room_not_connected', 'Not connected'),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 fontWeight: FontWeight.w800,
-                                color: st.connected ? const Color(0xFF22C55E) : cs.onSurface.withOpacity(0.75),
+                                color: st.connected
+                                    ? const Color(0xFF22C55E)
+                                    : st.reconnecting
+                                        ? const Color(0xFFF59E0B)
+                                        : cs.onSurface.withOpacity(0.75),
                               ),
                             ),
                           ),
@@ -196,7 +248,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: st.connected ? ctrl.leave : null,
+                              onPressed: (st.connected || st.reconnecting) ? ctrl.leave : null,
                               icon: const Icon(Icons.call_end),
                               label: Text(_trOr(l10n, 'call_room_leave', 'Leave')),
                             ),
@@ -228,8 +280,6 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                 ),
               ],
             ),
-
-            // Incoming quick message banner (in-app)
             if (showIncoming)
               Positioned(
                 top: 12,
@@ -263,8 +313,6 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                   ),
                 ),
               ),
-
-            // Floating quick message button (in-app)
             LiveFloatingQuickMessage(
               enabled: st.connected,
               messages: quickList,

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,6 +39,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   late PreferencesService _prefs;
 
   Map<String, String> _teamNames = {};
+
+  /// teamId -> imageUrl (PRIMARY: user profile image for UID-based teams)
+  Map<String, String> _teamImageUrls = {};
+
   bool _isLoading = true;
   String? _loadError;
 
@@ -57,6 +62,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   static String _lastRoundKey(String leagueId) => 'ui_last_round_$leagueId';
   static String _lastGroupKey(String leagueId) => 'ui_last_group_$leagueId';
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // Prevent repeated expensive lookups.
+  final Set<String> _requestedUserImageIds = <String>{};
 
   @override
   void initState() {
@@ -166,7 +176,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
     final list = filtered.toList();
 
-    // Deterministic order for UI
     list.sort((a, b) {
       final r = a.sortIndex.compareTo(b.sortIndex);
       if (r != 0) return r;
@@ -174,6 +183,124 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     });
 
     return list;
+  }
+
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
+  String _bestUserImageUrlFromUserDoc(Map<String, dynamic> data) {
+    final teamImageUrl = (data['teamImageUrl'] as String?)?.trim() ?? '';
+    if (teamImageUrl.isNotEmpty) return teamImageUrl;
+
+    final profileImageUrl = (data['profileImageUrl'] as String?)?.trim() ?? '';
+    if (profileImageUrl.isNotEmpty) return profileImageUrl;
+
+    final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+    if (photoUrl.isNotEmpty) return photoUrl;
+
+    return '';
+  }
+
+  Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
+    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    if (clean.isEmpty) return const <String, String>{};
+
+    final out = <String, String>{};
+
+    const chunkSize = 10; // whereIn limit
+    for (var i = 0; i < clean.length; i += chunkSize) {
+      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+
+      final snap = await _firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      for (final d in snap.docs) {
+        final url = _bestUserImageUrlFromUserDoc(d.data());
+        if (url.trim().isNotEmpty) out[d.id] = url.trim();
+      }
+    }
+
+    return out;
+  }
+
+  Future<void> _ensureUserImagesForTeamIds(List<String> ids) async {
+    final missing = <String>[];
+    for (final id in ids) {
+      final clean = id.trim();
+      if (!_looksLikeFirebaseUid(clean)) continue;
+      if (_requestedUserImageIds.contains(clean)) continue;
+
+      _requestedUserImageIds.add(clean);
+
+      if ((_teamImageUrls[clean] ?? '').trim().isNotEmpty) continue;
+      missing.add(clean);
+    }
+
+    if (missing.isEmpty) return;
+
+    try {
+      final userImages = await _fetchUserImagesByIds(missing);
+      if (!mounted) return;
+      if (userImages.isEmpty) return;
+
+      // Primary source: user images. Overwrite (safe) because requirement says profile image == everywhere.
+      setState(() {
+        _teamImageUrls = {..._teamImageUrls, ...userImages};
+      });
+    } catch (_) {
+      // best-effort only
+    }
+  }
+
+  Map<String, String> _mergePreferExisting(Map<String, String> base, Map<String, String> incoming) {
+    if (incoming.isEmpty) return base;
+    final out = <String, String>{...base};
+    incoming.forEach((k, v) {
+      final key = k.trim();
+      final val = v.trim();
+      if (key.isEmpty || val.isEmpty) return;
+
+      // Do NOT override existing non-empty URL (base has priority).
+      if ((out[key] ?? '').trim().isNotEmpty) return;
+
+      out[key] = val;
+    });
+    return out;
+  }
+
+  Future<void> _loadTeamImagesBestEffortRemoteFromTeamsCollection() async {
+    // Secondary source only. Never override user profile images already present.
+    try {
+      final snap = await _firestore
+          .collection('leagues')
+          .doc(widget.leagueId)
+          .collection('teams')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 8));
+
+      final out = <String, String>{};
+      for (final d in snap.docs) {
+        final data = d.data();
+        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? (data['id'] as String).trim() : d.id;
+
+        // We intentionally DO NOT read teamImageUrl here as a primary source.
+        // Because requirement is: user profile image is authoritative for UID teams.
+        // If you want custom per-league logos later, we can change the policy.
+        final candidate = (data['teamImageUrl'] as String?)?.trim() ?? '';
+        if (id.isNotEmpty && candidate.isNotEmpty) out[id] = candidate;
+      }
+
+      if (!mounted) return;
+      if (out.isEmpty) return;
+
+      setState(() {
+        _teamImageUrls = _mergePreferExisting(_teamImageUrls, out);
+      });
+    } catch (_) {
+      // Best-effort only.
+    }
   }
 
   Future<void> _loadInitialData() async {
@@ -189,16 +316,18 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return;
       }
 
-      // Online-only: fail fast with a friendly message when offline.
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+
+      // IMPORTANT:
+      // LocalLeaguesRepository.getTeams() hydrates teamImageUrl from users/{uid} when Team.id looks like UID.
       final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+
       final allMatches = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
       final format = league?.format ?? LeagueFormat.classic;
 
-      // Build groups list if needed
       List<String> groups = [];
       if (format == LeagueFormat.uclGroup) {
         groups = allMatches
@@ -211,7 +340,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
           ..sort();
       }
 
-      // Validate restored group
       String? validatedGroup;
       if (format == LeagueFormat.uclGroup) {
         final g = _selectedGroup;
@@ -224,7 +352,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         validatedGroup = null;
       }
 
-      // Compute max round under the selected group filter
       final totalRounds = _computeTotalRounds(
         format: format,
         matches: allMatches,
@@ -247,10 +374,21 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       final isOrganizer = membership?.role == LeagueRole.organizer || (league?.organizerUid.trim() == authUid);
 
+      // Build initial images map from hydrated Team.teamImageUrl
+      final localImages = <String, String>{};
+      for (final t in teams) {
+        final id = t.id.trim();
+        final url = t.teamImageUrl.trim();
+        if (id.isNotEmpty && url.isNotEmpty) {
+          localImages[id] = url;
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _format = format;
         _teamNames = {for (var t in teams) t.id: t.name};
+        _teamImageUrls = localImages;
         _groups = groups;
         _selectedGroup = validatedGroup;
         _selectedRound = roundToUse;
@@ -262,6 +400,16 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       _persistGroup(_selectedGroup);
       _persistRound(_selectedRound);
+
+      // Ensure even if a team doc is missing, we can still show the user's profile image by match ids.
+      final idsFromMatches = <String>{
+        for (final m in allMatches) m.homeTeamId.trim(),
+        for (final m in allMatches) m.awayTeamId.trim(),
+      }.where((e) => e.isNotEmpty).toList();
+      unawaited(_ensureUserImagesForTeamIds(idsFromMatches));
+
+      // Secondary best-effort: teams collection URLs for non-UID teams or custom logos.
+      unawaited(_loadTeamImagesBestEffortRemoteFromTeamsCollection());
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -273,11 +421,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   /// Generate the next Swiss round (or Round 1 if none exist yet) for UCL Swiss leagues.
-  ///
-  /// Enforced:
-  /// - Only organiser can generate rounds from here
-  /// - Team count must be exactly 18 or 36
-  /// - Next round cannot be generated until ALL matches in the current round are played
   Future<void> _generateNextSwissRound() async {
     final l10n = context.l10n;
 
@@ -296,7 +439,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return;
       }
 
-      // Online-only: fail fast with a friendly message when offline.
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
@@ -315,7 +457,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return;
       }
 
-      // Always compute based on freshest matches from server
       final existingMatches = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
       int currentMaxRound = 0;
@@ -323,7 +464,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         currentMaxRound = existingMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
       }
 
-      // Sequential completion guard
       if (currentMaxRound > 0) {
         final currentRoundMatches = existingMatches.where((m) => m.roundNumber == currentMaxRound).toList();
         final anyUnplayed = currentRoundMatches.any((m) => !m.isPlayed);
@@ -665,6 +805,16 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       );
     }
 
+    // Make sure user images exist for any match ids (post-frame).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ids = <String>[
+        for (final m in matches) m.homeTeamId,
+        for (final m in matches) m.awayTeamId,
+      ];
+      // ignore: discarded_futures
+      _ensureUserImagesForTeamIds(ids);
+    });
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: matches.length,
@@ -680,6 +830,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final homeName = _teamNames[match.homeTeamId] ?? l10n.tr('fixtures_tbd');
     final awayName = _teamNames[match.awayTeamId] ?? l10n.tr('fixtures_tbd');
     final groupLabel = match.groupId?.trim().isNotEmpty == true ? match.groupId!.trim() : null;
+
+    final homeUrl = (_teamImageUrls[match.homeTeamId] ?? '').trim();
+    final awayUrl = (_teamImageUrls[match.awayTeamId] ?? '').trim();
 
     final isFinished = match.status == MatchStatus.completed || match.status == MatchStatus.played;
     final hasScore = match.homeScore != null && match.awayScore != null;
@@ -711,14 +864,23 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      homeName,
-                      textAlign: TextAlign.end,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: cs.onSurface,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            homeName,
+                            textAlign: TextAlign.end,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _TeamThumb(url: homeUrl),
+                      ],
                     ),
                   ),
                   SizedBox(
@@ -743,14 +905,22 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     ),
                   ),
                   Expanded(
-                    child: Text(
-                      awayName,
-                      textAlign: TextAlign.start,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: cs.onSurface,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      children: [
+                        _TeamThumb(url: awayUrl),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            awayName,
+                            textAlign: TextAlign.start,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -758,6 +928,87 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _TeamThumb extends StatelessWidget {
+  const _TeamThumb({
+    required this.url,
+  });
+
+  final String url;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
+
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                d,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: 64,
+                cacheHeight: 64,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55));
+                },
+              )
+            : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
       ),
     );
   }

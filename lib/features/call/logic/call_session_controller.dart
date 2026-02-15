@@ -26,6 +26,7 @@ class CallSessionState {
   final bool micEnabled;
   final bool micPermissionGranted;
   final String error;
+  final bool reconnecting;
 
   final String? incomingQuickText;
   final String? incomingQuickFrom;
@@ -38,6 +39,7 @@ class CallSessionState {
     required this.micEnabled,
     required this.micPermissionGranted,
     required this.error,
+    required this.reconnecting,
     required this.incomingQuickText,
     required this.incomingQuickFrom,
     required this.incomingQuickAtMs,
@@ -50,6 +52,7 @@ class CallSessionState {
         micEnabled: false,
         micPermissionGranted: false,
         error: '',
+        reconnecting: false,
         incomingQuickText: null,
         incomingQuickFrom: null,
         incomingQuickAtMs: 0,
@@ -62,6 +65,7 @@ class CallSessionState {
     bool? micEnabled,
     bool? micPermissionGranted,
     String? error,
+    bool? reconnecting,
     String? incomingQuickText,
     String? incomingQuickFrom,
     int? incomingQuickAtMs,
@@ -73,6 +77,7 @@ class CallSessionState {
       micEnabled: micEnabled ?? this.micEnabled,
       micPermissionGranted: micPermissionGranted ?? this.micPermissionGranted,
       error: error ?? this.error,
+      reconnecting: reconnecting ?? this.reconnecting,
       incomingQuickText: incomingQuickText,
       incomingQuickFrom: incomingQuickFrom,
       incomingQuickAtMs: incomingQuickAtMs ?? this.incomingQuickAtMs,
@@ -85,10 +90,37 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
   Room? _room;
   EventsListener<RoomEvent>? _listener;
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+  bool _isHost = false;
+
+  static const int _maxReconnectAttempts = 5;
+  static const Duration _reconnectBaseDelay = Duration(seconds: 3);
 
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   static final RegExp _codeRe = RegExp(r'^\d{8}$');
+
+  static String _friendlyError(Object error) {
+    if (error is UserFriendlyException) return error.message;
+    final msg = error.toString().toLowerCase();
+    if (msg.contains('socket') || msg.contains('network') || msg.contains('unreachable')) {
+      return 'Network issue. Please check your connection.';
+    }
+    if (msg.contains('timeout')) {
+      return 'Connection timed out. Please try again.';
+    }
+    if (msg.contains('permission')) {
+      return 'Permission denied. Please check app permissions.';
+    }
+    if (msg.contains('token') || msg.contains('auth')) {
+      return 'Authentication failed. Please sign in again.';
+    }
+    if (msg.contains('room') || msg.contains('connect')) {
+      return 'Could not connect to voice room. Please try again.';
+    }
+    return 'Something went wrong. Please try again.';
+  }
 
   Future<String> createAndJoin() async {
     final code = _generate8DigitCode();
@@ -101,28 +133,44 @@ class CallSessionController extends StateNotifier<CallSessionState> {
     final callId = code.trim();
 
     if (uid.isEmpty) {
-      state = state.copyWith(error: 'Please sign in first');
+      state = state.copyWith(error: 'Please sign in to use voice rooms.');
       return;
     }
 
     if (!_codeRe.hasMatch(callId)) {
-      state = state.copyWith(error: 'Room code must be exactly 8 digits');
+      state = state.copyWith(error: 'Room code must be exactly 8 digits.');
       return;
     }
 
     if (state.joining) return;
 
+    _isHost = isHost;
+    _reconnectAttempts = 0;
+    _reconnectTimer?.cancel();
+
     state = state.copyWith(
       joining: true,
       error: '',
+      reconnecting: false,
       incomingQuickText: null,
       incomingQuickFrom: null,
       incomingQuickAtMs: 0,
       callId: callId,
     );
 
+    await _connectInternal(callId: callId, uid: uid, isHost: isHost, isReconnect: false);
+  }
+
+  Future<void> _connectInternal({
+    required String callId,
+    required String uid,
+    required bool isHost,
+    required bool isReconnect,
+  }) async {
     try {
-      await _disconnectInternal(clearCode: false);
+      if (!isReconnect) {
+        await _disconnectInternal(clearCode: false);
+      }
 
       var micGranted = false;
       try {
@@ -152,7 +200,8 @@ class CallSessionController extends StateNotifier<CallSessionState> {
       _listener = room.createListener();
 
       _listener!.on<RoomConnectedEvent>((_) {
-        state = state.copyWith(connected: true);
+        _reconnectAttempts = 0;
+        state = state.copyWith(connected: true, reconnecting: false, error: '');
       });
 
       _listener!.on<RoomDisconnectedEvent>((_) {
@@ -162,6 +211,7 @@ class CallSessionController extends StateNotifier<CallSessionState> {
         );
         unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
         unawaited(OverlayPlatform.stopOverlayVoiceForegroundService());
+        _scheduleReconnect();
       });
 
       _listener!.on<RoomEvent>((event) {
@@ -224,14 +274,59 @@ class CallSessionController extends StateNotifier<CallSessionState> {
         ),
       );
 
-      state = state.copyWith(joining: false, connected: true);
+      state = state.copyWith(joining: false, connected: true, reconnecting: false, error: '');
     } catch (e) {
-      state = state.copyWith(joining: false, connected: false, error: e.toString());
+      final friendly = _friendlyError(e is Object ? e : Exception('unknown'));
+      if (isReconnect) {
+        state = state.copyWith(reconnecting: true, error: 'Reconnecting... $friendly');
+        _scheduleReconnect();
+      } else {
+        state = state.copyWith(joining: false, connected: false, reconnecting: false, error: friendly);
+      }
       unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
     }
   }
 
+  void _scheduleReconnect() {
+    if (!mounted) return;
+    if (state.callId.isEmpty) return;
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      state = state.copyWith(
+        reconnecting: false,
+        error: 'Could not reconnect. Please rejoin manually.',
+      );
+      return;
+    }
+
+    _reconnectTimer?.cancel();
+    _reconnectAttempts++;
+
+    final delay = _reconnectBaseDelay * _reconnectAttempts;
+
+    state = state.copyWith(
+      reconnecting: true,
+      error: 'Connection lost. Reconnecting (attempt $_reconnectAttempts/$_maxReconnectAttempts)...',
+    );
+
+    _reconnectTimer = Timer(delay, () {
+      if (!mounted) return;
+      if (state.callId.isEmpty) return;
+
+      final uid = _uid.trim();
+      if (uid.isEmpty) return;
+
+      _connectInternal(
+        callId: state.callId,
+        uid: uid,
+        isHost: _isHost,
+        isReconnect: true,
+      );
+    });
+  }
+
   Future<void> leave() async {
+    _reconnectTimer?.cancel();
+    _reconnectAttempts = 0;
     await _disconnectInternal(clearCode: true);
     state = CallSessionState.initial();
     unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
@@ -326,6 +421,12 @@ class CallSessionController extends StateNotifier<CallSessionState> {
       incomingQuickFrom: null,
       incomingQuickAtMs: 0,
     );
+  }
+
+  @override
+  void dispose() {
+    _reconnectTimer?.cancel();
+    super.dispose();
   }
 
   static Map<String, dynamic>? _decodePayload(dynamic payload) {

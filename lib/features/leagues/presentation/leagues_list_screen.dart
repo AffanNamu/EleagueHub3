@@ -1122,6 +1122,54 @@ class _LeagueImageThumb extends StatelessWidget {
     }
   }
 
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int? width,
+    int? height,
+  }) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+    if (u.startsWith('data:image')) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = <String>[
+      'f_auto',
+      'q_auto',
+      if (width != null && width > 0) 'w_$width',
+      if (height != null && height > 0) 'h_$height',
+      'c_fill',
+      'g_auto',
+    ].join(',');
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -1133,10 +1181,19 @@ class _LeagueImageThumb extends StatelessWidget {
 
     if (bytes != null) {
       content = Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
-    } else if (url.isNotEmpty) {
+    } else if (url.isNotEmpty && _looksLikeHttpUrl(url)) {
+      // 44dp circle -> request a small but retina-friendly asset.
+      const cw = 96;
+      const ch = 96;
+      final displayUrl = _cloudinaryOptimizedUrl(url, width: cw, height: ch);
+
       content = Image.network(
-        url,
+        displayUrl,
         fit: BoxFit.cover,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+        cacheWidth: cw,
+        cacheHeight: ch,
         errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.65)),
         loadingBuilder: (context, child, event) {
           if (event == null) return child;

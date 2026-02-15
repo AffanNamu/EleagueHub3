@@ -35,7 +35,6 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   bool _loading = true;
   String? _loadError;
 
-  // Lock group draw once fixtures exist (integrity protection).
   bool _drawLocked = false;
 
   static const int _groupSize = 4;

@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -26,6 +29,12 @@ class LeagueStandingsScreen extends ConsumerStatefulWidget {
 class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
   bool _refreshing = false;
 
+  // Best-effort team images map (teamId -> url). Empty => placeholder.
+  Map<String, String> _teamImageUrls = {};
+
+  // Prevent repeated user lookups on rebuilds.
+  final Set<String> _requestedUserImageIds = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +44,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
       // ignore: discarded_futures
       _refresh();
     });
+
+    // Best-effort prefetch for fast avatar strip.
+    unawaited(_loadTeamImagesBestEffort());
   }
 
   String _displayGroupName(String groupId) {
@@ -61,6 +73,129 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
     }
   }
 
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
+  String _bestEffortUrlFromMap(Map<String, dynamic> data) {
+    const keys = <String>[
+      'teamImageUrl',
+      'imageUrl',
+      'logoUrl',
+      'photoUrl',
+      'profileImageUrl',
+      'avatarUrl',
+    ];
+    for (final k in keys) {
+      final v = data[k];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    }
+    return '';
+  }
+
+  String _bestUserImageUrlFromUserDoc(Map<String, dynamic> data) {
+    final teamImageUrl = (data['teamImageUrl'] as String?)?.trim() ?? '';
+    if (teamImageUrl.isNotEmpty) return teamImageUrl;
+
+    final profileImageUrl = (data['profileImageUrl'] as String?)?.trim() ?? '';
+    if (profileImageUrl.isNotEmpty) return profileImageUrl;
+
+    final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+    if (photoUrl.isNotEmpty) return photoUrl;
+
+    return '';
+  }
+
+  Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
+    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    if (clean.isEmpty) return const <String, String>{};
+
+    final out = <String, String>{};
+
+    // whereIn limit 10
+    const chunkSize = 10;
+    for (var i = 0; i < clean.length; i += chunkSize) {
+      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      for (final d in snap.docs) {
+        final url = _bestUserImageUrlFromUserDoc(d.data());
+        if (url.trim().isNotEmpty) out[d.id] = url.trim();
+      }
+    }
+
+    return out;
+  }
+
+  /// Loads image URLs from:
+  /// 1) leagues/{leagueId}/teams (if any teamImageUrl exists)
+  /// 2) users/{uid} for UID-based teams (PRIMARY source of truth, overrides)
+  Future<void> _loadTeamImagesBestEffort() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('leagues')
+          .doc(widget.id)
+          .collection('teams')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 8));
+
+      final out = <String, String>{};
+      final teamIds = <String>[];
+
+      for (final d in snap.docs) {
+        final data = d.data();
+        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? (data['id'] as String).trim() : d.id;
+        teamIds.add(id);
+
+        final url = _bestEffortUrlFromMap(data);
+        if (id.trim().isNotEmpty && url.isNotEmpty) out[id] = url;
+      }
+
+      // Override with user profile images for UID-based teams
+      final userImages = await _fetchUserImagesByIds(teamIds);
+      for (final e in userImages.entries) {
+        out[e.key] = e.value;
+      }
+
+      if (!mounted) return;
+      if (out.isEmpty) return;
+
+      setState(() => _teamImageUrls = {..._teamImageUrls, ...out});
+    } catch (_) {
+      // Best-effort only.
+    }
+  }
+
+  Future<void> _ensureUserImagesForTeamIds(List<String> ids) async {
+    final missing = <String>[];
+    for (final id in ids) {
+      final clean = id.trim();
+      if (!_looksLikeFirebaseUid(clean)) continue;
+      if (_requestedUserImageIds.contains(clean)) continue;
+      if ((_teamImageUrls[clean] ?? '').trim().isNotEmpty) {
+        _requestedUserImageIds.add(clean);
+        continue;
+      }
+      missing.add(clean);
+      _requestedUserImageIds.add(clean);
+    }
+
+    if (missing.isEmpty) return;
+
+    try {
+      final userImages = await _fetchUserImagesByIds(missing);
+      if (!mounted) return;
+      if (userImages.isEmpty) return;
+
+      setState(() => _teamImageUrls = {..._teamImageUrls, ...userImages});
+    } catch (_) {
+      // Best-effort only.
+    }
+  }
+
   Future<void> _refresh() async {
     if (_refreshing) return;
     setState(() => _refreshing = true);
@@ -69,6 +204,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
     ref.invalidate(leagueProvider(widget.id));
     ref.invalidate(leagueStandingsProvider(widget.id));
     ref.invalidate(leagueGroupedStandingsProvider(widget.id));
+
+    // Best-effort refresh of team avatars too.
+    unawaited(_loadTeamImagesBestEffort());
 
     if (mounted) setState(() => _refreshing = false);
   }
@@ -87,6 +225,102 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
           fontWeight: FontWeight.w600,
         ),
         textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  String _rowTeamId(StandingsRow row) {
+    try {
+      final dyn = row as dynamic;
+      final v = (dyn.teamId as String?) ?? '';
+      if (v.trim().isNotEmpty) return v.trim();
+    } catch (_) {}
+    try {
+      final dyn = row as dynamic;
+      final v = (dyn.id as String?) ?? '';
+      if (v.trim().isNotEmpty) return v.trim();
+    } catch (_) {}
+    return '';
+  }
+
+  String _rowTeamName(StandingsRow row) {
+    try {
+      final dyn = row as dynamic;
+      final v = (dyn.teamName as String?) ?? '';
+      if (v.trim().isNotEmpty) return v.trim();
+    } catch (_) {}
+    try {
+      final dyn = row as dynamic;
+      final v = (dyn.name as String?) ?? '';
+      if (v.trim().isNotEmpty) return v.trim();
+    } catch (_) {}
+    return '';
+  }
+
+  Widget _avatarStrip(List<StandingsRow> rows) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    final cs = Theme.of(context).colorScheme;
+
+    final take = rows.length > 12 ? rows.take(12).toList() : rows.toList();
+    final ids = <String>[];
+    final names = <String>[];
+
+    for (final r in take) {
+      ids.add(_rowTeamId(r));
+      names.add(_rowTeamName(r));
+    }
+
+    if (ids.every((e) => e.trim().isEmpty)) return const SizedBox.shrink();
+
+    // Ensure user images are fetched for these ids (post-frame to avoid setState in build).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ignore: discarded_futures
+      _ensureUserImagesForTeamIds(ids);
+    });
+
+    return Container(
+      height: 28,
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: ids.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final id = ids[i].trim();
+          final name = names[i].trim();
+          final url = (id.isEmpty ? '' : (_teamImageUrls[id] ?? '')).trim();
+
+          return Tooltip(
+            message: name.isEmpty ? id : name,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: cs.onSurface.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _TeamThumb(url: url),
+                  const SizedBox(width: 6),
+                  Text(
+                    (name.isNotEmpty ? name : id).toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: cs.onSurface.withOpacity(0.70),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -219,6 +453,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                                 ),
                                               ),
                                               const SizedBox(height: 8),
+                                              _avatarStrip(rows),
                                               StandingsTable(rows: rows),
                                             ],
                                           ),
@@ -322,6 +557,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                               ),
                                               const SizedBox(height: 8),
                                             ],
+                                            _avatarStrip(rows),
                                             Expanded(
                                               child: StandingsTable(
                                                 rows: rows,
@@ -367,7 +603,13 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                         ),
                                       );
                                     }
-                                    return StandingsTable(rows: rows);
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        _avatarStrip(rows),
+                                        Expanded(child: StandingsTable(rows: rows)),
+                                      ],
+                                    );
                                   },
                                 );
                             }
@@ -453,4 +695,85 @@ Widget _swissLegendDynamic({
       Text(l10n.tr('standings_swiss_legend_13_18_eliminated'), style: labelStyle),
     ],
   );
+}
+
+class _TeamThumb extends StatelessWidget {
+  const _TeamThumb({
+    required this.url,
+  });
+
+  final String url;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
+
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                d,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: 64,
+                cacheHeight: 64,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.emoji_events_outlined, size: 12, color: cs.onSurface.withOpacity(0.55)),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(Icons.emoji_events_outlined, size: 12, color: cs.onSurface.withOpacity(0.55));
+                },
+              )
+            : Icon(Icons.emoji_events_outlined, size: 12, color: cs.onSurface.withOpacity(0.55)),
+      ),
+    );
+  }
 }

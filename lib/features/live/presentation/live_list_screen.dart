@@ -187,7 +187,6 @@ class _LiveListScreenState extends State<LiveListScreen> {
 
                                   if (!mounted) return;
 
-                                  // Port is legacy for older LAN flows; LiveViewScreen ignores it online.
                                   context.push(
                                     '/live/view/$matchId',
                                     extra: {

@@ -34,10 +34,19 @@ class UserFriendlyException implements Exception {
 /// Backward-compatible repository name kept to avoid widespread refactors.
 ///
 /// ONLINE-ONLY MIGRATION:
-/// - No SharedPreferences storage for leagues/teams/matches.
-/// - No local queue.
+/// - No SharedPreferences storage for leagues/teams/matches/memberships/etc.
 /// - All reads/writes go directly to Firestore.
 /// - Errors are thrown as user-friendly messages (no raw Firebase errors).
+///
+/// TEAM IMAGE POLICY (per your requirement "profile image == team image everywhere"):
+/// - If a Team.id looks like a Firebase UID, we treat it as a "user team".
+/// - We then resolve the team image from users/{uid} (teamImageUrl/profileImageUrl/photoUrl).
+/// - This ensures when the user updates their profile image, it appears in fixtures/standings/admin/knockout
+///   without needing to update leagues/{leagueId}/teams/{uid}.
+///
+/// NOTE:
+/// - If you want custom per-league team logos, flip priority back to Team.teamImageUrl first.
+/// - Right now, USER profile image is the primary source of truth for UID-based teams.
 class LocalLeaguesRepository {
   LocalLeaguesRepository(this._prefs);
 
@@ -143,6 +152,50 @@ class LocalLeaguesRepository {
     return League.fromRemoteMap(map);
   }
 
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
+  String _bestUserImageUrlFromUserDoc(Map<String, dynamic> data) {
+    final teamImageUrl = (data['teamImageUrl'] as String?)?.trim() ?? '';
+    if (teamImageUrl.isNotEmpty) return teamImageUrl;
+
+    final profileImageUrl = (data['profileImageUrl'] as String?)?.trim() ?? '';
+    if (profileImageUrl.isNotEmpty) return profileImageUrl;
+
+    final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+    if (photoUrl.isNotEmpty) return photoUrl;
+
+    return '';
+  }
+
+  Future<Map<String, String>> _loadUserImageUrlsByUids(List<String> uids) async {
+    final ids = uids.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(growable: false);
+    if (ids.isEmpty) return const <String, String>{};
+
+    final out = <String, String>{};
+
+    // whereIn limit is 10
+    const chunkSize = 10;
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final chunk = ids.sublist(i, (i + chunkSize > ids.length) ? ids.length : i + chunkSize);
+
+      final snap = await _firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+
+      for (final d in snap.docs) {
+        final data = d.data();
+        final url = _bestUserImageUrlFromUserDoc(data);
+        if (url.trim().isNotEmpty) {
+          out[d.id] = url.trim();
+        }
+      }
+    }
+
+    return out;
+  }
+
   // -----------------------
   // Leagues
   // -----------------------
@@ -196,9 +249,7 @@ class LocalLeaguesRepository {
       await _requireOnline();
 
       final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
-      final fixedCode = league.code.trim().isNotEmpty
-          ? league.code.trim().toUpperCase()
-          : await _generateUniqueJoinCode();
+      final fixedCode = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
 
       final fixed = league.copyWith(
         id: leagueId,
@@ -237,7 +288,6 @@ class LocalLeaguesRepository {
         SetOptions(merge: true),
       );
 
-      // Ensure organizer membership exists at memberships/{uid}.
       final membership = Membership(
         id: authUid, // IMPORTANT: doc id aligns with uid for rules `exists()`
         leagueId: leagueId,
@@ -296,12 +346,6 @@ class LocalLeaguesRepository {
   // CREATE (online-only)
   // ------------------------------------------------------
 
-  /// Backward-compatible method name kept.
-  ///
-  /// ONLINE-ONLY:
-  /// - No local persistence
-  /// - Writes league + organizer membership directly to Firestore
-  /// - Membership doc id is request.auth.uid (for rules that use exists()).
   Future<League> createLeagueLocally({
     required League league,
     required String organizerUserId,
@@ -312,9 +356,7 @@ class LocalLeaguesRepository {
 
       final now = DateTime.now().millisecondsSinceEpoch;
       final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
-      final code = league.code.trim().isNotEmpty
-          ? league.code.trim().toUpperCase()
-          : await _generateUniqueJoinCode();
+      final code = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
 
       final stored = league.copyWith(
         id: leagueId,
@@ -372,8 +414,8 @@ class LocalLeaguesRepository {
 
   Future<League> joinLeagueLocallyByCode({
     required String joinCode,
-    required String userId, // kept for API compatibility; auth UID is authoritative
-    required League Function(String generatedLeagueId) placeholderBuilder, // ignored online-only
+    required String userId,
+    required League Function(String generatedLeagueId) placeholderBuilder,
     LeagueJoinMode mode = LeagueJoinMode.participant,
   }) async {
     try {
@@ -401,15 +443,11 @@ class LocalLeaguesRepository {
 
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
 
-      // Always add as a league member (viewer access).
       await leagueRef
           .set(
             {
               'memberIds': FieldValue.arrayUnion([authUid]),
               'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-
-              // Defensive normalization (helps avoid rules type errors if old data mixed types).
-              // Do not overwrite if missing; this write is merge:true anyway.
             },
             SetOptions(merge: true),
           )
@@ -418,10 +456,7 @@ class LocalLeaguesRepository {
       if (mode == LeagueJoinMode.participant) {
         final membershipRef = leagueRef.collection('memberships').doc(authUid);
 
-        // Avoid accidentally downgrading an organizer.
-        final existing = await membershipRef
-            .get(const GetOptions(source: Source.server))
-            .timeout(const Duration(seconds: 12));
+        final existing = await membershipRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
 
         final existingRoleIdx = (existing.data()?['role'] as num?)?.toInt();
         final existingRole = (existingRoleIdx != null && existingRoleIdx >= 0 && existingRoleIdx < LeagueRole.values.length)
@@ -432,7 +467,7 @@ class LocalLeaguesRepository {
           final now = DateTime.now().millisecondsSinceEpoch;
 
           final membership = Membership(
-            id: authUid, // IMPORTANT: doc id aligns with uid
+            id: authUid,
             leagueId: leagueId,
             userId: authUid,
             teamId: null,
@@ -441,16 +476,11 @@ class LocalLeaguesRepository {
             version: 1,
           );
 
-          await membershipRef
-              .set(membership.toRemoteMap(), SetOptions(merge: true))
-              .timeout(const Duration(seconds: 20));
+          await membershipRef.set(membership.toRemoteMap(), SetOptions(merge: true)).timeout(const Duration(seconds: 20));
         }
       }
 
-      final fresh = await leagueRef
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 20));
-
+      final fresh = await leagueRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
       return _docToLeague(fresh);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
@@ -514,7 +544,7 @@ class LocalLeaguesRepository {
       final uid = userId.trim();
       if (uid.isEmpty) return null;
 
-      // Preferred (new standard): memberships/{uid}
+      // Preferred: memberships/{uid}
       final direct = await _firestore
           .collection('leagues')
           .doc(leagueId)
@@ -534,7 +564,7 @@ class LocalLeaguesRepository {
         return Membership.fromRemoteMap(map);
       }
 
-      // Backward compat: older docs may have random IDs; query by userId.
+      // Backward compat: query by userId.
       final snap = await _firestore
           .collection('leagues')
           .doc(leagueId)
@@ -574,16 +604,10 @@ class LocalLeaguesRepository {
         throw const UserFriendlyException('Please select a valid user.');
       }
 
-      final membershipRef = _firestore
-          .collection('leagues')
-          .doc(leagueId)
-          .collection('memberships')
-          .doc(uid);
+      final membershipRef = _firestore.collection('leagues').doc(leagueId).collection('memberships').doc(uid);
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      final existing = await membershipRef
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 12));
+      final existing = await membershipRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
 
       if (!existing.exists) {
         final membership = Membership(
@@ -596,10 +620,7 @@ class LocalLeaguesRepository {
           version: 1,
         );
 
-        await membershipRef
-            .set(membership.toRemoteMap(), SetOptions(merge: true))
-            .timeout(const Duration(seconds: 20));
-
+        await membershipRef.set(membership.toRemoteMap(), SetOptions(merge: true)).timeout(const Duration(seconds: 20));
         return;
       }
 
@@ -625,6 +646,10 @@ class LocalLeaguesRepository {
   // Teams
   // ------------------------------------------------------
 
+  /// Loads teams from leagues/{leagueId}/teams and hydrates teamImageUrl from users/{uid}
+  /// when Team.id looks like a Firebase UID.
+  ///
+  /// This ensures profile image == team image across the app.
   Future<List<Team>> getTeams(String leagueId) async {
     try {
       _requireAuthUid();
@@ -637,12 +662,34 @@ class LocalLeaguesRepository {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      return snap.docs.map((d) {
+      final baseTeams = snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
         map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
         map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
         return Team.fromRemoteMap(map);
       }).toList(growable: false);
+
+      // Hydrate UID-based teams with user profile image.
+      final uidTeamIds = baseTeams.map((t) => t.id.trim()).where((id) => _looksLikeFirebaseUid(id)).toList(growable: false);
+
+      if (uidTeamIds.isEmpty) return baseTeams;
+
+      final userImages = await _loadUserImageUrlsByUids(uidTeamIds);
+
+      if (userImages.isEmpty) return baseTeams;
+
+      // IMPORTANT: user profile image is PRIMARY. It overwrites teamImageUrl for UID teams.
+      final out = baseTeams
+          .map((t) {
+            final override = userImages[t.id.trim()];
+            if (override != null && override.trim().isNotEmpty) {
+              return t.copyWith(teamImageUrl: override.trim());
+            }
+            return t;
+          })
+          .toList(growable: false);
+
+      return out;
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -729,9 +776,6 @@ class LocalLeaguesRepository {
         for (final m in chunk) {
           final id = m.id.trim().isEmpty ? _uuid.v4() : m.id.trim();
 
-          // IMPORTANT:
-          // FixtureMatch.copyWith in your codebase does NOT reliably expose `id`.
-          // So we write JSON then override identifiers explicitly to avoid build breaks.
           final data = <String, dynamic>{
             ...m.toJson(),
             'id': id,

@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -42,6 +45,12 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   bool _isGenerating = false;
   final Set<String> _savingMatchIds = <String>{};
+
+  // teamId -> imageUrl (PRIMARY: users/{uid} profile image for UID-based teams)
+  Map<String, String> _teamImageUrls = {};
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final Set<String> _requestedUserImageIds = <String>{};
 
   Color _baseToastBg(ThemeData theme) {
     return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
@@ -95,6 +104,152 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     _loadData();
   }
 
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
+  String _bestUserImageUrlFromUserDoc(Map<String, dynamic> data) {
+    final teamImageUrl = (data['teamImageUrl'] as String?)?.trim() ?? '';
+    if (teamImageUrl.isNotEmpty) return teamImageUrl;
+
+    final profileImageUrl = (data['profileImageUrl'] as String?)?.trim() ?? '';
+    if (profileImageUrl.isNotEmpty) return profileImageUrl;
+
+    final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+    if (photoUrl.isNotEmpty) return photoUrl;
+
+    return '';
+  }
+
+  Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
+    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    if (clean.isEmpty) return const <String, String>{};
+
+    final out = <String, String>{};
+
+    const chunkSize = 10;
+    for (var i = 0; i < clean.length; i += chunkSize) {
+      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+
+      final snap = await _firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      for (final d in snap.docs) {
+        final url = _bestUserImageUrlFromUserDoc(d.data());
+        if (url.trim().isNotEmpty) out[d.id] = url.trim();
+      }
+    }
+
+    return out;
+  }
+
+  Future<void> _ensureUserImagesForTeamIds(List<String> ids) async {
+    final missing = <String>[];
+    for (final id in ids) {
+      final clean = id.trim();
+      if (!_looksLikeFirebaseUid(clean)) continue;
+      if (_requestedUserImageIds.contains(clean)) continue;
+      _requestedUserImageIds.add(clean);
+
+      if ((_teamImageUrls[clean] ?? '').trim().isNotEmpty) continue;
+      missing.add(clean);
+    }
+
+    if (missing.isEmpty) return;
+
+    try {
+      final userImages = await _fetchUserImagesByIds(missing);
+      if (!mounted) return;
+      if (userImages.isEmpty) return;
+
+      setState(() {
+        // Requirement: user profile image is authoritative; overwrite is OK.
+        _teamImageUrls = {..._teamImageUrls, ...userImages};
+      });
+    } catch (_) {
+      // best-effort
+    }
+  }
+
+  Map<String, String> _mergePreferExisting(Map<String, String> base, Map<String, String> incoming) {
+    if (incoming.isEmpty) return base;
+    final out = <String, String>{...base};
+    incoming.forEach((k, v) {
+      final key = k.trim();
+      final val = v.trim();
+      if (key.isEmpty || val.isEmpty) return;
+
+      if ((out[key] ?? '').trim().isNotEmpty) return; // keep existing
+      out[key] = val;
+    });
+    return out;
+  }
+
+  String _bestEffortUrlFromTeam(Team t) => t.teamImageUrl.trim();
+
+  String _bestEffortUrlFromTeamDocMap(Map<String, dynamic> data) {
+    final teamImageUrl = (data['teamImageUrl'] as String?)?.trim() ?? '';
+    if (teamImageUrl.isNotEmpty) return teamImageUrl;
+
+    final logoUrl = (data['logoUrl'] as String?)?.trim() ?? '';
+    if (logoUrl.isNotEmpty) return logoUrl;
+
+    final imageUrl = (data['imageUrl'] as String?)?.trim() ?? '';
+    if (imageUrl.isNotEmpty) return imageUrl;
+
+    return '';
+  }
+
+  Future<void> _refreshTeamImagesBestEffort({
+    required List<Team> teams,
+  }) async {
+    // PRIMARY: from Team objects (already hydrated by LocalLeaguesRepository.getTeams()).
+    final local = <String, String>{};
+    for (final t in teams) {
+      final url = _bestEffortUrlFromTeam(t);
+      if (url.isNotEmpty) local[t.id] = url;
+    }
+
+    if (local.isNotEmpty && mounted) {
+      setState(() {
+        // Primary wins; overwrite is OK (user image authoritative).
+        _teamImageUrls = {..._teamImageUrls, ...local};
+      });
+    }
+
+    // SECONDARY: Firestore teams collection (fill missing only; don't override)
+    try {
+      final snap = await _firestore
+          .collection('leagues')
+          .doc(widget.leagueId)
+          .collection('teams')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 6));
+
+      final remote = <String, String>{};
+      for (final d in snap.docs) {
+        final data = d.data();
+        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? (data['id'] as String).trim() : d.id;
+        final url = _bestEffortUrlFromTeamDocMap(data);
+        if (id.trim().isNotEmpty && url.isNotEmpty) remote[id] = url;
+      }
+
+      if (!mounted) return;
+      if (remote.isEmpty) return;
+
+      setState(() {
+        _teamImageUrls = _mergePreferExisting(_teamImageUrls, remote);
+      });
+    } catch (_) {
+      // Best-effort only.
+    }
+
+    // Ensure user images exist for any UID-based team IDs (authoritative)
+    final ids = teams.map((t) => t.id).toList();
+    unawaited(_ensureUserImagesForTeamIds(ids));
+  }
+
   Future<void> _loadData() async {
     if (!mounted) return;
     setState(() {
@@ -121,6 +276,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
           _teams = const [];
           _matches = const [];
           _teamNames = const {};
+          _teamImageUrls = const {};
           _format = LeagueFormat.classic;
           _groups = const [];
           _selectedGroup = null;
@@ -184,6 +340,13 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         selectedRound = sorted.first;
       }
 
+      // Build primary image map from hydrated Team objects
+      final primaryImages = <String, String>{};
+      for (final t in teams) {
+        final url = t.teamImageUrl.trim();
+        if (url.isNotEmpty) primaryImages[t.id] = url;
+      }
+
       if (!mounted) return;
       setState(() {
         _league = league;
@@ -193,9 +356,19 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         _selectedGroup = selectedGroup;
         _matches = matches;
         _teamNames = {for (final t in teams) t.id: t.name};
+        _teamImageUrls = primaryImages;
         _selectedRound = selectedRound;
         _isLoading = false;
       });
+
+      unawaited(_refreshTeamImagesBestEffort(teams: teams));
+
+      // Also ensure user images for match ids (in case a team doc is missing)
+      final matchIds = <String>[
+        for (final m in matches) m.homeTeamId,
+        for (final m in matches) m.awayTeamId,
+      ];
+      unawaited(_ensureUserImagesForTeamIds(matchIds));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -517,6 +690,16 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       visibleMatches = visibleMatches.where((m) => m.roundNumber == _selectedRound).toList();
     }
 
+    // Ensure user images for visible matches (post-frame).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ids = <String>[
+        for (final m in visibleMatches) m.homeTeamId,
+        for (final m in visibleMatches) m.awayTeamId,
+      ];
+      // ignore: discarded_futures
+      _ensureUserImagesForTeamIds(ids);
+    });
+
     final showGenerateClassic = _format == LeagueFormat.classic && !_hasAnyMatches;
     final showGenerateGroup = _format == LeagueFormat.uclGroup && !_hasGroupFixtures;
     final showGenerateSwiss = _format == LeagueFormat.uclSwiss;
@@ -546,7 +729,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                 ),
                 const SizedBox(height: 6),
 
-                // Fixture generation controls (admin-only screen)
                 if (showGenerateClassic || showGenerateGroup || showGenerateSwiss)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -652,11 +834,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                           itemBuilder: (context, index) {
                             final match = visibleMatches[index];
                             final saving = _savingMatchIds.contains(match.id);
+
+                            final homeUrl = (_teamImageUrls[match.homeTeamId] ?? '').trim();
+                            final awayUrl = (_teamImageUrls[match.awayTeamId] ?? '').trim();
+
                             return _ScoreEntryTile(
                               key: ValueKey(match.id),
                               match: match,
                               homeName: _teamNames[match.homeTeamId] ?? l10n.tr('admin_score_home_fallback'),
                               awayName: _teamNames[match.awayTeamId] ?? l10n.tr('admin_score_away_fallback'),
+                              homeImageUrl: homeUrl,
+                              awayImageUrl: awayUrl,
                               saving: saving,
                               onSave: (h, a) => _updateScore(match, h, a),
                             );
@@ -823,6 +1011,8 @@ class _ScoreEntryTile extends StatefulWidget {
   final FixtureMatch match;
   final String homeName;
   final String awayName;
+  final String homeImageUrl;
+  final String awayImageUrl;
   final bool saving;
   final Future<void> Function(int, int) onSave;
 
@@ -831,6 +1021,8 @@ class _ScoreEntryTile extends StatefulWidget {
     required this.match,
     required this.homeName,
     required this.awayName,
+    required this.homeImageUrl,
+    required this.awayImageUrl,
     required this.saving,
     required this.onSave,
   });
@@ -924,12 +1116,20 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    widget.homeName,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+                  child: Row(
+                    children: [
+                      _TeamThumb(url: widget.homeImageUrl),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          widget.homeName,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Padding(
@@ -944,13 +1144,22 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                   ),
                 ),
                 Expanded(
-                  child: Text(
-                    widget.awayName,
-                    textAlign: TextAlign.end,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.awayName,
+                          textAlign: TextAlign.end,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _TeamThumb(url: widget.awayImageUrl),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1095,6 +1304,94 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
           size: 18,
           color: enabled ? primary : onSurface.withOpacity(0.30),
         ),
+      ),
+    );
+  }
+}
+
+class _TeamThumb extends StatelessWidget {
+  const _TeamThumb({
+    required this.url,
+  });
+
+  final String url;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
+
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        shape: BoxShape.circle,
+        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+      ),
+      child: ClipOval(
+        child: has
+            ? Image.network(
+                d,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                cacheWidth: 64,
+                cacheHeight: 64,
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.emoji_events_outlined,
+                  size: 14,
+                  color: cs.onSurface.withOpacity(0.55),
+                ),
+                loadingBuilder: (context, child, event) {
+                  if (event == null) return child;
+                  return Icon(
+                    Icons.emoji_events_outlined,
+                    size: 14,
+                    color: cs.onSurface.withOpacity(0.55),
+                  );
+                },
+              )
+            : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
       ),
     );
   }

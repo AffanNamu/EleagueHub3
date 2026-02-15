@@ -37,8 +37,8 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
   List<Membership> _memberships = [];
   Map<String, Team> _teamsById = {};
 
-  /// userId -> teamName (from users/{userId})
   Map<String, String> _teamNameByUserId = {};
+  Map<String, String> _avatarUrlByUserId = {};
 
   @override
   void initState() {
@@ -55,6 +55,83 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
     );
+  }
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  String _cloudinaryOptimizedUrl(String url, {int width = 96, int height = 96}) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  String _bestEffortProfileImageUrlFromProfile(Object? profile) {
+    if (profile == null) return '';
+    String url = '';
+
+    try {
+      final dyn = profile as dynamic;
+      final v = (dyn.teamImageUrl as String?) ?? '';
+      if (v.trim().isNotEmpty) url = v.trim();
+    } catch (_) {}
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v = (dyn.profileImageUrl as String?) ?? '';
+        if (v.trim().isNotEmpty) url = v.trim();
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v = (dyn.photoUrl as String?) ?? '';
+        if (v.trim().isNotEmpty) url = v.trim();
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v = (dyn.avatarUrl as String?) ?? '';
+        if (v.trim().isNotEmpty) url = v.trim();
+      } catch (_) {}
+    }
+
+    return url.trim();
+  }
+
+  String _avatarUrlForUserId(String userId) {
+    final raw = (_avatarUrlByUserId[userId] ?? '').trim();
+    if (raw.isEmpty) return '';
+    if (_looksLikeHttpUrl(raw)) return _cloudinaryOptimizedUrl(raw, width: 96, height: 96);
+    return raw;
   }
 
   Future<void> _load() async {
@@ -109,17 +186,22 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
 
       final uniqueUserIds = leagueMembers.map((m) => m.userId).where((id) => id.trim().isNotEmpty).toSet().toList();
 
-      final Map<String, String> resolved = {};
+      final Map<String, String> resolvedNames = {};
+      final Map<String, String> resolvedAvatars = {};
+
       await Future.wait(
         uniqueUserIds.map((userId) async {
           try {
             final p = await _profiles.fetchByUserId(userId).timeout(const Duration(seconds: 10));
-            if (p != null && p.teamName.trim().isNotEmpty) {
-              resolved[userId] = p.teamName.trim();
-            }
-          } catch (_) {
-            // Best-effort only.
-          }
+            try {
+              final dyn = p as dynamic;
+              final name = (dyn.teamName as String?)?.trim() ?? '';
+              if (name.isNotEmpty) resolvedNames[userId] = name;
+            } catch (_) {}
+
+            final url = _bestEffortProfileImageUrlFromProfile(p);
+            if (url.trim().isNotEmpty) resolvedAvatars[userId] = url.trim();
+          } catch (_) {}
         }),
       );
 
@@ -127,7 +209,8 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
       setState(() {
         _memberships = leagueMembers;
         _teamsById = {for (final t in teams) t.id: t};
-        _teamNameByUserId = resolved;
+        _teamNameByUserId = resolvedNames;
+        _avatarUrlByUserId = resolvedAvatars;
         _loading = false;
       });
     } catch (e) {
@@ -313,18 +396,16 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
         ? '${l10n.tr('league_participants_role_organizer')} • $assignedLeagueTeamName • ${l10n.tr('league_participants_userid_prefix')}${m.userId}'
         : '$assignedLeagueTeamName • ${l10n.tr('league_participants_userid_prefix')}${m.userId}';
 
+    final avatarUrl = _avatarUrlForUserId(m.userId);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Glass(
         borderRadius: 18,
         child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: isOrganizer ? cs.primary.withOpacity(0.18) : cs.onSurface.withOpacity(0.08),
-            child: Icon(
-              isOrganizer ? Icons.verified_user : Icons.person,
-              color: isOrganizer ? cs.primary : cs.onSurface.withOpacity(0.72),
-              size: 18,
-            ),
+          leading: _UserAvatar(
+            url: avatarUrl,
+            isOrganizer: isOrganizer,
           ),
           title: Text(
             title,
@@ -341,6 +422,66 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
               fontWeight: FontWeight.w600,
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UserAvatar extends StatelessWidget {
+  const _UserAvatar({
+    required this.url,
+    required this.isOrganizer,
+  });
+
+  final String url;
+  final bool isOrganizer;
+
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final raw = url.trim();
+    final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
+
+    return CircleAvatar(
+      backgroundColor: isOrganizer ? cs.primary.withOpacity(0.18) : cs.onSurface.withOpacity(0.08),
+      child: ClipOval(
+        child: SizedBox(
+          width: 36,
+          height: 36,
+          child: has
+              ? Image.network(
+                  raw,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.low,
+                  cacheWidth: 96,
+                  cacheHeight: 96,
+                  errorBuilder: (_, __, ___) => Icon(
+                    isOrganizer ? Icons.verified_user : Icons.person,
+                    color: isOrganizer ? cs.primary : cs.onSurface.withOpacity(0.72),
+                    size: 18,
+                  ),
+                  loadingBuilder: (context, child, event) {
+                    if (event == null) return child;
+                    return Icon(
+                      isOrganizer ? Icons.verified_user : Icons.person,
+                      color: isOrganizer ? cs.primary : cs.onSurface.withOpacity(0.72),
+                      size: 18,
+                    );
+                  },
+                )
+              : Icon(
+                  isOrganizer ? Icons.verified_user : Icons.person,
+                  color: isOrganizer ? cs.primary : cs.onSurface.withOpacity(0.72),
+                  size: 18,
+                ),
         ),
       ),
     );
