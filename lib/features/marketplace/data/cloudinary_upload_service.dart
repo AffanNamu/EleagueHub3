@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:cloudinary_public/cloudinary_public.dart';
 
@@ -28,19 +27,16 @@ class CloudinaryUploadService {
     );
   }
 
-  Future<String> uploadMarketplaceProductImageBytes({
-    required Uint8List bytes,
-    required String filename,
+  Future<String> uploadMarketplaceProductImageFile({
+    required String filePath,
   }) async {
-    if (bytes.isEmpty) {
-      throw StateError('Selected image is empty.');
+    final path = filePath.trim();
+    if (path.isEmpty) {
+      throw StateError('Selected image path is not available.');
     }
 
-    final cleanName = filename.trim().isEmpty ? 'image.jpg' : filename.trim();
-
-    final file = CloudinaryFile.fromBytes(
-      bytes,
-      identifier: cleanName,
+    final file = CloudinaryFile.fromFile(
+      path,
       folder: 'eleaguehub/marketplace_products',
       resourceType: CloudinaryResourceType.Image,
     );
@@ -59,7 +55,7 @@ class CloudinaryUploadService {
     } on TimeoutException {
       throw StateError('Upload timed out. Please try again.');
     } on CloudinaryException catch (e) {
-      final msg = e.message.trim();
+      final msg = (e.message ?? '').trim();
       if (msg.isNotEmpty) {
         throw StateError('Upload failed: $msg');
       }

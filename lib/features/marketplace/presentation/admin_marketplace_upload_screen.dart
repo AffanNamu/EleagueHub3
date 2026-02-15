@@ -22,10 +22,10 @@ class AdminMarketplaceUploadScreen extends StatefulWidget {
 
 class _AdminMarketplaceUploadScreenState
     extends State<AdminMarketplaceUploadScreen> {
-  // IMPORTANT: this MUST be your super admin UID (the same UID allowed by rules).
+  // IMPORTANT: must match your Firestore rules super admin UID.
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
-  // Keep this conservative (Cloudinary unsigned uploads + mobile memory safety).
+  // Conservative limit for mobile memory safety.
   static const int _maxImageBytes = 8 * 1024 * 1024;
 
   final _nameCtrl = TextEditingController();
@@ -81,7 +81,6 @@ class _AdminMarketplaceUploadScreenState
           .requireOnline(timeout: const Duration(seconds: 6));
 
       final picker = ImagePicker();
-
       final xfile = await picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 2048,
@@ -109,10 +108,20 @@ class _AdminMarketplaceUploadScreenState
         return;
       }
 
-      final name = _deriveFilename(xfile);
+      final filePath = xfile.path.trim();
+      if (filePath.isEmpty) {
+        _snack('Selected image path is not available. Please try again.');
+        return;
+      }
+
+      final fileName = _deriveFilename(xfile);
 
       setState(() {
-        _pickedImage = _PickedImage(bytes: bytes, filename: name);
+        _pickedImage = _PickedImage(
+          bytes: bytes,
+          filename: fileName,
+          filePath: filePath,
+        );
       });
     } catch (e) {
       if (!mounted) return;
@@ -168,9 +177,8 @@ class _AdminMarketplaceUploadScreenState
           .requireOnline(timeout: const Duration(seconds: 6));
 
       final cloud = CloudinaryUploadService();
-      final secureUrl = await cloud.uploadMarketplaceProductImageBytes(
-        bytes: picked.bytes,
-        filename: picked.filename,
+      final secureUrl = await cloud.uploadMarketplaceProductImageFile(
+        filePath: picked.filePath,
       );
 
       final repo = MarketplaceRepository();
@@ -319,7 +327,7 @@ class _AdminMarketplaceUploadScreenState
                       decoration: const InputDecoration(
                         labelText: 'Price',
                         prefixIcon: Icon(Icons.payments_outlined),
-                        hintText: 'e.g. ₦12,499 or $19.99',
+                        hintText: 'e.g. ₦12,499 or \\$19.99',
                       ),
                       validator: (v) => _requireText(v, label: 'Price'),
                     ),
@@ -364,7 +372,8 @@ class _AdminMarketplaceUploadScreenState
                         prefixIcon: Icon(Icons.link),
                         hintText: 'https://...',
                       ),
-                      validator: (v) => _requireText(v, label: 'Affiliate link'),
+                      validator: (v) =>
+                          _requireText(v, label: 'Affiliate link'),
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
@@ -377,7 +386,8 @@ class _AdminMarketplaceUploadScreenState
                         labelText: 'Description',
                         prefixIcon: Icon(Icons.notes_outlined),
                       ),
-                      validator: (v) => _requireText(v, label: 'Description'),
+                      validator: (v) =>
+                          _requireText(v, label: 'Description'),
                     ),
                     const SizedBox(height: 14),
                     SizedBox(
@@ -418,10 +428,15 @@ class _AdminMarketplaceUploadScreenState
 }
 
 class _PickedImage {
-  const _PickedImage({required this.bytes, required this.filename});
+  const _PickedImage({
+    required this.bytes,
+    required this.filename,
+    required this.filePath,
+  });
 
   final Uint8List bytes;
   final String filename;
+  final String filePath;
 }
 
 class _ImagePreview extends StatelessWidget {
