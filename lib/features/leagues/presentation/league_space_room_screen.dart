@@ -148,6 +148,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   String _bestEffortProfileImageUrlFromProfile(dynamic profile) {
+    if (profile == null) return '';
     String url = '';
     try {
       final dyn = profile as dynamic;
@@ -168,13 +169,17 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         if (v.trim().isNotEmpty) url = v.trim();
       } catch (_) {}
     }
-    return url;
+    return url.trim();
   }
 
   void _ensureDisplayNameLoaded(String userId) {
     final uid = userId.trim();
     if (uid.isEmpty) return;
-    if (_displayNameByUserId.containsKey(uid) && _avatarUrlByUserId.containsKey(uid)) return;
+
+    final hasName = (_displayNameByUserId[uid] ?? '').trim().isNotEmpty;
+    final hasAvatar = _avatarUrlByUserId.containsKey(uid);
+
+    if (hasName && hasAvatar) return;
     if (_displayNameLoading.contains(uid)) return;
 
     _displayNameLoading.add(uid);
@@ -183,7 +188,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       try {
         final profile = await _profiles.fetchByUserId(uid).timeout(const Duration(seconds: 10));
 
-        final String name;
+        String name = '';
         try {
           final dyn = profile as dynamic;
           name = (dyn.teamName as String?)?.trim() ?? '';
@@ -1304,13 +1309,25 @@ class _UserThumb extends StatelessWidget {
                 filterQuality: FilterQuality.low,
                 cacheWidth: px,
                 cacheHeight: px,
-                errorBuilder: (_, __, ___) => Icon(Icons.person, size: size * 0.70, color: cs.onSurface.withOpacity(0.55)),
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.person,
+                  size: size * 0.70,
+                  color: cs.onSurface.withOpacity(0.55),
+                ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(Icons.person, size: size * 0.70, color: cs.onSurface.withOpacity(0.55));
+                  return Icon(
+                    Icons.person,
+                    size: size * 0.70,
+                    color: cs.onSurface.withOpacity(0.55),
+                  );
                 },
               )
-            : Icon(Icons.person, size: size * 0.70, color: cs.onSurface.withOpacity(0.55)),
+            : Icon(
+                Icons.person,
+                size: size * 0.70,
+                color: cs.onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }
