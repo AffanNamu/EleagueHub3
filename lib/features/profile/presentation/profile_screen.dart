@@ -72,7 +72,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }) {
     final u = url.trim();
     if (u.isEmpty) return u;
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -95,7 +96,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) return u;
@@ -109,14 +111,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Future<String> _uploadToCloudinary({
     required PlatformFile picked,
   }) async {
-    final cloudName = const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
-    final uploadPreset = const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
+    final cloudName =
+        const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
+    final uploadPreset =
+        const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET')
+            .trim();
 
     if (cloudName.isEmpty || uploadPreset.isEmpty) {
       throw StateError('Cloudinary is not configured.');
     }
 
-    final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final uploadUrl =
+        Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
     final ts = DateTime.now().millisecondsSinceEpoch;
 
     http.MultipartFile filePart;
@@ -125,26 +131,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final path = (picked.path ?? '').trim();
 
     if (bytes != null && bytes.isNotEmpty) {
+      // PRIMARY: use in-memory bytes — most reliable on all Android versions
       filePart = http.MultipartFile.fromBytes(
         'file',
         bytes,
         filename: picked.name,
       );
     } else if (path.isNotEmpty) {
+      // FALLBACK: use file path
       filePart = await http.MultipartFile.fromPath(
         'file',
         path,
         filename: picked.name,
       );
-    } else if (picked.readStream != null) {
-      filePart = http.MultipartFile(
-        'file',
-        picked.readStream!,
-        picked.size,
-        filename: picked.name,
-      );
     } else {
-      throw StateError('Selected image file is not accessible.');
+      throw StateError(
+        'Selected image file is not accessible. '
+        'Please try again or choose a different image.',
+      );
     }
 
     final req = http.MultipartRequest('POST', uploadUrl)
@@ -156,15 +160,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final client = http.Client();
     try {
-      final streamed = await client.send(req).timeout(const Duration(seconds: 40));
-      final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 40));
+      final streamed =
+          await client.send(req).timeout(const Duration(seconds: 45));
+      final resp = await http.Response.fromStream(streamed)
+          .timeout(const Duration(seconds: 45));
 
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
         String message = 'Upload failed (HTTP ${resp.statusCode}).';
         try {
           final decoded = jsonDecode(resp.body);
-          final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
-          final msg = (err is Map<String, dynamic>) ? (err['message']?.toString() ?? '') : '';
+          final err =
+              (decoded is Map<String, dynamic>) ? decoded['error'] : null;
+          final msg = (err is Map<String, dynamic>)
+              ? (err['message']?.toString() ?? '')
+              : '';
           if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
         } catch (_) {}
         throw StateError(message);
@@ -200,38 +209,55 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     setState(() => _uploadingAvatar = true);
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 6));
 
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
+      // ──────────────────────────────────────────────────────
+      // PICK IMAGE — CRASH-SAFE CONFIGURATION
+      // withData: true   → loads bytes into memory (safe < 5 MB)
+      // withReadStream: false → avoids Android 10/11 SAF crash
+      // lockParentWindow: false → avoids ANR on some devices
+      // ──────────────────────────────────────────────────────
+      final PlatformFile picked;
 
-        // IMPORTANT:
-        // Some Android 10 devices/ROMs crash with withReadStream=true immediately after selection.
-        // We use withData=true (bytes) to avoid native stream/URI permission issues.
-        withData: true,
-        withReadStream: false,
+      try {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: false,
+          withData: true,
+          withReadStream: false,
+          lockParentWindow: false,
+        );
 
-        lockParentWindow: false,
-      );
+        if (result == null || result.files.isEmpty) return;
+        picked = result.files.first;
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        // User cancelled or picker was dismissed — not an error
+        if (msg.contains('cancel') ||
+            msg.contains('user') ||
+            msg.contains('abort')) {
+          return;
+        }
+        throw StateError(
+          'Could not open image picker. '
+          'Please check app permissions in Settings.',
+        );
+      }
 
-      if (result == null || result.files.isEmpty) return;
-
-      final picked = result.files.first;
-
-      final size = picked.size;
-      if (size > _maxBytes) {
+      // Validate size
+      if (picked.size > _maxBytes) {
         throw StateError('Image too large. Max allowed is 5 MB.');
       }
 
-      final bytes = picked.bytes;
-      if (bytes == null || bytes.isEmpty) {
-        // Fallback: if bytes are missing for any reason, we still try upload using path/readStream in _uploadToCloudinary.
-        // But for Android 10 stability, withData=true should provide bytes here.
+      if (picked.size == 0) {
+        throw StateError('Selected file is empty.');
       }
 
+      // Upload to Cloudinary
       final secureUrl = await _uploadToCloudinary(picked: picked);
 
+      // Save to Firestore
       final now = DateTime.now().millisecondsSinceEpoch;
       await FirebaseFirestore.instance
           .collection('users')
@@ -247,6 +273,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           )
           .timeout(const Duration(seconds: 15));
 
+      // Update Firebase Auth photo URL (non-fatal if fails)
       try {
         await FirebaseAuth.instance.currentUser?.updatePhotoURL(secureUrl);
       } catch (_) {}
@@ -258,7 +285,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       _snack(context, UserFriendlyError.toMessage(e));
     } catch (e) {
       if (!context.mounted) return;
-      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _snack(context,
+          UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     } finally {
       if (!mounted) return;
       setState(() => _uploadingAvatar = false);
@@ -281,8 +309,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         title: const Text('Remove photo?'),
         content: const Text('This will remove your profile/team photo.'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Remove')),
         ],
       ),
     );
@@ -290,7 +322,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (confirm != true) return;
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 6));
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -316,7 +349,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       _snack(context, 'Removed.');
     } catch (e) {
       if (!context.mounted) return;
-      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _snack(context,
+          UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
@@ -332,9 +366,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
     } catch (e) {
-      if (context.mounted) _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      if (context.mounted) {
+        _snack(context,
+            UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      }
       return;
     }
 
@@ -373,7 +411,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 16),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -400,12 +439,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           stream: cfgStream,
                           builder: (context, snap) {
                             if (snap.hasError) {
-                              final msg = UserFriendlyError.toMessage(snap.error as Object);
+                              final msg = UserFriendlyError.toMessage(
+                                  snap.error as Object);
                               return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
                                 child: Text(
                                   msg,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                  style:
+                                      theme.textTheme.bodyMedium?.copyWith(
                                     color: cs.error,
                                     fontWeight: FontWeight.w700,
                                   ),
@@ -414,25 +456,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               );
                             }
 
-                            if (snap.connectionState == ConnectionState.waiting) {
+                            if (snap.connectionState ==
+                                ConnectionState.waiting) {
                               return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                child: Center(child: CircularProgressIndicator(color: cs.primary)),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                child: Center(
+                                    child: CircularProgressIndicator(
+                                        color: cs.primary)),
                               );
                             }
 
                             final cfg = snap.data;
                             if (cfg == null) {
                               return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.stretch,
                                 children: [
                                   Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 8),
                                     child: Text(
                                       'No coupon configuration yet.',
                                       textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: onSurface.withOpacity(0.70),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                        color:
+                                            onSurface.withOpacity(0.70),
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
@@ -442,7 +492,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                     children: [
                                       Expanded(
                                         child: OutlinedButton.icon(
-                                          onPressed: () => Navigator.of(ctx).pop(),
+                                          onPressed: () =>
+                                              Navigator.of(ctx).pop(),
                                           icon: const Icon(Icons.close),
                                           label: const Text('Close'),
                                         ),
@@ -458,14 +509,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                 'leagueId': leagueId,
                                                 'leagueName': leagueName,
                                                 'addonsOnly': true,
-                                                'existingCouponsEnabled': false,
+                                                'existingCouponsEnabled':
+                                                    false,
                                                 'existingCouponCount': 0,
-                                                'existingCouponDiscountPercent': 0,
+                                                'existingCouponDiscountPercent':
+                                                    0,
                                               },
                                             );
                                           },
-                                          icon: const Icon(Icons.add_shopping_cart),
-                                          label: const Text('Buy / enable'),
+                                          icon: const Icon(
+                                              Icons.add_shopping_cart),
+                                          label:
+                                              const Text('Buy / enable'),
                                         ),
                                       ),
                                     ],
@@ -475,33 +530,51 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             }
 
                             final redeemed = cfg.qtyRedeemed;
-                            final usersPay = (100 - cfg.discountPercent).clamp(0, 100);
+                            final usersPay =
+                                (100 - cfg.discountPercent).clamp(0, 100);
 
                             return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
                                 _kv(context, 'Currency', cfg.currency),
-                                _kv(context, 'Unit price', '${money(cfg.unitPrice)} ${cfg.currency}'),
-                                _kv(context, 'Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}'),
+                                _kv(
+                                    context,
+                                    'Unit price',
+                                    '${money(cfg.unitPrice)} ${cfg.currency}'),
+                                _kv(
+                                    context,
+                                    'Effective unit',
+                                    '${money(cfg.effectiveUnit)} ${cfg.currency}'),
                                 _kv(
                                   context,
                                   'Threshold',
-                                  cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}',
+                                  cfg.threshold == null
+                                      ? '—'
+                                      : '${money(cfg.threshold!)} ${cfg.currency}',
                                 ),
-                                _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
+                                _kv(
+                                    context,
+                                    'Threshold discount',
+                                    '${money(cfg.thresholdDiscountPercent)}%'),
                                 const Divider(),
-                                _kv(context, 'Discount', '${cfg.discountPercent}%'),
-                                _kv(context, 'Users pay (at redemption)', '$usersPay%'),
+                                _kv(context, 'Discount',
+                                    '${cfg.discountPercent}%'),
+                                _kv(context, 'Users pay (at redemption)',
+                                    '$usersPay%'),
                                 const Divider(),
-                                _kv(context, 'Purchased (total)', '${cfg.qtyTotal}'),
-                                _kv(context, 'Remaining', '${cfg.qtyRemaining}'),
+                                _kv(context, 'Purchased (total)',
+                                    '${cfg.qtyTotal}'),
+                                _kv(context, 'Remaining',
+                                    '${cfg.qtyRemaining}'),
                                 _kv(context, 'Redeemed', '$redeemed'),
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
                                     Expanded(
                                       child: OutlinedButton.icon(
-                                        onPressed: () => Navigator.of(ctx).pop(),
+                                        onPressed: () =>
+                                            Navigator.of(ctx).pop(),
                                         icon: const Icon(Icons.close),
                                         label: const Text('Close'),
                                       ),
@@ -517,14 +590,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               'leagueId': leagueId,
                                               'leagueName': leagueName,
                                               'addonsOnly': true,
-                                              'existingCouponsEnabled': true,
-                                              'existingCouponCount': cfg.qtyTotal,
-                                              'existingCouponDiscountPercent': cfg.discountPercent,
+                                              'existingCouponsEnabled':
+                                                  true,
+                                              'existingCouponCount':
+                                                  cfg.qtyTotal,
+                                              'existingCouponDiscountPercent':
+                                                  cfg.discountPercent,
                                             },
                                           );
                                         },
-                                        icon: const Icon(Icons.add_shopping_cart),
-                                        label: const Text('Buy more / adjust'),
+                                        icon: const Icon(
+                                            Icons.add_shopping_cart),
+                                        label: const Text(
+                                            'Buy more / adjust'),
                                       ),
                                     ),
                                   ],
@@ -532,96 +610,185 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 const SizedBox(height: 14),
                                 Text(
                                   'Recent redemptions',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                  style: theme.textTheme.bodyMedium
+                                      ?.copyWith(
                                     color: onSurface,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
                                 ConstrainedBox(
-                                  constraints: const BoxConstraints(maxHeight: 320),
-                                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                    stream: redemptionsQuery.snapshots(),
+                                  constraints:
+                                      const BoxConstraints(maxHeight: 320),
+                                  child: StreamBuilder<
+                                      QuerySnapshot<
+                                          Map<String, dynamic>>>(
+                                    stream:
+                                        redemptionsQuery.snapshots(),
                                     builder: (context, rs) {
                                       if (rs.hasError) {
-                                        final msg = UserFriendlyError.toMessage(rs.error as Object);
+                                        final msg =
+                                            UserFriendlyError.toMessage(
+                                                rs.error as Object);
                                         return Center(
                                           child: Text(
                                             msg,
-                                            style: theme.textTheme.bodySmall?.copyWith(
+                                            style: theme
+                                                .textTheme.bodySmall
+                                                ?.copyWith(
                                               color: cs.error,
-                                              fontWeight: FontWeight.w700,
+                                              fontWeight:
+                                                  FontWeight.w700,
                                             ),
-                                            textAlign: TextAlign.center,
+                                            textAlign:
+                                                TextAlign.center,
                                           ),
                                         );
                                       }
                                       if (!rs.hasData) {
-                                        return Center(child: CircularProgressIndicator(color: cs.primary));
+                                        return Center(
+                                            child:
+                                                CircularProgressIndicator(
+                                                    color:
+                                                        cs.primary));
                                       }
                                       final docs = rs.data!.docs;
                                       if (docs.isEmpty) {
                                         return Center(
                                           child: Text(
                                             'No redemptions yet.',
-                                            style: theme.textTheme.bodySmall?.copyWith(
-                                              color: onSurface.withOpacity(0.70),
-                                              fontWeight: FontWeight.w600,
+                                            style: theme
+                                                .textTheme.bodySmall
+                                                ?.copyWith(
+                                              color: onSurface
+                                                  .withOpacity(0.70),
+                                              fontWeight:
+                                                  FontWeight.w600,
                                             ),
                                           ),
                                         );
                                       }
                                       return ListView.separated(
                                         itemCount: docs.length,
-                                        separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
+                                        separatorBuilder: (_, __) =>
+                                            Divider(
+                                                color: onSurface
+                                                    .withOpacity(
+                                                        0.10)),
                                         itemBuilder: (context, i) {
-                                          final d = docs[i].data();
-                                          final userId = (d['userId'] as String?) ?? '';
-                                          final status = (d['status'] as String?) ?? 'pending';
-                                          final paidAtMs = (d['paidAtMs'] as num?)?.toInt() ?? 0;
-                                          final provider = (d['provider'] as String?) ?? '';
-                                          final expected = (d['expectedAmount'] as num?)?.toDouble() ?? 0.0;
-                                          final currency = (d['currency'] as String?) ?? cfg.currency;
+                                          final d =
+                                              docs[i].data();
+                                          final userId =
+                                              (d['userId']
+                                                      as String?) ??
+                                                  '';
+                                          final status =
+                                              (d['status']
+                                                      as String?) ??
+                                                  'pending';
+                                          final paidAtMs =
+                                              (d['paidAtMs']
+                                                          as num?)
+                                                      ?.toInt() ??
+                                                  0;
+                                          final provider =
+                                              (d['provider']
+                                                      as String?) ??
+                                                  '';
+                                          final expected =
+                                              (d['expectedAmount']
+                                                          as num?)
+                                                      ?.toDouble() ??
+                                                  0.0;
+                                          final currency =
+                                              (d['currency']
+                                                      as String?) ??
+                                                  cfg.currency;
 
-                                          final isPaid = status == 'paid';
+                                          final isPaid =
+                                              status == 'paid';
                                           final when = paidAtMs > 0
-                                              ? DateTime.fromMillisecondsSinceEpoch(paidAtMs).toLocal().toString()
+                                              ? DateTime
+                                                      .fromMillisecondsSinceEpoch(
+                                                          paidAtMs)
+                                                  .toLocal()
+                                                  .toString()
                                               : '—';
 
                                           return ListTile(
                                             dense: true,
-                                            contentPadding: EdgeInsets.zero,
+                                            contentPadding:
+                                                EdgeInsets.zero,
                                             leading: Icon(
-                                              isPaid ? Icons.verified : Icons.pending,
-                                              color: isPaid ? const Color(0xFF22C55E) : cs.primary,
+                                              isPaid
+                                                  ? Icons.verified
+                                                  : Icons.pending,
+                                              color: isPaid
+                                                  ? const Color(
+                                                      0xFF22C55E)
+                                                  : cs.primary,
                                               size: 20,
                                             ),
                                             title: Text(
                                               userId.isEmpty
                                                   ? '(unknown user)'
-                                                  : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
-                                              style: theme.textTheme.bodyMedium?.copyWith(
+                                                  : (userId.length >
+                                                          12
+                                                      ? '${userId.substring(0, 12)}…'
+                                                      : userId),
+                                              style: theme
+                                                  .textTheme
+                                                  .bodyMedium
+                                                  ?.copyWith(
                                                 color: onSurface,
-                                                fontWeight: FontWeight.w900,
+                                                fontWeight:
+                                                    FontWeight
+                                                        .w900,
                                               ),
                                             ),
                                             subtitle: Text(
                                               isPaid
                                                   ? 'Paid • $provider • $when'
                                                   : 'Pending • ${money(expected)} $currency',
-                                              style: theme.textTheme.bodySmall?.copyWith(
-                                                color: onSurface.withOpacity(0.65),
-                                                fontWeight: FontWeight.w700,
+                                              style: theme
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                color: onSurface
+                                                    .withOpacity(
+                                                        0.65),
+                                                fontWeight:
+                                                    FontWeight
+                                                        .w700,
                                               ),
                                             ),
                                             trailing: IconButton(
-                                              tooltip: 'Copy user id',
-                                              icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72), size: 18),
-                                              onPressed: () async {
-                                                await Clipboard.setData(ClipboardData(text: userId));
-                                                if (!context.mounted) return;
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(content: Text('Copied: $userId')),
+                                              tooltip:
+                                                  'Copy user id',
+                                              icon: Icon(
+                                                  Icons.copy,
+                                                  color: onSurface
+                                                      .withOpacity(
+                                                          0.72),
+                                                  size: 18),
+                                              onPressed:
+                                                  () async {
+                                                await Clipboard
+                                                    .setData(
+                                                        ClipboardData(
+                                                            text:
+                                                                userId));
+                                                if (!context
+                                                    .mounted) {
+                                                  return;
+                                                }
+                                                ScaffoldMessenger
+                                                        .of(
+                                                            context)
+                                                    .showSnackBar(
+                                                  SnackBar(
+                                                      content: Text(
+                                                          'Copied: $userId')),
                                                 );
                                               },
                                             ),
@@ -703,7 +870,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     return GlassScaffold(
       body: ListView(
-        padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
+        padding:
+            const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
         children: [
           const SizedBox(height: 56),
           Text(
@@ -717,31 +885,42 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           const SizedBox(height: 10),
           Text(
             l10n.tr('profile_subtitle'),
-            style: t.bodySmall?.copyWith(color: onBg.withOpacity(0.70)),
+            style:
+                t.bodySmall?.copyWith(color: onBg.withOpacity(0.70)),
           ),
           const SizedBox(height: 16),
 
+          // ── Avatar + User Info Card ──
           Glass(
             padding: const EdgeInsets.all(14),
             child: StreamBuilder<UserProfile?>(
-              stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
+              stream: uid.isEmpty
+                  ? const Stream<UserProfile?>.empty()
+                  : repo.watchByUserId(uid),
               builder: (context, snap) {
                 final profile = snap.data;
 
-                final teamName = (profile != null && profile.teamName.trim().isNotEmpty)
+                final teamName = (profile != null &&
+                        profile.teamName.trim().isNotEmpty)
                     ? profile.teamName.trim()
-                    : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
+                    : (user?.displayName ??
+                        l10n.tr('profile_team_placeholder'));
 
                 final shortUserId = (profile != null)
                     ? profile.effectiveShareId
-                    : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
+                    : (uid.isEmpty
+                        ? ''
+                        : UserProfile.deriveShareIdFromUid(uid));
 
                 final iconMuted = onSurface.withOpacity(0.72);
                 final iconDim = onSurface.withOpacity(0.55);
 
-                final rawAvatarUrl = _readProfileImageUrl(profile, user);
-                final avatarUrl = rawAvatarUrl.isNotEmpty && _looksLikeHttpUrl(rawAvatarUrl)
-                    ? _cloudinaryOptimizedUrl(rawAvatarUrl, width: 256, height: 256, crop: 'fill')
+                final rawAvatarUrl =
+                    _readProfileImageUrl(profile, user);
+                final avatarUrl = rawAvatarUrl.isNotEmpty &&
+                        _looksLikeHttpUrl(rawAvatarUrl)
+                    ? _cloudinaryOptimizedUrl(rawAvatarUrl,
+                        width: 256, height: 256, crop: 'fill')
                     : rawAvatarUrl;
 
                 return Row(
@@ -751,7 +930,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Theme.of(context).colorScheme.primary.withOpacity(0.35),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withOpacity(0.35),
                             blurRadius: 18,
                             spreadRadius: 2,
                           ),
@@ -761,30 +943,61 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         alignment: Alignment.center,
                         children: [
                           InkWell(
-                            borderRadius: BorderRadius.circular(999),
-                            onTap: uid.isEmpty ? null : () => _pickAndUploadAvatar(context),
-                            onLongPress: uid.isEmpty ? null : () => _clearAvatar(context),
+                            borderRadius:
+                                BorderRadius.circular(999),
+                            onTap: uid.isEmpty
+                                ? null
+                                : () => _pickAndUploadAvatar(
+                                    context),
+                            onLongPress: uid.isEmpty
+                                ? null
+                                : () =>
+                                    _clearAvatar(context),
                             child: CircleAvatar(
                               radius: 28,
-                              backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.85),
+                              backgroundColor: Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withOpacity(0.85),
                               child: ClipOval(
                                 child: SizedBox(
                                   width: 56,
                                   height: 56,
-                                  child: (avatarUrl.trim().isNotEmpty && _looksLikeHttpUrl(avatarUrl))
+                                  child: (avatarUrl
+                                              .trim()
+                                              .isNotEmpty &&
+                                          _looksLikeHttpUrl(
+                                              avatarUrl))
                                       ? Image.network(
                                           avatarUrl,
                                           fit: BoxFit.cover,
                                           gaplessPlayback: true,
-                                          filterQuality: FilterQuality.low,
-                                          errorBuilder: (_, __, ___) =>
-                                              const Icon(Icons.person, color: Colors.white, size: 28),
-                                          loadingBuilder: (context, child, event) {
-                                            if (event == null) return child;
-                                            return const Icon(Icons.person, color: Colors.white, size: 28);
+                                          filterQuality:
+                                              FilterQuality.low,
+                                          errorBuilder:
+                                              (_, __, ___) =>
+                                                  const Icon(
+                                                      Icons
+                                                          .person,
+                                                      color: Colors
+                                                          .white,
+                                                      size: 28),
+                                          loadingBuilder:
+                                              (context, child,
+                                                  event) {
+                                            if (event == null) {
+                                              return child;
+                                            }
+                                            return const Icon(
+                                                Icons.person,
+                                                color:
+                                                    Colors.white,
+                                                size: 28);
                                           },
                                         )
-                                      : const Icon(Icons.person, color: Colors.white, size: 28),
+                                      : const Icon(Icons.person,
+                                          color: Colors.white,
+                                          size: 28),
                                 ),
                               ),
                             ),
@@ -800,7 +1013,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   child: SizedBox(
                                     width: 18,
                                     height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    child:
+                                        CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color:
+                                                Colors.white),
                                   ),
                                 ),
                               ),
@@ -811,34 +1028,46 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
                               Expanded(
                                 child: AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
+                                  duration:
+                                      const Duration(
+                                          milliseconds: 200),
                                   child: Text(
                                     teamName,
                                     key: ValueKey(teamName),
-                                    style: t.titleLarge?.copyWith(
-                                      fontWeight: FontWeight.w900,
+                                    style: t.titleLarge
+                                        ?.copyWith(
+                                      fontWeight:
+                                          FontWeight.w900,
                                     ),
-                                    overflow: TextOverflow.ellipsis,
+                                    overflow:
+                                        TextOverflow.ellipsis,
                                   ),
                                 ),
                               ),
                               IconButton(
-                                tooltip: l10n.tr('profile_edit_team_name_tooltip'),
-                                icon: Icon(Icons.edit, color: iconMuted, size: 18),
+                                tooltip: l10n.tr(
+                                    'profile_edit_team_name_tooltip'),
+                                icon: Icon(Icons.edit,
+                                    color: iconMuted,
+                                    size: 18),
                                 onPressed: uid.isEmpty
                                     ? null
                                     : () {
-                                        HapticFeedback.selectionClick();
+                                        HapticFeedback
+                                            .selectionClick();
                                         _editTeamName(
                                           context,
                                           userId: uid,
-                                          current: profile?.teamName ?? '',
+                                          current:
+                                              profile?.teamName ??
+                                                  '',
                                         );
                                       },
                               ),
@@ -850,25 +1079,42 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               Expanded(
                                 child: Text(
                                   uid.isEmpty
-                                      ? l10n.tr('profile_not_signed_in')
+                                      ? l10n.tr(
+                                          'profile_not_signed_in')
                                       : '${l10n.tr('profile_userid_prefix')} $shortUserId',
                                   style: t.bodySmall?.copyWith(
-                                    color: onSurface.withOpacity(0.72),
+                                    color: onSurface
+                                        .withOpacity(0.72),
                                   ),
-                                  overflow: TextOverflow.ellipsis,
+                                  overflow:
+                                      TextOverflow.ellipsis,
                                 ),
                               ),
                               IconButton(
-                                tooltip: l10n.tr('profile_copy_userid_tooltip'),
-                                icon: Icon(Icons.copy, color: iconDim, size: 18),
+                                tooltip: l10n.tr(
+                                    'profile_copy_userid_tooltip'),
+                                icon: Icon(Icons.copy,
+                                    color: iconDim,
+                                    size: 18),
                                 onPressed: uid.isEmpty
                                     ? null
                                     : () async {
-                                        HapticFeedback.lightImpact();
-                                        await Clipboard.setData(ClipboardData(text: shortUserId));
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text(l10n.tr('profile_userid_copied'))),
+                                        HapticFeedback
+                                            .lightImpact();
+                                        await Clipboard.setData(
+                                            ClipboardData(
+                                                text:
+                                                    shortUserId));
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        ScaffoldMessenger.of(
+                                                context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                              content: Text(l10n
+                                                  .tr(
+                                                      'profile_userid_copied'))),
                                         );
                                       },
                               ),
@@ -879,7 +1125,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             Text(
                               '${l10n.tr('profile_internal_uid_debug_prefix')} ${uid.length > 10 ? '${uid.substring(0, 10)}…' : uid}',
                               style: t.bodySmall?.copyWith(
-                                color: onSurface.withOpacity(0.45),
+                                color:
+                                    onSurface.withOpacity(0.45),
                                 fontSize: 10,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -889,30 +1136,47 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                     ),
 
+                    // Theme toggle
                     IconButton(
-                      tooltip: l10n.tr('profile_toggle_theme_tooltip'),
+                      tooltip: l10n
+                          .tr('profile_toggle_theme_tooltip'),
                       icon: Icon(
-                        themeState.mode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode,
+                        themeState.mode == ThemeMode.dark
+                            ? Icons.light_mode
+                            : Icons.dark_mode,
                         color: theme.colorScheme.primary,
                       ),
                       onPressed: () {
                         HapticFeedback.selectionClick();
-                        ref.read(themeControllerProvider.notifier).toggleTheme();
+                        ref
+                            .read(themeControllerProvider
+                                .notifier)
+                            .toggleTheme();
                       },
                     ),
 
+                    // Logout
                     IconButton(
-                      tooltip: l10n.tr('profile_logout_tooltip'),
-                      icon: Icon(Icons.logout, color: iconMuted),
+                      tooltip:
+                          l10n.tr('profile_logout_tooltip'),
+                      icon:
+                          Icon(Icons.logout, color: iconMuted),
                       onPressed: () async {
-                        final ok = await _confirmLogout(context);
+                        final ok =
+                            await _confirmLogout(context);
                         if (!ok) return;
 
                         try {
                           await AuthService().signOut();
                         } catch (e) {
                           if (context.mounted) {
-                            _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                            _snack(
+                                context,
+                                UserFriendlyError.toMessage(
+                                    e is Object
+                                        ? e
+                                        : Exception(
+                                            'unknown')));
                           }
                           return;
                         }
@@ -931,21 +1195,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           const LeagueSwitcher(),
           const SizedBox(height: 22),
 
-          SectionHeader(l10n.tr('profile_section_league_overview')),
+          SectionHeader(
+              l10n.tr('profile_section_league_overview')),
           const SizedBox(height: 12),
 
           Glass(
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                Expanded(child: _Stat(label: l10n.tr('profile_stat_active'), value: '2')),
+                Expanded(
+                    child: _Stat(
+                        label: l10n.tr('profile_stat_active'),
+                        value: '2')),
                 const SizedBox(width: 12),
-                Expanded(child: _Stat(label: l10n.tr('profile_stat_teams'), value: '16')),
+                Expanded(
+                    child: _Stat(
+                        label: l10n.tr('profile_stat_teams'),
+                        value: '16')),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _Stat(
                     label: l10n.tr('profile_stat_format'),
-                    value: currentLeague.name.toUpperCase().replaceAll('CLASSIC', 'CL').replaceAll('SWISS', 'SW'),
+                    value: currentLeague.name
+                        .toUpperCase()
+                        .replaceAll('CLASSIC', 'CL')
+                        .replaceAll('SWISS', 'SW'),
                   ),
                 ),
               ],
@@ -970,7 +1244,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           else
             Glass(
               padding: const EdgeInsets.all(14),
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              child: StreamBuilder<
+                  QuerySnapshot<Map<String, dynamic>>>(
                 stream: FirebaseFirestore.instance
                     .collection('leagues')
                     .where('organizerUid', isEqualTo: uid)
@@ -978,7 +1253,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     .snapshots(),
                 builder: (context, snap) {
                   if (snap.hasError) {
-                    final msg = UserFriendlyError.toMessage(snap.error as Object);
+                    final msg = UserFriendlyError.toMessage(
+                        snap.error as Object);
                     return Text(
                       msg,
                       style: t.bodyMedium?.copyWith(
@@ -989,18 +1265,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   }
 
                   if (!snap.hasData) {
-                    return Center(child: CircularProgressIndicator(color: theme.colorScheme.primary));
+                    return Center(
+                        child: CircularProgressIndicator(
+                            color: theme.colorScheme.primary));
                   }
 
                   final leagues = snap.data!.docs
-                      .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
+                      .map((d) => <String, dynamic>{
+                            ...d.data(),
+                            'id': d.id
+                          })
                       .where((m) {
-                        final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
-                        if (!enabled) return false;
-                        final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
-                        return dp >= 0;
-                      })
-                      .toList();
+                    final enabled = (m['couponsEnabled'] ==
+                            true ||
+                        m['couponsEnabled'] == 1);
+                    if (!enabled) return false;
+                    final dp =
+                        (m['couponDiscountPercent'] as num?)
+                                ?.toInt() ??
+                            0;
+                    return dp >= 0;
+                  }).toList();
 
                   if (leagues.isEmpty) {
                     return Text(
@@ -1018,15 +1303,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     children: [
                       for (final m in leagues) ...[
                         _OrganizerLeagueCouponsTile(
-                          leagueName: (m['name'] as String?) ?? 'League',
+                          leagueName:
+                              (m['name'] as String?) ??
+                                  'League',
                           subtitle: _couponLeagueSubtitle(
                             enabled: true,
-                            discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
+                            discountPercent:
+                                ((m['couponDiscountPercent']
+                                            as num?)
+                                        ?.toInt() ??
+                                    0),
                           ),
-                          onView: () => _showCouponConfigSheet(
+                          onView: () =>
+                              _showCouponConfigSheet(
                             context,
-                            leagueId: (m['id'] as String?) ?? '',
-                            leagueName: (m['name'] as String?) ?? 'League',
+                            leagueId:
+                                (m['id'] as String?) ?? '',
+                            leagueName:
+                                (m['name'] as String?) ??
+                                    'League',
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -1046,7 +1341,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  Icon(Icons.admin_panel_settings, color: theme.colorScheme.primary),
+                  Icon(Icons.admin_panel_settings,
+                      color: theme.colorScheme.primary),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -1058,7 +1354,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                   FilledButton(
-                    onPressed: () => GoRouter.of(context).push('/admin/pricing'),
+                    onPressed: () => GoRouter.of(context)
+                        .push('/admin/pricing'),
                     child: const Text('Open'),
                   ),
                 ],
@@ -1069,7 +1366,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  Icon(Icons.group_add, color: theme.colorScheme.primary),
+                  Icon(Icons.group_add,
+                      color: theme.colorScheme.primary),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -1081,7 +1379,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                   FilledButton(
-                    onPressed: () => GoRouter.of(context).push('/admin/pricing-admins'),
+                    onPressed: () => GoRouter.of(context)
+                        .push('/admin/pricing-admins'),
                     child: const Text('Open'),
                   ),
                 ],
@@ -1141,7 +1440,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+              horizontal: 18, vertical: 24),
           child: Glass(
             padding: const EdgeInsets.all(16),
             child: ConstrainedBox(
@@ -1156,15 +1456,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         height: 40,
                         decoration: BoxDecoration(
                           color: Colors.amber.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.amber.withOpacity(0.35)),
+                          borderRadius:
+                              BorderRadius.circular(12),
+                          border: Border.all(
+                              color: Colors.amber
+                                  .withOpacity(0.35)),
                         ),
-                        child: const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+                        child: const Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.amber),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          l10n.tr('profile_logout_dialog_title'),
+                          l10n.tr(
+                              'profile_logout_dialog_title'),
                           style: t.titleLarge?.copyWith(
                             color: dialogOnSurface,
                             fontWeight: FontWeight.w900,
@@ -1172,19 +1478,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ),
                       ),
                       IconButton(
-                        tooltip: l10n.tr('profile_close_tooltip'),
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        icon: Icon(Icons.close, color: dialogOnSurface.withOpacity(0.72)),
+                        tooltip:
+                            l10n.tr('profile_close_tooltip'),
+                        onPressed: () =>
+                            Navigator.of(ctx).pop(false),
+                        icon: Icon(Icons.close,
+                            color: dialogOnSurface
+                                .withOpacity(0.72)),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
                   Align(
-                    alignment: AlignmentDirectional.centerStart,
+                    alignment:
+                        AlignmentDirectional.centerStart,
                     child: Text(
-                      l10n.tr('profile_logout_dialog_message'),
+                      l10n.tr(
+                          'profile_logout_dialog_message'),
                       style: t.bodyMedium?.copyWith(
-                        color: dialogOnSurface.withOpacity(0.72),
+                        color:
+                            dialogOnSurface.withOpacity(0.72),
                         height: 1.35,
                       ),
                     ),
@@ -1195,24 +1508,36 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: dialogOnSurface.withOpacity(0.80),
-                            side: BorderSide(color: dialogOnSurface.withOpacity(0.18)),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            foregroundColor: dialogOnSurface
+                                .withOpacity(0.80),
+                            side: BorderSide(
+                                color: dialogOnSurface
+                                    .withOpacity(0.18)),
+                            padding:
+                                const EdgeInsets.symmetric(
+                                    vertical: 12),
                           ),
-                          onPressed: () => Navigator.of(ctx).pop(false),
-                          child: Text(l10n.tr('common_cancel')),
+                          onPressed: () =>
+                              Navigator.of(ctx).pop(false),
+                          child: Text(
+                              l10n.tr('common_cancel')),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFFE53935),
+                            backgroundColor:
+                                const Color(0xFFE53935),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding:
+                                const EdgeInsets.symmetric(
+                                    vertical: 12),
                           ),
-                          onPressed: () => Navigator.of(ctx).pop(true),
-                          child: Text(l10n.tr('profile_logout_button')),
+                          onPressed: () =>
+                              Navigator.of(ctx).pop(true),
+                          child: Text(l10n.tr(
+                              'profile_logout_button')),
                         ),
                       ),
                     ],
@@ -1257,19 +1582,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             content: TextField(
               controller: controller,
               autofocus: true,
-              style: TextStyle(color: onSurface, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                  color: onSurface, fontWeight: FontWeight.w600),
               decoration: InputDecoration(
                 hintText: l10n.tr('profile_team_name_hint'),
-                hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
+                hintStyle: TextStyle(
+                    color: onSurface.withOpacity(0.45)),
               ),
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(ctx).pop(null),
+                onPressed: () =>
+                    Navigator.of(ctx).pop(null),
                 child: Text(l10n.tr('common_cancel')),
               ),
               FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                onPressed: () => Navigator.of(ctx)
+                    .pop(controller.text.trim()),
                 child: Text(l10n.tr('common_save')),
               ),
             ],
@@ -1282,18 +1611,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (cleaned.isEmpty) return;
 
       try {
-        await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
-        await repo.updateTeamName(userId: userId, teamName: cleaned);
+        await ConnectivityService.instance
+            .requireOnline(timeout: const Duration(seconds: 4));
+        await repo.updateTeamName(
+            userId: userId, teamName: cleaned);
       } catch (e) {
         if (context.mounted) {
-          _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+          _snack(
+              context,
+              UserFriendlyError.toMessage(
+                  e is Object ? e : Exception('unknown')));
         }
         return;
       }
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('profile_team_name_updated'))),
+        SnackBar(
+            content:
+                Text(l10n.tr('profile_team_name_updated'))),
       );
     } finally {
       controller.dispose();
@@ -1318,7 +1654,8 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
     final cs = theme.colorScheme;
 
     return Glass(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(
+          horizontal: 12, vertical: 10),
       child: Row(
         children: [
           Icon(Icons.emoji_events_outlined, color: cs.primary),
@@ -1388,7 +1725,8 @@ class _Stat extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: t.bodySmall?.copyWith(color: onSurface.withOpacity(0.65)),
+            style: t.bodySmall
+                ?.copyWith(color: onSurface.withOpacity(0.65)),
             maxLines: 1,
           ),
         ],
