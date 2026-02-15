@@ -2,19 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
-/// Uploads league media (league image / sponsor image) to Cloudinary.
-///
-/// Previously used Firebase Storage — now fully migrated to Cloudinary
-/// unsigned upload to avoid Storage rules issues and reduce dependencies.
-///
-/// Storage flow:
-/// 1. Pick image via FilePicker (withData: true for Android 10+ safety)
-/// 2. Upload to Cloudinary → returns secure_url
-/// 3. Caller persists URL to Firestore as needed
+import '../../../core/services/safe_image_picker.dart';
+
 class LeagueMediaService {
   LeagueMediaService({
     FirebaseFirestore? firestore,
@@ -33,29 +25,17 @@ class LeagueMediaService {
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
-
   final String _cloudName;
   final String _unsignedUploadPreset;
 
-  static const int _maxBytes = 5 * 1024 * 1024;
-
-  /// Ensures a minimal draft league doc exists so Firestore rules pass
-  /// when the league hasn't been fully created yet.
-  Future<void> _ensureDraftLeagueDocExists({
-    required String leagueId,
-  }) async {
+  Future<void> _ensureDraftLeagueDocExists({required String leagueId}) async {
     final user = _auth.currentUser;
-    if (user == null) {
-      throw StateError('Sign-in required to upload league media.');
-    }
+    if (user == null) throw StateError('Sign-in required to upload league media.');
 
     try {
       final ref = _firestore.collection('leagues').doc(leagueId);
       final snap = await ref.get().timeout(const Duration(seconds: 10));
-
       if (snap.exists) return;
-
-      final now = DateTime.now().millisecondsSinceEpoch;
 
       await ref.set(<String, dynamic>{
         'id': leagueId,
@@ -63,97 +43,44 @@ class LeagueMediaService {
         'organizerUserId': user.uid,
         'isPrivate': 1,
         'memberIds': <String>[user.uid],
-        'updatedAtMs': now,
+        'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
         'version': 1,
       }).timeout(const Duration(seconds: 10));
-    } catch (_) {
-      // Non-fatal: if draft creation fails, the upload can still proceed
-      // and the real league creation will write the full doc later.
-    }
+    } catch (_) {}
   }
 
-  /// Picks a single image and uploads it to Cloudinary.
-  ///
-  /// CRITICAL ANDROID SAFETY:
-  /// - Uses `withData: true` to load bytes into memory (safe for images < 5 MB)
-  /// - Does NOT use `withReadStream: true` which crashes on Android 10/11
-  /// - Does NOT use `File()` path access which fails on SAF-only devices
-  ///
-  /// Returns the Cloudinary secure_url, or null if user cancelled.
   Future<String?> pickAndUploadImage({
     required String leagueId,
     required LeagueMediaKind kind,
     String storageBucketRoot = 'leagues',
   }) async {
     final user = _auth.currentUser;
-    if (user == null) {
-      throw StateError('Sign-in required to upload league media.');
-    }
+    if (user == null) throw StateError('Sign-in required to upload league media.');
 
     if (_cloudName.isEmpty || _unsignedUploadPreset.isEmpty) {
       throw StateError(
         'Cloudinary is not configured. '
-        'Provide CLOUDINARY_CLOUD_NAME and CLOUDINARY_UNSIGNED_UPLOAD_PRESET '
-        'via --dart-define.',
+        'Provide CLOUDINARY_CLOUD_NAME and CLOUDINARY_UNSIGNED_UPLOAD_PRESET via --dart-define.',
       );
     }
 
-    // Ensure draft doc exists for Firestore rule compliance
     await _ensureDraftLeagueDocExists(leagueId: leagueId);
 
-    // ──────────────────────────────────────────────────────────
-    // PICK IMAGE
-    // withData: true  → loads bytes (safe for < 5 MB images)
-    // withReadStream: false → avoids Android 10/11 SAF crash
-    // ──────────────────────────────────────────────────────────
-    final PlatformFile picked;
+    final pickResult = await SafeImagePicker.pickImage();
 
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-        withData: true,
-        withReadStream: false,
-        lockParentWindow: false,
-      );
+    if (pickResult.wasCancelled) return null;
 
-      if (result == null || result.files.isEmpty) return null;
-
-      picked = result.files.first;
-    } catch (e) {
-      final msg = e.toString().toLowerCase();
-      if (msg.contains('cancel') ||
-          msg.contains('user') ||
-          msg.contains('abort')) {
-        return null;
-      }
-      throw StateError(
-        'Could not open image picker. '
-        'Please check app permissions in Settings.',
-      );
+    if (!pickResult.isSuccess) {
+      throw StateError(pickResult.errorMessage ?? 'Could not pick image.');
     }
 
-    // ──────────────────────────────────────────────────────────
-    // VALIDATE
-    // ──────────────────────────────────────────────────────────
-    if (picked.size > _maxBytes) {
-      throw StateError('Image too large. Max allowed is 5 MB.');
-    }
+    final picked = pickResult.file!;
 
-    if (picked.size == 0) {
-      throw StateError('Selected file is empty.');
-    }
-
-    // ──────────────────────────────────────────────────────────
-    // BUILD MULTIPART UPLOAD
-    // ──────────────────────────────────────────────────────────
     final uploadUrl =
         Uri.parse('https://api.cloudinary.com/v1_1/$_cloudName/image/upload');
 
     final ts = DateTime.now().millisecondsSinceEpoch;
     final safeLeagueId = leagueId.trim();
-    final folder = 'eleaguehub/leagues/$safeLeagueId/media';
-    final publicId = '${kind.name}_$ts';
 
     http.MultipartFile filePart;
 
@@ -161,43 +88,25 @@ class LeagueMediaService {
     final path = (picked.path ?? '').trim();
 
     if (bytes != null && bytes.isNotEmpty) {
-      // Primary: use in-memory bytes (most reliable on all Android versions)
-      filePart = http.MultipartFile.fromBytes(
-        'file',
-        bytes,
-        filename: picked.name,
-      );
+      filePart = http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
     } else if (path.isNotEmpty) {
-      // Fallback: use file path if bytes were somehow not loaded
-      filePart = await http.MultipartFile.fromPath(
-        'file',
-        path,
-        filename: picked.name,
-      );
+      filePart = await http.MultipartFile.fromPath('file', path, filename: picked.name);
     } else {
-      throw StateError(
-        'Selected image is not accessible. '
-        'Please try again or choose a different image.',
-      );
+      throw StateError('Selected image is not accessible. Please try a different image.');
     }
 
     final req = http.MultipartRequest('POST', uploadUrl)
       ..fields['upload_preset'] = _unsignedUploadPreset
       ..fields['resource_type'] = 'image'
-      ..fields['folder'] = folder
-      ..fields['public_id'] = publicId
+      ..fields['folder'] = 'eleaguehub/leagues/$safeLeagueId/media'
+      ..fields['public_id'] = '${kind.name}_$ts'
       ..fields['tags'] = 'eleaguehub,league_$safeLeagueId,${kind.name}'
       ..files.add(filePart);
 
-    // ──────────────────────────────────────────────────────────
-    // UPLOAD TO CLOUDINARY
-    // ──────────────────────────────────────────────────────────
     final client = http.Client();
     try {
-      final streamed = await client
-          .send(req)
-          .timeout(const Duration(seconds: 45));
-
+      final streamed =
+          await client.send(req).timeout(const Duration(seconds: 45));
       final resp = await http.Response.fromStream(streamed)
           .timeout(const Duration(seconds: 45));
 
@@ -205,8 +114,7 @@ class LeagueMediaService {
         String message = 'Upload failed (HTTP ${resp.statusCode}).';
         try {
           final decoded = jsonDecode(resp.body);
-          final err =
-              (decoded is Map<String, dynamic>) ? decoded['error'] : null;
+          final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
           final msg = (err is Map<String, dynamic>)
               ? (err['message']?.toString() ?? '')
               : '';
@@ -217,17 +125,17 @@ class LeagueMediaService {
 
       final decoded = jsonDecode(resp.body);
       if (decoded is! Map<String, dynamic>) {
-        throw StateError('Upload failed: invalid response from server.');
+        throw StateError('Upload failed: invalid response.');
       }
 
       final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
       if (secureUrl.isEmpty) {
-        throw StateError('Upload failed: secure_url missing in response.');
+        throw StateError('Upload failed: secure_url missing.');
       }
 
       return secureUrl;
     } on TimeoutException {
-      throw StateError('Upload timed out. Please check your connection and try again.');
+      throw StateError('Upload timed out. Please try again.');
     } finally {
       client.close();
     }

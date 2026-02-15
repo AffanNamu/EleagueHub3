@@ -15,6 +15,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/league_mode_provider.dart';
 import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -68,7 +69,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     String url, {
     int? width,
     int? height,
-    String crop = 'fill', // fill | fit
+    String crop = 'fill',
   }) {
     final u = url.trim();
     if (u.isEmpty) return u;
@@ -114,8 +115,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final cloudName =
         const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
     final uploadPreset =
-        const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET')
-            .trim();
+        const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
 
     if (cloudName.isEmpty || uploadPreset.isEmpty) {
       throw StateError('Cloudinary is not configured.');
@@ -131,14 +131,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final path = (picked.path ?? '').trim();
 
     if (bytes != null && bytes.isNotEmpty) {
-      // PRIMARY: use in-memory bytes — most reliable on all Android versions
       filePart = http.MultipartFile.fromBytes(
         'file',
         bytes,
         filename: picked.name,
       );
     } else if (path.isNotEmpty) {
-      // FALLBACK: use file path
       filePart = await http.MultipartFile.fromPath(
         'file',
         path,
@@ -146,8 +144,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       );
     } else {
       throw StateError(
-        'Selected image file is not accessible. '
-        'Please try again or choose a different image.',
+        'Selected image is not accessible. Please try a different image.',
       );
     }
 
@@ -212,52 +209,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       await ConnectivityService.instance
           .requireOnline(timeout: const Duration(seconds: 6));
 
-      // ──────────────────────────────────────────────────────
-      // PICK IMAGE — CRASH-SAFE CONFIGURATION
-      // withData: true   → loads bytes into memory (safe < 5 MB)
-      // withReadStream: false → avoids Android 10/11 SAF crash
-      // lockParentWindow: false → avoids ANR on some devices
-      // ──────────────────────────────────────────────────────
-      final PlatformFile picked;
+      final pickResult = await SafeImagePicker.pickImage();
 
-      try {
-        final result = await FilePicker.platform.pickFiles(
-          type: FileType.image,
-          allowMultiple: false,
-          withData: true,
-          withReadStream: false,
-          lockParentWindow: false,
-        );
+      if (pickResult.wasCancelled) return;
 
-        if (result == null || result.files.isEmpty) return;
-        picked = result.files.first;
-      } catch (e) {
-        final msg = e.toString().toLowerCase();
-        // User cancelled or picker was dismissed — not an error
-        if (msg.contains('cancel') ||
-            msg.contains('user') ||
-            msg.contains('abort')) {
-          return;
-        }
-        throw StateError(
-          'Could not open image picker. '
-          'Please check app permissions in Settings.',
-        );
+      if (!pickResult.isSuccess) {
+        if (!context.mounted) return;
+        _snack(context, pickResult.errorMessage ?? 'Could not pick image.');
+        return;
       }
 
-      // Validate size
-      if (picked.size > _maxBytes) {
-        throw StateError('Image too large. Max allowed is 5 MB.');
-      }
+      final picked = pickResult.file!;
 
-      if (picked.size == 0) {
-        throw StateError('Selected file is empty.');
-      }
-
-      // Upload to Cloudinary
       final secureUrl = await _uploadToCloudinary(picked: picked);
 
-      // Save to Firestore
       final now = DateTime.now().millisecondsSinceEpoch;
       await FirebaseFirestore.instance
           .collection('users')
@@ -273,7 +238,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           )
           .timeout(const Duration(seconds: 15));
 
-      // Update Firebase Auth photo URL (non-fatal if fails)
       try {
         await FirebaseAuth.instance.currentUser?.updatePhotoURL(secureUrl);
       } catch (_) {}
@@ -444,15 +408,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               return Padding(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 16),
-                                child: Text(
-                                  msg,
-                                  style:
-                                      theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.error,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
+                                child: Text(msg,
+                                    style: theme.textTheme.bodyMedium
+                                        ?.copyWith(
+                                      color: cs.error,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                    textAlign: TextAlign.center),
                               );
                             }
 
@@ -538,24 +500,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   CrossAxisAlignment.start,
                               children: [
                                 _kv(context, 'Currency', cfg.currency),
-                                _kv(
-                                    context,
-                                    'Unit price',
+                                _kv(context, 'Unit price',
                                     '${money(cfg.unitPrice)} ${cfg.currency}'),
                                 _kv(
                                     context,
                                     'Effective unit',
                                     '${money(cfg.effectiveUnit)} ${cfg.currency}'),
                                 _kv(
-                                  context,
-                                  'Threshold',
-                                  cfg.threshold == null
-                                      ? '—'
-                                      : '${money(cfg.threshold!)} ${cfg.currency}',
-                                ),
-                                _kv(
                                     context,
-                                    'Threshold discount',
+                                    'Threshold',
+                                    cfg.threshold == null
+                                        ? '—'
+                                        : '${money(cfg.threshold!)} ${cfg.currency}'),
+                                _kv(context, 'Threshold discount',
                                     '${money(cfg.thresholdDiscountPercent)}%'),
                                 const Divider(),
                                 _kv(context, 'Discount',
@@ -631,26 +588,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             UserFriendlyError.toMessage(
                                                 rs.error as Object);
                                         return Center(
-                                          child: Text(
-                                            msg,
-                                            style: theme
-                                                .textTheme.bodySmall
-                                                ?.copyWith(
-                                              color: cs.error,
-                                              fontWeight:
-                                                  FontWeight.w700,
-                                            ),
-                                            textAlign:
-                                                TextAlign.center,
-                                          ),
+                                          child: Text(msg,
+                                              style: theme
+                                                  .textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color: cs.error,
+                                                fontWeight:
+                                                    FontWeight.w700,
+                                              ),
+                                              textAlign:
+                                                  TextAlign.center),
                                         );
                                       }
                                       if (!rs.hasData) {
                                         return Center(
                                             child:
                                                 CircularProgressIndicator(
-                                                    color:
-                                                        cs.primary));
+                                                    color: cs.primary));
                                       }
                                       final docs = rs.data!.docs;
                                       if (docs.isEmpty) {
@@ -673,27 +627,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         separatorBuilder: (_, __) =>
                                             Divider(
                                                 color: onSurface
-                                                    .withOpacity(
-                                                        0.10)),
+                                                    .withOpacity(0.10)),
                                         itemBuilder: (context, i) {
-                                          final d =
-                                              docs[i].data();
+                                          final d = docs[i].data();
                                           final userId =
-                                              (d['userId']
-                                                      as String?) ??
+                                              (d['userId'] as String?) ??
                                                   '';
                                           final status =
-                                              (d['status']
-                                                      as String?) ??
+                                              (d['status'] as String?) ??
                                                   'pending';
                                           final paidAtMs =
-                                              (d['paidAtMs']
-                                                          as num?)
+                                              (d['paidAtMs'] as num?)
                                                       ?.toInt() ??
                                                   0;
                                           final provider =
-                                              (d['provider']
-                                                      as String?) ??
+                                              (d['provider'] as String?) ??
                                                   '';
                                           final expected =
                                               (d['expectedAmount']
@@ -704,7 +652,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               (d['currency']
                                                       as String?) ??
                                                   cfg.currency;
-
                                           final isPaid =
                                               status == 'paid';
                                           final when = paidAtMs > 0
@@ -714,7 +661,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   .toLocal()
                                                   .toString()
                                               : '—';
-
                                           return ListTile(
                                             dense: true,
                                             contentPadding:
@@ -732,8 +678,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             title: Text(
                                               userId.isEmpty
                                                   ? '(unknown user)'
-                                                  : (userId.length >
-                                                          12
+                                                  : (userId.length > 12
                                                       ? '${userId.substring(0, 12)}…'
                                                       : userId),
                                               style: theme
@@ -742,8 +687,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   ?.copyWith(
                                                 color: onSurface,
                                                 fontWeight:
-                                                    FontWeight
-                                                        .w900,
+                                                    FontWeight.w900,
                                               ),
                                             ),
                                             subtitle: Text(
@@ -758,8 +702,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                     .withOpacity(
                                                         0.65),
                                                 fontWeight:
-                                                    FontWeight
-                                                        .w700,
+                                                    FontWeight.w700,
                                               ),
                                             ),
                                             trailing: IconButton(
@@ -783,8 +726,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   return;
                                                 }
                                                 ScaffoldMessenger
-                                                        .of(
-                                                            context)
+                                                        .of(context)
                                                     .showSnackBar(
                                                   SnackBar(
                                                       content: Text(
@@ -890,7 +832,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ── Avatar + User Info Card ──
           Glass(
             padding: const EdgeInsets.all(14),
             child: StreamBuilder<UserProfile?>(
@@ -1136,7 +1077,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                     ),
 
-                    // Theme toggle
                     IconButton(
                       tooltip: l10n
                           .tr('profile_toggle_theme_tooltip'),
@@ -1155,7 +1095,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       },
                     ),
 
-                    // Logout
                     IconButton(
                       tooltip:
                           l10n.tr('profile_logout_tooltip'),

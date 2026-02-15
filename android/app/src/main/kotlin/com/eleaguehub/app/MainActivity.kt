@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -15,6 +16,20 @@ import org.json.JSONArray
 private const val LOCAL_LIVE_CHANNEL = "local_live"
 
 class MainActivity : FlutterActivity() {
+
+    /**
+     * HUAWEI EMUI 10 / Android 10 FIX:
+     *
+     * When FilePicker (or any external Activity) opens, EMUI aggressively
+     * destroys this Activity to reclaim memory. On return, Android tries
+     * to recreate from savedInstanceState but the FlutterEngine is dead.
+     *
+     * Fix: pass null to super.onCreate() so Flutter always starts fresh
+     * instead of trying to restore a dead engine state.
+     */
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(null)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
