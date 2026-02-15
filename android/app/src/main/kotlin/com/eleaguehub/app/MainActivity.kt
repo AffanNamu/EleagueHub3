@@ -17,16 +17,6 @@ private const val LOCAL_LIVE_CHANNEL = "local_live"
 
 class MainActivity : FlutterActivity() {
 
-    /**
-     * HUAWEI EMUI 10 / Android 10 FIX:
-     *
-     * When FilePicker (or any external Activity) opens, EMUI aggressively
-     * destroys this Activity to reclaim memory. On return, Android tries
-     * to recreate from savedInstanceState but the FlutterEngine is dead.
-     *
-     * Fix: pass null to super.onCreate() so Flutter always starts fresh
-     * instead of trying to restore a dead engine state.
-     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(null)
     }
@@ -34,7 +24,6 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // Expose messenger to Services (overlay/foreground) so they can send actions to Dart.
         FlutterEngineHolder.setBinaryMessenger(flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(
@@ -43,7 +32,6 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
 
-                // Foreground streaming service controls (existing)
                 "startForegroundStreamingService" -> {
                     val title = call.argument<String>("title") ?: "Live streaming"
                     val text = call.argument<String>("text") ?: "Broadcasting is running"
@@ -79,7 +67,6 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // Battery optimization helpers (existing)
                 "openBatteryOptimizationSettings" -> {
                     try {
                         val i = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
@@ -126,7 +113,6 @@ class MainActivity : FlutterActivity() {
                     result.success(map)
                 }
 
-                // Overlay permission + bubble (existing)
                 "isOverlayPermissionGranted" -> {
                     val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         Settings.canDrawOverlays(this)
@@ -176,7 +162,6 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // New: store quick messages for overlay (defaults + premium custom from Flutter)
                 "setOverlayQuickMessages" -> {
                     try {
                         val raw = call.arguments
@@ -195,7 +180,6 @@ class MainActivity : FlutterActivity() {
                         val sp = applicationContext.getSharedPreferences("overlay_prefs", Context.MODE_PRIVATE)
                         sp.edit().putString("quick_messages_json", arr.toString()).apply()
 
-                        // Ask overlay to refresh if it's already running.
                         try {
                             val i = Intent(this, LiveOverlayBubbleService::class.java).apply {
                                 action = LiveOverlayBubbleService.ACTION_REFRESH
@@ -210,7 +194,6 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // New: store mic muted state for overlay icon visual
                 "setOverlayMicMutedState" -> {
                     try {
                         var muted = false
@@ -228,7 +211,6 @@ class MainActivity : FlutterActivity() {
                         val sp = applicationContext.getSharedPreferences("overlay_prefs", Context.MODE_PRIVATE)
                         sp.edit().putBoolean("mic_muted", muted).apply()
 
-                        // Ask overlay to refresh if it's already running.
                         try {
                             val i = Intent(this, LiveOverlayBubbleService::class.java).apply {
                                 action = LiveOverlayBubbleService.ACTION_REFRESH
@@ -243,7 +225,6 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // New aliases (for global overlay UX from HomeShell/Settings)
                 "startGlobalOverlay" -> {
                     try {
                         val intent = Intent(this, LiveOverlayBubbleService::class.java).apply {
@@ -268,7 +249,6 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // Voice-call style FGS controls
                 "startOverlayVoiceForegroundService" -> {
                     val title = call.argument<String>("title") ?: "Voice chat"
                     val text = call.argument<String>("text") ?: "Voice chat is running"
@@ -304,7 +284,6 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                // Old placeholders (existing; not used now; handled in Dart/WebRTC)
                 "startHostSession" -> {
                     Log.i("LocalLive", "startHostSession (unused now; handled in Dart/WebRTC)")
                     result.success(null)

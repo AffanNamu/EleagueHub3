@@ -3,27 +3,92 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 /// Crash-safe image picker for ALL Android versions.
 ///
-/// FilePicker uses SAF on Android 10+ — no runtime permission needed.
-/// The crash on Huawei EMUI 10 is caused by Activity being destroyed
-/// while picker is open, then Flutter engine state is lost on return.
-///
-/// This class wraps FilePicker with:
-/// - Full try-catch (never throws)
-/// - Two-attempt strategy (withData → path-only fallback)
-/// - Bytes read from File if picker returns null bytes
-/// - User-friendly error messages
+/// PRIMARY: Uses image_picker (native photo picker) — lightweight, no crash.
+/// FALLBACK: Uses file_picker if image_picker fails for any reason.
 class SafeImagePicker {
   SafeImagePicker._();
 
   static const int maxBytes = 5 * 1024 * 1024;
 
+  static final ImagePicker _imagePicker = ImagePicker();
+
   /// Pick a single image. NEVER throws. Returns [SafePickResult].
   static Future<SafePickResult> pickImage() async {
-    // ── Attempt 1: withData=true ──
+    // ── PRIMARY: image_picker (native gallery — no crash) ──
+    try {
+      final XFile? xFile = await _imagePicker
+          .pickImage(
+            source: ImageSource.gallery,
+            maxWidth: 1200,
+            maxHeight: 1200,
+            imageQuality: 85,
+          )
+          .timeout(const Duration(seconds: 120));
+
+      if (xFile == null) {
+        return SafePickResult.cancelled();
+      }
+
+      final file = File(xFile.path);
+
+      if (!await file.exists()) {
+        return SafePickResult.error(
+          'Selected image file not found. Please try again.',
+        );
+      }
+
+      final fileSize = await file.length();
+
+      if (fileSize > maxBytes) {
+        return SafePickResult.error(
+          'Image is too large (${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB). '
+          'Maximum allowed is 5 MB.',
+        );
+      }
+
+      if (fileSize == 0) {
+        return SafePickResult.error(
+          'Selected file appears to be empty. Please choose a different image.',
+        );
+      }
+
+      try {
+        final Uint8List bytes = await file.readAsBytes().timeout(
+              const Duration(seconds: 15),
+            );
+
+        if (bytes.isNotEmpty) {
+          final platformFile = PlatformFile(
+            name: xFile.name.isNotEmpty ? xFile.name : 'profile_image.jpg',
+            size: bytes.length,
+            bytes: bytes,
+            path: xFile.path,
+          );
+          return SafePickResult.success(platformFile);
+        }
+      } catch (_) {}
+
+      final platformFile = PlatformFile(
+        name: xFile.name.isNotEmpty ? xFile.name : 'profile_image.jpg',
+        size: fileSize,
+        bytes: null,
+        path: xFile.path,
+      );
+      return SafePickResult.success(platformFile);
+    } on TimeoutException {
+      return SafePickResult.error('Image picker timed out. Please try again.');
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (_isCancelMessage(msg)) {
+        return SafePickResult.cancelled();
+      }
+    }
+
+    // ── FALLBACK: file_picker ──
     try {
       final result = await FilePicker.platform
           .pickFiles(
@@ -61,7 +126,6 @@ class SafeImagePicker {
         return SafePickResult.success(picked);
       }
 
-      // bytes null but path exists — read bytes from cached file
       if (hasPath) {
         try {
           final file = File(picked.path!.trim());
@@ -82,83 +146,19 @@ class SafeImagePicker {
           }
         } catch (_) {}
 
-        // Return with path only — upload will use fromPath
         return SafePickResult.success(picked);
       }
 
-      // No bytes, no path — fall through to attempt 2
-    } on PlatformException catch (e) {
-      final msg = (e.message ?? '').toLowerCase();
-      if (_isCancelMessage(msg)) return SafePickResult.cancelled();
-    } on TimeoutException {
-      return SafePickResult.error('Image picker timed out. Please try again.');
-    } catch (e) {
-      if (_isCancelMessage(e.toString().toLowerCase())) {
-        return SafePickResult.cancelled();
-      }
-    }
-
-    // ── Attempt 2: withData=false (path only) ──
-    try {
-      final result = await FilePicker.platform
-          .pickFiles(
-            type: FileType.image,
-            allowMultiple: false,
-            withData: false,
-            withReadStream: false,
-            lockParentWindow: false,
-          )
-          .timeout(const Duration(seconds: 120));
-
-      if (result == null || result.files.isEmpty) {
-        return SafePickResult.cancelled();
-      }
-
-      final picked = result.files.first;
-
-      if (picked.size > maxBytes) {
-        return SafePickResult.error('Image is too large. Maximum allowed is 5 MB.');
-      }
-
-      final path = (picked.path ?? '').trim();
-      if (path.isEmpty) {
-        return SafePickResult.error(
-          'Could not access the selected image. '
-          'Please try a different image or folder.',
-        );
-      }
-
-      // Try to read bytes from path
-      try {
-        final file = File(path);
-        if (await file.exists()) {
-          final bytes = await file.readAsBytes().timeout(
-                const Duration(seconds: 15),
-              );
-          if (bytes.isNotEmpty) {
-            return SafePickResult.success(
-              PlatformFile(
-                name: picked.name,
-                size: bytes.length,
-                bytes: bytes,
-                path: path,
-              ),
-            );
-          }
-        }
-      } catch (_) {}
-
-      // Return with path only
-      return SafePickResult.success(picked);
-    } on PlatformException catch (e) {
-      final msg = (e.message ?? '').toLowerCase();
-      if (_isCancelMessage(msg)) return SafePickResult.cancelled();
       return SafePickResult.error(
-        'Could not open image picker. Please restart the app and try again.',
+        'Could not read the selected image. Please try a different image.',
       );
     } on TimeoutException {
       return SafePickResult.error('Image picker timed out. Please try again.');
-    } catch (_) {
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (_isCancelMessage(msg)) {
+        return SafePickResult.cancelled();
+      }
       return SafePickResult.error(
         'Could not open image picker. Please restart the app and try again.',
       );
