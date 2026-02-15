@@ -327,7 +327,7 @@ class _AdminMarketplaceUploadScreenState
                       decoration: const InputDecoration(
                         labelText: 'Price',
                         prefixIcon: Icon(Icons.payments_outlined),
-                        hintText: 'e.g. ₦12,499 or \\$19.99',
+                        hintText: 'e.g. ₦12,499 or \$19.99',
                       ),
                       validator: (v) => _requireText(v, label: 'Price'),
                     ),
@@ -372,8 +372,7 @@ class _AdminMarketplaceUploadScreenState
                         prefixIcon: Icon(Icons.link),
                         hintText: 'https://...',
                       ),
-                      validator: (v) =>
-                          _requireText(v, label: 'Affiliate link'),
+                      validator: (v) => _requireText(v, label: 'Affiliate link'),
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
@@ -386,8 +385,7 @@ class _AdminMarketplaceUploadScreenState
                         labelText: 'Description',
                         prefixIcon: Icon(Icons.notes_outlined),
                       ),
-                      validator: (v) =>
-                          _requireText(v, label: 'Description'),
+                      validator: (v) => _requireText(v, label: 'Description'),
                     ),
                     const SizedBox(height: 14),
                     SizedBox(
