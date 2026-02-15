@@ -35,10 +35,25 @@ class ProductDetailsScreen extends StatelessWidget {
     );
   }
 
+  Uri? _parseAffiliateUri(String raw) {
+    final s = raw.trim();
+    if (s.isEmpty) return null;
+
+    // Try normal parse first.
+    final direct = Uri.tryParse(s);
+    if (direct != null && direct.hasScheme) return direct;
+
+    // If the URL contains spaces or other characters, try encoding.
+    final encoded = Uri.tryParse(Uri.encodeFull(s));
+    if (encoded != null && encoded.hasScheme) return encoded;
+
+    return null;
+  }
+
   Future<void> _buyNow(BuildContext context, MarketplaceProduct p) async {
     final affiliate = p.affiliateUrl.trim();
     if (!_looksLikeHttpUrl(affiliate)) {
-      _snack(context, 'Invalid affiliate link.');
+      _snack(context, 'Invalid affiliate link (must start with http/https).');
       return;
     }
 
@@ -69,18 +84,15 @@ class ProductDetailsScreen extends StatelessWidget {
 
     if (confirm != true) return;
 
-    final uri = Uri.tryParse(affiliate);
+    final uri = _parseAffiliateUri(affiliate);
     if (uri == null) {
       _snack(context, 'Invalid link URL.');
       return;
     }
 
-    final ok = await canLaunchUrl(uri);
-    if (!ok) {
-      _snack(context, 'Could not open partner store.');
-      return;
-    }
-
+    // IMPORTANT:
+    // Do not block on canLaunchUrl() (it can be false on some Android devices due
+    // to package visibility) — just attempt to launch externally.
     try {
       final launched = await launchUrl(
         uri,

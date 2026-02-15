@@ -18,14 +18,25 @@ class MarketplaceRepository {
     Query<Map<String, dynamic>> q = _col;
 
     final cat = (category ?? '').trim();
-    if (cat.isNotEmpty && cat.toLowerCase() != 'all') {
-      q = q.where('category', isEqualTo: cat);
+    final hasCategory = cat.isNotEmpty && cat.toLowerCase() != 'all';
+
+    if (hasCategory) {
+      // IMPORTANT:
+      // Avoid requiring a composite index for (category == X) + orderBy(createdAt).
+      // We'll fetch by category only and sort client-side by createdAt.
+      q = q.where('category', isEqualTo: cat).limit(limit);
+    } else {
+      // For "All", we can safely order by createdAt using the default single-field index.
+      q = q.orderBy('createdAt', descending: true).limit(limit);
     }
 
-    q = q.orderBy('createdAt', descending: true).limit(limit);
-
     return q.snapshots().map((snap) {
-      return snap.docs.map(MarketplaceProduct.fromFirestore).toList();
+      final list = snap.docs.map(MarketplaceProduct.fromFirestore).toList();
+
+      // Keep UI consistent: always show newest first.
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      return list;
     });
   }
 
@@ -65,8 +76,7 @@ class MarketplaceRepository {
       createdBy: createdBy.trim(),
     );
 
-    // NOTE: Firestore rules require `createdAt` to be a `timestamp` in the request.
-    // Using FieldValue.serverTimestamp() would not satisfy `is timestamp` checks.
+    // Firestore rules require `createdAt` to be a `timestamp` value (not serverTimestamp).
     await doc.set(<String, dynamic>{
       'productId': product.productId,
       'name': product.name,
