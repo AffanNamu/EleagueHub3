@@ -164,8 +164,6 @@ service cloud.firestore {
             && (request.resource.data.isPremium is bool)
           )
           ||
-          // Cloudinary URLs (profile/team image) update:
-          // Allows changing ONLY these fields (+ optional updatedAt) by the owner of the user doc.
           (
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'photoUrl',
@@ -173,9 +171,10 @@ service cloud.firestore {
               'teamImageUrl',
               'updatedAt'
             ])
-            && (!('photoUrl' in request.resource.data) || ((request.resource.data.photoUrl is string) && (request.resource.data.photoUrl.size() <= 2000)))
-            && (!('profileImageUrl' in request.resource.data) || ((request.resource.data.profileImageUrl is string) && (request.resource.data.profileImageUrl.size() <= 2000)))
-            && (!('teamImageUrl' in request.resource.data) || ((request.resource.data.teamImageUrl is string) && (request.resource.data.teamImageUrl.size() <= 2000)))
+            && (!('photoUrl' in request.resource.data) || (request.resource.data.photoUrl is string))
+            && (!('profileImageUrl' in request.resource.data) || (request.resource.data.profileImageUrl is string))
+            && (!('teamImageUrl' in request.resource.data) || (request.resource.data.teamImageUrl is string))
+            && (request.resource.data.updatedAt is int)
           )
         );
 
@@ -498,6 +497,39 @@ service cloud.firestore {
 
         allow update, delete: if false;
       }
+    }
+
+    match /marketplace_products/{productId} {
+      allow get, list: if signedIn();
+
+      allow create: if signedIn()
+        && request.auth.uid == 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'
+        && (request.resource.data.createdBy is string)
+        && (request.resource.data.createdBy == request.auth.uid)
+        && request.resource.data.keys().hasAll([
+          'productId',
+          'name',
+          'price',
+          'description',
+          'imageUrl',
+          'affiliateUrl',
+          'category',
+          'sellerName',
+          'createdAt',
+          'createdBy'
+        ])
+        && (request.resource.data.productId is string)
+        && (request.resource.data.productId == productId)
+        && (request.resource.data.name is string)
+        && (request.resource.data.price is string)
+        && (request.resource.data.description is string)
+        && (request.resource.data.imageUrl is string)
+        && (request.resource.data.affiliateUrl is string)
+        && (request.resource.data.category is string)
+        && (request.resource.data.sellerName is string)
+        && (request.resource.data.createdAt is timestamp);
+
+      allow update, delete: if false;
     }
 
     match /app/{docId} {

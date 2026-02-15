@@ -25,6 +25,7 @@ import '../../auth/data/auth_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../leagues/logic/coupon_config_service.dart';
+import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -35,6 +36,8 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   static const int _maxBytes = 5 * 1024 * 1024;
+
+  static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
   bool _uploadingAvatar = false;
 
@@ -799,6 +802,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid ?? '';
 
+    final isSuperAdmin = uid.trim() == _superAdminUid;
+
     if (uid.trim().isNotEmpty) {
       AppAdminsService.instance.ensureStarted();
     }
@@ -1273,58 +1278,95 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
           const SizedBox(height: 22),
 
-          if (isPricingAdmin) ...[
+          if (isPricingAdmin || isSuperAdmin) ...[
             SectionHeader('Admin'),
             const SizedBox(height: 12),
-            Glass(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Icon(Icons.admin_panel_settings,
-                      color: theme.colorScheme.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Pricing Admin',
-                      style: t.bodyMedium?.copyWith(
-                        color: onSurface,
-                        fontWeight: FontWeight.w900,
+
+            if (isSuperAdmin) ...[
+              Glass(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Icon(Icons.store_mall_directory_outlined,
+                        color: theme.colorScheme.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Marketplace Upload',
+                        style: t.bodyMedium?.copyWith(
+                          color: onSurface,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
-                  ),
-                  FilledButton(
-                    onPressed: () => GoRouter.of(context)
-                        .push('/admin/pricing'),
-                    child: const Text('Open'),
-                  ),
-                ],
+                    FilledButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                const AdminMarketplaceUploadScreen(),
+                          ),
+                        );
+                      },
+                      child: const Text('Open'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Glass(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Icon(Icons.group_add,
-                      color: theme.colorScheme.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Manage pricing admins',
-                      style: t.bodyMedium?.copyWith(
-                        color: onSurface,
-                        fontWeight: FontWeight.w900,
+              const SizedBox(height: 10),
+            ],
+
+            if (isPricingAdmin) ...[
+              Glass(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Icon(Icons.admin_panel_settings,
+                        color: theme.colorScheme.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Pricing Admin',
+                        style: t.bodyMedium?.copyWith(
+                          color: onSurface,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
-                  ),
-                  FilledButton(
-                    onPressed: () => GoRouter.of(context)
-                        .push('/admin/pricing-admins'),
-                    child: const Text('Open'),
-                  ),
-                ],
+                    FilledButton(
+                      onPressed: () => GoRouter.of(context)
+                          .push('/admin/pricing'),
+                      child: const Text('Open'),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              const SizedBox(height: 10),
+              Glass(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Icon(Icons.group_add,
+                        color: theme.colorScheme.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Manage pricing admins',
+                        style: t.bodyMedium?.copyWith(
+                          color: onSurface,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    FilledButton(
+                      onPressed: () => GoRouter.of(context)
+                          .push('/admin/pricing-admins'),
+                      child: const Text('Open'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
 
           const SizedBox(height: 32),

@@ -36,6 +36,11 @@ dependencies:
   share_plus: ^10.1.0
   file_picker: ^8.1.2
   image_picker: ^1.1.2
+  cached_network_image: ^3.4.1
+  url_launcher: ^6.3.1
+
+  # Cloudinary (unsigned upload preset)
+  cloudinary_public: ^0.23.1
 
   http: ^1.2.2
 
