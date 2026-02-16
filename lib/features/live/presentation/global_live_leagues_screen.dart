@@ -16,6 +16,25 @@ import '../../leagues/logic/global_public_league_join_service.dart';
 import '../../leagues/logic/global_public_leagues_providers.dart';
 import '../../leagues/utils/current_user.dart';
 
+/// Safely read organizerName from a GlobalPublicLeague or its league.
+/// Falls back to 'Organizer' if the field doesn't exist on either object.
+String _safeOrganizerName(GlobalPublicLeague item) {
+  // Try item.organizerName first (GlobalPublicLeague may have it)
+  try {
+    final dyn = item as dynamic;
+    final v = (dyn.organizerName as String?) ?? '';
+    if (v.trim().isNotEmpty) return v.trim();
+  } catch (_) {}
+  // Try item.league.organizerName
+  try {
+    final dyn = item.league as dynamic;
+    final v = (dyn.organizerName as String?) ?? '';
+    if (v.trim().isNotEmpty) return v.trim();
+  } catch (_) {}
+  // Fallback
+  return 'Organizer';
+}
+
 class GlobalLiveLeaguesScreen extends ConsumerStatefulWidget {
   const GlobalLiveLeaguesScreen({super.key});
 
@@ -694,6 +713,8 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
 
     final isLive = !item.isFinished && !item.isFullComputed;
 
+    final organizerDisplay = _safeOrganizerName(item);
+
     return AnimatedBuilder(
       listenable: _scale,
       builder: (context, child) => Transform.scale(
@@ -744,9 +765,7 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
-                                item.league.organizerName.isNotEmpty
-                                    ? item.league.organizerName
-                                    : 'Organizer',
+                                organizerDisplay,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
