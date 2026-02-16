@@ -7,7 +7,7 @@ import '../../../../core/widgets/glass.dart';
 
 /// Result of resolving a roster row to an internal Firebase uid + team name.
 class ResolvedRosterProfile {
-  final String userId; // internal Firebase uid
+  final String userId;
   final String teamName;
 
   const ResolvedRosterProfile({
@@ -19,36 +19,17 @@ class ResolvedRosterProfile {
 /// Validation status per CSV row.
 enum RosterRowStatus {
   pending,
-
-  /// Verified by looking up the user profile (uid/shareId -> uid) online.
   ok,
-
-  /// Accepted from CSV (not verified).
-  ///
-  /// This is used when:
-  /// - userId looks like a Firebase uid (not eS...), AND
-  /// - CSV contains teamName, AND
-  /// - we couldn't verify (offline / profile missing / error).
   okCsv,
-
   notFound,
-
-  /// Could not verify due to network / permissions / transient errors.
   offline,
 }
 
 /// One CSV row for roster import.
-///
-/// `input` can be either:
-/// - Firebase uid
-/// - short ShareId (eSxxxxxx)
-///
-/// `group` is optional and only used for UCL Group leagues.
 class RosterCsvRow {
   final String input;
   final String? teamNameFromCsv;
   final String? group;
-
   final ResolvedRosterProfile? resolved;
   final RosterRowStatus status;
 
@@ -81,15 +62,6 @@ typedef ResolveRosterProfile = Future<ResolvedRosterProfile?> Function(String us
 
 bool _looksLikeShareId(String input) => input.trim().startsWith('eS');
 
-/// Opens a "Pick CSV -> Preview -> Validate -> Add valid to preview" flow.
-///
-/// This is designed to be called from AddTeamsScreen.
-///
-/// Key behavior:
-/// - Validation is resilient: one failed lookup does NOT fail the whole sheet.
-/// - Rows failing due to network/permission errors are marked as OFFLINE (not crashing).
-/// - If CSV contains teamName and the ID is a uid (not eS...), we can accept it as OK (CSV)
-///   even when offline.
 Future<void> showRosterCsvImportFlow({
   required BuildContext context,
   required bool isGroupLeague,
@@ -98,8 +70,7 @@ Future<void> showRosterCsvImportFlow({
   required Future<void> Function(
     ResolvedRosterProfile resolved, {
     String? groupOverride,
-  })
-      onAddResolved,
+  }) onAddResolved,
   required int currentTeamCount,
   required int maxTeams,
 }) async {
@@ -171,8 +142,7 @@ Future<void> _showImportPreviewSheet({
   required Future<void> Function(
     ResolvedRosterProfile resolved, {
     String? groupOverride,
-  })
-      onAddResolved,
+  }) onAddResolved,
   required int currentTeamCount,
   required int maxTeams,
 }) async {
@@ -183,8 +153,6 @@ Future<void> _showImportPreviewSheet({
   Future<RosterCsvRow> validateOne(RosterCsvRow r) async {
     final input = r.input.trim();
     final csvName = r.teamNameFromCsv?.trim();
-
-    // If it's a shareId (eS...), we must verify online because we can't map to uid offline.
     final canFallbackToCsv = !_looksLikeShareId(input) && (csvName != null && csvName.isNotEmpty);
 
     try {
@@ -192,14 +160,12 @@ Future<void> _showImportPreviewSheet({
       if (resolved != null) {
         return r.copyWith(resolved: resolved, status: RosterRowStatus.ok);
       }
-
       if (canFallbackToCsv) {
         return r.copyWith(
           resolved: ResolvedRosterProfile(userId: input, teamName: csvName),
           status: RosterRowStatus.okCsv,
         );
       }
-
       return r.copyWith(resolved: null, status: RosterRowStatus.notFound);
     } catch (_) {
       if (canFallbackToCsv) {
@@ -218,12 +184,13 @@ Future<void> _showImportPreviewSheet({
     setModalState(() {
       validating = true;
       error = null;
-      stateRows = stateRows.map((r) => r.copyWith(status: RosterRowStatus.pending, resolved: null)).toList();
+      stateRows = stateRows
+          .map((r) => r.copyWith(status: RosterRowStatus.pending, resolved: null))
+          .toList();
     });
 
     try {
       final updated = await Future.wait(stateRows.map(validateOne).toList());
-
       if (!context.mounted) return;
       setModalState(() {
         stateRows = updated;
@@ -242,16 +209,14 @@ Future<void> _showImportPreviewSheet({
   Future<void> addValidAndClose(BuildContext ctx) async {
     final valid = stateRows
         .where((r) =>
-            (r.status == RosterRowStatus.ok || r.status == RosterRowStatus.okCsv) && r.resolved != null)
+            (r.status == RosterRowStatus.ok || r.status == RosterRowStatus.okCsv) &&
+            r.resolved != null)
         .toList();
 
     if (valid.isEmpty) return;
 
     for (final r in valid) {
-      await onAddResolved(
-        r.resolved!,
-        groupOverride: r.group,
-      );
+      await onAddResolved(r.resolved!, groupOverride: r.group);
     }
 
     if (ctx.mounted) Navigator.of(ctx).pop();
@@ -263,6 +228,8 @@ Future<void> _showImportPreviewSheet({
     isScrollControlled: true,
     builder: (ctx) {
       final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+      final theme = Theme.of(ctx);
+      final cs = theme.colorScheme;
 
       return SafeArea(
         child: Padding(
@@ -274,207 +241,315 @@ Future<void> _showImportPreviewSheet({
                 borderRadius: 28,
                 child: StatefulBuilder(
                   builder: (ctx, setModalState) {
-                    final okCount = stateRows.where((r) => r.status == RosterRowStatus.ok).length;
-                    final okCsvCount = stateRows.where((r) => r.status == RosterRowStatus.okCsv).length;
-                    final notFoundCount = stateRows.where((r) => r.status == RosterRowStatus.notFound).length;
-                    final offlineCount = stateRows.where((r) => r.status == RosterRowStatus.offline).length;
+                    final okCount =
+                        stateRows.where((r) => r.status == RosterRowStatus.ok).length;
+                    final okCsvCount =
+                        stateRows.where((r) => r.status == RosterRowStatus.okCsv).length;
+                    final notFoundCount =
+                        stateRows.where((r) => r.status == RosterRowStatus.notFound).length;
+                    final offlineCount =
+                        stateRows.where((r) => r.status == RosterRowStatus.offline).length;
+                    final totalValid = okCount + okCsvCount;
 
                     return Padding(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.all(16),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text(
-                            'Import roster from CSV',
-                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                          // ── Handle ──
+                          Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.25),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'File: $sourceLabel',
-                            style: const TextStyle(color: Colors.white70, fontSize: 11),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 10),
+
+                          // ── Header ──
                           Row(
                             children: [
-                              _MiniChip(label: 'Rows: ${stateRows.length}', color: Colors.white24),
-                              const SizedBox(width: 8),
-                              _MiniChip(label: 'OK: $okCount', color: Colors.cyanAccent.withOpacity(0.22)),
-                              const SizedBox(width: 8),
-                              _MiniChip(label: 'CSV OK: $okCsvCount', color: Colors.blueAccent.withOpacity(0.18)),
-                              const SizedBox(width: 8),
-                              _MiniChip(label: 'Not found: $notFoundCount', color: Colors.redAccent.withOpacity(0.18)),
-                              const SizedBox(width: 8),
-                              _MiniChip(label: 'Offline: $offlineCount', color: Colors.orangeAccent.withOpacity(0.18)),
-                              const Spacer(),
-                              Text(
-                                '$currentTeamCount / $maxTeams',
-                                style: const TextStyle(color: Colors.white70, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: FilledButton.icon(
-                                  onPressed: validating ? null : () => validateNow(setModalState),
-                                  icon: validating
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                        )
-                                      : const Icon(Icons.verified),
-                                  label: const Text('Validate'),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => Navigator.of(ctx).pop(),
-                                  icon: const Icon(Icons.close),
-                                  label: const Text('Close'),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.white70,
-                                    side: const BorderSide(color: Colors.white24),
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      cs.primary.withOpacity(0.30),
+                                      cs.primary.withOpacity(0.08),
+                                    ],
                                   ),
                                 ),
+                                child: Icon(Icons.upload_file_rounded, color: cs.primary, size: 22),
                               ),
-                            ],
-                          ),
-                          if (offlineCount > 0) ...[
-                            const SizedBox(height: 10),
-                            Glass(
-                              borderRadius: 18,
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Row(
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Icon(Icons.wifi_off, color: Colors.orangeAccent, size: 18),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        'Some rows could not be verified (offline or blocked). Reconnect and tap Validate again.',
-                                        style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 11, height: 1.25),
+                                    Text(
+                                      'Import Roster',
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 18,
+                                        letterSpacing: -0.3,
                                       ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      sourceLabel,
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.45),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ],
                                 ),
                               ),
+                              // Capacity badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.06),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                                ),
+                                child: Text(
+                                  '$currentTeamCount / $maxTeams',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.6),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // ── Status chips ──
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                _StatusChip(
+                                  icon: Icons.list_alt_rounded,
+                                  label: '${stateRows.length} Rows',
+                                  color: Colors.white.withOpacity(0.5),
+                                  bg: Colors.white.withOpacity(0.06),
+                                ),
+                                const SizedBox(width: 8),
+                                _StatusChip(
+                                  icon: Icons.verified_rounded,
+                                  label: '$okCount OK',
+                                  color: const Color(0xFF00E676),
+                                  bg: const Color(0xFF00E676).withOpacity(0.10),
+                                ),
+                                const SizedBox(width: 8),
+                                _StatusChip(
+                                  icon: Icons.cloud_off_rounded,
+                                  label: '$okCsvCount CSV',
+                                  color: Colors.blueAccent,
+                                  bg: Colors.blueAccent.withOpacity(0.10),
+                                ),
+                                const SizedBox(width: 8),
+                                if (notFoundCount > 0) ...[
+                                  _StatusChip(
+                                    icon: Icons.close_rounded,
+                                    label: '$notFoundCount Missing',
+                                    color: Colors.redAccent,
+                                    bg: Colors.redAccent.withOpacity(0.10),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                                if (offlineCount > 0)
+                                  _StatusChip(
+                                    icon: Icons.wifi_off_rounded,
+                                    label: '$offlineCount Offline',
+                                    color: Colors.orangeAccent,
+                                    bg: Colors.orangeAccent.withOpacity(0.10),
+                                  ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // ── Action buttons ──
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _GlassActionButton(
+                                  icon: validating
+                                      ? null
+                                      : Icons.verified_rounded,
+                                  isLoading: validating,
+                                  label: 'Validate',
+                                  color: cs.primary,
+                                  onPressed: validating ? null : () => validateNow(setModalState),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _GlassActionButton(
+                                  icon: Icons.close_rounded,
+                                  label: 'Close',
+                                  color: Colors.white.withOpacity(0.5),
+                                  outlined: true,
+                                  onPressed: () => Navigator.of(ctx).pop(),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // ── Offline warning ──
+                          if (offlineCount > 0) ...[
+                            const SizedBox(height: 12),
+                            Glass(
+                              borderRadius: 16,
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.orangeAccent.withOpacity(0.12),
+                                    ),
+                                    child: const Icon(Icons.wifi_off_rounded,
+                                        color: Colors.orangeAccent, size: 16),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Some rows could not be verified. Reconnect and tap Validate again.',
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.60),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
-                          const SizedBox(height: 10),
+
+                          const SizedBox(height: 12),
+
+                          // ── Row list ──
                           ConstrainedBox(
                             constraints: const BoxConstraints(maxHeight: 320),
                             child: ListView.separated(
                               shrinkWrap: true,
+                              physics: const BouncingScrollPhysics(),
                               itemCount: stateRows.length,
                               separatorBuilder: (_, __) => const SizedBox(height: 6),
                               itemBuilder: (context, index) {
                                 final r = stateRows[index];
-
-                                final isOk = r.status == RosterRowStatus.ok && r.resolved != null;
-                                final isOkCsv = r.status == RosterRowStatus.okCsv && r.resolved != null;
-                                final isPending = r.status == RosterRowStatus.pending;
-                                final isOffline = r.status == RosterRowStatus.offline;
-
-                                final icon = isOk
-                                    ? Icons.verified
-                                    : isOkCsv
-                                        ? Icons.cloud_off
-                                        : isPending
-                                            ? Icons.hourglass_empty
-                                            : isOffline
-                                                ? Icons.wifi_off
-                                                : Icons.close;
-
-                                final iconColor = isOk
-                                    ? Colors.cyanAccent
-                                    : isOkCsv
-                                        ? Colors.blueAccent
-                                        : isOffline
-                                            ? Colors.orangeAccent
-                                            : Colors.white54;
-
-                                final subtitle = isOk
-                                    ? r.resolved!.teamName
-                                    : isOkCsv
-                                        ? 'CSV OK: ${r.resolved!.teamName}'
-                                        : (isOffline
-                                            ? 'Offline (cannot verify)'
-                                            : 'No profile found');
-
-                                return Glass(
-                                  borderRadius: 16,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                    child: Row(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 14,
-                                          backgroundColor: isOk
-                                              ? Colors.cyanAccent.withOpacity(0.18)
-                                              : isOkCsv
-                                                  ? Colors.blueAccent.withOpacity(0.16)
-                                                  : isOffline
-                                                      ? Colors.orangeAccent.withOpacity(0.16)
-                                                      : Colors.white.withOpacity(0.08),
-                                          child: Icon(icon, size: 16, color: iconColor),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                r.input,
-                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                subtitle,
-                                                style: TextStyle(
-                                                  color: (isOk || isOkCsv) ? Colors.white70 : Colors.white38,
-                                                  fontSize: 11,
-                                                ),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        if (isGroupLeague)
-                                          Padding(
-                                            padding: const EdgeInsets.only(left: 8),
-                                            child: Text(
-                                              (r.group == null || r.group!.isEmpty) ? '—' : r.group!,
-                                              style: const TextStyle(color: Colors.white54, fontSize: 11),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
+                                return _RosterRowCard(
+                                  row: r,
+                                  isGroupLeague: isGroupLeague,
                                 );
                               },
                             ),
                           ),
+
+                          // ── Error ──
                           if (error != null) ...[
                             const SizedBox(height: 10),
-                            Text(
-                              error!,
-                              style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700),
-                              textAlign: TextAlign.center,
+                            Glass(
+                              borderRadius: 14,
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.error_outline_rounded,
+                                      color: Colors.redAccent, size: 18),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      error!,
+                                      style: const TextStyle(
+                                        color: Colors.redAccent,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
-                          const SizedBox(height: 12),
+
+                          const SizedBox(height: 14),
+
+                          // ── Add valid button ──
                           SizedBox(
                             width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: validating ? null : () => addValidAndClose(ctx),
-                              icon: const Icon(Icons.playlist_add_check),
-                              label: Text('Add valid${stateRows.isEmpty ? '' : ' (${okCount + okCsvCount})'} to preview'),
+                            height: 48,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: (validating || totalValid == 0)
+                                    ? null
+                                    : () => addValidAndClose(ctx),
+                                borderRadius: BorderRadius.circular(16),
+                                child: Ink(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    gradient: (validating || totalValid == 0)
+                                        ? null
+                                        : LinearGradient(
+                                            colors: [
+                                              cs.primary,
+                                              cs.primary.withOpacity(0.75),
+                                            ],
+                                          ),
+                                    color: (validating || totalValid == 0)
+                                        ? Colors.white.withOpacity(0.06)
+                                        : null,
+                                    border: Border.all(
+                                      color: (validating || totalValid == 0)
+                                          ? Colors.white.withOpacity(0.08)
+                                          : cs.primary.withOpacity(0.40),
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.playlist_add_check_rounded,
+                                          size: 20,
+                                          color: (validating || totalValid == 0)
+                                              ? Colors.white.withOpacity(0.3)
+                                              : Colors.white,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          'Add valid ($totalValid) to preview',
+                                          style: TextStyle(
+                                            color: (validating || totalValid == 0)
+                                                ? Colors.white.withOpacity(0.3)
+                                                : Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -491,6 +566,234 @@ Future<void> _showImportPreviewSheet({
   );
 }
 
+// ─────────────────────────────────────────────
+// Roster Row Card
+// ─────────────────────────────────────────────
+class _RosterRowCard extends StatelessWidget {
+  const _RosterRowCard({
+    required this.row,
+    required this.isGroupLeague,
+  });
+
+  final RosterCsvRow row;
+  final bool isGroupLeague;
+
+  @override
+  Widget build(BuildContext context) {
+    final isOk = row.status == RosterRowStatus.ok && row.resolved != null;
+    final isOkCsv = row.status == RosterRowStatus.okCsv && row.resolved != null;
+    final isPending = row.status == RosterRowStatus.pending;
+    final isOffline = row.status == RosterRowStatus.offline;
+
+    final IconData icon;
+    final Color iconColor;
+    final Color bgColor;
+    final String subtitle;
+
+    if (isOk) {
+      icon = Icons.verified_rounded;
+      iconColor = const Color(0xFF00E676);
+      bgColor = const Color(0xFF00E676).withOpacity(0.12);
+      subtitle = row.resolved!.teamName;
+    } else if (isOkCsv) {
+      icon = Icons.cloud_off_rounded;
+      iconColor = Colors.blueAccent;
+      bgColor = Colors.blueAccent.withOpacity(0.10);
+      subtitle = 'CSV OK: ${row.resolved!.teamName}';
+    } else if (isPending) {
+      icon = Icons.hourglass_empty_rounded;
+      iconColor = Colors.white.withOpacity(0.4);
+      bgColor = Colors.white.withOpacity(0.06);
+      subtitle = 'Pending validation';
+    } else if (isOffline) {
+      icon = Icons.wifi_off_rounded;
+      iconColor = Colors.orangeAccent;
+      bgColor = Colors.orangeAccent.withOpacity(0.10);
+      subtitle = 'Offline (cannot verify)';
+    } else {
+      icon = Icons.close_rounded;
+      iconColor = Colors.redAccent;
+      bgColor = Colors.redAccent.withOpacity(0.10);
+      subtitle = 'No profile found';
+    }
+
+    return Glass(
+      borderRadius: 16,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: bgColor,
+            ),
+            child: Icon(icon, size: 16, color: iconColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  row.input,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: (isOk || isOkCsv)
+                        ? Colors.white.withOpacity(0.55)
+                        : Colors.white.withOpacity(0.35),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          if (isGroupLeague)
+            Container(
+              margin: const EdgeInsets.only(left: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                (row.group == null || row.group!.isEmpty) ? '—' : row.group!,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.5),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Status Chip
+// ─────────────────────────────────────────────
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.bg,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Color bg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.20)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Glass Action Button
+// ─────────────────────────────────────────────
+class _GlassActionButton extends StatelessWidget {
+  const _GlassActionButton({
+    this.icon,
+    required this.label,
+    required this.color,
+    this.outlined = false,
+    this.isLoading = false,
+    this.onPressed,
+  });
+
+  final IconData? icon;
+  final String label;
+  final Color color;
+  final bool outlined;
+  final bool isLoading;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          height: 44,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: outlined ? Colors.transparent : color.withOpacity(0.12),
+            border: Border.all(color: color.withOpacity(outlined ? 0.30 : 0.20)),
+          ),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isLoading)
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                  )
+                else if (icon != null)
+                  Icon(icon, size: 18, color: color),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// CSV Parsing (unchanged logic)
+// ─────────────────────────────────────────────
 List<RosterCsvRow> _parseRosterCsv({
   required String csvText,
   required bool isGroupLeague,
@@ -511,26 +814,11 @@ List<RosterCsvRow> _parseRosterCsv({
     final lowered = first.map((e) => e.toLowerCase().replaceAll(' ', '')).toList();
 
     final idCandidates = <String>{
-      'userid',
-      'user_id',
-      'useridorshareid',
-      'useridor_shareid',
-      'user_id_or_share_id',
-      'useridorshare',
-      'shareid',
-      'share_id',
+      'userid', 'user_id', 'useridorshareid', 'useridor_shareid',
+      'user_id_or_share_id', 'useridorshare', 'shareid', 'share_id',
     };
-
-    final groupCandidates = <String>{
-      'group',
-      'groupid',
-      'group_id',
-    };
-
-    final teamNameCandidates = <String>{
-      'teamname',
-      'team_name',
-    };
+    final groupCandidates = <String>{'group', 'groupid', 'group_id'};
+    final teamNameCandidates = <String>{'teamname', 'team_name'};
 
     final foundId = lowered.indexWhere((c) => idCandidates.contains(c));
     if (foundId >= 0) {
@@ -637,33 +925,4 @@ List<String> _splitCsvLine(String line) {
 
   out.add(buf.toString());
   return out;
-}
-
-class _MiniChip extends StatelessWidget {
-  const _MiniChip({
-    required this.label,
-    required this.color,
-  });
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
 }

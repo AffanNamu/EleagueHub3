@@ -47,12 +47,10 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       if (uid.isEmpty) {
-        // Protected resources require auth; router should also guard, but keep this safe.
         if (mounted) context.go('/login');
         return;
       }
 
-      // Online-only: fail fast when offline with a friendly message.
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final doc = await _firestore
@@ -62,12 +60,11 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
           .timeout(const Duration(seconds: 15));
 
       if (!doc.exists) {
-        // Do not reveal existence; treat as restricted.
         if (!mounted) return;
         setState(() {
           _allowed = false;
           _loading = false;
-          _errorMessage = 'You don’t have access to this league.';
+          _errorMessage = 'You don\'t have access to this league.';
         });
         return;
       }
@@ -82,25 +79,21 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
       final organizerUid = (data['organizerUid'] ?? '').toString().trim();
       final ownerUid = (data['ownerUid'] ?? '').toString().trim();
 
-      // REQUIRED: allow if memberIds contains uid OR organizerUid == uid OR ownerUid == uid.
-      // Handle missing fields gracefully.
       final allowed = memberIds.contains(uid) || organizerUid == uid || ownerUid == uid;
 
       if (!mounted) return;
       setState(() {
         _allowed = allowed;
         _loading = false;
-        _errorMessage = allowed ? null : 'You don’t have access to this league.';
+        _errorMessage = allowed ? null : 'You don\'t have access to this league.';
       });
     } catch (e) {
       if (!mounted) return;
 
-      // Never show raw Firebase/technical errors.
       var msg = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
 
-      // This guard is league-specific; keep the UX clear.
-      if (msg == 'You don’t have permission to do that right now.') {
-        msg = 'You don’t have access to this league.';
+      if (msg == 'You don\'t have permission to do that right now.') {
+        msg = 'You don\'t have access to this league.';
       }
 
       setState(() {
@@ -120,11 +113,24 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
 
     if (_loading) {
       return Center(
-        child: CircularProgressIndicator(color: cs.primary),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: cs.primary),
+            const SizedBox(height: 16),
+            Text(
+              'Checking access...',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       );
     }
 
-    final message = (_errorMessage ?? 'You don’t have access to this league.').trim();
+    final message = (_errorMessage ?? 'You don\'t have access to this league.').trim();
 
     return Center(
       child: Padding(
@@ -132,52 +138,134 @@ class _LeagueAccessGuardState extends State<LeagueAccessGuard> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
           child: Glass(
-            borderRadius: 24,
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.lock_outline, color: cs.primary, size: 44),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Access restricted',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: cs.onSurface,
+            borderRadius: 26,
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Lock icon
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        cs.primary.withOpacity(0.25),
+                        cs.primary.withOpacity(0.08),
+                      ],
                     ),
-                    textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    message,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurface.withOpacity(0.70),
-                      fontWeight: FontWeight.w600,
-                      height: 1.35,
-                    ),
-                    textAlign: TextAlign.center,
+                  child: Icon(Icons.lock_outline_rounded, color: cs.primary, size: 30),
+                ),
+                const SizedBox(height: 18),
+
+                Text(
+                  'Access Restricted',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                    letterSpacing: -0.3,
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => context.pop(),
-                          child: const Text('Back'),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+
+                Text(
+                  message,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.55),
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                    fontSize: 14,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+
+                // Action buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => context.pop(),
+                          borderRadius: BorderRadius.circular(14),
+                          child: Ink(
+                            height: 46,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white.withOpacity(0.15)),
+                              color: Colors.white.withOpacity(0.05),
+                            ),
+                            child: Center(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.arrow_back_ios_new_rounded,
+                                      size: 16, color: Colors.white.withOpacity(0.7)),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Back',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.7),
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: _checkAccess,
-                          child: const Text('Retry'),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _checkAccess,
+                          borderRadius: BorderRadius.circular(14),
+                          child: Ink(
+                            height: 46,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              gradient: LinearGradient(
+                                colors: [
+                                  cs.primary,
+                                  cs.primary.withOpacity(0.75),
+                                ],
+                              ),
+                              border: Border.all(color: cs.primary.withOpacity(0.40)),
+                            ),
+                            child: const Center(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Retry',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
