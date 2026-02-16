@@ -26,1464 +26,1450 @@ import '../models/league_announcement.dart';
 import '../models/league_format.dart';
 
 class LeaguesListScreen extends ConsumerStatefulWidget {
-const LeaguesListScreen({super.key});
-@override
-ConsumerState<LeaguesListScreen> createState() => _LeaguesListScreenState();
+  const LeaguesListScreen({super.key});
+  @override
+  ConsumerState<LeaguesListScreen> createState() => _LeaguesListScreenState();
 }
 
 class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
-with AutomaticKeepAliveClientMixin {
-static const Color _premiumAmber = Color(0xFFF59E0B);
+    with AutomaticKeepAliveClientMixin {
+  static const Color _premiumAmber = Color(0xFFF59E0B);
 
-late LocalLeaguesRepository _repo;
-final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  late LocalLeaguesRepository _repo;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-List<League> _leagues = [];
-Map<String, int> _participantCounts = {};
-Map<String, LeagueAnnouncement?> _latestAnnouncements = {};
-Map<String, bool> _viewerChargesPaid = {};
-Map<String, bool> _viewerIsParticipantByLeagueId = {};
-String _effectiveUserId = '';
-bool _isLoading = true;
-bool _loadingAnnouncements = false;
-String? _payingLeagueId;
+  List<League> _leagues = [];
+  Map<String, int> _participantCounts = {};
+  Map<String, LeagueAnnouncement?> _latestAnnouncements = {};
+  Map<String, bool> _viewerChargesPaid = {};
+  Map<String, bool> _viewerIsParticipantByLeagueId = {};
+  String _effectiveUserId = '';
+  bool _isLoading = true;
+  bool _loadingAnnouncements = false;
+  String? _payingLeagueId;
 
-@override
-bool get wantKeepAlive => true;
+  @override
+  bool get wantKeepAlive => true;
 
-String _authUidOrEmpty() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  String _authUidOrEmpty() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
-bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
 
-bool _isOwnerForViewer(League league, String viewerUid) {
-final v = viewerUid.trim();
-if (v.isEmpty) return false;
-final orgUid = league.organizerUid.trim();
-if (orgUid.isNotEmpty) return orgUid == v;
-final legacy = league.organizerUserId.trim();
-return legacy.isNotEmpty && legacy == v && _looksLikeFirebaseUid(legacy);
-}
-
-void _snack(String message) {
-if (!mounted) return;
-ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-);
-}
-
-@override
-void initState() {
-super.initState();
-_repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
-// ignore: discarded_futures
-_loadLeagues(showSpinner: true);
-}
-
-Future<void> _loadLeagues({required bool showSpinner}) async {
-if (showSpinner) {
-if (!mounted) return;
-setState(() => _isLoading = true);
-}
-try {
-  final effectiveUserId = _authUidOrEmpty();
-  if (effectiveUserId.isEmpty) {
-    throw FirebaseAuthException(code: 'unauthenticated');
+  bool _isOwnerForViewer(League league, String viewerUid) {
+    final v = viewerUid.trim();
+    if (v.isEmpty) return false;
+    final orgUid = league.organizerUid.trim();
+    if (orgUid.isNotEmpty) return orgUid == v;
+    final legacy = league.organizerUserId.trim();
+    return legacy.isNotEmpty && legacy == v && _looksLikeFirebaseUid(legacy);
   }
 
-  final leagues = await _repo.listLeagues().timeout(const Duration(seconds: 20));
-  final memberships = await _repo.listMemberships().timeout(const Duration(seconds: 25));
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
 
-  final Map<String, int> counts = {};
-  final Map<String, bool> viewerIsParticipant = {};
-  final Map<String, bool> viewerPaid = {};
+  @override
+  void initState() {
+    super.initState();
+    _repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+    // ignore: discarded_futures
+    _loadLeagues(showSpinner: true);
+  }
 
-  await Future.wait(
-    leagues.map((league) async {
-      final teams = await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
-      final orphanMembersCount = memberships
-          .where((m) =>
-              m.leagueId == league.id && m.role == LeagueRole.member && m.teamId == null)
-          .length;
-      counts[league.id] = teams.length + orphanMembersCount;
+  Future<void> _loadLeagues({required bool showSpinner}) async {
+    if (showSpinner) {
+      if (!mounted) return;
+      setState(() => _isLoading = true);
+    }
+    try {
+      final effectiveUserId = _authUidOrEmpty();
+      if (effectiveUserId.isEmpty) {
+        throw FirebaseAuthException(code: 'unauthenticated');
+      }
 
-      viewerIsParticipant[league.id] = memberships.any(
-        (m) =>
-            m.leagueId == league.id &&
-            m.userId == effectiveUserId &&
-            (m.role == LeagueRole.member || m.role == LeagueRole.organizer),
+      final leagues = await _repo.listLeagues().timeout(const Duration(seconds: 20));
+      final memberships = await _repo.listMemberships().timeout(const Duration(seconds: 25));
+
+      final Map<String, int> counts = {};
+      final Map<String, bool> viewerIsParticipant = {};
+      final Map<String, bool> viewerPaid = {};
+
+      await Future.wait(
+        leagues.map((league) async {
+          final teams = await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
+          final orphanMembersCount = memberships
+              .where((m) =>
+                  m.leagueId == league.id && m.role == LeagueRole.member && m.teamId == null)
+              .length;
+          counts[league.id] = teams.length + orphanMembersCount;
+
+          viewerIsParticipant[league.id] = memberships.any(
+            (m) =>
+                m.leagueId == league.id &&
+                m.userId == effectiveUserId &&
+                (m.role == LeagueRole.member || m.role == LeagueRole.organizer),
+          );
+
+          final requiresCharges =
+              league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+
+          if (!requiresCharges) {
+            viewerPaid[league.id] = true;
+          } else {
+            final isOwner = _isOwnerForViewer(league, effectiveUserId);
+            if (isOwner) {
+              viewerPaid[league.id] = true;
+            } else {
+              viewerPaid[league.id] = await _hasPaidChargesRemote(
+                userId: effectiveUserId,
+                leagueId: league.id,
+              ).timeout(const Duration(seconds: 10));
+            }
+          }
+        }),
       );
 
-      final requiresCharges =
-          league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+      if (!mounted) return;
+      setState(() {
+        _leagues = leagues;
+        _participantCounts = counts;
+        _viewerChargesPaid = viewerPaid;
+        _viewerIsParticipantByLeagueId = viewerIsParticipant;
+        _effectiveUserId = effectiveUserId;
+        _isLoading = false;
+      });
 
-      if (!requiresCharges) {
-        viewerPaid[league.id] = true;
-      } else {
-        final isOwner = _isOwnerForViewer(league, effectiveUserId);
-        if (isOwner) {
-          viewerPaid[league.id] = true;
-        } else {
-          viewerPaid[league.id] = await _hasPaidChargesRemote(
-            userId: effectiveUserId,
-            leagueId: league.id,
-          ).timeout(const Duration(seconds: 10));
-        }
-      }
-    }),
-  );
-
-  if (!mounted) return;
-  setState(() {
-    _leagues = leagues;
-    _participantCounts = counts;
-    _viewerChargesPaid = viewerPaid;
-    _viewerIsParticipantByLeagueId = viewerIsParticipant;
-    _effectiveUserId = effectiveUserId;
-    _isLoading = false;
-  });
-
-  unawaited(_loadLatestAnnouncements(leagues));
-} catch (e) {
-  if (!mounted) return;
-  setState(() => _isLoading = false);
-  _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-}
-}
-
-Future<void> _loadLatestAnnouncements(List<League> leagues) async {
-if (_loadingAnnouncements) return;
-_loadingAnnouncements = true;
-try {
-  final Map<String, LeagueAnnouncement?> latestAnns = {};
-  await Future.wait(leagues.map((league) async {
-    try {
-      final snap = await _firestore
-          .collection('leagues')
-          .doc(league.id)
-          .collection('announcements')
-          .orderBy('createdAtMs', descending: true)
-          .limit(1)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 6));
-      if (snap.docs.isEmpty) return;
-      final data = snap.docs.first.data();
-      latestAnns[league.id] = LeagueAnnouncement.fromMap(data);
-    } catch (_) {}
-  }));
-
-  if (!mounted) return;
-  setState(() => _latestAnnouncements = latestAnns);
-} finally {
-  _loadingAnnouncements = false;
-}
-try {
-  final Map<String, LeagueAnnouncement?> latestAnns = {};
-  await Future.wait(leagues.map((league) async {
-    try {
-      final snap = await _firestore
-          .collection('leagues')
-          .doc(league.id)
-          .collection('announcements')
-          .orderBy('createdAtMs', descending: true)
-          .limit(1)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 6));
-      if (snap.docs.isEmpty) return;
-      final data = snap.docs.first.data();
-      latestAnns[league.id] = LeagueAnnouncement.fromMap(data);
-    } catch (_) {}
-  }));
-
-  if (!mounted) return;
-  setState(() => _latestAnnouncements = latestAnns);
-} finally {
-  _loadingAnnouncements = false;
-}
-}
-
-Future<void> _refreshLeagues() async {
-await _loadLeagues(showSpinner: true);
-}
-
-Future<bool> _hasPaidChargesRemote({
-required String userId,
-required String leagueId,
-}) async {
-final uid = userId.trim();
-if (uid.isEmpty) return false;
-final doc = await _firestore
-.collection('users')
-.doc(uid)
-.collection('leagueCharges')
-.doc(leagueId)
-.get(const GetOptions(source: Source.server));
-if (!doc.exists) return false;
-final data = doc.data() ?? <String, dynamic>{};
-return data['paid'] == true;
-}
-
-Future<void> _storePaidChargesRemote({
-required String userId,
-required String leagueId,
-required Map<String, dynamic> payload,
-}) async {
-final uid = userId.trim();
-if (uid.isEmpty) return;
-await _firestore
-.collection('users')
-.doc(uid)
-.collection('leagueCharges')
-.doc(leagueId)
-.set(
-{
-'paid': true,
-'leagueId': leagueId,
-'userId': uid,
-'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-...payload,
-},
-SetOptions(merge: true),
-)
-.timeout(const Duration(seconds: 15));
-}
-Future<void> _payChargesForLeague(BuildContext context, League league) async {
-final l10n = context.l10n;
-if (_payingLeagueId == league.id) return;
-final authUid = _authUidOrEmpty();
-if (authUid.isEmpty) {
-  _snack('Please sign in and try again.');
-  return;
-}
-
-final requiresCharges =
-    league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
-if (!requiresCharges) return;
-
-if (_isOwnerForViewer(league, authUid)) {
-  _snack(l10n.tr('leagues_creator_unlocked'));
-  return;
-}
-
-final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
-if (alreadyPaid) {
-  setState(() => _viewerChargesPaid[league.id] = true);
-  return;
-}
-
-final confirm = await showDialog<bool>(
-  context: context,
-  builder: (ctx) {
-    final dialogCs = Theme.of(ctx).colorScheme;
-    return AlertDialog(
-      backgroundColor: dialogCs.surface,
-      title: Text(
-        l10n.tr('leagues_unlock_dialog_title'),
-        style: TextStyle(color: dialogCs.onSurface, fontWeight: FontWeight.w900),
-      ),
-      content: Text(
-        '${l10n.tr('leagues_unlock_dialog_content_prefix')}\n\n${league.name}',
-        style: TextStyle(
-          color: dialogCs.onSurface.withOpacity(0.72),
-          height: 1.35,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(false),
-          child: Text(l10n.tr('common_cancel')),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(ctx).pop(true),
-          child: Text(l10n.tr('common_pay')),
-        ),
-      ],
-    );
-  },
-);
-
-if (confirm != true) return;
-setState(() => _payingLeagueId = league.id);
-
-try {
-  final paymentService = ref.read(leagueChargesPaymentServiceProvider);
-  final result = await paymentService.payLeagueCharges(
-    context: context,
-    userId: authUid,
-    leagueId: league.id,
-    leagueName: league.name,
-  );
-
-  if (!mounted) return;
-  if (!result.success) {
-    setState(() => _payingLeagueId = null);
-    _snack(result.errorMessage?.trim().isNotEmpty == true
-        ? result.errorMessage!
-        : l10n.tr('leagues_payment_failed'));
-    return;
+      unawaited(_loadLatestAnnouncements(leagues));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
   }
 
-  await _storePaidChargesRemote(
-    userId: authUid,
-    leagueId: league.id,
-    payload: <String, dynamic>{
-      'receiptId': result.receiptId ?? '',
-      'provider': result.provider,
-      'paidAtMs': result.paidAtMs,
-    },
-  );
+  Future<void> _loadLatestAnnouncements(List<League> leagues) async {
+    if (_loadingAnnouncements) return;
+    _loadingAnnouncements = true;
+    try {
+      final Map<String, LeagueAnnouncement?> latestAnns = {};
+      await Future.wait(leagues.map((league) async {
+        try {
+          final snap = await _firestore
+              .collection('leagues')
+              .doc(league.id)
+              .collection('announcements')
+              .orderBy('createdAtMs', descending: true)
+              .limit(1)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 6));
+          if (snap.docs.isEmpty) return;
+          final data = snap.docs.first.data();
+          latestAnns[league.id] = LeagueAnnouncement.fromMap(data);
+        } catch (_) {}
+      }));
 
-  if (!mounted) return;
-  setState(() {
-    _payingLeagueId = null;
-    _viewerChargesPaid[league.id] = true;
-  });
-  _snack(l10n.tr('leagues_unlocked_success'));
-} catch (e) {
-  if (!mounted) return;
-  setState(() => _payingLeagueId = null);
-  _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-}
-}
+      if (!mounted) return;
+      setState(() => _latestAnnouncements = latestAnns);
+    } finally {
+      _loadingAnnouncements = false;
+    }
+  }
 
-@override
-Widget build(BuildContext context) {
-super.build(context);
-final l10n = context.l10n;
-final cs = Theme.of(context).colorScheme;
-final theme = Theme.of(context);
+  Future<void> _refreshLeagues() async {
+    await _loadLeagues(showSpinner: true);
+  }
 
-final media = MediaQuery.of(context);
-final screenWidth = media.size.width;
-final isTablet = screenWidth >= 600;
+  Future<bool> _hasPaidChargesRemote({
+    required String userId,
+    required String leagueId,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty) return false;
+    final doc = await _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('leagueCharges')
+        .doc(leagueId)
+        .get(const GetOptions(source: Source.server));
+    if (!doc.exists) return false;
+    final data = doc.data() ?? <String, dynamic>{};
+    return data['paid'] == true;
+  }
 
-final double fabBottomOffset = kBottomNavigationBarHeight + media.padding.bottom + 16;
+  Future<void> _storePaidChargesRemote({
+    required String userId,
+    required String leagueId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty) return;
+    await _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('leagueCharges')
+        .doc(leagueId)
+        .set(
+          {
+            'paid': true,
+            'leagueId': leagueId,
+            'userId': uid,
+            'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+            ...payload,
+          },
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 15));
+  }
 
-return GlassScaffold(
-  resizeToAvoidBottomInset: true,
-  appBar: AppBar(
-    title: const Text(''),
-    backgroundColor: Colors.transparent,
-    elevation: 0,
-    centerTitle: false,
-    actions: [
-      IconButton(
-        tooltip: l10n.tr('common_refresh'),
-        icon: const Icon(Icons.refresh_rounded),
-        onPressed: _refreshLeagues,
-      ),
-    ],
-  ),
-  floatingActionButton: Padding(
-    padding: EdgeInsets.only(bottom: fabBottomOffset),
-    child: FloatingActionButton(
-      onPressed: () => _showOptions(context),
-      backgroundColor: cs.primary,
-      foregroundColor: cs.onPrimary,
-      child: const Icon(Icons.add_rounded),
-    ),
-  ),
-  floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-  body: SafeArea(
-    child: Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: isTablet ? 900 : 600),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Header ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-              child: Glass(
-                borderRadius: 20,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            cs.primary.withOpacity(0.30),
-                            cs.primary.withOpacity(0.08),
-                          ],
-                        ),
-                      ),
-                      child: Icon(Icons.emoji_events_rounded, color: cs.primary, size: 22),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n.tr('leagues_my_leagues_title'),
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 18,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _isLoading
-                                ? 'Loading...'
-                                : '${_leagues.length} league${_leagues.length == 1 ? '' : 's'}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.45),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 4),
-            const GlassSearchBar(),
-            const SizedBox(height: 4),
-
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: _isLoading
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(color: cs.primary),
-                            const SizedBox(height: 14),
-                            Text(
-                              'Loading leagues...',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.45),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _leagues.isEmpty
-                        ? _buildEmptyState(context)
-                        : _buildLeagueList(context, _leagues, isTablet),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  ),
-);
-}
-
-String _buildCardSubtitle({
-required BuildContext context,
-required League league,
-required int registered,
-required LeagueAnnouncement? latestAnn,
-}) {
-final l10n = context.l10n;
-final pieces = <String>[
-'$registered / ${league.maxTeams} {l10n.tr('leagues_teams_word')}', ]; if (league.viewerCapacity > 0) { pieces.add('{league.viewerCapacity} Viewers');
-}
-final desc = league.description.trim();
-if (desc.isNotEmpty) pieces.add(desc);
-if (latestAnn != null && latestAnn.title.trim().isNotEmpty) {
-pieces.add(latestAnn.title.trim());
-}
-return pieces.join(' • ');
-}
-Widget _buildLeagueList(BuildContext context, List<League> leagues, bool isTablet) {
-final l10n = context.l10n;
-final cs = Theme.of(context).colorScheme;
-final viewerUid = _effectiveUserId.trim();
-final authUid = _authUidOrEmpty();
-
-final media = MediaQuery.of(context);
-final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
-
-final mainAxisExtent = isTablet ? 230.0 : 220.0;
-
-return GridView.builder(
-  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-  physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-  padding: EdgeInsetsDirectional.fromSTEB(16, 8, 16, bottomPadding),
-  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: isTablet ? 2 : 1,
-    mainAxisSpacing: 16,
-    crossAxisSpacing: 16,
-    mainAxisExtent: mainAxisExtent,
-  ),
-  itemCount: leagues.length,
-  itemBuilder: (context, index) {
-    final league = leagues[index];
-
-    final bool isOwner = _isOwnerForViewer(league, authUid.isNotEmpty ? authUid : viewerUid);
-    final bool viewerIsParticipant = _viewerIsParticipantByLeagueId[league.id] ?? false;
-    final bool viewerIsViewerOnly = !isOwner && !viewerIsParticipant;
+  Future<void> _payChargesForLeague(BuildContext context, League league) async {
+    final l10n = context.l10n;
+    if (_payingLeagueId == league.id) return;
+    final authUid = _authUidOrEmpty();
+    if (authUid.isEmpty) {
+      _snack('Please sign in and try again.');
+      return;
+    }
 
     final requiresCharges =
         league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
-    final paid = _viewerChargesPaid[league.id] ?? false;
-    final showLockedBadge = requiresCharges && !isOwner && !paid;
+    if (!requiresCharges) return;
 
-    final registered = _participantCounts[league.id] ?? 0;
-    final isFull = registered >= league.maxTeams;
+    if (_isOwnerForViewer(league, authUid)) {
+      _snack(l10n.tr('leagues_creator_unlocked'));
+      return;
+    }
 
-    final latestAnn = _latestAnnouncements[league.id];
+    final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
+    if (alreadyPaid) {
+      setState(() => _viewerChargesPaid[league.id] = true);
+      return;
+    }
 
-    final subtitle = _buildCardSubtitle(
+    final confirm = await showDialog<bool>(
       context: context,
-      league: league,
-      registered: registered,
-      latestAnn: latestAnn,
-    );
-
-    final payingThis = _payingLeagueId == league.id;
-
-    return Stack(
-      children: [
-        LeagueFlipCard(
-          leagueName: league.name,
-          leagueCode: league.code.isNotEmpty ? league.code : league.id.substring(0, 8),
-          distribution: "${l10n.tr(league.format.l10nKey)} • ${league.season}",
-          subtitle: subtitle,
-          onDoubleTap: () => context.push('/leagues/${league.id}'),
-          qrWidget: QrImageView(
-            data: league.qrPayload,
-            version: QrVersions.auto,
-            gapless: true,
-            eyeStyle: const QrEyeStyle(
-              eyeShape: QrEyeShape.square,
-              color: Colors.black,
-            ),
-            dataModuleStyle: const QrDataModuleStyle(
-              dataModuleShape: QrDataModuleShape.square,
-              color: Colors.black,
-            ),
+      builder: (ctx) {
+        final dialogCs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          backgroundColor: dialogCs.surface,
+          title: Text(
+            l10n.tr('leagues_unlock_dialog_title'),
+            style: TextStyle(color: dialogCs.onSurface, fontWeight: FontWeight.w900),
           ),
-        ),
-
-        // League image thumb
-        PositionedDirectional(
-          bottom: 14,
-          start: 14,
-          child: _LeagueImageThumb(imageUrl: league.leagueImageUrl),
-        ),
-
-        // Owner badge
-        if (isOwner)
-          PositionedDirectional(
-            top: 12,
-            end: 12,
-            child: _CardBadge(
-              label: l10n.tr('leagues_badge_owner'),
-              icon: Icons.admin_panel_settings_rounded,
-              color: cs.primary,
-              bg: cs.primary.withOpacity(0.18),
-              border: cs.primary.withOpacity(0.45),
-            ),
-          ),
-
-        // Viewer badge
-        if (viewerIsViewerOnly)
-          PositionedDirectional(
-            top: 12,
-            end: 12,
-            child: _CardBadge(
-              label: l10n.tr('leagues_badge_viewer'),
-              icon: Icons.visibility_rounded,
-              color: Colors.white.withOpacity(0.65),
-              bg: Colors.white.withOpacity(0.08),
-              border: Colors.white.withOpacity(0.15),
-            ),
-          ),
-
-        // Status badges (top-left)
-        PositionedDirectional(
-          top: 12,
-          start: 12,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (isFull)
-                _CardBadge(
-                  label: l10n.tr('leagues_badge_full'),
-                  icon: Icons.block_rounded,
-                  color: cs.error,
-                  bg: cs.error.withOpacity(0.14),
-                  border: cs.error.withOpacity(0.40),
-                ),
-              if (isFull && showLockedBadge) const SizedBox(height: 6),
-              if (showLockedBadge)
-                _CardBadge(
-                  label: l10n.tr('leagues_badge_locked'),
-                  icon: Icons.lock_outline_rounded,
-                  color: _premiumAmber,
-                  bg: _premiumAmber.withOpacity(0.14),
-                  border: _premiumAmber.withOpacity(0.40),
-                ),
-            ],
-          ),
-        ),
-
-        // Pay button
-        if (showLockedBadge)
-          PositionedDirectional(
-            bottom: 14,
-            end: 14,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: payingThis ? null : () => _payChargesForLeague(context, league),
-                borderRadius: BorderRadius.circular(20),
-                child: Ink(
-                  height: 32,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    gradient: LinearGradient(
-                      colors: [
-                        _premiumAmber,
-                        _premiumAmber.withOpacity(0.80),
-                      ],
-                    ),
-                  ),
-                  child: Center(
-                    child: payingThis
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                          )
-                        : Text(
-                            l10n.tr('leagues_pay_button'),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 11,
-                              color: Colors.black,
-                            ),
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  },
-);
-}
-
-Widget _buildEmptyState(BuildContext context) {
-final l10n = context.l10n;
-final theme = Theme.of(context);
-final cs = theme.colorScheme;
-final media = MediaQuery.of(context);
-final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
-
-return Center(
-  child: SingleChildScrollView(
-    physics: const BouncingScrollPhysics(),
-    padding: EdgeInsetsDirectional.fromSTEB(24, 24, 24, bottomPadding),
-    child: Glass(
-      borderRadius: 28,
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  cs.primary.withOpacity(0.25),
-                  cs.primary.withOpacity(0.08),
-                ],
-              ),
-            ),
-            child: Icon(Icons.emoji_events_rounded, size: 36, color: cs.primary),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            l10n.tr('leagues_empty_title'),
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-              fontSize: 20,
-              letterSpacing: -0.3,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            l10n.tr('leagues_empty_subtitle'),
-            textAlign: TextAlign.center,
+          content: Text(
+            '${l10n.tr('leagues_unlock_dialog_content_prefix')}\n\n${league.name}',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.50),
-              fontSize: 14,
-              height: 1.5,
+              color: dialogCs.onSurface.withOpacity(0.72),
+              height: 1.35,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 28),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () => _showOptions(context),
-                borderRadius: BorderRadius.circular(16),
-                child: Ink(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: LinearGradient(
-                      colors: [cs.primary, cs.primary.withOpacity(0.75)],
-                    ),
-                  ),
-                  child: Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.add_rounded, color: Colors.white, size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          l10n.tr('leagues_empty_cta'),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(l10n.tr('common_cancel')),
             ),
-          ),
-        ],
-      ),
-    ),
-  ),
-);
-}
-
-void _showOptions(BuildContext context) {
-final l10n = context.l10n;
-final theme = Theme.of(context);
-final cs = theme.colorScheme;
-final media = MediaQuery.of(context);
-showModalBottomSheet(
-  context: context,
-  backgroundColor: Colors.transparent,
-  isScrollControlled: true,
-  builder: (context) => Container(
-    padding: const EdgeInsets.all(16),
-    child: SafeArea(
-      minimum: EdgeInsets.only(bottom: media.padding.bottom + kBottomNavigationBarHeight),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 500),
-          child: Glass(
-            borderRadius: 28,
-            padding: const EdgeInsets.all(6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Handle
-                Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(top: 12, bottom: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.25),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  child: Text(
-                    l10n.tr('leagues_options_title'),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                _OptionTile(
-                  icon: Icons.add_rounded,
-                  iconBg: cs.primary,
-                  title: l10n.tr('leagues_options_create_title'),
-                  subtitle: l10n.tr('leagues_options_create_subtitle'),
-                  onTap: () async {
-                    context.pop();
-                    await context.push('/leagues/create');
-                    // ignore: discarded_futures
-                    _refreshLeagues();
-                  },
-                ),
-                Divider(
-                    color: Colors.white.withOpacity(0.06), height: 1, indent: 16, endIndent: 16),
-                _OptionTile(
-                  icon: Icons.qr_code_scanner_rounded,
-                  iconBg: Colors.teal,
-                  title: l10n.tr('leagues_options_join_qr_title'),
-                  subtitle: l10n.tr('leagues_options_join_qr_subtitle'),
-                  onTap: () async {
-                    context.pop();
-                    await context.push('/leagues/join-scanner');
-                    if (mounted) {
-                      // ignore: discarded_futures
-                      _refreshLeagues();
-                    }
-                  },
-                ),
-                Divider(
-                    color: Colors.white.withOpacity(0.06), height: 1, indent: 16, endIndent: 16),
-                _OptionTile(
-                  icon: Icons.key_rounded,
-                  iconBg: Colors.deepPurple,
-                  title: l10n.tr('leagues_options_join_id_title'),
-                  subtitle: l10n.tr('leagues_options_join_id_subtitle'),
-                  onTap: () async {
-                    context.pop();
-                    await _showJoinByIdSheet(context);
-                    if (mounted) {
-                      // ignore: discarded_futures
-                      _refreshLeagues();
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-              ],
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(l10n.tr('common_pay')),
             ),
-          ),
-        ),
-      ),
-    ),
-  ),
-);
-}
-
-Future<void> _showJoinByIdSheet(BuildContext context) async {
-final l10n = context.l10n;
-final authUid = _authUidOrEmpty();
-if (authUid.isEmpty) {
-  _snack('Please sign in and try again.');
-  return;
-}
-
-final controller = TextEditingController();
-LeagueJoinMode mode = LeagueJoinMode.participant;
-String? error;
-bool joining = false;
-
-final repo = _repo;
-
-Future<void> doJoin(StateSetter setModalState) async {
-  final code = controller.text.trim().toUpperCase();
-  if (code.isEmpty) {
-    setModalState(() => error = l10n.tr('leagues_join_id_required'));
-    return;
-  }
-
-  setModalState(() {
-    joining = true;
-    error = null;
-  });
-
-  try {
-    final league = await repo.joinLeagueLocallyByCode(
-      joinCode: code,
-      userId: authUid,
-      mode: mode,
-      placeholderBuilder: (generatedLeagueId) {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        return League(
-          id: generatedLeagueId,
-          name: l10n.tr('leagues_joined_league_placeholder_name'),
-          format: LeagueFormat.classic,
-          privacy: LeaguePrivacy.private,
-          region: l10n.tr('common_region_global'),
-          maxTeams: 20,
-          season: '2026',
-          organizerUid: '',
-          organizerUserId: '',
-          code: code,
-          qrPayloadOverride: '',
-          settings:
-              LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
-          updatedAtMs: now,
-          version: 1,
+          ],
         );
       },
     );
 
-    final Membership? membership =
-        await repo.getMembership(leagueId: league.id, userId: authUid);
-    final effectiveMode =
-        (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
+    if (confirm != true) return;
+    setState(() => _payingLeagueId = league.id);
 
-    if (!context.mounted) return;
-    Navigator.of(context).pop();
+    try {
+      final paymentService = ref.read(leagueChargesPaymentServiceProvider);
+      final result = await paymentService.payLeagueCharges(
+        context: context,
+        userId: authUid,
+        leagueId: league.id,
+        leagueName: league.name,
+      );
 
-    if (!context.mounted) return;
+      if (!mounted) return;
+      if (!result.success) {
+        setState(() => _payingLeagueId = null);
+        _snack(result.errorMessage?.trim().isNotEmpty == true
+            ? result.errorMessage!
+            : l10n.tr('leagues_payment_failed'));
+        return;
+      }
 
-    String message;
-    final bool adminAlreadyAdded =
-        membership != null && (membership.teamId?.trim().isNotEmpty == true);
+      await _storePaidChargesRemote(
+        userId: authUid,
+        leagueId: league.id,
+        payload: <String, dynamic>{
+          'receiptId': result.receiptId ?? '',
+          'provider': result.provider,
+          'paidAtMs': result.paidAtMs,
+        },
+      );
 
-    if (adminAlreadyAdded) {
-      message = (mode == LeagueJoinMode.viewer)
-          ? l10n.tr('leagues_join_snackbar_viewer_but_already_added')
-          : l10n.tr('leagues_join_snackbar_already_added');
-    } else if (membership != null) {
-      message = (mode == LeagueJoinMode.viewer)
-          ? l10n.tr('leagues_join_snackbar_viewer_but_already_registered')
-          : l10n.tr('leagues_join_snackbar_already_registered');
-    } else if (mode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
-      message = l10n.tr('leagues_join_snackbar_league_full_joined_viewer');
-    } else if (mode == LeagueJoinMode.viewer) {
-      message = l10n.tr('leagues_join_snackbar_joined_viewer');
-    } else {
-      message = l10n.tr('leagues_join_snackbar_joined_participant');
+      if (!mounted) return;
+      setState(() {
+        _payingLeagueId = null;
+        _viewerChargesPaid[league.id] = true;
+      });
+      _snack(l10n.tr('leagues_unlocked_success'));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _payingLeagueId = null);
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
-
-    _snack(message);
-  } catch (e) {
-    setModalState(() {
-      joining = false;
-      error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
-    });
   }
-}
 
-try {
-  await showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    isScrollControlled: true,
-    builder: (ctx) {
-      final theme = Theme.of(ctx);
-      final cs = theme.colorScheme;
-      final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
 
-      return SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Glass(
-                borderRadius: 28,
-                child: StatefulBuilder(
-                  builder: (ctx, setModalState) {
-                    return Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 4,
-                            margin: const EdgeInsets.only(bottom: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.25),
-                              borderRadius: BorderRadius.circular(2),
+    final media = MediaQuery.of(context);
+    final screenWidth = media.size.width;
+    final isTablet = screenWidth >= 600;
+
+    final double fabBottomOffset = kBottomNavigationBarHeight + media.padding.bottom + 16;
+
+    return GlassScaffold(
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        title: const Text(''),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: false,
+        actions: [
+          IconButton(
+            tooltip: l10n.tr('common_refresh'),
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _refreshLeagues,
+          ),
+        ],
+      ),
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: fabBottomOffset),
+        child: FloatingActionButton(
+          onPressed: () => _showOptions(context),
+          backgroundColor: cs.primary,
+          foregroundColor: cs.onPrimary,
+          child: const Icon(Icons.add_rounded),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isTablet ? 900 : 600),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Header ──
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: Glass(
+                    borderRadius: 20,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                cs.primary.withOpacity(0.30),
+                                cs.primary.withOpacity(0.08),
+                              ],
                             ),
                           ),
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  cs.primary.withOpacity(0.30),
-                                  cs.primary.withOpacity(0.08),
-                                ],
+                          child: Icon(Icons.emoji_events_rounded, color: cs.primary, size: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                l10n.tr('leagues_my_leagues_title'),
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 18,
+                                  letterSpacing: -0.3,
+                                ),
                               ),
-                            ),
-                            child: Icon(Icons.key_rounded, color: cs.primary, size: 24),
+                              const SizedBox(height: 2),
+                              Text(
+                                _isLoading
+                                    ? 'Loading...'
+                                    : '${_leagues.length} league${_leagues.length == 1 ? '' : 's'}',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.45),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            l10n.tr('leagues_join_sheet_title'),
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 18,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            l10n.tr('leagues_join_sheet_subtitle'),
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.50),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 16),
-                          TextField(
-                            controller: controller,
-                            autofocus: true,
-                            textCapitalization: TextCapitalization.characters,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                            decoration: InputDecoration(
-                              hintText: l10n.tr('leagues_join_hint'),
-                              prefixIcon: const Icon(Icons.key_rounded),
-                              errorText: error,
-                            ),
-                            onChanged: (_) {
-                              if (error != null) setModalState(() => error = null);
-                            },
-                          ),
-                          const SizedBox(height: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
 
-                          // Join mode selector
-                          Glass(
-                            borderRadius: 18,
-                            padding: const EdgeInsets.all(14),
+                const SizedBox(height: 4),
+                const GlassSearchBar(),
+                const SizedBox(height: 4),
+
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: _isLoading
+                        ? Center(
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
+                                CircularProgressIndicator(color: cs.primary),
+                                const SizedBox(height: 14),
                                 Text(
-                                  l10n.tr('leagues_join_as_title'),
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _ModeChip(
-                                        label: l10n.tr('leagues_join_participant'),
-                                        icon: Icons.sports_soccer_rounded,
-                                        selected: mode == LeagueJoinMode.participant,
-                                        onTap: joining
-                                            ? null
-                                            : () => setModalState(
-                                                () => mode = LeagueJoinMode.participant),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: _ModeChip(
-                                        label: l10n.tr('leagues_join_viewer_only'),
-                                        icon: Icons.visibility_rounded,
-                                        selected: mode == LeagueJoinMode.viewer,
-                                        onTap: joining
-                                            ? null
-                                            : () => setModalState(
-                                                () => mode = LeagueJoinMode.viewer),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  mode == LeagueJoinMode.viewer
-                                      ? l10n.tr('leagues_join_as_viewer_description')
-                                      : l10n.tr('leagues_join_as_participant_description'),
+                                  'Loading leagues...',
                                   style: TextStyle(
                                     color: Colors.white.withOpacity(0.45),
-                                    fontSize: 11,
-                                    height: 1.3,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap: joining ? null : () => Navigator.of(ctx).pop(),
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: Ink(
-                                      height: 46,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(14),
-                                        border: Border.all(
-                                            color: Colors.white.withOpacity(0.12)),
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          l10n.tr('common_cancel'),
-                                          style: TextStyle(
-                                            color: Colors.white.withOpacity(0.6),
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap: joining ? null : () => doJoin(setModalState),
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: Ink(
-                                      height: 46,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(14),
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            cs.primary,
-                                            cs.primary.withOpacity(0.75),
-                                          ],
-                                        ),
-                                      ),
-                                      child: Center(
-                                        child: joining
-                                            ? const SizedBox(
-                                                width: 18,
-                                                height: 18,
-                                                child: CircularProgressIndicator(
-                                                    strokeWidth: 2, color: Colors.white),
-                                              )
-                                            : Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  const Icon(Icons.login_rounded,
-                                                      size: 18, color: Colors.white),
-                                                  const SizedBox(width: 8),
-                                                  Text(
-                                                    l10n.tr('common_join'),
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontWeight: FontWeight.w800,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                          )
+                        : _leagues.isEmpty
+                            ? _buildEmptyState(context)
+                            : _buildLeagueList(context, _leagues, isTablet),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _buildCardSubtitle({
+    required BuildContext context,
+    required League league,
+    required int registered,
+    required LeagueAnnouncement? latestAnn,
+  }) {
+    final l10n = context.l10n;
+    final pieces = <String>[
+      '$registered / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}',
+    ];
+    if (league.viewerCapacity > 0) {
+      pieces.add('${league.viewerCapacity} Viewers');
+    }
+    final desc = league.description.trim();
+    if (desc.isNotEmpty) pieces.add(desc);
+    if (latestAnn != null && latestAnn.title.trim().isNotEmpty) {
+      pieces.add(latestAnn.title.trim());
+    }
+    return pieces.join(' • ');
+  }
+
+  Widget _buildLeagueList(BuildContext context, List<League> leagues, bool isTablet) {
+    final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
+    final viewerUid = _effectiveUserId.trim();
+    final authUid = _authUidOrEmpty();
+
+    final media = MediaQuery.of(context);
+    final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
+
+    final mainAxisExtent = isTablet ? 230.0 : 220.0;
+
+    return GridView.builder(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+      padding: EdgeInsetsDirectional.fromSTEB(16, 8, 16, bottomPadding),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: isTablet ? 2 : 1,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        mainAxisExtent: mainAxisExtent,
+      ),
+      itemCount: leagues.length,
+      itemBuilder: (context, index) {
+        final league = leagues[index];
+
+        final bool isOwner = _isOwnerForViewer(league, authUid.isNotEmpty ? authUid : viewerUid);
+        final bool viewerIsParticipant = _viewerIsParticipantByLeagueId[league.id] ?? false;
+        final bool viewerIsViewerOnly = !isOwner && !viewerIsParticipant;
+
+        final requiresCharges =
+            league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+        final paid = _viewerChargesPaid[league.id] ?? false;
+        final showLockedBadge = requiresCharges && !isOwner && !paid;
+
+        final registered = _participantCounts[league.id] ?? 0;
+        final isFull = registered >= league.maxTeams;
+
+        final latestAnn = _latestAnnouncements[league.id];
+
+        final subtitle = _buildCardSubtitle(
+          context: context,
+          league: league,
+          registered: registered,
+          latestAnn: latestAnn,
+        );
+
+        final payingThis = _payingLeagueId == league.id;
+
+        return Stack(
+          children: [
+            LeagueFlipCard(
+              leagueName: league.name,
+              leagueCode: league.code.isNotEmpty ? league.code : league.id.substring(0, 8),
+              distribution: "${l10n.tr(league.format.l10nKey)} • ${league.season}",
+              subtitle: subtitle,
+              onDoubleTap: () => context.push('/leagues/${league.id}'),
+              qrWidget: QrImageView(
+                data: league.qrPayload,
+                version: QrVersions.auto,
+                gapless: true,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Colors.black,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+
+            // League image thumb
+            PositionedDirectional(
+              bottom: 14,
+              start: 14,
+              child: _LeagueImageThumb(imageUrl: league.leagueImageUrl),
+            ),
+
+            // Owner badge
+            if (isOwner)
+              PositionedDirectional(
+                top: 12,
+                end: 12,
+                child: _CardBadge(
+                  label: l10n.tr('leagues_badge_owner'),
+                  icon: Icons.admin_panel_settings_rounded,
+                  color: cs.primary,
+                  bg: cs.primary.withOpacity(0.18),
+                  border: cs.primary.withOpacity(0.45),
+                ),
+              ),
+
+            // Viewer badge
+            if (viewerIsViewerOnly)
+              PositionedDirectional(
+                top: 12,
+                end: 12,
+                child: _CardBadge(
+                  label: l10n.tr('leagues_badge_viewer'),
+                  icon: Icons.visibility_rounded,
+                  color: Colors.white.withOpacity(0.65),
+                  bg: Colors.white.withOpacity(0.08),
+                  border: Colors.white.withOpacity(0.15),
+                ),
+              ),
+
+            // Status badges (top-left)
+            PositionedDirectional(
+              top: 12,
+              start: 12,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isFull)
+                    _CardBadge(
+                      label: l10n.tr('leagues_badge_full'),
+                      icon: Icons.block_rounded,
+                      color: cs.error,
+                      bg: cs.error.withOpacity(0.14),
+                      border: cs.error.withOpacity(0.40),
+                    ),
+                  if (isFull && showLockedBadge) const SizedBox(height: 6),
+                  if (showLockedBadge)
+                    _CardBadge(
+                      label: l10n.tr('leagues_badge_locked'),
+                      icon: Icons.lock_outline_rounded,
+                      color: _premiumAmber,
+                      bg: _premiumAmber.withOpacity(0.14),
+                      border: _premiumAmber.withOpacity(0.40),
+                    ),
+                ],
+              ),
+            ),
+
+            // Pay button
+            if (showLockedBadge)
+              PositionedDirectional(
+                bottom: 14,
+                end: 14,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: payingThis ? null : () => _payChargesForLeague(context, league),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Ink(
+                      height: 32,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        gradient: LinearGradient(
+                          colors: [
+                            _premiumAmber,
+                            _premiumAmber.withOpacity(0.80),
+                          ],
+                        ),
                       ),
-                    );
-                  },
+                      child: Center(
+                        child: payingThis
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                              )
+                            : Text(
+                                l10n.tr('leagues_pay_button'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 11,
+                                  color: Colors.black,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final media = MediaQuery.of(context);
+    final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
+
+    return Center(
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsetsDirectional.fromSTEB(24, 24, 24, bottomPadding),
+        child: Glass(
+          borderRadius: 28,
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      cs.primary.withOpacity(0.25),
+                      cs.primary.withOpacity(0.08),
+                    ],
+                  ),
+                ),
+                child: Icon(Icons.emoji_events_rounded, size: 36, color: cs.primary),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                l10n.tr('leagues_empty_title'),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 20,
+                  letterSpacing: -0.3,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                l10n.tr('leagues_empty_subtitle'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.50),
+                  fontSize: 14,
+                  height: 1.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => _showOptions(context),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        gradient: LinearGradient(
+                          colors: [cs.primary, cs.primary.withOpacity(0.75)],
+                        ),
+                      ),
+                      child: Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.add_rounded, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              l10n.tr('leagues_empty_cta'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showOptions(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final media = MediaQuery.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        child: SafeArea(
+          minimum: EdgeInsets.only(bottom: media.padding.bottom + kBottomNavigationBarHeight),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 500),
+              child: Glass(
+                borderRadius: 28,
+                padding: const EdgeInsets.all(6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Handle
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(top: 12, bottom: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Text(
+                        l10n.tr('leagues_options_title'),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    _OptionTile(
+                      icon: Icons.add_rounded,
+                      iconBg: cs.primary,
+                      title: l10n.tr('leagues_options_create_title'),
+                      subtitle: l10n.tr('leagues_options_create_subtitle'),
+                      onTap: () async {
+                        context.pop();
+                        await context.push('/leagues/create');
+                        // ignore: discarded_futures
+                        _refreshLeagues();
+                      },
+                    ),
+                    Divider(
+                        color: Colors.white.withOpacity(0.06), height: 1, indent: 16, endIndent: 16),
+                    _OptionTile(
+                      icon: Icons.qr_code_scanner_rounded,
+                      iconBg: Colors.teal,
+                      title: l10n.tr('leagues_options_join_qr_title'),
+                      subtitle: l10n.tr('leagues_options_join_qr_subtitle'),
+                      onTap: () async {
+                        context.pop();
+                        await context.push('/leagues/join-scanner');
+                        if (mounted) {
+                          // ignore: discarded_futures
+                          _refreshLeagues();
+                        }
+                      },
+                    ),
+                    Divider(
+                        color: Colors.white.withOpacity(0.06), height: 1, indent: 16, endIndent: 16),
+                    _OptionTile(
+                      icon: Icons.key_rounded,
+                      iconBg: Colors.deepPurple,
+                      title: l10n.tr('leagues_options_join_id_title'),
+                      subtitle: l10n.tr('leagues_options_join_id_subtitle'),
+                      onTap: () async {
+                        context.pop();
+                        await _showJoinByIdSheet(context);
+                        if (mounted) {
+                          // ignore: discarded_futures
+                          _refreshLeagues();
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                 ),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _showJoinByIdSheet(BuildContext context) async {
+    final l10n = context.l10n;
+    final authUid = _authUidOrEmpty();
+    if (authUid.isEmpty) {
+      _snack('Please sign in and try again.');
+      return;
+    }
+
+    final controller = TextEditingController();
+    LeagueJoinMode mode = LeagueJoinMode.participant;
+    String? error;
+    bool joining = false;
+
+    final repo = _repo;
+
+    Future<void> doJoin(StateSetter setModalState) async {
+      final code = controller.text.trim().toUpperCase();
+      if (code.isEmpty) {
+        setModalState(() => error = l10n.tr('leagues_join_id_required'));
+        return;
+      }
+
+      setModalState(() {
+        joining = true;
+        error = null;
+      });
+
+      try {
+        final league = await repo.joinLeagueLocallyByCode(
+          joinCode: code,
+          userId: authUid,
+          mode: mode,
+          placeholderBuilder: (generatedLeagueId) {
+            final now = DateTime.now().millisecondsSinceEpoch;
+            return League(
+              id: generatedLeagueId,
+              name: l10n.tr('leagues_joined_league_placeholder_name'),
+              format: LeagueFormat.classic,
+              privacy: LeaguePrivacy.private,
+              region: l10n.tr('common_region_global'),
+              maxTeams: 20,
+              season: '2026',
+              organizerUid: '',
+              organizerUserId: '',
+              code: code,
+              qrPayloadOverride: '',
+              settings:
+                  LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
+              updatedAtMs: now,
+              version: 1,
+            );
+          },
+        );
+
+        final Membership? membership =
+            await repo.getMembership(leagueId: league.id, userId: authUid);
+        final effectiveMode =
+            (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
+
+        if (!context.mounted) return;
+        Navigator.of(context).pop();
+
+        if (!context.mounted) return;
+
+        String message;
+        final bool adminAlreadyAdded =
+            membership != null && (membership.teamId?.trim().isNotEmpty == true);
+
+        if (adminAlreadyAdded) {
+          message = (mode == LeagueJoinMode.viewer)
+              ? l10n.tr('leagues_join_snackbar_viewer_but_already_added')
+              : l10n.tr('leagues_join_snackbar_already_added');
+        } else if (membership != null) {
+          message = (mode == LeagueJoinMode.viewer)
+              ? l10n.tr('leagues_join_snackbar_viewer_but_already_registered')
+              : l10n.tr('leagues_join_snackbar_already_registered');
+        } else if (mode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
+          message = l10n.tr('leagues_join_snackbar_league_full_joined_viewer');
+        } else if (mode == LeagueJoinMode.viewer) {
+          message = l10n.tr('leagues_join_snackbar_joined_viewer');
+        } else {
+          message = l10n.tr('leagues_join_snackbar_joined_participant');
+        }
+
+        _snack(message);
+      } catch (e) {
+        setModalState(() {
+          joining = false;
+          error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+        });
+      }
+    }
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (ctx) {
+          final theme = Theme.of(ctx);
+          final cs = theme.colorScheme;
+          final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Glass(
+                    borderRadius: 28,
+                    child: StatefulBuilder(
+                      builder: (ctx, setModalState) {
+                        return Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 4,
+                                margin: const EdgeInsets.only(bottom: 16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.25),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      cs.primary.withOpacity(0.30),
+                                      cs.primary.withOpacity(0.08),
+                                    ],
+                                  ),
+                                ),
+                                child: Icon(Icons.key_rounded, color: cs.primary, size: 24),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                l10n.tr('leagues_join_sheet_title'),
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 18,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                l10n.tr('leagues_join_sheet_subtitle'),
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.50),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 16),
+                              TextField(
+                                controller: controller,
+                                autofocus: true,
+                                textCapitalization: TextCapitalization.characters,
+                                style: const TextStyle(fontWeight: FontWeight.w800),
+                                decoration: InputDecoration(
+                                  hintText: l10n.tr('leagues_join_hint'),
+                                  prefixIcon: const Icon(Icons.key_rounded),
+                                  errorText: error,
+                                ),
+                                onChanged: (_) {
+                                  if (error != null) setModalState(() => error = null);
+                                },
+                              ),
+                              const SizedBox(height: 14),
+
+                              // Join mode selector
+                              Glass(
+                                borderRadius: 18,
+                                padding: const EdgeInsets.all(14),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      l10n.tr('leagues_join_as_title'),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: _ModeChip(
+                                            label: l10n.tr('leagues_join_participant'),
+                                            icon: Icons.sports_soccer_rounded,
+                                            selected: mode == LeagueJoinMode.participant,
+                                            onTap: joining
+                                                ? null
+                                                : () => setModalState(
+                                                    () => mode = LeagueJoinMode.participant),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: _ModeChip(
+                                            label: l10n.tr('leagues_join_viewer_only'),
+                                            icon: Icons.visibility_rounded,
+                                            selected: mode == LeagueJoinMode.viewer,
+                                            onTap: joining
+                                                ? null
+                                                : () => setModalState(
+                                                    () => mode = LeagueJoinMode.viewer),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      mode == LeagueJoinMode.viewer
+                                          ? l10n.tr('leagues_join_as_viewer_description')
+                                          : l10n.tr('leagues_join_as_participant_description'),
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.45),
+                                        fontSize: 11,
+                                        height: 1.3,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: joining ? null : () => Navigator.of(ctx).pop(),
+                                        borderRadius: BorderRadius.circular(14),
+                                        child: Ink(
+                                          height: 46,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(14),
+                                            border: Border.all(
+                                                color: Colors.white.withOpacity(0.12)),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              l10n.tr('common_cancel'),
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(0.6),
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: joining ? null : () => doJoin(setModalState),
+                                        borderRadius: BorderRadius.circular(14),
+                                        child: Ink(
+                                          height: 46,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(14),
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                cs.primary,
+                                                cs.primary.withOpacity(0.75),
+                                              ],
+                                            ),
+                                          ),
+                                          child: Center(
+                                            child: joining
+                                                ? const SizedBox(
+                                                    width: 18,
+                                                    height: 18,
+                                                    child: CircularProgressIndicator(
+                                                        strokeWidth: 2, color: Colors.white),
+                                                  )
+                                                : Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      const Icon(Icons.login_rounded,
+                                                          size: 18, color: Colors.white),
+                                                      const SizedBox(width: 8),
+                                                      Text(
+                                                        l10n.tr('common_join'),
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight: FontWeight.w800,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       );
-    },
-  );
-} finally {
-  controller.dispose();
-}
-}
+    } finally {
+      controller.dispose();
+    }
+  }
 }
 
 // ─────────────────────────────────────────────
 // Option tile for bottom sheet
 // ─────────────────────────────────────────────
 class _OptionTile extends StatelessWidget {
-const _OptionTile({
-required this.icon,
-required this.iconBg,
-required this.title,
-required this.subtitle,
-required this.onTap,
-});
+  const _OptionTile({
+    required this.icon,
+    required this.iconBg,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
 
-final IconData icon;
-final Color iconBg;
-final String title;
-final String subtitle;
-final VoidCallback onTap;
-@override
-Widget build(BuildContext context) {
-return InkWell(
-onTap: onTap,
-borderRadius: BorderRadius.circular(14),
-child: Padding(
-padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-child: Row(
-children: [
-Container(
-width: 42,
-height: 42,
-decoration: BoxDecoration(
-shape: BoxShape.circle,
-color: iconBg.withOpacity(0.15),
-),
-child: Icon(icon, color: iconBg, size: 20),
-),
-const SizedBox(width: 14),
-Expanded(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [Text(
-title,
-style: Theme.of(context).textTheme.titleSmall?.copyWith(
-fontWeight: FontWeight.w900,
-),
-),
-const SizedBox(height: 2),
-Text(
-subtitle,
-style: TextStyle(
-color: Colors.white.withOpacity(0.45),
-fontSize: 12,
-fontWeight: FontWeight.w600,
-),
-),
-],
-),
-),
-Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.25), size: 20),
-],
-),
-),
-);
-}
+  final IconData icon;
+  final Color iconBg;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: iconBg.withOpacity(0.15),
+              ),
+              child: Icon(icon, color: iconBg, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.45),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.25), size: 20),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
 // Mode chip for join sheet
 // ─────────────────────────────────────────────
 class _ModeChip extends StatelessWidget {
-const _ModeChip({
-required this.label,
-required this.icon,
-required this.selected,
-this.onTap,
-});
-final String label;
-final IconData icon;
-final bool selected;
-final VoidCallback? onTap;
+  const _ModeChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    this.onTap,
+  });
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback? onTap;
 
-@override
-Widget build(BuildContext context) {
-final cs = Theme.of(context).colorScheme;
-final color = selected ? cs.primary : Colors.white.withOpacity(0.5);
-return InkWell(
-  onTap: onTap,
-  borderRadius: BorderRadius.circular(12),
-  child: Container(
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    decoration: BoxDecoration(
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final color = selected ? cs.primary : Colors.white.withOpacity(0.5);
+    return InkWell(
+      onTap: onTap,
       borderRadius: BorderRadius.circular(12),
-      color: selected ? cs.primary.withOpacity(0.12) : Colors.white.withOpacity(0.04),
-      border: Border.all(
-        color: selected ? cs.primary.withOpacity(0.30) : Colors.white.withOpacity(0.08),
-      ),
-    ),
-    child: Column(
-      children: [
-        Icon(icon, size: 18, color: color),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: selected ? cs.primary.withOpacity(0.12) : Colors.white.withOpacity(0.04),
+          border: Border.all(
+            color: selected ? cs.primary.withOpacity(0.30) : Colors.white.withOpacity(0.08),
           ),
-          textAlign: TextAlign.center,
         ),
-      ],
-    ),
-  ),
-);
-}
+        child: Column(
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
 // League Image Thumb
 // ─────────────────────────────────────────────
 class _LeagueImageThumb extends StatelessWidget {
-const _LeagueImageThumb({required this.imageUrl});
+  const _LeagueImageThumb({required this.imageUrl});
 
-final String imageUrl;
+  final String imageUrl;
 
-Uint8List? tryDecodeDataUri(String raw) {
-final s = raw.trim();
-if (!s.startsWith('data:image')) return null;
-final idx = s.indexOf('base64,');
-if (idx < 0) return null;
-final b64 = s.substring(idx + 'base64,'.length);
-try {
-return base64Decode(b64);
-} catch () {
-return null;
-}
-}
+  Uint8List? _tryDecodeDataUri(String raw) {
+    final s = raw.trim();
+    if (!s.startsWith('data:image')) return null;
+    final idx = s.indexOf('base64,');
+    if (idx < 0) return null;
+    final b64 = s.substring(idx + 'base64,'.length);
+    try {
+      return base64Decode(b64);
+    } catch (_) {
+      return null;
+    }
+  }
 
-bool _looksLikeHttpUrl(String s) {
-final u = s.trim().toLowerCase();
-return u.startsWith('https://') || u.startsWith('http://');
-}
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
 
-String _cloudinaryOptimizedUrl(String url, {int? width, int? height}) {
-final u = url.trim();
-if (u.isEmpty || u.startsWith('data:image')) return u;
-final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
-if (!isCloudinary) return u;
-final marker = '/image/upload/';
-final idx = u.indexOf(marker);
-if (idx < 0) return u;
+  String _cloudinaryOptimizedUrl(String url, {int? width, int? height}) {
+    final u = url.trim();
+    if (u.isEmpty || u.startsWith('data:image')) return u;
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
 
-final prefix = u.substring(0, idx + marker.length);
-final suffix = u.substring(idx + marker.length);
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
 
-final transforms = <String>[
-  'f_auto', 'q_auto',
-  if (width != null && width > 0) 'w_$width',
-  if (height != null && height > 0) 'h_$height',
-  'c_fill', 'g_auto',
-].join(',');
+    final transforms = <String>[
+      'f_auto', 'q_auto',
+      if (width != null && width > 0) 'w_$width',
+      if (height != null && height > 0) 'h_$height',
+      'c_fill', 'g_auto',
+    ].join(',');
 
-final parts = suffix.split('/');
-if (parts.isEmpty) return '$prefix$transforms/$suffix';
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
-final first = parts.first;
-final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
-if (!isVersionOnly) {
-  if (first.contains('f_auto') || first.contains('q_auto')) return u;
-  parts[0] = 'f_auto,q_auto,$first';
-  return prefix + parts.join('/');
-}
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
 
-return '$prefix$transforms/$suffix';
-}
+    return '$prefix$transforms/$suffix';
+  }
 
-@override
-Widget build(BuildContext context) {
-final cs = Theme.of(context).colorScheme;
-final url = imageUrl.trim();
-final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
-final Widget content;
-if (bytes != null) {
-  content = Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
-} else if (url.isNotEmpty && _looksLikeHttpUrl(url)) {
-  const cw = 96;
-  const ch = 96;
-  final displayUrl = _cloudinaryOptimizedUrl(url, width: cw, height: ch);
-  content = Image.network(
-    displayUrl,
-    fit: BoxFit.cover,
-    gaplessPlayback: true,
-    filterQuality: FilterQuality.low,
-    cacheWidth: cw,
-    cacheHeight: ch,
-    errorBuilder: (_, __, ___) =>
-        Icon(Icons.emoji_events_rounded, color: cs.primary, size: 20),
-    loadingBuilder: (context, child, event) {
-      if (event == null) return child;
-      return Center(
-        child: SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-        ),
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final url = imageUrl.trim();
+    final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
+    final Widget content;
+    if (bytes != null) {
+      content = Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
+    } else if (url.isNotEmpty && _looksLikeHttpUrl(url)) {
+      const cw = 96;
+      const ch = 96;
+      final displayUrl = _cloudinaryOptimizedUrl(url, width: cw, height: ch);
+      content = Image.network(
+        displayUrl,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+        cacheWidth: cw,
+        cacheHeight: ch,
+        errorBuilder: (_, __, ___) =>
+            Icon(Icons.emoji_events_rounded, color: cs.primary, size: 20),
+        loadingBuilder: (context, child, event) {
+          if (event == null) return child;
+          return Center(
+            child: SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+            ),
+          );
+        },
       );
-    },
-  );
-} else {
-  content = Icon(Icons.emoji_events_rounded, color: cs.primary, size: 20);
-}
+    } else {
+      content = Icon(Icons.emoji_events_rounded, color: cs.primary, size: 20);
+    }
 
-return Container(
-  width: 44,
-  height: 44,
-  decoration: BoxDecoration(
-    shape: BoxShape.circle,
-    gradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        cs.primary.withOpacity(0.20),
-        cs.primary.withOpacity(0.06),
-      ],
-    ),
-    border: Border.all(color: cs.primary.withOpacity(0.20)),
-  ),
-  child: ClipOval(child: Center(child: content)),
-);
-}
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            cs.primary.withOpacity(0.20),
+            cs.primary.withOpacity(0.06),
+          ],
+        ),
+        border: Border.all(color: cs.primary.withOpacity(0.20)),
+      ),
+      child: ClipOval(child: Center(child: content)),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
 // Card Badge
 // ─────────────────────────────────────────────
 class _CardBadge extends StatelessWidget {
-const _CardBadge({
-required this.label,
-required this.icon,
-required this.color,
-required this.bg,
-required this.border,
-});
+  const _CardBadge({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.bg,
+    required this.border,
+  });
 
-final String label;
-final IconData icon;
-final Color color;
-final Color bg;
-final Color border;
-@override
-Widget build(BuildContext context) {
-return Container(
-padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-decoration: BoxDecoration(
-color: bg,
-borderRadius: BorderRadius.circular(10),
-border: Border.all(color: border),
-),
-child: Row(
-mainAxisSize: MainAxisSize.min,
-children: [
-Icon(icon, size: 12, color: color),
-const SizedBox(width: 4),
-Text(
-label,
-style: TextStyle(
-color: color,
-fontSize: 9,
-fontWeight: FontWeight.w900,
-letterSpacing: 0.4,
-),
-),
-],
-),
-);
-}
+  final String label;
+  final IconData icon;
+  final Color color;
+  final Color bg;
+  final Color border;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

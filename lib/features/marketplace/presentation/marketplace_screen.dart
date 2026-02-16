@@ -460,7 +460,7 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
     final hasImg = img.isNotEmpty && _looksLikeHttpUrl(img);
 
     return AnimatedBuilder(
-      animation: _scale,
+      listenable: _scale,
       builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
       child: GestureDetector(
         onTapDown: (_) => _ctrl.forward(),

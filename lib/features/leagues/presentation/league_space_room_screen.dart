@@ -162,7 +162,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       try {
         final profile = await _profiles.fetchByUserId(uid).timeout(const Duration(seconds: 10));
         String name = '';
-        try { name = (profile.teamName as String?)?.trim() ?? ''; } catch (_) {}
+        try { name = (profile?.teamName as String?)?.trim() ?? ''; } catch (_) {}
         final avatar = _bestEffortProfileImageUrlFromProfile(profile).trim();
         if (!mounted) return;
         setState(() {
@@ -210,7 +210,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   void _toastWarn(String msg) => _toast(msg, accent: const Color(0xFFF59E0B), icon: Icons.warning_amber_rounded);
   void _toastErr(String msg) => _toast(msg, accent: Theme.of(context).colorScheme.error, icon: Icons.error_outline);
 
-  /// User-friendly connection error message
   String _friendlyConnectionError(Object error) {
     final raw = error.toString().toLowerCase();
     if (raw.contains('timeout') || raw.contains('timed out')) {
@@ -392,7 +391,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     OverlayBridge.sendQuick = null;
   }
 
-  /// Attempt reconnection with exponential backoff
   void _scheduleReconnect() {
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       if (!mounted) return;
@@ -456,7 +454,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         setState(() { _connected = false; _micEnabled = false; _micPrimed = false; });
         unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
 
-        // Auto-reconnect if space is still live
         if (_isLive && !_isReconnecting) {
           _toastWarn('Connection lost. Reconnecting...');
           _scheduleReconnect();
@@ -484,7 +481,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       setState(() { _joiningAudio = false; });
 
-      // If it looks like a transient error, try reconnecting
       final raw = e.toString().toLowerCase();
       final isTransient = raw.contains('timeout') || raw.contains('network') ||
           raw.contains('websocket') || raw.contains('connect') || raw.contains('offline');
@@ -1043,7 +1039,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              // Connect / Mic buttons
               Row(
                 children: [
                   Expanded(
@@ -1073,7 +1068,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               ),
               const SizedBox(height: 10),
 
-              // Status text
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -1100,7 +1094,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 ),
               ),
 
-              // Request to speak (non-host)
               if (!_isHost) ...[
                 const SizedBox(height: 12),
                 Row(
@@ -1163,7 +1156,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // Requests section
                 Text(
                   l10n.tr('league_space_requests_title'),
                   style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 12, fontWeight: FontWeight.w800),
@@ -1208,7 +1200,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 Divider(color: Colors.white.withOpacity(0.06)),
                 const SizedBox(height: 10),
 
-                // Speakers section
                 Text(
                   l10n.tr('league_space_speakers_title'),
                   style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 12, fontWeight: FontWeight.w800),
@@ -1388,7 +1379,7 @@ class _SpaceActionButton extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Inline Error Card (replaces red text)
+// Inline Error Card
 // ─────────────────────────────────────────────
 class _InlineErrorCard extends StatelessWidget {
   const _InlineErrorCard({required this.message});

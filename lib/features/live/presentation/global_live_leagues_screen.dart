@@ -695,7 +695,7 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
     final isLive = !item.isFinished && !item.isFullComputed;
 
     return AnimatedBuilder(
-      animation: _scale,
+      listenable: _scale,
       builder: (context, child) => Transform.scale(
         scale: _scale.value,
         child: child,
@@ -881,7 +881,7 @@ class _StatusBadgeState extends State<_StatusBadge> with SingleTickerProviderSta
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _pulse,
+      listenable: _pulse,
       builder: (context, child) {
         final opacity = widget.isLive ? 0.7 + (_pulse.value * 0.3) : 1.0;
         return Opacity(opacity: opacity, child: child);
@@ -1257,7 +1257,7 @@ class _JoinModeTile extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// AnimatedBuilder alias (Flutter built-in)
+// AnimatedBuilder alias
 // ─────────────────────────────────────────────
 class AnimatedBuilder extends AnimatedWidget {
   const AnimatedBuilder({

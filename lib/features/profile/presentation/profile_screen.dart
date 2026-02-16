@@ -32,1543 +32,1549 @@ import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
-const ProfileScreen({super.key});
+  const ProfileScreen({super.key});
 
-@override
-ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+  @override
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
+
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-static const int _maxBytes = 5 * 1024 * 1024;
-static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+  static const int _maxBytes = 5 * 1024 * 1024;
+  static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
-bool _uploadingAvatar = false;
+  bool _uploadingAvatar = false;
 
-String _couponLeagueSubtitle({
-required bool enabled,
-required int discountPercent,
-}) {
-if (!enabled) return 'Not enabled';
-return 'Discount $discountPercent%';
-}
+  String _couponLeagueSubtitle({
+    required bool enabled,
+    required int discountPercent,
+  }) {
+    if (!enabled) return 'Not enabled';
+    return 'Discount $discountPercent%';
+  }
 
-void _snack(BuildContext context, String msg) {
-final trimmed = msg.trim();
-if (trimmed.isEmpty) return;
-ScaffoldMessenger.of(context).clearSnackBars();
-ScaffoldMessenger.of(context).showSnackBar(
-SnackBar(
-behavior: SnackBarBehavior.floating,
-margin: const EdgeInsets.all(12),
-content: Text(trimmed),
-),
-);
-}
+  void _snack(BuildContext context, String msg) {
+    final trimmed = msg.trim();
+    if (trimmed.isEmpty) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        content: Text(trimmed),
+      ),
+    );
+  }
 
-bool _looksLikeHttpUrl(String s) {
-final u = s.trim().toLowerCase();
-return u.startsWith('https://') || u.startsWith('http://');
-}
+  bool _looksLikeHttpUrl(String s) {
+    final u = s.trim().toLowerCase();
+    return u.startsWith('https://') || u.startsWith('http://');
+  }
 
-String _cloudinaryOptimizedUrl(
-String url, {
-int? width,
-int? height,
-String crop = 'fill',
-}) {
-final u = url.trim();
-if (u.isEmpty) return u;
-final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
-if (!isCloudinary) return u;
-final marker = '/image/upload/';
-final idx = u.indexOf(marker);
-if (idx < 0) return u;
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int? width,
+    int? height,
+    String crop = 'fill',
+  }) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
 
-final prefix = u.substring(0, idx + marker.length);
-final suffix = u.substring(idx + marker.length);
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
 
-final transforms = <String>[
-  'f_auto',
-  'q_auto',
-  if (width != null && width > 0) 'w_$width',
-  if (height != null && height > 0) 'h_$height',
-  (crop == 'fit') ? 'c_fit' : 'c_fill',
-  if (crop != 'fit') 'g_auto',
-].join(',');
+    final transforms = <String>[
+      'f_auto',
+      'q_auto',
+      if (width != null && width > 0) 'w_$width',
+      if (height != null && height > 0) 'h_$height',
+      (crop == 'fit') ? 'c_fit' : 'c_fill',
+      if (crop != 'fit') 'g_auto',
+    ].join(',');
 
-final parts = suffix.split('/');
-if (parts.isEmpty) return '$prefix$transforms/$suffix';
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
-final first = parts.first;
-final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
-if (!isVersionOnly) {
-  if (first.contains('f_auto') || first.contains('q_auto')) return u;
-  parts[0] = 'f_auto,q_auto,$first';
-  return prefix + parts.join('/');
-}
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
 
-return '$prefix$transforms/$suffix';
-}
-Future<String> _uploadToCloudinary({required PlatformFile picked}) async {
-final cloudName = const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
-final uploadPreset = const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
-if (cloudName.isEmpty || uploadPreset.isEmpty) {
-  throw StateError('Cloudinary is not configured.');
-}
+    return '$prefix$transforms/$suffix';
+  }
 
-final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
-final ts = DateTime.now().millisecondsSinceEpoch;
+  Future<String> _uploadToCloudinary({required PlatformFile picked}) async {
+    final cloudName = const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
+    final uploadPreset = const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
+    if (cloudName.isEmpty || uploadPreset.isEmpty) {
+      throw StateError('Cloudinary is not configured.');
+    }
 
-http.MultipartFile filePart;
+    final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final ts = DateTime.now().millisecondsSinceEpoch;
 
-final bytes = picked.bytes;
-final path = (picked.path ?? '').trim();
+    http.MultipartFile filePart;
 
-if (bytes != null && bytes.isNotEmpty) {
-  filePart = http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
-} else if (path.isNotEmpty) {
-  filePart = await http.MultipartFile.fromPath('file', path, filename: picked.name);
-} else {
-  throw StateError('Selected image is not accessible.');
-}
+    final bytes = picked.bytes;
+    final path = (picked.path ?? '').trim();
 
-final req = http.MultipartRequest('POST', uploadUrl)
-  ..fields['upload_preset'] = uploadPreset
-  ..fields['resource_type'] = 'image'
-  ..fields['folder'] = 'eleaguehub/users'
-  ..fields['public_id'] = 'user_avatar_$ts'
-  ..files.add(filePart);
+    if (bytes != null && bytes.isNotEmpty) {
+      filePart = http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
+    } else if (path.isNotEmpty) {
+      filePart = await http.MultipartFile.fromPath('file', path, filename: picked.name);
+    } else {
+      throw StateError('Selected image is not accessible.');
+    }
 
-final client = http.Client();
-try {
-  final streamed = await client.send(req).timeout(const Duration(seconds: 45));
-  final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45));
+    final req = http.MultipartRequest('POST', uploadUrl)
+      ..fields['upload_preset'] = uploadPreset
+      ..fields['resource_type'] = 'image'
+      ..fields['folder'] = 'eleaguehub/users'
+      ..fields['public_id'] = 'user_avatar_$ts'
+      ..files.add(filePart);
 
-  if (resp.statusCode < 200 || resp.statusCode >= 300) {
-    String message = 'Upload failed (HTTP ${resp.statusCode}).';
+    final client = http.Client();
     try {
+      final streamed = await client.send(req).timeout(const Duration(seconds: 45));
+      final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45));
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        String message = 'Upload failed (HTTP ${resp.statusCode}).';
+        try {
+          final decoded = jsonDecode(resp.body);
+          final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
+          final msg = (err is Map<String, dynamic>) ? (err['message']?.toString() ?? '') : '';
+          if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
+        } catch (_) {}
+        throw StateError(message);
+      }
+
       final decoded = jsonDecode(resp.body);
-      final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
-      final msg = (err is Map<String, dynamic>) ? (err['message']?.toString() ?? '') : '';
-      if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
+      if (decoded is! Map<String, dynamic>) throw StateError('Upload failed: invalid response.');
+
+      final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
+      if (secureUrl.isEmpty) throw StateError('Upload failed: secure_url missing.');
+
+      return secureUrl;
+    } on TimeoutException {
+      throw StateError('Upload timed out. Please try again.');
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> _pickAndUploadAvatar(BuildContext context) async {
+    if (_uploadingAvatar) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      if (context.mounted) context.go('/login');
+      return;
+    }
+
+    setState(() => _uploadingAvatar = true);
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+
+      final pickResult = await SafeImagePicker.pickImage();
+
+      if (pickResult.wasCancelled) return;
+
+      if (!pickResult.isSuccess) {
+        if (!context.mounted) return;
+        _snack(context, pickResult.errorMessage ?? 'Could not pick image.');
+        return;
+      }
+
+      final picked = pickResult.file!;
+
+      if (picked.size > _maxBytes) {
+        if (!context.mounted) return;
+        _snack(context, 'Image too large. Please select an image under 5 MB.');
+        return;
+      }
+
+      final secureUrl = await _uploadToCloudinary(picked: picked);
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await FirebaseFirestore.instance.collection('users').doc(uid).set(
+        <String, dynamic>{
+          'photoUrl': secureUrl,
+          'profileImageUrl': secureUrl,
+          'teamImageUrl': secureUrl,
+          'updatedAt': now,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 15));
+
+      try {
+        await FirebaseAuth.instance.currentUser?.updatePhotoURL(secureUrl);
+      } catch (_) {}
+
+      if (!context.mounted) return;
+      _snack(context, context.l10n.tr('common_done'));
+    } on PlatformException catch (e) {
+      if (!context.mounted) return;
+      _snack(context, UserFriendlyError.toMessage(e));
+    } catch (e) {
+      if (!context.mounted) return;
+      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } finally {
+      if (!mounted) return;
+      setState(() => _uploadingAvatar = false);
+    }
+  }
+
+  Future<void> _clearAvatar(BuildContext context) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      if (context.mounted) context.go('/login');
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        title: const Text('Remove photo?'),
+        content: const Text('This will remove your profile/team photo.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      await FirebaseFirestore.instance.collection('users').doc(uid).set(
+        <String, dynamic>{
+          'photoUrl': '',
+          'profileImageUrl': '',
+          'teamImageUrl': '',
+          'updatedAt': now,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 15));
+
+      try {
+        await FirebaseAuth.instance.currentUser?.updatePhotoURL(null);
+      } catch (_) {}
+
+      if (!context.mounted) return;
+      _snack(context, 'Removed.');
+    } catch (e) {
+      if (!context.mounted) return;
+      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
+  }
+
+  Future<void> _showCouponConfigSheet(
+    BuildContext context, {
+    required String leagueId,
+    required String leagueName,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      if (context.mounted) context.go('/login');
+      return;
+    }
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+    } catch (e) {
+      if (context.mounted) {
+        _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      }
+      return;
+    }
+
+    if (!context.mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
+        final cfgStream = CouponConfigService().watchConfig(leagueId);
+        final redemptionsQuery = FirebaseFirestore.instance
+            .collection('leagues')
+            .doc(leagueId)
+            .collection('couponRedemptions')
+            .orderBy('paidAtMs', descending: true)
+            .limit(150);
+
+        String money(double v) {
+          final r = double.parse(v.toStringAsFixed(2));
+          final i = r.toInt();
+          if ((r - i).abs() < 0.000001) return '$i';
+          return r.toStringAsFixed(2);
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 620),
+                child: Glass(
+                  borderRadius: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 14),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.25),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        Text(
+                          'Coupons',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: onSurface,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          leagueName,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: onSurface.withOpacity(0.70),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        StreamBuilder<CouponConfig?>(
+                          stream: cfgStream,
+                          builder: (context, snap) {
+                            if (snap.hasError) {
+                              final msg = UserFriendlyError.toMessage(snap.error as Object);
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                child: Text(
+                                  msg,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.error,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              );
+                            }
+
+                            if (snap.connectionState == ConnectionState.waiting) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                child: Center(child: CircularProgressIndicator(color: cs.primary)),
+                              );
+                            }
+
+                            final cfg = snap.data;
+                            if (cfg == null) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Text(
+                                      'No coupon configuration yet.',
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: onSurface.withOpacity(0.70),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () => Navigator.of(ctx).pop(),
+                                          icon: const Icon(Icons.close),
+                                          label: const Text('Close'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: FilledButton.icon(
+                                          onPressed: () {
+                                            Navigator.of(ctx).pop();
+                                            GoRouter.of(context).push(
+                                              '/leagues/$leagueId/upgrade/payment',
+                                              extra: {
+                                                'leagueId': leagueId,
+                                                'leagueName': leagueName,
+                                                'addonsOnly': true,
+                                                'existingCouponsEnabled': false,
+                                                'existingCouponCount': 0,
+                                                'existingCouponDiscountPercent': 0,
+                                              },
+                                            );
+                                          },
+                                          icon: const Icon(Icons.add_shopping_cart),
+                                          label: const Text('Buy / enable'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              );
+                            }
+
+                            final redeemed = cfg.qtyRedeemed;
+                            final usersPay = (100 - cfg.discountPercent).clamp(0, 100);
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _kv(context, 'Currency', cfg.currency),
+                                _kv(context, 'Unit price', '${money(cfg.unitPrice)} ${cfg.currency}'),
+                                _kv(context, 'Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}'),
+                                _kv(context, 'Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}'),
+                                _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
+                                const Divider(),
+                                _kv(context, 'Discount', '${cfg.discountPercent}%'),
+                                _kv(context, 'Users pay', '$usersPay%'),
+                                const Divider(),
+                                _kv(context, 'Purchased', '${cfg.qtyTotal}'),
+                                _kv(context, 'Remaining', '${cfg.qtyRemaining}'),
+                                _kv(context, 'Redeemed', '$redeemed'),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => Navigator.of(ctx).pop(),
+                                        icon: const Icon(Icons.close),
+                                        label: const Text('Close'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: () {
+                                          Navigator.of(ctx).pop();
+                                          GoRouter.of(context).push(
+                                            '/leagues/$leagueId/upgrade/payment',
+                                            extra: {
+                                              'leagueId': leagueId,
+                                              'leagueName': leagueName,
+                                              'addonsOnly': true,
+                                              'existingCouponsEnabled': true,
+                                              'existingCouponCount': cfg.qtyTotal,
+                                              'existingCouponDiscountPercent': cfg.discountPercent,
+                                            },
+                                          );
+                                        },
+                                        icon: const Icon(Icons.add_shopping_cart),
+                                        label: const Text('Buy more'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  'Recent redemptions',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: onSurface,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(maxHeight: 320),
+                                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                    stream: redemptionsQuery.snapshots(),
+                                    builder: (context, rs) {
+                                      if (rs.hasError) {
+                                        return Center(
+                                          child: Text(
+                                            UserFriendlyError.toMessage(rs.error as Object),
+                                            style: theme.textTheme.bodySmall?.copyWith(color: cs.error, fontWeight: FontWeight.w700),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        );
+                                      }
+                                      if (!rs.hasData) {
+                                        return Center(child: CircularProgressIndicator(color: cs.primary));
+                                      }
+                                      final docs = rs.data!.docs;
+                                      if (docs.isEmpty) {
+                                        return Center(
+                                          child: Text(
+                                            'No redemptions yet.',
+                                            style: theme.textTheme.bodySmall?.copyWith(color: onSurface.withOpacity(0.70), fontWeight: FontWeight.w600),
+                                          ),
+                                        );
+                                      }
+                                      return ListView.separated(
+                                        itemCount: docs.length,
+                                        separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
+                                        itemBuilder: (context, i) {
+                                          final d = docs[i].data();
+                                          final userId = (d['userId'] as String?) ?? '';
+                                          final status = (d['status'] as String?) ?? 'pending';
+                                          final paidAtMs = (d['paidAtMs'] as num?)?.toInt() ?? 0;
+                                          final provider = (d['provider'] as String?) ?? '';
+                                          final expected = (d['expectedAmount'] as num?)?.toDouble() ?? 0.0;
+                                          final currency = (d['currency'] as String?) ?? cfg.currency;
+                                          final isPaid = status == 'paid';
+                                          final when = paidAtMs > 0
+                                              ? DateTime.fromMillisecondsSinceEpoch(paidAtMs).toLocal().toString()
+                                              : '—';
+                                          return ListTile(
+                                            dense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            leading: Icon(
+                                              isPaid ? Icons.verified : Icons.pending,
+                                              color: isPaid ? const Color(0xFF22C55E) : cs.primary,
+                                              size: 20,
+                                            ),
+                                            title: Text(
+                                              userId.isEmpty
+                                                  ? '(unknown user)'
+                                                  : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
+                                              style: theme.textTheme.bodyMedium?.copyWith(color: onSurface, fontWeight: FontWeight.w900),
+                                            ),
+                                            subtitle: Text(
+                                              isPaid ? 'Paid • $provider • $when' : 'Pending • ${money(expected)} $currency',
+                                              style: theme.textTheme.bodySmall?.copyWith(color: onSurface.withOpacity(0.65), fontWeight: FontWeight.w700),
+                                            ),
+                                            trailing: IconButton(
+                                              tooltip: 'Copy user id',
+                                              icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72), size: 18),
+                                              onPressed: () async {
+                                                await Clipboard.setData(ClipboardData(text: userId));
+                                                if (!context.mounted) return;
+                                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Copied: $userId')));
+                                              },
+                                            ),
+                                          );
+                                        },
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _readProfileImageUrl(UserProfile? profile, User? authUser) {
+    String url = '';
+    try {
+      final dyn = profile as dynamic;
+      final v1 = (dyn.photoUrl as String?) ?? '';
+      if (v1.trim().isNotEmpty) url = v1.trim();
     } catch (_) {}
-    throw StateError(message);
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v2 = (dyn.profileImageUrl as String?) ?? '';
+        if (v2.trim().isNotEmpty) url = v2.trim();
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      try {
+        final dyn = profile as dynamic;
+        final v3 = (dyn.teamImageUrl as String?) ?? '';
+        if (v3.trim().isNotEmpty) url = v3.trim();
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      url = (authUser?.photoURL ?? '').trim();
+    }
+    return url;
   }
 
-  final decoded = jsonDecode(resp.body);
-  if (decoded is! Map<String, dynamic>) throw StateError('Upload failed: invalid response.');
-
-  final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
-  if (secureUrl.isEmpty) throw StateError('Upload failed: secure_url missing.');
-
-  return secureUrl;
-} on TimeoutException {
-  throw StateError('Upload timed out. Please try again.');
-} finally {
-  client.close();
-}
-}
-
-Future<void> _pickAndUploadAvatar(BuildContext context) async {
-if (_uploadingAvatar) return;
-final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-if (uid.isEmpty) {
-  if (context.mounted) context.go('/login');
-  return;
-}
-
-setState(() => _uploadingAvatar = true);
-
-try {
-  await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
-
-  final pickResult = await SafeImagePicker.pickImage();
-
-  if (pickResult.wasCancelled) return;
-
-  if (!pickResult.isSuccess) {
-    if (!context.mounted) return;
-    _snack(context, pickResult.errorMessage ?? 'Could not pick image.');
-    return;
-  }
-
-  final picked = pickResult.file!;
-
-  if (picked.size > _maxBytes) {
-    if (!context.mounted) return;
-    _snack(context, 'Image too large. Please select an image under 5 MB.');
-    return;
-  }
-
-  final secureUrl = await _uploadToCloudinary(picked: picked);
-
-  final now = DateTime.now().millisecondsSinceEpoch;
-  await FirebaseFirestore.instance.collection('users').doc(uid).set(
-    <String, dynamic>{
-      'photoUrl': secureUrl,
-      'profileImageUrl': secureUrl,
-      'teamImageUrl': secureUrl,
-      'updatedAt': now,
-    },
-    SetOptions(merge: true),
-  ).timeout(const Duration(seconds: 15));
-
-  try {
-    await FirebaseAuth.instance.currentUser?.updatePhotoURL(secureUrl);
-  } catch (_) {}
-
-  if (!context.mounted) return;
-  _snack(context, context.l10n.tr('common_done'));
-} on PlatformException catch (e) {
-  if (!context.mounted) return;
-  _snack(context, UserFriendlyError.toMessage(e));
-} catch (e) {
-  if (!context.mounted) return;
-  _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-} finally {
-  if (!mounted) return;
-  setState(() => _uploadingAvatar = false);
-}
-}
-
-Future<void> _clearAvatar(BuildContext context) async {
-final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-if (uid.isEmpty) {
-if (context.mounted) context.go('/login');
-return;
-}
-final confirm = await showDialog<bool>(
-  context: context,
-  builder: (ctx) => AlertDialog(
-    backgroundColor: Theme.of(ctx).colorScheme.surface,
-    title: const Text('Remove photo?'),
-    content: const Text('This will remove your profile/team photo.'),
-    actions: [
-      TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-      FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
-    ],
-  ),
-);
-
-if (confirm != true) return;
-
-try {
-  await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
-
-  final now = DateTime.now().millisecondsSinceEpoch;
-
-  await FirebaseFirestore.instance.collection('users').doc(uid).set(
-    <String, dynamic>{
-      'photoUrl': '',
-      'profileImageUrl': '',
-      'teamImageUrl': '',
-      'updatedAt': now,
-    },
-    SetOptions(merge: true),
-  ).timeout(const Duration(seconds: 15));
-
-  try {
-    await FirebaseAuth.instance.currentUser?.updatePhotoURL(null);
-  } catch (_) {}
-
-  if (!context.mounted) return;
-  _snack(context, 'Removed.');
-} catch (e) {
-  if (!context.mounted) return;
-  _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-}
-}
-
-Future<void> _showCouponConfigSheet(
-BuildContext context, {
-required String leagueId,
-required String leagueName,
-}) async {
-final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-if (uid.isEmpty) {
-if (context.mounted) context.go('/login');
-return;
-}
-try {
-  await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
-} catch (e) {
-  if (context.mounted) {
-    _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-  }
-  return;
-}
-
-if (!context.mounted) return;
-
-showModalBottomSheet(
-  context: context,
-  backgroundColor: Colors.transparent,
-  isScrollControlled: true,
-  builder: (ctx) {
-    final theme = Theme.of(ctx);
+  @override
+  Widget build(BuildContext context) {
+    unawaited(ConnectivityService.instance.initialize());
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final t = theme.textTheme;
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
 
-    final cfgStream = CouponConfigService().watchConfig(leagueId);
-    final redemptionsQuery = FirebaseFirestore.instance
-        .collection('leagues')
-        .doc(leagueId)
-        .collection('couponRedemptions')
-        .orderBy('paidAtMs', descending: true)
-        .limit(150);
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid ?? '';
 
-    String money(double v) {
-      final r = double.parse(v.toStringAsFixed(2));
-      final i = r.toInt();
-      if ((r - i).abs() < 0.000001) return '$i';
-      return r.toStringAsFixed(2);
+    final isSuperAdmin = uid.trim() == _superAdminUid;
+
+    if (uid.trim().isNotEmpty) {
+      AppAdminsService.instance.ensureStarted();
     }
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 620),
-            child: Glass(
-              borderRadius: 28,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+    final themeState = ref.watch(themeControllerProvider);
+    final currentLeague = ref.watch(leagueModeProvider);
+
+    final isPricingAdmin = AppAdminsService.instance.isPricingAdminUid(uid);
+
+    final repo = UserProfileRepository();
+
+    return GlassScaffold(
+      body: ListView(
+        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+        padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
+        children: [
+          const SizedBox(height: 44),
+
+          // ── Profile Card ──
+          Glass(
+            padding: const EdgeInsets.all(18),
+            child: StreamBuilder<UserProfile?>(
+              stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
+              builder: (context, snap) {
+                final profile = snap.data;
+
+                final teamName = (profile != null && profile.teamName.trim().isNotEmpty)
+                    ? profile.teamName.trim()
+                    : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
+
+                final shortUserId = (profile != null)
+                    ? profile.effectiveShareId
+                    : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
+
+                final rawAvatarUrl = _readProfileImageUrl(profile, user);
+                final avatarUrl = rawAvatarUrl.isNotEmpty && _looksLikeHttpUrl(rawAvatarUrl)
+                    ? _cloudinaryOptimizedUrl(rawAvatarUrl, width: 256, height: 256, crop: 'fill')
+                    : rawAvatarUrl;
+
+                return Column(
                   children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 14),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.25),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    Text(
-                      'Coupons',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: onSurface,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      leagueName,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: onSurface.withOpacity(0.70),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 12),
-                    StreamBuilder<CouponConfig?>(
-                      stream: cfgStream,
-                      builder: (context, snap) {
-                        if (snap.hasError) {
-                          final msg = UserFriendlyError.toMessage(snap.error as Object);
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            child: Text(
-                              msg,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: cs.error,
-                                fontWeight: FontWeight.w700,
+                    // Avatar + Name row
+                    Row(
+                      children: [
+                        // Avatar
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: cs.primary.withOpacity(0.35),
+                                blurRadius: 20,
+                                spreadRadius: 2,
                               ),
-                              textAlign: TextAlign.center,
-                            ),
-                          );
-                        }
-
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            child: Center(child: CircularProgressIndicator(color: cs.primary)),
-                          );
-                        }
-
-                        final cfg = snap.data;
-                        if (cfg == null) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            ],
+                          ),
+                          child: Stack(
+                            alignment: Alignment.center,
                             children: [
-                              Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                child: Text(
-                                  'No coupon configuration yet.',
-                                  textAlign: TextAlign.center,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: onSurface.withOpacity(0.70),
-                                    fontWeight: FontWeight.w700,
+                              InkWell(
+                                borderRadius: BorderRadius.circular(999),
+                                onTap: uid.isEmpty ? null : () => _pickAndUploadAvatar(context),
+                                onLongPress: uid.isEmpty ? null : () => _clearAvatar(context),
+                                child: CircleAvatar(
+                                  radius: 32,
+                                  backgroundColor: cs.primary.withOpacity(0.85),
+                                  child: ClipOval(
+                                    child: SizedBox(
+                                      width: 64,
+                                      height: 64,
+                                      child: (avatarUrl.trim().isNotEmpty && _looksLikeHttpUrl(avatarUrl))
+                                          ? Image.network(
+                                              avatarUrl,
+                                              fit: BoxFit.cover,
+                                              gaplessPlayback: true,
+                                              filterQuality: FilterQuality.low,
+                                              errorBuilder: (_, __, ___) =>
+                                                  const Icon(Icons.person, color: Colors.white, size: 30),
+                                              loadingBuilder: (context, child, event) {
+                                                if (event == null) return child;
+                                                return const Icon(Icons.person, color: Colors.white, size: 30);
+                                              },
+                                            )
+                                          : const Icon(Icons.person, color: Colors.white, size: 30),
+                                    ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              if (_uploadingAvatar)
+                                const Positioned.fill(
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: Color(0x66000000),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Row(
                                 children: [
                                   Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () => Navigator.of(ctx).pop(),
-                                      icon: const Icon(Icons.close),
-                                      label: const Text('Close'),
+                                    child: AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 200),
+                                      child: Text(
+                                        teamName,
+                                        key: ValueKey(teamName),
+                                        style: t.titleLarge?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 20,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: FilledButton.icon(
-                                      onPressed: () {
-                                        Navigator.of(ctx).pop();
-                                        GoRouter.of(context).push(
-                                          '/leagues/$leagueId/upgrade/payment',
-                                          extra: {
-                                            'leagueId': leagueId,
-                                            'leagueName': leagueName,
-                                            'addonsOnly': true,
-                                            'existingCouponsEnabled': false,
-                                            'existingCouponCount': 0,
-                                            'existingCouponDiscountPercent': 0,
+                                  IconButton(
+                                    tooltip: l10n.tr('profile_edit_team_name_tooltip'),
+                                    icon: Icon(Icons.edit_rounded, color: Colors.white.withOpacity(0.6), size: 18),
+                                    onPressed: uid.isEmpty
+                                        ? null
+                                        : () {
+                                            HapticFeedback.selectionClick();
+                                            _editTeamName(context, userId: uid, current: profile?.teamName ?? '');
                                           },
-                                        );
-                                      },
-                                      icon: const Icon(Icons.add_shopping_cart),
-                                      label: const Text('Buy / enable'),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  Icon(Icons.tag_rounded, size: 13, color: Colors.white.withOpacity(0.4)),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      uid.isEmpty ? l10n.tr('profile_not_signed_in') : shortUserId,
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.50),
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: uid.isEmpty
+                                        ? null
+                                        : () async {
+                                            HapticFeedback.lightImpact();
+                                            await Clipboard.setData(ClipboardData(text: shortUserId));
+                                            if (!context.mounted) return;
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(SnackBar(content: Text(l10n.tr('profile_userid_copied'))));
+                                          },
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(4),
+                                      child: Icon(Icons.copy_rounded, size: 14, color: Colors.white.withOpacity(0.4)),
                                     ),
                                   ),
                                 ],
                               ),
                             ],
-                          );
-                        }
-
-                        final redeemed = cfg.qtyRedeemed;
-                        final usersPay = (100 - cfg.discountPercent).clamp(0, 100);
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _kv(context, 'Currency', cfg.currency),
-                            _kv(context, 'Unit price', '${money(cfg.unitPrice)} ${cfg.currency}'),
-                            _kv(context, 'Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}'),
-                            _kv(context, 'Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}'),
-                            _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
-                            const Divider(),
-                            _kv(context, 'Discount', '${cfg.discountPercent}%'),
-                            _kv(context, 'Users pay', '$usersPay%'),
-                            const Divider(),
-                            _kv(context, 'Purchased', '${cfg.qtyTotal}'),
-                            _kv(context, 'Remaining', '${cfg.qtyRemaining}'),
-                            _kv(context, 'Redeemed', '$redeemed'),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => Navigator.of(ctx).pop(),
-                                    icon: const Icon(Icons.close),
-                                    label: const Text('Close'),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    onPressed: () {
-                                      Navigator.of(ctx).pop();
-                                      GoRouter.of(context).push(
-                                        '/leagues/$leagueId/upgrade/payment',
-                                        extra: {
-                                          'leagueId': leagueId,
-                                          'leagueName': leagueName,
-                                          'addonsOnly': true,
-                                          'existingCouponsEnabled': true,
-                                          'existingCouponCount': cfg.qtyTotal,
-                                          'existingCouponDiscountPercent': cfg.discountPercent,
-                                        },
-                                      );
-                                    },
-                                    icon: const Icon(Icons.add_shopping_cart),
-                                    label: const Text('Buy more'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            Text(
-                              'Recent redemptions',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: onSurface,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 320),
-                              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                stream: redemptionsQuery.snapshots(),
-                                builder: (context, rs) {
-                                  if (rs.hasError) {
-                                    return Center(
-                                      child: Text(
-                                        UserFriendlyError.toMessage(rs.error as Object),
-                                        style: theme.textTheme.bodySmall?.copyWith(color: cs.error, fontWeight: FontWeight.w700),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    );
-                                  }
-                                  if (!rs.hasData) {
-                                    return Center(child: CircularProgressIndicator(color: cs.primary));
-                                  }
-                                  final docs = rs.data!.docs;
-                                  if (docs.isEmpty) {
-                                    return Center(
-                                      child: Text(
-                                        'No redemptions yet.',
-                                        style: theme.textTheme.bodySmall?.copyWith(color: onSurface.withOpacity(0.70), fontWeight: FontWeight.w600),
-                                      ),
-                                    );
-                                  }
-                                  return ListView.separated(
-                                    itemCount: docs.length,
-                                    separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
-                                    itemBuilder: (context, i) {
-                                      final d = docs[i].data();
-                                      final userId = (d['userId'] as String?) ?? '';
-                                      final status = (d['status'] as String?) ?? 'pending';
-                                      final paidAtMs = (d['paidAtMs'] as num?)?.toInt() ?? 0;
-                                      final provider = (d['provider'] as String?) ?? '';
-                                      final expected = (d['expectedAmount'] as num?)?.toDouble() ?? 0.0;
-                                      final currency = (d['currency'] as String?) ?? cfg.currency;
-                                      final isPaid = status == 'paid';
-                                      final when = paidAtMs > 0
-                                          ? DateTime.fromMillisecondsSinceEpoch(paidAtMs).toLocal().toString()
-                                          : '—';
-                                      return ListTile(
-                                        dense: true,
-                                        contentPadding: EdgeInsets.zero,
-                                        leading: Icon(
-                                          isPaid ? Icons.verified : Icons.pending,
-                                          color: isPaid ? const Color(0xFF22C55E) : cs.primary,
-                                          size: 20,
-                                        ),
-                                        title: Text(
-                                          userId.isEmpty
-                                              ? '(unknown user)'
-                                              : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
-                                          style: theme.textTheme.bodyMedium?.copyWith(color: onSurface, fontWeight: FontWeight.w900),
-                                        ),
-                                        subtitle: Text(
-                                          isPaid ? 'Paid • $provider • $when' : 'Pending • ${money(expected)} $currency',
-                                          style: theme.textTheme.bodySmall?.copyWith(color: onSurface.withOpacity(0.65), fontWeight: FontWeight.w700),
-                                        ),
-                                        trailing: IconButton(
-                                          tooltip: 'Copy user id',
-                                          icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72), size: 18),
-                                          onPressed: () async {
-                                            await Clipboard.setData(ClipboardData(text: userId));
-                                            if (!context.mounted) return;
-                                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Copied: $userId')));
-                                          },
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  },
-);
-}
-
-String readProfileImageUrl(UserProfile? profile, User? authUser) {
-String url = '';
-try {
-final dyn = profile as dynamic;
-final v1 = (dyn.photoUrl as String?) ?? '';
-if (v1.trim().isNotEmpty) url = v1.trim();
-} catch () {}
-if (url.isEmpty) {
-try {
-final dyn = profile as dynamic;
-final v2 = (dyn.profileImageUrl as String?) ?? '';
-if (v2.trim().isNotEmpty) url = v2.trim();
-} catch () {}
-}
-if (url.isEmpty) {
-try {
-final dyn = profile as dynamic;
-final v3 = (dyn.teamImageUrl as String?) ?? '';
-if (v3.trim().isNotEmpty) url = v3.trim();
-} catch () {}
-}
-if (url.isEmpty) {
-url = (authUser?.photoURL ?? '').trim();
-}
-return url;
-}
-
-@override
-Widget build(BuildContext context) {
-unawaited(ConnectivityService.instance.initialize());
-final l10n = context.l10n;
-final theme = Theme.of(context);
-final t = theme.textTheme;
-final cs = theme.colorScheme;
-final onSurface = cs.onSurface;
-
-final user = FirebaseAuth.instance.currentUser;
-final uid = user?.uid ?? '';
-
-final isSuperAdmin = uid.trim() == _superAdminUid;
-
-if (uid.trim().isNotEmpty) {
-  AppAdminsService.instance.ensureStarted();
-}
-
-final themeState = ref.watch(themeControllerProvider);
-final currentLeague = ref.watch(leagueModeProvider);
-
-final isPricingAdmin = AppAdminsService.instance.isPricingAdminUid(uid);
-
-final repo = UserProfileRepository();
-
-return GlassScaffold(
-  body: ListView(
-    physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-    padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
-    children: [
-      const SizedBox(height: 44),
-
-      // ── Profile Card ──
-      Glass(
-        padding: const EdgeInsets.all(18),
-        child: StreamBuilder<UserProfile?>(
-          stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
-          builder: (context, snap) {
-            final profile = snap.data;
-
-            final teamName = (profile != null && profile.teamName.trim().isNotEmpty)
-                ? profile.teamName.trim()
-                : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
-
-            final shortUserId = (profile != null)
-                ? profile.effectiveShareId
-                : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
-
-            final rawAvatarUrl = _readProfileImageUrl(profile, user);
-            final avatarUrl = rawAvatarUrl.isNotEmpty && _looksLikeHttpUrl(rawAvatarUrl)
-                ? _cloudinaryOptimizedUrl(rawAvatarUrl, width: 256, height: 256, crop: 'fill')
-                : rawAvatarUrl;
-
-            return Column(
-              children: [
-                // Avatar + Name row
-                Row(
-                  children: [
-                    // Avatar
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: cs.primary.withOpacity(0.35),
-                            blurRadius: 20,
-                            spreadRadius: 2,
                           ),
-                        ],
-                      ),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          InkWell(
-                            borderRadius: BorderRadius.circular(999),
-                            onTap: uid.isEmpty ? null : () => _pickAndUploadAvatar(context),
-                            onLongPress: uid.isEmpty ? null : () => _clearAvatar(context),
-                            child: CircleAvatar(
-                              radius: 32,
-                              backgroundColor: cs.primary.withOpacity(0.85),
-                              child: ClipOval(
-                                child: SizedBox(
-                                  width: 64,
-                                  height: 64,
-                                  child: (avatarUrl.trim().isNotEmpty && _looksLikeHttpUrl(avatarUrl))
-                                      ? Image.network(
-                                          avatarUrl,
-                                          fit: BoxFit.cover,
-                                          gaplessPlayback: true,
-                                          filterQuality: FilterQuality.low,
-                                          errorBuilder: (_, __, ___) =>
-                                              const Icon(Icons.person, color: Colors.white, size: 30),
-                                          loadingBuilder: (context, child, event) {
-                                            if (event == null) return child;
-                                            return const Icon(Icons.person, color: Colors.white, size: 30);
-                                          },
-                                        )
-                                      : const Icon(Icons.person, color: Colors.white, size: 30),
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (_uploadingAvatar)
-                            const Positioned.fill(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Color(0x66000000),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Center(
-                                  child: SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  child: Text(
-                                    teamName,
-                                    key: ValueKey(teamName),
-                                    style: t.titleLarge?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 20,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: l10n.tr('profile_edit_team_name_tooltip'),
-                                icon: Icon(Icons.edit_rounded, color: Colors.white.withOpacity(0.6), size: 18),
-                                onPressed: uid.isEmpty
-                                    ? null
-                                    : () {
-                                        HapticFeedback.selectionClick();
-                                        _editTeamName(context, userId: uid, current: profile?.teamName ?? '');
-                                      },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              Icon(Icons.tag_rounded, size: 13, color: Colors.white.withOpacity(0.4)),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  uid.isEmpty ? l10n.tr('profile_not_signed_in') : shortUserId,
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.50),
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              InkWell(
-                                borderRadius: BorderRadius.circular(8),
-                                onTap: uid.isEmpty
-                                    ? null
-                                    : () async {
-                                        HapticFeedback.lightImpact();
-                                        await Clipboard.setData(ClipboardData(text: shortUserId));
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(SnackBar(content: Text(l10n.tr('profile_userid_copied'))));
-                                      },
-                                child: Padding(
-                                  padding: const EdgeInsets.all(4),
-                                  child: Icon(Icons.copy_rounded, size: 14, color: Colors.white.withOpacity(0.4)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Action buttons row
-                Row(
-                  children: [
-                    Expanded(
-                      child: _ProfileActionChip(
-                        icon: themeState.mode == ThemeMode.dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                        label: themeState.mode == ThemeMode.dark ? 'Light' : 'Dark',
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          ref.read(themeControllerProvider.notifier).toggleTheme();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _ProfileActionChip(
-                        icon: Icons.settings_rounded,
-                        label: 'Settings',
-                        onTap: () => context.push('/settings'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _ProfileActionChip(
-                        icon: Icons.logout_rounded,
-                        label: 'Logout',
-                        isDestructive: true,
-                        onTap: () async {
-                          final ok = await _confirmLogout(context);
-                          if (!ok) return;
-                          try {
-                            await AuthService().signOut();
-                          } catch (e) {
-                            if (context.mounted) {
-                              _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-                            }
-                            return;
-                          }
-                          if (!context.mounted) return;
-                          context.go('/login');
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-
-      const SizedBox(height: 22),
-      const LeagueSwitcher(),
-      const SizedBox(height: 22),
-
-      // ── League Stats ──
-      SectionHeader(l10n.tr('profile_section_league_overview')),
-      const SizedBox(height: 12),
-
-      Glass(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Expanded(
-              child: _StatCard(
-                icon: Icons.emoji_events_rounded,
-                label: l10n.tr('profile_stat_active'),
-                value: '—',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _StatCard(
-                icon: Icons.groups_rounded,
-                label: l10n.tr('profile_stat_teams'),
-                value: '—',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _StatCard(
-                icon: Icons.sports_rounded,
-                label: l10n.tr('profile_stat_format'),
-                value: currentLeague.name
-                    .toUpperCase()
-                    .replaceAll('CLASSIC', 'CL')
-                    .replaceAll('SWISS', 'SW'),
-              ),
-            ),
-          ],
-        ),
-      ),
-
-      const SizedBox(height: 22),
-
-      // ── Coupons ──
-      SectionHeader('Coupons'),
-      const SizedBox(height: 12),
-      if (uid.isEmpty)
-        Glass(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              Icon(Icons.lock_outline_rounded, color: Colors.white.withOpacity(0.4)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Sign in to view your coupons.',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.55),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        )
-      else
-        Glass(
-          padding: const EdgeInsets.all(14),
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('leagues')
-                .where('organizerUid', isEqualTo: uid)
-                .limit(25)
-                .snapshots(),
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return Text(
-                  UserFriendlyError.toMessage(snap.error as Object),
-                  style: t.bodyMedium?.copyWith(color: cs.error, fontWeight: FontWeight.w700),
-                );
-              }
-
-              if (!snap.hasData) {
-                return Center(child: CircularProgressIndicator(color: cs.primary));
-              }
-
-              final leagues = snap.data!.docs
-                  .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
-                  .where((m) {
-                final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
-                if (!enabled) return false;
-                final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
-                return dp >= 0;
-              }).toList();
-
-              if (leagues.isEmpty) {
-                return Row(
-                  children: [
-                    Icon(Icons.confirmation_number_outlined, color: Colors.white.withOpacity(0.4)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'No coupons found. Enable coupons during league creation payment.',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.55),
-                          fontWeight: FontWeight.w600,
-                          height: 1.35,
                         ),
-                      ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Action buttons row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ProfileActionChip(
+                            icon: themeState.mode == ThemeMode.dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                            label: themeState.mode == ThemeMode.dark ? 'Light' : 'Dark',
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              ref.read(themeControllerProvider.notifier).toggleTheme();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _ProfileActionChip(
+                            icon: Icons.settings_rounded,
+                            label: 'Settings',
+                            onTap: () => context.push('/settings'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _ProfileActionChip(
+                            icon: Icons.logout_rounded,
+                            label: 'Logout',
+                            isDestructive: true,
+                            onTap: () async {
+                              final ok = await _confirmLogout(context);
+                              if (!ok) return;
+                              try {
+                                await AuthService().signOut();
+                              } catch (e) {
+                                if (context.mounted) {
+                                  _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                                }
+                                return;
+                              }
+                              if (!context.mounted) return;
+                              context.go('/login');
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 );
-              }
-
-              return Column(
-                children: [
-                  for (final m in leagues) ...[
-                    _OrganizerLeagueCouponsTile(
-                      leagueName: (m['name'] as String?) ?? 'League',
-                      subtitle: _couponLeagueSubtitle(
-                        enabled: true,
-                        discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
-                      ),
-                      onView: () => _showCouponConfigSheet(
-                        context,
-                        leagueId: (m['id'] as String?) ?? '',
-                        leagueName: (m['name'] as String?) ?? 'League',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                ],
-              );
-            },
+              },
+            ),
           ),
-        ),
 
-      const SizedBox(height: 22),
+          const SizedBox(height: 22),
+          const LeagueSwitcher(),
+          const SizedBox(height: 22),
 
-      // ── Legal ──
-      SectionHeader('Legal'),
-      const SizedBox(height: 12),
-      Glass(
-        padding: const EdgeInsets.all(6),
-        child: Column(
-          children: [
-            _LegalNavRow(
-              icon: Icons.privacy_tip_outlined,
-              title: 'Privacy Policy',
-              subtitle: 'How we collect, use, and protect information.',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
-              ),
-            ),
-            Divider(color: Colors.white.withOpacity(0.06), height: 1),
-            _LegalNavRow(
-              icon: Icons.article_outlined,
-              title: 'Terms of Service',
-              subtitle: 'Rules and conditions for using the app.',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
-              ),
-            ),
-            Divider(color: Colors.white.withOpacity(0.06), height: 1),
-            _LegalNavRow(
-              icon: Icons.support_agent_outlined,
-              title: 'Contact',
-              subtitle: 'Get help or report an issue.',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const ContactScreen()),
-              ),
-            ),
-            Divider(color: Colors.white.withOpacity(0.06), height: 1),
-            _LegalNavRow(
-              icon: Icons.link_outlined,
-              title: 'Affiliate Disclosure',
-              subtitle: 'How affiliate links work in the marketplace.',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const AffiliateDisclosureScreen()),
-              ),
-            ),
-          ],
-        ),
-      ),
+          // ── League Stats ──
+          SectionHeader(l10n.tr('profile_section_league_overview')),
+          const SizedBox(height: 12),
 
-      const SizedBox(height: 22),
-
-      // ── Admin ──
-      if (isPricingAdmin || isSuperAdmin) ...[
-        SectionHeader('Admin'),
-        const SizedBox(height: 12),
-        Glass(
-          padding: const EdgeInsets.all(6),
-          child: Column(
-            children: [
-              if (isSuperAdmin) ...[
-                _AdminRow(
-                  icon: Icons.store_mall_directory_rounded,
-                  title: 'Marketplace Upload',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const AdminMarketplaceUploadScreen()),
+          Glass(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _StatCard(
+                    icon: Icons.emoji_events_rounded,
+                    label: l10n.tr('profile_stat_active'),
+                    value: '—',
                   ),
                 ),
-                if (isPricingAdmin) Divider(color: Colors.white.withOpacity(0.06), height: 1),
-              ],
-              if (isPricingAdmin) ...[
-                _AdminRow(
-                  icon: Icons.admin_panel_settings_rounded,
-                  title: 'Pricing Admin',
-                  onTap: () => GoRouter.of(context).push('/admin/pricing'),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _StatCard(
+                    icon: Icons.groups_rounded,
+                    label: l10n.tr('profile_stat_teams'),
+                    value: '—',
+                  ),
                 ),
-                Divider(color: Colors.white.withOpacity(0.06), height: 1),
-                _AdminRow(
-                  icon: Icons.group_add_rounded,
-                  title: 'Manage Pricing Admins',
-                  onTap: () => GoRouter.of(context).push('/admin/pricing-admins'),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _StatCard(
+                    icon: Icons.sports_rounded,
+                    label: l10n.tr('profile_stat_format'),
+                    value: currentLeague.name
+                        .toUpperCase()
+                        .replaceAll('CLASSIC', 'CL')
+                        .replaceAll('SWISS', 'SW'),
+                  ),
                 ),
               ],
-            ],
+            ),
           ),
-        ),
-      ],
 
-      const SizedBox(height: 32),
-    ],
-  ),
-);
-}
+          const SizedBox(height: 22),
 
-Widget _kv(BuildContext context, String k, String v) {
-final theme = Theme.of(context);
-final cs = theme.colorScheme;
-return Padding(
-padding: const EdgeInsets.only(bottom: 6),
-child: Row(
-children: [
-SizedBox(
-width: 170,
-child: Text(
-k,
-style: theme.textTheme.bodySmall?.copyWith(
-color: cs.onSurface.withOpacity(0.70),
-fontWeight: FontWeight.w700,
-),
-),
-),
-Expanded(
-child: Text(
-v,
-style: theme.textTheme.bodySmall?.copyWith(
-color: cs.onSurface.withOpacity(0.90),
-fontWeight: FontWeight.w800,
-),
-),
-),
-],
-),
-);
-}
-
-Future<bool> _confirmLogout(BuildContext context) async {
-final l10n = context.l10n;
-final theme = Theme.of(context);
-final t = theme.textTheme;
-final res = await showDialog<bool>(
-  context: context,
-  barrierDismissible: true,
-  barrierColor: Colors.black.withOpacity(0.55),
-  builder: (ctx) {
-    final dialogOnSurface = Theme.of(ctx).colorScheme.onSurface;
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
-      child: Glass(
-        padding: const EdgeInsets.all(20),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
+          // ── Coupons ──
+          SectionHeader('Coupons'),
+          const SizedBox(height: 12),
+          if (uid.isEmpty)
+            Glass(
+              padding: const EdgeInsets.all(18),
+              child: Row(
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.amber.withOpacity(0.35)),
-                    ),
-                    child: const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 22),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      l10n.tr('profile_logout_dialog_title'),
-                      style: t.titleLarge?.copyWith(
-                        color: dialogOnSurface,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 20,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    icon: Icon(Icons.close, color: dialogOnSurface.withOpacity(0.5)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(
-                  l10n.tr('profile_logout_dialog_message'),
-                  style: TextStyle(
-                    color: dialogOnSurface.withOpacity(0.60),
-                    height: 1.4,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: dialogOnSurface.withOpacity(0.80),
-                        side: BorderSide(color: dialogOnSurface.withOpacity(0.18)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      child: Text(l10n.tr('common_cancel')),
-                    ),
-                  ),
+                  Icon(Icons.lock_outline_rounded, color: Colors.white.withOpacity(0.4)),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFE53935),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'Sign in to view your coupons.',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.55),
+                        fontWeight: FontWeight.w600,
                       ),
-                      onPressed: () => Navigator.of(ctx).pop(true),
-                      child: Text(l10n.tr('profile_logout_button')),
                     ),
                   ),
                 ],
               ),
-            ],
+            )
+          else
+            Glass(
+              padding: const EdgeInsets.all(14),
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('leagues')
+                    .where('organizerUid', isEqualTo: uid)
+                    .limit(25)
+                    .snapshots(),
+                builder: (context, snap) {
+                  if (snap.hasError) {
+                    return Text(
+                      UserFriendlyError.toMessage(snap.error as Object),
+                      style: t.bodyMedium?.copyWith(color: cs.error, fontWeight: FontWeight.w700),
+                    );
+                  }
+
+                  if (!snap.hasData) {
+                    return Center(child: CircularProgressIndicator(color: cs.primary));
+                  }
+
+                  final leagues = snap.data!.docs
+                      .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
+                      .where((m) {
+                    final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
+                    if (!enabled) return false;
+                    final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
+                    return dp >= 0;
+                  }).toList();
+
+                  if (leagues.isEmpty) {
+                    return Row(
+                      children: [
+                        Icon(Icons.confirmation_number_outlined, color: Colors.white.withOpacity(0.4)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'No coupons found. Enable coupons during league creation payment.',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.55),
+                              fontWeight: FontWeight.w600,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      for (final m in leagues) ...[
+                        _OrganizerLeagueCouponsTile(
+                          leagueName: (m['name'] as String?) ?? 'League',
+                          subtitle: _couponLeagueSubtitle(
+                            enabled: true,
+                            discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
+                          ),
+                          onView: () => _showCouponConfigSheet(
+                            context,
+                            leagueId: (m['id'] as String?) ?? '',
+                            leagueName: (m['name'] as String?) ?? 'League',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+
+          const SizedBox(height: 22),
+
+          // ── Legal ──
+          SectionHeader('Legal'),
+          const SizedBox(height: 12),
+          Glass(
+            padding: const EdgeInsets.all(6),
+            child: Column(
+              children: [
+                _LegalNavRow(
+                  icon: Icons.privacy_tip_outlined,
+                  title: 'Privacy Policy',
+                  subtitle: 'How we collect, use, and protect information.',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
+                  ),
+                ),
+                Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                _LegalNavRow(
+                  icon: Icons.article_outlined,
+                  title: 'Terms of Service',
+                  subtitle: 'Rules and conditions for using the app.',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
+                  ),
+                ),
+                Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                _LegalNavRow(
+                  icon: Icons.support_agent_outlined,
+                  title: 'Contact',
+                  subtitle: 'Get help or report an issue.',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const ContactScreen()),
+                  ),
+                ),
+                Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                _LegalNavRow(
+                  icon: Icons.link_outlined,
+                  title: 'Affiliate Disclosure',
+                  subtitle: 'How affiliate links work in the marketplace.',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const AffiliateDisclosureScreen()),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+
+          const SizedBox(height: 22),
+
+          // ── Admin ──
+          if (isPricingAdmin || isSuperAdmin) ...[
+            SectionHeader('Admin'),
+            const SizedBox(height: 12),
+            Glass(
+              padding: const EdgeInsets.all(6),
+              child: Column(
+                children: [
+                  if (isSuperAdmin) ...[
+                    _AdminRow(
+                      icon: Icons.store_mall_directory_rounded,
+                      title: 'Marketplace Upload',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(builder: (_) => const AdminMarketplaceUploadScreen()),
+                      ),
+                    ),
+                    if (isPricingAdmin) Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                  ],
+                  if (isPricingAdmin) ...[
+                    _AdminRow(
+                      icon: Icons.admin_panel_settings_rounded,
+                      title: 'Pricing Admin',
+                      onTap: () => GoRouter.of(context).push('/admin/pricing'),
+                    ),
+                    Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                    _AdminRow(
+                      icon: Icons.group_add_rounded,
+                      title: 'Manage Pricing Admins',
+                      onTap: () => GoRouter.of(context).push('/admin/pricing-admins'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 32),
+        ],
       ),
     );
-  },
-);
-
-return res ?? false;
-}
-
-Future<void> _editTeamName(
-BuildContext context, {
-required String userId,
-required String current,
-}) async {
-final l10n = context.l10n;
-final controller = TextEditingController(text: current);
-final repo = UserProfileRepository();
-
-try {
-  final next = await showDialog<String?>(
-    context: context,
-    builder: (ctx) {
-      final theme = Theme.of(ctx);
-      final onSurface = theme.colorScheme.onSurface;
-
-      return AlertDialog(
-        backgroundColor: theme.colorScheme.surface,
-        title: Text(
-          l10n.tr('profile_edit_team_dialog_title'),
-          style: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
-        ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: TextStyle(color: onSurface, fontWeight: FontWeight.w600),
-          decoration: InputDecoration(
-            hintText: l10n.tr('profile_team_name_hint'),
-            hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
-            child: Text(l10n.tr('common_cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: Text(l10n.tr('common_save')),
-          ),
-        ],
-      );
-    },
-  );
-
-  if (next == null) return;
-  final cleaned = next.trim();
-  if (cleaned.isEmpty) return;
-
-  try {
-    await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
-    await repo.updateTeamName(userId: userId, teamName: cleaned);
-  } catch (e) {
-    if (context.mounted) {
-      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-    }
-    return;
   }
 
-  if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(l10n.tr('profile_team_name_updated'))),
-  );
-} finally {
-  controller.dispose();
-}
-}
+  Widget _kv(BuildContext context, String k, String v) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 170,
+            child: Text(
+              k,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              v,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.90),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool> _confirmLogout(BuildContext context) async {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final t = theme.textTheme;
+    final res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) {
+        final dialogOnSurface = Theme.of(ctx).colorScheme.onSurface;
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          child: Glass(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.amber.withOpacity(0.35)),
+                        ),
+                        child: const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 22),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          l10n.tr('profile_logout_dialog_title'),
+                          style: t.titleLarge?.copyWith(
+                            color: dialogOnSurface,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        icon: Icon(Icons.close, color: dialogOnSurface.withOpacity(0.5)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      l10n.tr('profile_logout_dialog_message'),
+                      style: TextStyle(
+                        color: dialogOnSurface.withOpacity(0.60),
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: dialogOnSurface.withOpacity(0.80),
+                            side: BorderSide(color: dialogOnSurface.withOpacity(0.18)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: Text(l10n.tr('common_cancel')),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFE53935),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: Text(l10n.tr('profile_logout_button')),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    return res ?? false;
+  }
+
+  Future<void> _editTeamName(
+    BuildContext context, {
+    required String userId,
+    required String current,
+  }) async {
+    final l10n = context.l10n;
+    final controller = TextEditingController(text: current);
+    final repo = UserProfileRepository();
+
+    try {
+      final next = await showDialog<String?>(
+        context: context,
+        builder: (ctx) {
+          final theme = Theme.of(ctx);
+          final onSurface = theme.colorScheme.onSurface;
+
+          return AlertDialog(
+            backgroundColor: theme.colorScheme.surface,
+            title: Text(
+              l10n.tr('profile_edit_team_dialog_title'),
+              style: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
+            ),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              style: TextStyle(color: onSurface, fontWeight: FontWeight.w600),
+              decoration: InputDecoration(
+                hintText: l10n.tr('profile_team_name_hint'),
+                hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(null),
+                child: Text(l10n.tr('common_cancel')),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                child: Text(l10n.tr('common_save')),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (next == null) return;
+      final cleaned = next.trim();
+      if (cleaned.isEmpty) return;
+
+      try {
+        await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+        await repo.updateTeamName(userId: userId, teamName: cleaned);
+      } catch (e) {
+        if (context.mounted) {
+          _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+        }
+        return;
+      }
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.tr('profile_team_name_updated'))),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
 }
 
 // ─────────────────────────────────────────────
 // Profile Action Chip
 // ─────────────────────────────────────────────
 class _ProfileActionChip extends StatelessWidget {
-const _ProfileActionChip({
-required this.icon,
-required this.label,
-required this.onTap,
-this.isDestructive = false,
-});
+  const _ProfileActionChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.isDestructive = false,
+  });
 
-final IconData icon;
-final String label;
-final VoidCallback onTap;
-final bool isDestructive;
-@override
-Widget build(BuildContext context) {
-final cs = Theme.of(context).colorScheme;
-final color = isDestructive ? const Color(0xFFE53935) : cs.primary;
-return InkWell(
-  onTap: onTap,
-  borderRadius: BorderRadius.circular(14),
-  child: Container(
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    decoration: BoxDecoration(
-      color: color.withOpacity(0.10),
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool isDestructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final color = isDestructive ? const Color(0xFFE53935) : cs.primary;
+    return InkWell(
+      onTap: onTap,
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: color.withOpacity(0.20)),
-    ),
-    child: Column(
-      children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-          ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withOpacity(0.20)),
         ),
-      ],
-    ),
-  ),
-);
-}
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
 // Stat Card (no mock data)
 // ─────────────────────────────────────────────
 class _StatCard extends StatelessWidget {
-const _StatCard({
-required this.icon,
-required this.label,
-required this.value,
-});
+  const _StatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
-final IconData icon;
-final String label;
-final String value;
+  final IconData icon;
+  final String label;
+  final String value;
 
-@override
-Widget build(BuildContext context) {
-final cs = Theme.of(context).colorScheme;
-return Container(
-  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-  decoration: BoxDecoration(
-    color: Colors.white.withOpacity(0.04),
-    borderRadius: BorderRadius.circular(14),
-    border: Border.all(color: Colors.white.withOpacity(0.06)),
-  ),
-  child: Column(
-    children: [
-      Icon(icon, color: cs.primary, size: 20),
-      const SizedBox(height: 6),
-      FittedBox(
-        child: Text(
-          value,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w900,
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: cs.primary, size: 20),
+          const SizedBox(height: 6),
+          FittedBox(
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
           ),
-        ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.45),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+            maxLines: 1,
+          ),
+        ],
       ),
-      const SizedBox(height: 2),
-      Text(
-        label,
-        style: TextStyle(
-          color: Colors.white.withOpacity(0.45),
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-        maxLines: 1,
-      ),
-    ],
-  ),
-);
-}
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
 // Legal Row
 // ─────────────────────────────────────────────
 class _LegalNavRow extends StatelessWidget {
-const _LegalNavRow({
-required this.icon,
-required this.title,
-required this.subtitle,
-required this.onTap,
-});
+  const _LegalNavRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
 
-final IconData icon;
-final String title;
-final String subtitle;
-final VoidCallback onTap;
-@override
-Widget build(BuildContext context) {
-final cs = Theme.of(context).colorScheme;
-return InkWell(
-  borderRadius: BorderRadius.circular(14),
-  onTap: onTap,
-  child: Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-    child: Row(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: cs.primary.withOpacity(0.10),
-          ),
-          child: Icon(icon, color: cs.primary, size: 18),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: cs.primary.withOpacity(0.10),
               ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.45),
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                  height: 1.25,
-                ),
+              child: Icon(icon, color: cs.primary, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.45),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 20),
+          ],
         ),
-        Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 20),
-      ],
-    ),
-  ),
-);
-}
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
 // Admin Row
 // ─────────────────────────────────────────────
 class _AdminRow extends StatelessWidget {
-const _AdminRow({
-required this.icon,
-required this.title,
-required this.onTap,
-});
+  const _AdminRow({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
 
-final IconData icon;
-final String title;
-final VoidCallback onTap;
-@override
-Widget build(BuildContext context) {
-final cs = Theme.of(context).colorScheme;
-return InkWell(
-  borderRadius: BorderRadius.circular(14),
-  onTap: onTap,
-  child: Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-    child: Row(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: cs.primary.withOpacity(0.10),
-          ),
-          child: Icon(icon, color: cs.primary, size: 18),
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: cs.primary.withOpacity(0.10),
+              ),
+              child: Icon(icon, color: cs.primary, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 20),
+          ],
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
-          ),
-        ),
-        Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 20),
-      ],
-    ),
-  ),
-);
-}
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────
 // Coupon Tile
 // ─────────────────────────────────────────────
 class _OrganizerLeagueCouponsTile extends StatelessWidget {
-const _OrganizerLeagueCouponsTile({
-required this.leagueName,
-required this.subtitle,
-required this.onView,
-});
+  const _OrganizerLeagueCouponsTile({
+    required this.leagueName,
+    required this.subtitle,
+    required this.onView,
+  });
 
-final String leagueName;
-final String subtitle;
-final VoidCallback onView;
-@override
-Widget build(BuildContext context) {
-final cs = Theme.of(context).colorScheme;
-return Glass(
-  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-  child: Row(
-    children: [
-      Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: cs.primary.withOpacity(0.12),
-        ),
-        child: Icon(Icons.confirmation_number_rounded, color: cs.primary, size: 18),
-      ),
-      const SizedBox(width: 12),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              leagueName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+  final String leagueName;
+  final String subtitle;
+  final VoidCallback onView;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Glass(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: cs.primary.withOpacity(0.12),
             ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.50),
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-              ),
+            child: Icon(Icons.confirmation_number_rounded, color: cs.primary, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  leagueName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.50),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 10),
+          FilledButton(
+            onPressed: onView,
+            child: const Text('View'),
+          ),
+        ],
       ),
-      const SizedBox(width: 10),
-      FilledButton(
-        onPressed: onView,
-        child: const Text('View'),
-      ),
-    ],
-  ),
-);
-}
+    );
+  }
 }
