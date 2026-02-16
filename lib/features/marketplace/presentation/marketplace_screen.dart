@@ -29,12 +29,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-
     final repo = MarketplaceRepository();
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Marketplace'),
+        title: const Text(''),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
       ),
       body: StreamBuilder<List<MarketplaceProduct>>(
         stream: repo.watchProducts(
@@ -43,43 +44,53 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         ),
         builder: (context, snap) {
           final hasError = snap.hasError;
-          final isLoading =
-              snap.connectionState == ConnectionState.waiting && !snap.hasData;
+          final isLoading = snap.connectionState == ConnectionState.waiting && !snap.hasData;
           final products = snap.data ?? const <MarketplaceProduct>[];
 
           return CustomScrollView(
+            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             slivers: [
+              // ── Header ──
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-                sliver: SliverToBoxAdapter(
-                  child: _HeroBanner(
-                    title: 'Affiliate Product\nMarketplace',
-                    subtitle:
-                        'Explore great deals on gaming\nand sports gear.',
-                    badgeText: 'Affiliate Products',
-                    trailing: _HeroTrailingWidget(),
-                  ),
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                 sliver: SliverToBoxAdapter(
                   child: Glass(
-                    padding: const EdgeInsets.all(12),
+                    borderRadius: 22,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                     child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.headset_mic_outlined,
-                            color: cs.onSurface.withOpacity(0.70)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Purchases made through these links may earn us a small commission at no extra cost you.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.70),
-                              fontWeight: FontWeight.w600,
-                              height: 1.25,
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [cs.primary.withOpacity(0.30), cs.primary.withOpacity(0.08)],
                             ),
+                          ),
+                          child: Icon(Icons.storefront_rounded, color: cs.primary, size: 24),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Marketplace',
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 22,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Gaming & sports gear',
+                                style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -87,8 +98,41 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   ),
                 ),
               ),
+
+              // ── Hero Banner ──
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                sliver: SliverToBoxAdapter(
+                  child: _HeroBanner(),
+                ),
+              ),
+
+              // ── Affiliate notice ──
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                sliver: SliverToBoxAdapter(
+                  child: Glass(
+                    borderRadius: 14,
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline_rounded, color: Colors.white.withOpacity(0.35), size: 16),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Purchases made through these links may earn us a small commission at no extra cost to you.',
+                            style: TextStyle(color: Colors.white.withOpacity(0.40), fontWeight: FontWeight.w600, fontSize: 11, height: 1.3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── Categories ──
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
                 sliver: SliverToBoxAdapter(
                   child: _CategoryRow(
                     categories: _categories,
@@ -97,25 +141,26 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   ),
                 ),
               ),
+
+              // ── Content ──
               if (hasError)
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                   sliver: SliverToBoxAdapter(
                     child: Glass(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
+                      borderRadius: 18,
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.error_outline, color: cs.error),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Could not load marketplace products.',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: cs.onSurface,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(shape: BoxShape.circle, color: cs.error.withOpacity(0.12)),
+                            child: Icon(Icons.error_outline_rounded, color: cs.error, size: 24),
                           ),
+                          const SizedBox(height: 12),
+                          Text('Could not load products.', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
                         ],
                       ),
                     ),
@@ -123,10 +168,17 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 )
               else if (isLoading)
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
                   sliver: SliverToBoxAdapter(
                     child: Center(
-                      child: CircularProgressIndicator(color: cs.primary),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: cs.primary),
+                          const SizedBox(height: 14),
+                          Text('Loading products...', style: TextStyle(color: Colors.white.withOpacity(0.45), fontWeight: FontWeight.w600)),
+                        ],
+                      ),
                     ),
                   ),
                 )
@@ -135,22 +187,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                   sliver: SliverToBoxAdapter(
                     child: Glass(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
+                      borderRadius: 18,
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.inventory_2_outlined,
-                              color: cs.onSurface.withOpacity(0.72)),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _selectedCategory == 'All'
-                                  ? 'No products yet.'
-                                  : 'No products in $_selectedCategory yet.',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: cs.onSurface.withOpacity(0.78),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                          Icon(Icons.inventory_2_outlined, color: Colors.white.withOpacity(0.3), size: 40),
+                          const SizedBox(height: 12),
+                          Text(
+                            _selectedCategory == 'All' ? 'No products yet.' : 'No products in $_selectedCategory yet.',
+                            style: TextStyle(color: Colors.white.withOpacity(0.55), fontWeight: FontWeight.w700),
                           ),
                         ],
                       ),
@@ -169,10 +215,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) => ProductDetailsScreen(
-                                  productId: p.productId,
-                                  initialProduct: p,
-                                ),
+                                builder: (_) => ProductDetailsScreen(productId: p.productId, initialProduct: p),
                               ),
                             );
                           },
@@ -184,12 +227,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                       crossAxisCount: 2,
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 12,
-                      childAspectRatio: 0.72,
+                      childAspectRatio: 0.68,
                     ),
                   ),
                 ),
+
+              // ── Affiliate disclosure ──
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 2, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 2, 16, 100),
                 sliver: SliverToBoxAdapter(
                   child: const _AffiliateDisclosureCard(),
                 ),
@@ -202,19 +247,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   }
 }
 
+// ─────────────────────────────────────────────
+// Hero Banner
+// ─────────────────────────────────────────────
 class _HeroBanner extends StatelessWidget {
-  const _HeroBanner({
-    required this.title,
-    required this.subtitle,
-    required this.badgeText,
-    required this.trailing,
-  });
-
-  final String title;
-  final String subtitle;
-  final String badgeText;
-  final Widget trailing;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -224,80 +260,67 @@ class _HeroBanner extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       child: Stack(
         children: [
-          DecoratedBox(
+          Container(
+            height: 140,
+            width: double.infinity,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  const Color(0xFF2D6CDF).withOpacity(0.85),
-                  const Color(0xFF65C7FF).withOpacity(0.70),
-                ],
-                begin: AlignmentDirectional.centerStart,
-                end: AlignmentDirectional.centerEnd,
+                colors: [cs.primary.withOpacity(0.60), cs.primary.withOpacity(0.20)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
               ),
             ),
-            child: const SizedBox(height: 150, width: double.infinity),
           ),
           Positioned.fill(
-            child: DecoratedBox(
+            child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    Colors.white.withOpacity(0.06),
-                    Colors.transparent,
-                  ],
-                  begin: AlignmentDirectional.topStart,
-                  end: AlignmentDirectional.bottomEnd,
+                  colors: [Colors.white.withOpacity(0.06), Colors.transparent],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
               ),
             ),
           ),
           Positioned(
-            left: 16,
-            right: 150,
-            top: 16,
-            bottom: 16,
+            left: 18,
+            right: 140,
+            top: 18,
+            bottom: 18,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  title,
+                  'Discover Great\nDeals',
                   style: theme.textTheme.titleLarge?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
-                    height: 1.0,
+                    fontSize: 20,
+                    height: 1.1,
                   ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Gaming & sports gear',
+                  style: TextStyle(color: Colors.white.withOpacity(0.80), fontWeight: FontWeight.w600, fontSize: 12),
                 ),
                 const SizedBox(height: 10),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withOpacity(0.92),
-                    fontWeight: FontWeight.w600,
-                    height: 1.25,
-                  ),
-                ),
-                const Spacer(),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.20),
-                    borderRadius: BorderRadius.circular(999),
-                    border:
-                        Border.all(color: Colors.white.withOpacity(0.24)),
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withOpacity(0.22)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.local_offer_outlined,
-                          size: 16, color: Colors.white.withOpacity(0.95)),
-                      const SizedBox(width: 6),
+                      Icon(Icons.local_offer_rounded, size: 14, color: Colors.white.withOpacity(0.9)),
+                      const SizedBox(width: 5),
                       Text(
-                        badgeText,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.white.withOpacity(0.95),
-                          fontWeight: FontWeight.w800,
-                        ),
+                        'Affiliate Products',
+                        style: TextStyle(color: Colors.white.withOpacity(0.9), fontWeight: FontWeight.w800, fontSize: 11),
                       ),
                     ],
                   ),
@@ -306,34 +329,23 @@ class _HeroBanner extends StatelessWidget {
             ),
           ),
           Positioned(
-            right: 10,
-            top: 10,
-            bottom: 10,
+            right: 14,
+            top: 14,
+            bottom: 14,
             child: SizedBox(
-              width: 130,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.12),
-                    border: Border.all(color: Colors.white.withOpacity(0.18)),
-                    borderRadius: BorderRadius.circular(18),
+              width: 110,
+              child: Stack(
+                children: [
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: Icon(Icons.sports_esports_rounded, size: 60, color: Colors.white.withOpacity(0.25)),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Center(child: trailing),
+                  Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Icon(Icons.sports_soccer_rounded, size: 44, color: Colors.white.withOpacity(0.18)),
                   ),
-                ),
+                ],
               ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              height: 1,
-              color: cs.onSurface.withOpacity(0.08),
             ),
           ),
         ],
@@ -342,32 +354,9 @@ class _HeroBanner extends StatelessWidget {
   }
 }
 
-class _HeroTrailingWidget extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Align(
-          alignment: AlignmentDirectional.topEnd,
-          child: Icon(
-            Icons.sports_esports_rounded,
-            size: 74,
-            color: Colors.white.withOpacity(0.90),
-          ),
-        ),
-        Align(
-          alignment: AlignmentDirectional.bottomStart,
-          child: Icon(
-            Icons.sports_soccer_rounded,
-            size: 54,
-            color: Colors.white.withOpacity(0.70),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
+// ─────────────────────────────────────────────
+// Category Row
+// ─────────────────────────────────────────────
 class _CategoryRow extends StatelessWidget {
   const _CategoryRow({
     required this.categories,
@@ -379,50 +368,48 @@ class _CategoryRow extends StatelessWidget {
   final String selected;
   final ValueChanged<String> onSelect;
 
+  IconData _categoryIcon(String c) {
+    switch (c.toLowerCase()) {
+      case 'gamepads': return Icons.sports_esports_rounded;
+      case 'jerseys': return Icons.checkroom_rounded;
+      case 'boots': return Icons.hiking_rounded;
+      case 'accessories': return Icons.watch_rounded;
+      default: return Icons.apps_rounded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     return SizedBox(
-      height: 52,
+      height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: categories.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final c = categories[i];
           final isSel = c == selected;
+          final color = isSel ? cs.primary : Colors.white.withOpacity(0.50);
 
           return InkWell(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(14),
             onTap: () => onSelect(c),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: isSel ? cs.primary.withOpacity(0.16) : cs.surface,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: isSel ? cs.primary.withOpacity(0.55) : cs.onSurface.withOpacity(0.10),
-                ),
+                color: isSel ? cs.primary.withOpacity(0.12) : Colors.white.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: isSel ? cs.primary.withOpacity(0.35) : Colors.white.withOpacity(0.06)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    _categoryIcon(c),
-                    size: 18,
-                    color: isSel ? cs.primary : cs.onSurface.withOpacity(0.70),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    c,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: isSel ? cs.primary : cs.onSurface.withOpacity(0.82),
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                  Icon(_categoryIcon(c), size: 16, color: color),
+                  const SizedBox(width: 6),
+                  Text(c, style: TextStyle(color: color, fontWeight: isSel ? FontWeight.w900 : FontWeight.w700, fontSize: 12)),
                 ],
               ),
             ),
@@ -431,31 +418,33 @@ class _CategoryRow extends StatelessWidget {
       ),
     );
   }
-
-  IconData _categoryIcon(String c) {
-    switch (c.toLowerCase()) {
-      case 'gamepads':
-        return Icons.sports_esports_outlined;
-      case 'jerseys':
-        return Icons.checkroom_outlined;
-      case 'boots':
-        return Icons.hiking_outlined;
-      case 'accessories':
-        return Icons.watch_outlined;
-      default:
-        return Icons.apps_outlined;
-    }
-  }
 }
 
-class _ProductCard extends StatelessWidget {
-  const _ProductCard({
-    required this.product,
-    required this.onTap,
-  });
-
+// ─────────────────────────────────────────────
+// Product Card
+// ─────────────────────────────────────────────
+class _ProductCard extends StatefulWidget {
+  const _ProductCard({required this.product, required this.onTap});
   final MarketplaceProduct product;
   final VoidCallback onTap;
+
+  @override
+  State<_ProductCard> createState() => _ProductCardState();
+}
+
+class _ProductCardState extends State<_ProductCard> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 100), reverseDuration: const Duration(milliseconds: 180));
+    _scale = Tween<double>(begin: 1.0, end: 0.96).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
 
   bool _looksLikeHttpUrl(String s) {
     final u = s.trim().toLowerCase();
@@ -466,156 +455,119 @@ class _ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-
-    final img = product.imageUrl.trim();
+    final p = widget.product;
+    final img = p.imageUrl.trim();
     final hasImg = img.isNotEmpty && _looksLikeHttpUrl(img);
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: onTap,
-      child: Glass(
-        borderRadius: 22,
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: AspectRatio(
-                aspectRatio: 1.25,
-                child: hasImg
-                    ? CachedNetworkImage(
-                        imageUrl: img,
-                        fit: BoxFit.cover,
-                        fadeInDuration: const Duration(milliseconds: 150),
-                        placeholder: (context, _) => DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: cs.onSurface.withOpacity(0.06),
+    return AnimatedBuilder(
+      animation: _scale,
+      builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
+      child: GestureDetector(
+        onTapDown: (_) => _ctrl.forward(),
+        onTapUp: (_) { _ctrl.reverse(); widget.onTap(); },
+        onTapCancel: () => _ctrl.reverse(),
+        child: Glass(
+          borderRadius: 20,
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: AspectRatio(
+                  aspectRatio: 1.2,
+                  child: hasImg
+                      ? CachedNetworkImage(
+                          imageUrl: img,
+                          fit: BoxFit.cover,
+                          fadeInDuration: const Duration(milliseconds: 150),
+                          placeholder: (context, _) => Container(
+                            color: Colors.white.withOpacity(0.04),
+                            child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary))),
                           ),
-                          child: Center(
-                            child: SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: cs.primary,
-                              ),
-                            ),
+                          errorWidget: (context, _, __) => Container(
+                            color: Colors.white.withOpacity(0.04),
+                            child: Icon(Icons.image_not_supported_outlined, color: Colors.white.withOpacity(0.3)),
                           ),
+                        )
+                      : Container(
+                          color: Colors.white.withOpacity(0.04),
+                          child: Icon(Icons.image_outlined, color: Colors.white.withOpacity(0.3)),
                         ),
-                        errorWidget: (context, _, __) => DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: cs.onSurface.withOpacity(0.06),
-                          ),
-                          child: Icon(
-                            Icons.image_not_supported_outlined,
-                            color: cs.onSurface.withOpacity(0.55),
-                          ),
-                        ),
-                      )
-                    : DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: cs.onSurface.withOpacity(0.06),
-                        ),
-                        child: Icon(
-                          Icons.image_outlined,
-                          color: cs.onSurface.withOpacity(0.55),
-                        ),
-                      ),
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              product.name.trim().isEmpty ? 'Untitled product' : product.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface,
-                fontWeight: FontWeight.w900,
-                height: 1.15,
+              const SizedBox(height: 10),
+              Text(
+                p.name.trim().isEmpty ? 'Untitled' : p.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, height: 1.2),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              product.price.trim().isEmpty ? '—' : product.price.trim(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: cs.onSurface,
-                fontWeight: FontWeight.w900,
+              const SizedBox(height: 6),
+              Text(
+                p.price.trim().isEmpty ? '—' : p.price.trim(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 15),
               ),
-            ),
-            const Spacer(),
-            Row(
-              children: [
-                Icon(Icons.storefront_outlined,
-                    size: 16, color: cs.onSurface.withOpacity(0.65)),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    product.sellerName.trim().isEmpty
-                        ? 'Seller'
-                        : product.sellerName.trim(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.72),
-                      fontWeight: FontWeight.w700,
+              const Spacer(),
+              Row(
+                children: [
+                  Icon(Icons.storefront_rounded, size: 13, color: Colors.white.withOpacity(0.4)),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      p.sellerName.trim().isEmpty ? 'Seller' : p.sellerName.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Colors.white.withOpacity(0.45), fontWeight: FontWeight.w700, fontSize: 11),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+// ─────────────────────────────────────────────
+// Affiliate Disclosure Card
+// ─────────────────────────────────────────────
 class _AffiliateDisclosureCard extends StatelessWidget {
   const _AffiliateDisclosureCard();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     return Glass(
-      padding: const EdgeInsets.all(14),
+      borderRadius: 18,
+      padding: const EdgeInsets.all(16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 38,
-            height: 38,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cs.primary.withOpacity(0.30)),
+              shape: BoxShape.circle,
+              color: cs.primary.withOpacity(0.10),
             ),
-            child: Icon(Icons.lightbulb_outline, color: cs.primary),
+            child: Icon(Icons.lightbulb_outline_rounded, color: cs.primary, size: 18),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Affiliate Disclosure',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 6),
+                const Text('Affiliate Disclosure', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                const SizedBox(height: 4),
                 Text(
                   'This marketplace contains affiliate products. We may earn commission from purchases.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.70),
-                    fontWeight: FontWeight.w600,
-                    height: 1.25,
-                  ),
+                  style: TextStyle(color: Colors.white.withOpacity(0.45), fontWeight: FontWeight.w600, fontSize: 12, height: 1.3),
                 ),
               ],
             ),
@@ -624,4 +576,16 @@ class _AffiliateDisclosureCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────
+// AnimatedBuilder helper
+// ─────────────────────────────────────────────
+class AnimatedBuilder extends AnimatedWidget {
+  const AnimatedBuilder({super.key, required super.listenable, required this.builder, this.child});
+  Animation<dynamic> get animation => listenable as Animation<dynamic>;
+  final TransitionBuilder builder;
+  final Widget? child;
+  @override
+  Widget build(BuildContext context) => builder(context, child);
 }
