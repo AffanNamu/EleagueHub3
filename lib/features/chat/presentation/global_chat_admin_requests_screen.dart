@@ -12,16 +12,16 @@ class GlobalChatAdminRequestsScreen extends StatefulWidget {
   const GlobalChatAdminRequestsScreen({super.key});
 
   @override
-  State<GlobalChatAdminRequestsScreen> createState() => _GlobalChatAdminRequestsScreenState();
+  State<GlobalChatAdminRequestsScreen> createState() =>
+      _GlobalChatAdminRequestsScreenState();
 }
 
-class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsScreen> {
+class _GlobalChatAdminRequestsScreenState
+    extends State<GlobalChatAdminRequestsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool _busy = false;
 
-  // FIX 2: remove orderBy from server query to avoid composite-index breakage in production.
-  // We'll sort client-side for display.
   final String _statusFilter = 'pending';
 
   void _toast(String msg, {bool error = false}) {
@@ -36,22 +36,25 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
     );
   }
 
-  void _toastErr(Object e) => _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
+  void _toastErr(Object e) => _toast(
+      UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      error: true);
 
+  // ── FIXED: use .update() instead of .set(merge:true) ──
   Future<void> _setStatus(String requestId, String status) async {
     if (_busy) return;
 
     setState(() => _busy = true);
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      await _firestore.collection('globalChatRequests').doc(requestId).set(
+      await _firestore.collection('globalChatRequests').doc(requestId).update(
         <String, dynamic>{
           'status': status,
           'updatedAtMs': now,
         },
-        SetOptions(merge: true),
       );
 
       _toast('Updated: $status');
@@ -92,12 +95,13 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
             if (snap.hasError) {
               final err = snap.error;
 
-              // Friendlier admin screen error messaging.
-              String msg = UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
+              String msg = UserFriendlyError.toMessage(
+                  err is Object ? err : Exception('unknown'));
 
               if (err is FirebaseException) {
                 if (err.code == 'permission-denied') {
-                  msg = 'Super admin only. You do not have permission to view requests.';
+                  msg =
+                      'Super admin only. You do not have permission to view requests.';
                 } else if (err.code == 'failed-precondition') {
                   msg =
                       'Firestore requires an index for this query.\n\nOpen Firebase Console → Firestore → Indexes and create the suggested index.';
@@ -112,7 +116,8 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.error_outline, color: theme.colorScheme.error, size: 36),
+                        Icon(Icons.error_outline,
+                            color: theme.colorScheme.error, size: 36),
                         const SizedBox(height: 10),
                         Text(
                           msg,
@@ -128,7 +133,8 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
                             err.toString(),
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: theme.colorScheme.onSurface.withOpacity(0.45),
+                              color:
+                                  theme.colorScheme.onSurface.withOpacity(0.45),
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
                             ),
@@ -151,16 +157,19 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
               return Center(
                 child: Text(
                   'No pending requests',
-                  style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.55), fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                      color: theme.colorScheme.onSurface.withOpacity(0.55),
+                      fontWeight: FontWeight.w700),
                 ),
               );
             }
 
-            // Client-side sort (desc) without requiring composite index.
             final sorted = docs.toList()
               ..sort((a, b) {
-                final ams = _intFrom(a.data()['createdAtMs'], fallback: 0);
-                final bms = _intFrom(b.data()['createdAtMs'], fallback: 0);
+                final ams =
+                    _intFrom(a.data()['createdAtMs'], fallback: 0);
+                final bms =
+                    _intFrom(b.data()['createdAtMs'], fallback: 0);
                 return bms.compareTo(ams);
               });
 
@@ -172,9 +181,12 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
                 final d = sorted[i];
                 final data = d.data();
 
-                final userId = (data['userId'] as String? ?? d.id).trim();
-                final userName = (data['userName'] as String? ?? 'User').trim();
-                final userPhoto = (data['userPhoto'] as String? ?? '').trim();
+                final userId =
+                    (data['userId'] as String? ?? d.id).trim();
+                final userName =
+                    (data['userName'] as String? ?? 'User').trim();
+                final userPhoto =
+                    (data['userPhoto'] as String? ?? '').trim();
 
                 return Glass(
                   padding: const EdgeInsets.all(14),
@@ -185,10 +197,15 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
                         children: [
                           CircleAvatar(
                             radius: 20,
-                            backgroundColor: theme.colorScheme.onSurface.withOpacity(0.08),
-                            backgroundImage: userPhoto.isEmpty ? null : NetworkImage(userPhoto),
+                            backgroundColor:
+                                theme.colorScheme.onSurface.withOpacity(0.08),
+                            backgroundImage: userPhoto.isEmpty
+                                ? null
+                                : NetworkImage(userPhoto),
                             child: userPhoto.isEmpty
-                                ? Icon(Icons.person_outline, color: theme.colorScheme.onSurface.withOpacity(0.55))
+                                ? Icon(Icons.person_outline,
+                                    color: theme.colorScheme.onSurface
+                                        .withOpacity(0.55))
                                 : null,
                           ),
                           const SizedBox(width: 12),
@@ -198,13 +215,15 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
                               children: [
                                 Text(
                                   userName,
-                                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                                  style: theme.textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w900),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
                                   userId,
                                   style: TextStyle(
-                                    color: theme.colorScheme.onSurface.withOpacity(0.55),
+                                    color: theme.colorScheme.onSurface
+                                        .withOpacity(0.55),
                                     fontWeight: FontWeight.w700,
                                     fontSize: 12,
                                   ),
@@ -219,14 +238,18 @@ class _GlobalChatAdminRequestsScreenState extends State<GlobalChatAdminRequestsS
                         children: [
                           Expanded(
                             child: FilledButton(
-                              onPressed: _busy ? null : () => _setStatus(d.id, 'approved'),
+                              onPressed: _busy
+                                  ? null
+                                  : () => _setStatus(d.id, 'approved'),
                               child: const Text('Approve'),
                             ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: _busy ? null : () => _setStatus(d.id, 'rejected'),
+                              onPressed: _busy
+                                  ? null
+                                  : () => _setStatus(d.id, 'rejected'),
                               child: const Text('Reject'),
                             ),
                           ),

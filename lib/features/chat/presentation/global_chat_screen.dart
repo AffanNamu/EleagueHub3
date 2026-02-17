@@ -81,7 +81,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   String _senderPhoto() {
-    if (_identityResolved && _resolvedPhoto.isNotEmpty) return _resolvedPhoto;
+    if (_identityResolved) return _resolvedPhoto;
     return _fallbackPhoto();
   }
 
@@ -101,24 +101,33 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   void _toastErr(Object e) =>
       _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
+  // ── FIXED: Separate create vs update to match rules exactly ──
   Future<void> _requestAccess() async {
     setState(() => _sending = true);
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final now = DateTime.now().millisecondsSinceEpoch;
+      final docRef = _repo.globalChatRequestDoc(_user.uid);
+      final existing = await docRef.get().timeout(const Duration(seconds: 8));
 
-      await _repo.globalChatRequestDoc(_user.uid).set(
-        <String, dynamic>{
+      if (existing.exists) {
+        // UPDATE — only status + metadata; hits the update rule cleanly
+        await docRef.update(<String, dynamic>{
+          'status': 'pending',
+          'updatedAtMs': now,
+        });
+      } else {
+        // CREATE — full payload, no merge
+        await docRef.set(<String, dynamic>{
           'userId': _user.uid,
           'userName': _senderName(),
           'userPhoto': _senderPhoto(),
           'status': 'pending',
           'createdAtMs': now,
           'updatedAtMs': now,
-        },
-        SetOptions(merge: true),
-      );
+        });
+      }
 
       _toast('Request submitted');
       if (mounted) setState(() => _sending = false);
