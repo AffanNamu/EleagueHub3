@@ -15,6 +15,7 @@ import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
@@ -91,7 +92,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   }
 
   Color _baseToastBg(ThemeData theme) {
-    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+    // High-contrast in both themes.
+    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0B1220);
   }
 
   void _toast(
@@ -417,6 +419,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     }
   }
 
+  Future<void> _onOpenLeagueChatroom() async {
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      if (!mounted) return;
+      context.push('/leagues/${widget.leagueId}/chat');
+    } catch (e) {
+      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -426,162 +438,172 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final isWide = MediaQuery.of(context).size.width > 600;
 
-    return GlassScaffold(
-      appBar: AppBar(
-        title: Text(l10n.tr('league_details_appbar_title')),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          IconButton(
-            tooltip: l10n.tr('common_refresh'),
-            onPressed: () {
-              setState(() {});
-              _toastOk(l10n.tr('common_done'));
-            },
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+    // Light theme visibility fix: use the app gradient background here too.
+    return Container(
+      decoration: BoxDecoration(
+        gradient: AppTheme.backgroundGradient(theme.brightness),
       ),
-      body: SafeArea(
-        child: Center(
-          child: FutureBuilder<Map<String, dynamic>>(
-            future: _loadData(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return Center(
-                  child: CircularProgressIndicator(color: cs.primary),
-                );
-              }
+      child: GlassScaffold(
+        appBar: AppBar(
+          title: Text(l10n.tr('league_details_appbar_title')),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          actions: [
+            IconButton(
+              tooltip: l10n.tr('common_refresh'),
+              onPressed: () {
+                setState(() {});
+                _toastOk(l10n.tr('common_done'));
+              },
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: _loadData(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(
+                    child: CircularProgressIndicator(color: cs.primary),
+                  );
+                }
 
-              if (snapshot.hasError) {
-                final err = snapshot.error;
-                final message = (err is _L10nException)
-                    ? l10n.tr(err.key)
-                    : UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
+                if (snapshot.hasError) {
+                  final err = snapshot.error;
+                  final message = (err is _L10nException)
+                      ? l10n.tr(err.key)
+                      : UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
 
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.error_outline, color: cs.error, size: 48),
-                        const SizedBox(height: 16),
-                        Text(
-                          '${l10n.tr('common_error_prefix')}: $message',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: cs.onBackground.withOpacity(0.72),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        if (kDebugMode && err != null) ...[
-                          const SizedBox(height: 6),
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline, color: cs.error, size: 48),
+                          const SizedBox(height: 16),
                           Text(
-                            err.runtimeType.toString(),
+                            '${l10n.tr('common_error_prefix')}: $message',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: cs.onBackground.withOpacity(0.45), fontSize: 12),
+                            style: TextStyle(
+                              color: cs.onBackground.withOpacity(0.72),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (kDebugMode && err != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              err.runtimeType.toString(),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: cs.onBackground.withOpacity(0.45), fontSize: 12),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          TextButton(
+                            onPressed: () => setState(() {}),
+                            child: Text(
+                              l10n.tr('common_retry'),
+                              style: TextStyle(color: cs.primary, fontWeight: FontWeight.w800),
+                            ),
                           ),
                         ],
+                      ),
+                    ),
+                  );
+                }
+
+                if (!snapshot.hasData) return const SizedBox.shrink();
+
+                final league = snapshot.data!['league'] as League;
+                final fixtures = snapshot.data!['fixtures'] as List<FixtureMatch>;
+                final teams = snapshot.data!['teams'] as List<Team>;
+                final teamNames = snapshot.data!['teamNames'] as Map<String, String>;
+                final teamImageUrls = snapshot.data!['teamImageUrls'] as Map<String, String>;
+                final currentUserId = snapshot.data!['currentUserId'] as String;
+                final membership = snapshot.data!['membership'] as Membership?;
+                final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
+                final announcements = snapshot.data!['announcements'] as List<LeagueAnnouncement>;
+                final space = snapshot.data!['space'] as Map<String, dynamic>?;
+
+                final sorted = _sortedSchedule(fixtures);
+                final rounds = _allRounds(sorted);
+                final selectedRound = (_lastViewedRound != null && rounds.contains(_lastViewedRound))
+                    ? _lastViewedRound!
+                    : (rounds.isEmpty ? 1 : rounds.first);
+
+                final upcoming = _computeUpcomingUnplayed(
+                  sortedAll: sorted,
+                  selectedRound: selectedRound,
+                  limit: 8,
+                );
+
+                int latestAnnMs = 0;
+                if (announcements.isNotEmpty) {
+                  latestAnnMs = announcements.map((a) => a.createdAtMs).reduce(max);
+                }
+                final hasUnreadAnnouncements = announcements.isNotEmpty && latestAnnMs > _lastSeenAnnMs;
+
+                if (hasUnreadAnnouncements) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _markAnnouncementsSeen(latestAnnMs);
+                  });
+                }
+
+                _ensureAnnounceAutoScroll(announcements.length);
+
+                final isOwnerByMembership = membership?.role == LeagueRole.organizer;
+                final isOwnerByLeague =
+                    league.organizerUid.trim().isNotEmpty && league.organizerUid.trim() == currentUserId.trim();
+                final isOwner = isOwnerByMembership || isOwnerByLeague;
+
+                // League chatroom access: organizer OR participant membership.
+                final canChat = isOwner || membership != null;
+
+                final spaceLive = space?['isLive'] == true;
+
+                return ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: isWide ? 600 : 500),
+                  child: RefreshIndicator(
+                    onRefresh: () async => setState(() {}),
+                    color: cs.primary,
+                    child: ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      children: [
+                        _overviewCard(context, league, isOwner),
+                        if (announcements.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          _announcementsCard(context, announcements, hasUnreadAnnouncements),
+                        ],
                         const SizedBox(height: 16),
-                        TextButton(
-                          onPressed: () => setState(() {}),
-                          child: Text(
-                            l10n.tr('common_retry'),
-                            style: TextStyle(color: cs.primary, fontWeight: FontWeight.w800),
-                          ),
+                        _quickActions(
+                          context,
+                          league,
+                          isOwner,
+                          canChat,
+                          fixtures,
+                          teams,
+                          knockouts,
+                          spaceLive,
+                          currentUserId,
+                        ),
+                        const SizedBox(height: 16),
+                        _upcomingMatchesCard(
+                          context,
+                          fixtures: upcoming,
+                          names: teamNames,
+                          teamImageUrls: teamImageUrls,
+                          rounds: rounds,
+                          selectedRound: selectedRound,
+                          onRoundSelected: (r) => _persistRound(r),
                         ),
                       ],
                     ),
                   ),
                 );
-              }
-
-              if (!snapshot.hasData) return const SizedBox.shrink();
-
-              final league = snapshot.data!['league'] as League;
-              final fixtures = snapshot.data!['fixtures'] as List<FixtureMatch>;
-              final teams = snapshot.data!['teams'] as List<Team>;
-              final teamNames = snapshot.data!['teamNames'] as Map<String, String>;
-              final teamImageUrls = snapshot.data!['teamImageUrls'] as Map<String, String>;
-              final currentUserId = snapshot.data!['currentUserId'] as String;
-              final membership = snapshot.data!['membership'] as Membership?;
-              final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
-              final announcements = snapshot.data!['announcements'] as List<LeagueAnnouncement>;
-              final space = snapshot.data!['space'] as Map<String, dynamic>?;
-
-              final sorted = _sortedSchedule(fixtures);
-              final rounds = _allRounds(sorted);
-              final selectedRound = (_lastViewedRound != null && rounds.contains(_lastViewedRound))
-                  ? _lastViewedRound!
-                  : (rounds.isEmpty ? 1 : rounds.first);
-
-              final upcoming = _computeUpcomingUnplayed(
-                sortedAll: sorted,
-                selectedRound: selectedRound,
-                limit: 8,
-              );
-
-              int latestAnnMs = 0;
-              if (announcements.isNotEmpty) {
-                latestAnnMs = announcements.map((a) => a.createdAtMs).reduce(max);
-              }
-              final hasUnreadAnnouncements = announcements.isNotEmpty && latestAnnMs > _lastSeenAnnMs;
-
-              if (hasUnreadAnnouncements) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _markAnnouncementsSeen(latestAnnMs);
-                });
-              }
-
-              _ensureAnnounceAutoScroll(announcements.length);
-
-              final isOwnerByMembership = membership?.role == LeagueRole.organizer;
-              final isOwnerByLeague =
-                  league.organizerUid.trim().isNotEmpty && league.organizerUid.trim() == currentUserId.trim();
-              final isOwner = isOwnerByMembership || isOwnerByLeague;
-
-              final spaceLive = space?['isLive'] == true;
-
-              return ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: isWide ? 600 : 500),
-                child: RefreshIndicator(
-                  onRefresh: () async => setState(() {}),
-                  color: cs.primary,
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    children: [
-                      _overviewCard(context, league, isOwner),
-                      if (announcements.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        _announcementsCard(context, announcements, hasUnreadAnnouncements),
-                      ],
-                      const SizedBox(height: 16),
-                      _quickActions(
-                        context,
-                        league,
-                        isOwner,
-                        fixtures,
-                        teams,
-                        knockouts,
-                        spaceLive,
-                        currentUserId,
-                      ),
-                      const SizedBox(height: 16),
-                      _upcomingMatchesCard(
-                        context,
-                        fixtures: upcoming,
-                        names: teamNames,
-                        teamImageUrls: teamImageUrls,
-                        rounds: rounds,
-                        selectedRound: selectedRound,
-                        onRoundSelected: (r) => _persistRound(r),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+              },
+            ),
           ),
         ),
       ),
@@ -742,6 +764,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     BuildContext context,
     League league,
     bool isOwner,
+    bool canChat,
     List<FixtureMatch> fixtures,
     List<Team> teams,
     List<KnockoutMatch> knockouts,
@@ -772,8 +795,33 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             ),
           ),
           const SizedBox(height: 8),
+
           _buildLeagueSpaceRow(context, league, isOwner, spaceLive, currentUserId),
+
+          // League Chatroom entry (League Details Screen)
+          if (canChat) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+                  foregroundColor: cs.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _onOpenLeagueChatroom,
+                icon: const Icon(Icons.forum_outlined),
+                label: const Text(
+                  'League Chatroom',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                ),
+              ),
+            ),
+          ],
+
           const SizedBox(height: 16),
+
           Row(
             children: [
               Expanded(
@@ -793,6 +841,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ],
           ),
+
           if (!isOwner) ...[
             const SizedBox(height: 12),
             if (hasKnockouts)
@@ -846,6 +895,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ),
           ],
+
           if (isOwner) ...[
             const SizedBox(height: 12),
             SizedBox(
@@ -934,9 +984,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       style: TextButton.styleFrom(
                         foregroundColor: hasKnockouts ? cs.primary : cs.onSurface.withOpacity(0.30),
                       ),
-                      onPressed: hasKnockouts
-                          ? () => context.push('/leagues/${widget.leagueId}/knockout')
-                          : showNeedKnockoutsSnack,
+                      onPressed: hasKnockouts ? () => context.push('/leagues/${widget.leagueId}/knockout') : showNeedKnockoutsSnack,
                       icon: const Icon(Icons.account_tree_outlined, size: 18),
                       label: Text(
                         l10n.tr('league_details_view_knockout_bracket'),

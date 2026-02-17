@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -163,6 +164,14 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     return 'ESL_${name}_$pct%';
   }
 
+  bool _customNameInvalid(String s) {
+    final t = s.trim();
+    if (t.isEmpty) return false; // allow empty; we just show preview as NAME
+    if (t.contains('/')) return true;
+    if (t.length > 24) return true;
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     _maybeInitFromRoute();
@@ -295,15 +304,17 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
             final bool thresholdConfigured = plan.couponThreshold != null && plan.couponThreshold! > 0;
 
-            final double minCoupon = (addonsOnly ? 0 : 1).toDouble();
-            final double couponSliderValue =
-                _couponCount.toDouble().clamp(minCoupon, 100000.0);
+            // Fix: if organizer toggles coupons ON, enforce at least 1 even in addonsOnly.
+            final double minCoupon = _buyCoupons ? 1 : (addonsOnly ? 0 : 1);
+            final double couponSliderValue = _couponCount.toDouble().clamp(minCoupon, 100000.0);
 
             final String preview = _previewCode(
               customMode: _couponCodeCustomMode,
               base: _couponCodeBase.text,
               discountPercent: discForPurchase,
             );
+
+            final bool customInvalid = _couponCodeCustomMode && _customNameInvalid(_couponCodeBase.text);
 
             return SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -366,12 +377,14 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                         : (v) {
                                             setState(() {
                                               _buyCoupons = v;
+
                                               if (!v) {
                                                 _couponCount = addonsOnly ? 0 : 1;
                                               } else {
-                                                if (_couponCount > 0 && _discountPercent <= 0) {
-                                                  _discountPercent = 50;
+                                                if (_couponCount <= 0) {
+                                                  _couponCount = 1; // enforce minimum when toggled on
                                                 }
+                                                if (_discountPercent <= 0) _discountPercent = 50;
                                               }
                                             });
                                           },
@@ -444,8 +457,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           : () {
                                               setState(() {
                                                 final next = (_couponCount - 10);
-                                                _couponCount = next.clamp(addonsOnly ? 0 : 1, 100000);
-                                                if (_couponCount > 0 && _discountPercent <= 0) _discountPercent = 50;
+                                                _couponCount = next.clamp(1, 100000);
+                                                if (_discountPercent <= 0) _discountPercent = 50;
                                               });
                                             },
                                       icon: const Icon(Icons.remove_circle_outline),
@@ -457,8 +470,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           : () {
                                               setState(() {
                                                 final next = (_couponCount + 10);
-                                                _couponCount = next.clamp(addonsOnly ? 0 : 1, 100000);
-                                                if (_couponCount > 0 && _discountPercent <= 0) _discountPercent = 50;
+                                                _couponCount = next.clamp(1, 100000);
+                                                if (_discountPercent <= 0) _discountPercent = 50;
                                               });
                                             },
                                       icon: const Icon(Icons.add_circle_outline),
@@ -476,8 +489,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                       : (v) {
                                           final rounded = v.round();
                                           setState(() {
-                                            _couponCount = rounded.clamp(addonsOnly ? 0 : 1, 100000);
-                                            if (_couponCount > 0 && _discountPercent <= 0) _discountPercent = 50;
+                                            _couponCount = rounded.clamp(1, 100000);
+                                            if (_discountPercent <= 0) _discountPercent = 50;
                                           });
                                         },
                                 ),
@@ -507,16 +520,15 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                 ),
                                 Slider(
                                   value: _discountPercent.toDouble(),
-                                  // Allow 0% only when qty==0 (upgrade discount-only adjustments).
-                                  min: (_couponCount > 0) ? 5 : 0,
+                                  min: 5,
                                   max: 100,
-                                  divisions: 20,
+                                  divisions: 19,
                                   label: '$_discountPercent%',
                                   onChanged: _processing
                                       ? null
                                       : (v) {
                                           final rounded = (v / 5).round() * 5;
-                                          setState(() => _discountPercent = rounded.clamp(0, 100));
+                                          setState(() => _discountPercent = rounded.clamp(5, 100));
                                         },
                                 ),
 
@@ -549,15 +561,20 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                   TextField(
                                     controller: _couponCodeBase,
                                     enabled: !_processing,
-                                    decoration: const InputDecoration(
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9 _-]')),
+                                      LengthLimitingTextInputFormatter(24),
+                                    ],
+                                    decoration: InputDecoration(
                                       labelText: 'Custom name (example: BARCA)',
-                                      prefixIcon: Icon(Icons.edit),
+                                      prefixIcon: const Icon(Icons.edit),
+                                      errorText: customInvalid ? 'Invalid name (no "/" and max 24 chars).' : null,
                                     ),
                                     onChanged: (_) => setState(() {}),
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Custom name cannot contain "/".',
+                                    'Custom name is used for display/preview; it must not contain "/".',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color: cs.onSurface.withOpacity(0.65),
                                       fontWeight: FontWeight.w700,
@@ -602,12 +619,8 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                               _kv(context, 'Coupons subtotal (organizer pays)', '${_money(rawCouponSubtotal)} $currency'),
                               _kv(
                                 context,
-                                bulkDiscountApplied
-                                    ? 'Bulk discount (${_money(plan.couponDiscountPercent)}%)'
-                                    : 'Bulk discount',
-                                bulkDiscountApplied
-                                    ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency'
-                                    : '—',
+                                bulkDiscountApplied ? 'Bulk discount (${_money(plan.couponDiscountPercent)}%)' : 'Bulk discount',
+                                bulkDiscountApplied ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
                               ),
                               const Divider(),
                               _kvStrong(context, 'Total payable now', '${_money(total)} $currency'),
@@ -627,9 +640,19 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                             const SizedBox(width: 12),
                             Expanded(
                               child: FilledButton(
-                                onPressed: _processing
+                                onPressed: (_processing || customInvalid)
                                     ? null
                                     : () async {
+                                        if (_buyCoupons && _couponCount <= 0) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: const Text('Select at least 1 coupon to buy.'),
+                                              backgroundColor: cs.error,
+                                            ),
+                                          );
+                                          return;
+                                        }
+
                                         if (_buyCoupons && _couponCount > 0 && _discountPercent <= 0) {
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(

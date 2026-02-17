@@ -122,8 +122,11 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
       builder: (ctx) => AlertDialog(
         title: Text(_trOr(l10n, 'live_overlay_enable_title', 'Enable floating overlay?')),
         content: Text(
-          _trOr(l10n, 'live_overlay_enable_body',
-              'This shows a floating voice/message control above other apps. Android will ask for "Appear on top" permission.'),
+          _trOr(
+            l10n,
+            'live_overlay_enable_body',
+            'This shows a floating voice/message control above other apps. Android will ask for "Appear on top" permission.',
+          ),
         ),
         actions: [
           TextButton(
@@ -161,8 +164,9 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        content: Text(_trOr(l10n, 'live_overlay_permission_snackbar',
-            'Grant the overlay permission, then return to the app.')),
+        content: Text(
+          _trOr(l10n, 'live_overlay_permission_snackbar', 'Grant the overlay permission, then return to the app.'),
+        ),
       ),
     );
   }
@@ -246,9 +250,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
         ? Icons.picture_in_picture_alt_outlined
         : (_overlayGranted ? Icons.picture_in_picture_alt : Icons.warning_amber_rounded);
 
-    final overlayIconColor = !_overlayEnabled
-        ? null
-        : (_overlayGranted ? const Color(0xFF22C55E) : const Color(0xFFF59E0B));
+    final overlayIconColor =
+        !_overlayEnabled ? null : (_overlayGranted ? const Color(0xFF22C55E) : const Color(0xFFF59E0B));
 
     return WillPopScope(
       onWillPop: _handleSystemBack,
@@ -311,7 +314,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
                       labelTextStyle: WidgetStateProperty.resolveWith((states) {
                         final selected = states.contains(WidgetState.selected);
                         return TextStyle(
-                          color: selected ? Colors.white : Colors.white.withOpacity(0.55),
+                          color: selected ? colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.55),
                           fontSize: 11,
                           fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                         );
@@ -319,7 +322,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
                       iconTheme: WidgetStateProperty.resolveWith((states) {
                         final selected = states.contains(WidgetState.selected);
                         return IconThemeData(
-                          color: selected ? Colors.white : Colors.white.withOpacity(0.55),
+                          color: selected ? colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.55),
                           size: 24,
                         );
                       }),
@@ -381,11 +384,14 @@ class _HomeTab extends StatelessWidget {
     final cs = theme.colorScheme;
     final t = theme.textTheme;
 
+    final secondary = cs.onSurface.withOpacity(0.55);
+    final tertiary = cs.onSurface.withOpacity(0.45);
+    final faint = cs.onSurface.withOpacity(0.30);
+
     return ListView(
       physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
       children: [
-        // ── Welcome Card ──
         Glass(
           padding: const EdgeInsets.all(20),
           child: Row(
@@ -417,13 +423,14 @@ class _HomeTab extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                         fontSize: 22,
                         letterSpacing: -0.5,
+                        color: cs.onSurface,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       l10n.homeMvpDescription,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.55),
+                        color: secondary,
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                         height: 1.4,
@@ -435,10 +442,7 @@ class _HomeTab extends StatelessWidget {
             ],
           ),
         ),
-
         const SizedBox(height: 20),
-
-        // ── Quick Actions Header ──
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -446,11 +450,10 @@ class _HomeTab extends StatelessWidget {
             style: t.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               letterSpacing: -0.3,
+              color: cs.onSurface,
             ),
           ),
         ),
-
-        // ── Quick Action Cards ──
         Row(
           children: [
             Expanded(
@@ -492,10 +495,7 @@ class _HomeTab extends StatelessWidget {
           onTap: () => context.push('/call'),
           isWide: true,
         ),
-
         const SizedBox(height: 24),
-
-        // ── Explore Section ──
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -503,33 +503,48 @@ class _HomeTab extends StatelessWidget {
             style: t.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               letterSpacing: -0.3,
+              color: cs.onSurface,
             ),
           ),
         ),
-
         Glass(
           padding: const EdgeInsets.all(4),
           child: Column(
             children: [
               _ExploreRow(
+                icon: Icons.forum_rounded,
+                title: _trOr(l10n, 'home_explore_global_chat', 'Global Chat'),
+                subtitle: _trOr(l10n, 'home_explore_global_chat_sub', 'Request access & chat in realtime'),
+                onTap: () => context.push('/global-chat'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
+              ),
+              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
+              _ExploreRow(
                 icon: Icons.public_rounded,
                 title: _trOr(l10n, 'home_explore_global_leagues', 'Global Leagues'),
                 subtitle: _trOr(l10n, 'home_explore_global_leagues_sub', 'Discover & join public leagues'),
                 onTap: () => context.push('/global-live'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
               ),
-              Divider(color: Colors.white.withOpacity(0.06), height: 1),
+              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
               _ExploreRow(
                 icon: Icons.storefront_rounded,
                 title: _trOr(l10n, 'home_explore_marketplace', 'Marketplace'),
                 subtitle: _trOr(l10n, 'home_explore_marketplace_sub', 'Browse gaming gear & accessories'),
                 onTap: () => context.push('/marketplace'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
               ),
-              Divider(color: Colors.white.withOpacity(0.06), height: 1),
+              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
               _ExploreRow(
                 icon: Icons.emoji_events_rounded,
                 title: _trOr(l10n, 'home_explore_my_leagues', 'My Leagues'),
                 subtitle: _trOr(l10n, 'home_explore_my_leagues_sub', 'View and manage your leagues'),
                 onTap: () => context.push('/leagues'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
               ),
             ],
           ),
@@ -539,9 +554,6 @@ class _HomeTab extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Quick Action Card
-// ─────────────────────────────────────────────
 class _QuickActionCard extends StatefulWidget {
   const _QuickActionCard({
     required this.icon,
@@ -562,8 +574,7 @@ class _QuickActionCard extends StatefulWidget {
   State<_QuickActionCard> createState() => _QuickActionCardState();
 }
 
-class _QuickActionCardState extends State<_QuickActionCard>
-    with SingleTickerProviderStateMixin {
+class _QuickActionCardState extends State<_QuickActionCard> with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _scale;
 
@@ -590,6 +601,11 @@ class _QuickActionCardState extends State<_QuickActionCard>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+
+    final secondary = cs.onSurface.withOpacity(0.50);
+    final tertiary = cs.onSurface.withOpacity(0.45);
+    final faint = cs.onSurface.withOpacity(0.30);
+
     return AnimatedBuilder(
       listenable: _scale,
       builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
@@ -621,7 +637,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         height: 44,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white.withOpacity(0.08),
+                          color: cs.onSurface.withOpacity(0.06),
+                          border: Border.all(color: cs.onSurface.withOpacity(0.10)),
                         ),
                         child: Icon(widget.icon, color: cs.primary, size: 22),
                       ),
@@ -635,13 +652,14 @@ class _QuickActionCardState extends State<_QuickActionCard>
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 15,
+                                color: cs.onSurface,
                               ),
                             ),
                             const SizedBox(height: 3),
                             Text(
                               widget.subtitle,
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.50),
+                                color: secondary,
                                 fontWeight: FontWeight.w600,
                                 fontSize: 12,
                               ),
@@ -649,8 +667,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                           ],
                         ),
                       ),
-                      Icon(Icons.arrow_forward_ios_rounded,
-                          size: 16, color: Colors.white.withOpacity(0.3)),
+                      Icon(Icons.arrow_forward_ios_rounded, size: 16, color: faint),
                     ],
                   )
                 : Column(
@@ -661,7 +678,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         height: 40,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white.withOpacity(0.08),
+                          color: cs.onSurface.withOpacity(0.06),
+                          border: Border.all(color: cs.onSurface.withOpacity(0.10)),
                         ),
                         child: Icon(widget.icon, color: cs.primary, size: 20),
                       ),
@@ -673,6 +691,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w900,
                           fontSize: 14,
+                          color: cs.onSurface,
                         ),
                       ),
                       const SizedBox(height: 3),
@@ -681,7 +700,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.45),
+                          color: tertiary,
                           fontWeight: FontWeight.w600,
                           fontSize: 11,
                           height: 1.3,
@@ -696,21 +715,23 @@ class _QuickActionCardState extends State<_QuickActionCard>
   }
 }
 
-// ─────────────────────────────────────────────
-// Explore Row
-// ─────────────────────────────────────────────
 class _ExploreRow extends StatelessWidget {
   const _ExploreRow({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    required this.secondaryColor,
+    required this.chevronColor,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+
+  final Color secondaryColor;
+  final Color chevronColor;
 
   @override
   Widget build(BuildContext context) {
@@ -741,13 +762,14 @@ class _ExploreRow extends StatelessWidget {
                     title,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.45),
+                      color: secondaryColor,
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                     ),
@@ -755,7 +777,7 @@ class _ExploreRow extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 22),
+            Icon(Icons.chevron_right_rounded, color: chevronColor, size: 22),
           ],
         ),
       ),
@@ -763,9 +785,6 @@ class _ExploreRow extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// AnimatedBuilder helper
-// ─────────────────────────────────────────────
 class AnimatedBuilder extends AnimatedWidget {
   const AnimatedBuilder({
     super.key,
