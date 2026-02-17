@@ -14,15 +14,8 @@ import '../models/league.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 
-/// How a user joins a league from the UI.
-///
-/// IMPORTANT (online-only):
-/// - `participant`: user is counted as a league participant (creates Membership).
-/// - `viewer`: user can view the league (added to league.memberIds for access),
-///   but is NOT counted as a participant (no Membership is created).
 enum LeagueJoinMode { participant, viewer }
 
-/// User-safe exception: if UI shows `$e`, it will still be a friendly message.
 class UserFriendlyException implements Exception {
   final String message;
   const UserFriendlyException(this.message);
@@ -31,34 +24,15 @@ class UserFriendlyException implements Exception {
   String toString() => message;
 }
 
-/// Backward-compatible repository name kept to avoid widespread refactors.
-///
-/// ONLINE-ONLY MIGRATION:
-/// - No SharedPreferences storage for leagues/teams/matches/memberships/etc.
-/// - All reads/writes go directly to Firestore.
-/// - Errors are thrown as user-friendly messages (no raw Firebase errors).
-///
-/// TEAM IMAGE POLICY (per your requirement "profile image == team image everywhere"):
-/// - If a Team.id looks like a Firebase UID, we treat it as a "user team".
-/// - We then resolve the team image from users/{uid} (teamImageUrl/profileImageUrl/photoUrl).
-/// - This ensures when the user updates their profile image, it appears in fixtures/standings/admin/knockout
-///   without needing to update leagues/{leagueId}/teams/{uid}.
-///
-/// NOTE:
-/// - If you want custom per-league team logos, flip priority back to Team.teamImageUrl first.
-/// - Right now, USER profile image is the primary source of truth for UID-based teams.
 class LocalLeaguesRepository {
   LocalLeaguesRepository(this._prefs);
 
-  // Kept only because many screens construct this repo from prefs provider.
-  // Online-only: prefs must not be used for domain data.
   // ignore: unused_field
   final PreferencesService _prefs;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Uuid _uuid = const Uuid();
 
-  // Legacy keys kept only for compatibility (no longer used).
   static const String kLeaguesKey = 'local_leagues';
   static const String kMembershipsKey = 'local_memberships';
   static const String kTeamsKey = 'local_teams';
@@ -74,7 +48,6 @@ class LocalLeaguesRepository {
   }
 
   Future<void> _requireOnline() async {
-    // Online-only: fail fast when offline with a friendly message.
     await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
   }
 
@@ -173,7 +146,6 @@ class LocalLeaguesRepository {
 
     final out = <String, String>{};
 
-    // whereIn limit is 10
     const chunkSize = 10;
     for (var i = 0; i < ids.length; i += chunkSize) {
       final chunk = ids.sublist(i, (i + chunkSize > ids.length) ? ids.length : i + chunkSize);
@@ -195,10 +167,6 @@ class LocalLeaguesRepository {
 
     return out;
   }
-
-  // -----------------------
-  // Leagues
-  // -----------------------
 
   Future<List<League>> listLeagues() => getAllLeagues();
 
@@ -236,13 +204,6 @@ class LocalLeaguesRepository {
     }
   }
 
-  /// ONLINE-ONLY save.
-  ///
-  /// Ensures (server authoritative):
-  /// - organizerUid/ownerUid are request.auth.uid
-  /// - memberIds contains request.auth.uid
-  /// - isPrivate is a bool (not 0/1), to avoid rule type errors
-  /// - organizer membership doc is at memberships/{uid} (common rules use exists())
   Future<void> saveLeague(League league) async {
     try {
       final authUid = _requireAuthUid();
@@ -269,27 +230,18 @@ class LocalLeaguesRepository {
         leagueRef,
         {
           ...fixed.toJson(),
-
-          // Enforce server-authoritative fields.
           'organizerUid': authUid,
           'ownerUid': authUid,
-
-          // Legacy compatibility fields (keep UID if present).
           'ownerId': authUid,
-
-          // IMPORTANT: write as bool, not 0/1.
           'isPrivate': fixed.isPrivate,
-
-          // Required for list queries and access guards.
           'memberIds': FieldValue.arrayUnion([authUid]),
-
           'updatedAtMs': now,
         },
         SetOptions(merge: true),
       );
 
       final membership = Membership(
-        id: authUid, // IMPORTANT: doc id aligns with uid for rules `exists()`
+        id: authUid,
         leagueId: leagueId,
         userId: authUid,
         teamId: null,
@@ -342,10 +294,6 @@ class LocalLeaguesRepository {
     }
   }
 
-  // ------------------------------------------------------
-  // CREATE (online-only)
-  // ------------------------------------------------------
-
   Future<League> createLeagueLocally({
     required League league,
     required String organizerUserId,
@@ -378,10 +326,7 @@ class LocalLeaguesRepository {
           'organizerUid': authUid,
           'ownerUid': authUid,
           'ownerId': authUid,
-
-          // IMPORTANT: write as bool (not 0/1) to avoid rules type errors.
           'isPrivate': stored.isPrivate,
-
           'memberIds': FieldValue.arrayUnion([authUid]),
           'updatedAtMs': now,
         },
@@ -389,7 +334,7 @@ class LocalLeaguesRepository {
       );
 
       final membership = Membership(
-        id: authUid, // IMPORTANT: doc id aligns with uid
+        id: authUid,
         leagueId: leagueId,
         userId: authUid,
         teamId: null,
@@ -407,10 +352,6 @@ class LocalLeaguesRepository {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
-
-  // ------------------------------------------------------
-  // JOIN by code (online-only)
-  // ------------------------------------------------------
 
   Future<League> joinLeagueLocallyByCode({
     required String joinCode,
@@ -487,10 +428,6 @@ class LocalLeaguesRepository {
     }
   }
 
-  // ------------------------------------------------------
-  // Memberships
-  // ------------------------------------------------------
-
   Future<List<Membership>> listMemberships() async {
     try {
       final authUid = _requireAuthUid();
@@ -544,7 +481,6 @@ class LocalLeaguesRepository {
       final uid = userId.trim();
       if (uid.isEmpty) return null;
 
-      // Preferred: memberships/{uid}
       final direct = await _firestore
           .collection('leagues')
           .doc(leagueId)
@@ -564,7 +500,6 @@ class LocalLeaguesRepository {
         return Membership.fromRemoteMap(map);
       }
 
-      // Backward compat: query by userId.
       final snap = await _firestore
           .collection('leagues')
           .doc(leagueId)
@@ -642,14 +577,6 @@ class LocalLeaguesRepository {
     }
   }
 
-  // ------------------------------------------------------
-  // Teams
-  // ------------------------------------------------------
-
-  /// Loads teams from leagues/{leagueId}/teams and hydrates teamImageUrl from users/{uid}
-  /// when Team.id looks like a Firebase UID.
-  ///
-  /// This ensures profile image == team image across the app.
   Future<List<Team>> getTeams(String leagueId) async {
     try {
       _requireAuthUid();
@@ -669,7 +596,6 @@ class LocalLeaguesRepository {
         return Team.fromRemoteMap(map);
       }).toList(growable: false);
 
-      // Hydrate UID-based teams with user profile image.
       final uidTeamIds = baseTeams.map((t) => t.id.trim()).where((id) => _looksLikeFirebaseUid(id)).toList(growable: false);
 
       if (uidTeamIds.isEmpty) return baseTeams;
@@ -678,7 +604,6 @@ class LocalLeaguesRepository {
 
       if (userImages.isEmpty) return baseTeams;
 
-      // IMPORTANT: user profile image is PRIMARY. It overwrites teamImageUrl for UID teams.
       final out = baseTeams
           .map((t) {
             final override = userImages[t.id.trim()];
@@ -697,7 +622,7 @@ class LocalLeaguesRepository {
 
   Future<void> saveTeams(String leagueId, List<Team> allTeams) async {
     try {
-      _requireAuthUid();
+      final authUid = _requireAuthUid();
       await _requireOnline();
 
       final col = _firestore.collection('leagues').doc(leagueId).collection('teams');
@@ -725,7 +650,19 @@ class LocalLeaguesRepository {
         final chunk = allTeams.sublist(i, (i + chunkSize > allTeams.length) ? allTeams.length : i + chunkSize);
         for (final t in chunk) {
           final id = t.id.trim().isEmpty ? _uuid.v4() : t.id.trim();
-          final data = t.copyWith(id: id, leagueId: leagueId).toRemoteMap();
+
+          final inferredOwnerId = (t.ownerId.trim().isNotEmpty)
+              ? t.ownerId.trim()
+              : (_looksLikeFirebaseUid(id) ? id : authUid);
+
+          final data = t
+              .copyWith(
+                id: id,
+                leagueId: leagueId,
+                ownerId: inferredOwnerId,
+              )
+              .toRemoteMap();
+
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
         await batch.commit().timeout(const Duration(seconds: 30));
@@ -734,10 +671,6 @@ class LocalLeaguesRepository {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
-
-  // ------------------------------------------------------
-  // Matches / Fixtures
-  // ------------------------------------------------------
 
   Future<List<FixtureMatch>> getMatches(String leagueId) async {
     try {
@@ -820,10 +753,6 @@ class LocalLeaguesRepository {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
-
-  // ------------------------------------------------------
-  // Knockout matches
-  // ------------------------------------------------------
 
   Future<List<KnockoutMatch>> getKnockoutMatches(String leagueId) async {
     try {
@@ -911,7 +840,7 @@ class LocalLeaguesRepository {
         final batch = _firestore.batch();
         final chunk = matches.sublist(i, (i + chunkSize > matches.length) ? matches.length : i + chunkSize);
         for (final m in chunk) {
-          final id = m.id.trim().isEmpty ? _uuid.v4() : m.id.trim();
+          final id = m.id.trim().isNotEmpty ? m.id.trim() : _uuid.v4();
           final data = m.copyWith(id: id, leagueId: leagueId).toJson();
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }

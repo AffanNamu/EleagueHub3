@@ -3,6 +3,12 @@ class Team {
   final String leagueId;
   final String name;
 
+  /// Rules-authoritative owner uid for this team.
+  ///
+  /// In this app's current data model, teams are usually UID-based (Team.id == user uid),
+  /// so ownerId is typically the same as id. Kept explicit for security rules + future-proofing.
+  final String ownerId;
+
   /// Team image/logo URL (Cloudinary secure_url recommended).
   /// Empty string means "no image" -> UI should show existing placeholder.
   final String teamImageUrl;
@@ -22,6 +28,7 @@ class Team {
     required this.version,
     this.groupId,
     this.teamImageUrl = '',
+    this.ownerId = '',
   });
 
   Map<String, dynamic> toJson() => toRemoteMap();
@@ -31,6 +38,10 @@ class Team {
         'id': id,
         'leagueId': leagueId,
         'name': name,
+
+        // Ownership (required by updated security rules; backward compatible)
+        'ownerId': ownerId.trim().isNotEmpty ? ownerId.trim() : id,
+
         'teamImageUrl': teamImageUrl,
         'groupId': groupId,
         'updatedAtMs': updatedAtMs,
@@ -49,10 +60,14 @@ class Team {
             ? (map['logoUrl'] as String).trim()
             : ((map['imageUrl'] as String?)?.trim().isNotEmpty == true ? (map['imageUrl'] as String).trim() : ''));
 
+    final ownerIdRaw = (map['ownerId'] as String?)?.trim() ?? '';
+    final ownerId = ownerIdRaw.isNotEmpty ? ownerIdRaw : id;
+
     return Team(
       id: id,
       leagueId: leagueId,
       name: name,
+      ownerId: ownerId,
       groupId: map['groupId'] as String?, // old data has no key -> null
       teamImageUrl: teamImageUrl,
       updatedAtMs: (map['updatedAtMs'] as num).toInt(),
@@ -66,6 +81,7 @@ class Team {
     String? name,
     String? groupId,
     String? teamImageUrl,
+    String? ownerId,
     int? updatedAtMs,
     int? version,
   }) {
@@ -75,6 +91,7 @@ class Team {
       name: name ?? this.name,
       groupId: groupId ?? this.groupId,
       teamImageUrl: teamImageUrl ?? this.teamImageUrl,
+      ownerId: ownerId ?? this.ownerId,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
       version: version ?? this.version,
     );
@@ -82,8 +99,7 @@ class Team {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Team && runtimeType == other.runtimeType && id == other.id;
+      identical(this, other) || other is Team && runtimeType == other.runtimeType && id == other.id;
 
   @override
   int get hashCode => id.hashCode;

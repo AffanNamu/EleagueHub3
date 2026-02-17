@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/league.dart';
+import '../models/membership.dart';
 
 /// User-safe exception: if UI shows `$e`, it will still be a friendly message.
 class UserFriendlyException implements Exception {
@@ -86,8 +87,6 @@ class LeaguesRepositoryFirebase {
     return League.fromRemoteMap(map);
   }
 
-  /// ONLINE-ONLY:
-  /// Fetches ONLY leagues the current user is a member of (avoids permission errors and huge reads).
   Future<List<League>> getAllLeagues() async {
     try {
       final uid = _requireAuthUid();
@@ -103,33 +102,22 @@ class LeaguesRepositoryFirebase {
     }
   }
 
-  /// ONLINE-ONLY STREAM POLICY:
-  /// Firestore snapshots can produce cached events (even with disk persistence disabled).
-  /// To avoid showing stale/offline data, we:
-  /// - enable metadata changes
-  /// - ignore any snapshot where `metadata.isFromCache == true`
-  ///
-  /// If the device is offline, no server snapshots will arrive; UI should show offline UX.
   Stream<List<League>> watchLeagues() {
     try {
       final uid = _requireAuthUid();
 
-      final base = _leaguesCol
-          .where('memberIds', arrayContains: uid)
-          .snapshots(includeMetadataChanges: true);
+      final base = _leaguesCol.where('memberIds', arrayContains: uid).snapshots(includeMetadataChanges: true);
 
       final serverOnly = base.where((snap) => !snap.metadata.isFromCache).map(
             (snapshot) => snapshot.docs.map(_docToLeague).toList(growable: false),
           );
 
-      // Never emit raw errors to UI.
       return serverOnly.handleError((error, stack) {
         if (kDebugMode) {
           debugPrint('LeaguesRepositoryFirebase.watchLeagues error: $error');
         }
       });
     } catch (_) {
-      // If not signed in, router should have redirected already. Fail gracefully.
       return const Stream<List<League>>.empty();
     }
   }
@@ -138,10 +126,7 @@ class LeaguesRepositoryFirebase {
     try {
       _requireAuthUid();
 
-      final doc = await _leaguesCol
-          .doc(id)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 20));
+      final doc = await _leaguesCol.doc(id).get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
 
       if (!doc.exists) return null;
       return _snapToLeague(doc);
@@ -150,10 +135,10 @@ class LeaguesRepositoryFirebase {
     }
   }
 
-  /// IMPORTANT:
-  /// - Rules authority is FirebaseAuth UID only.
-  /// - This method always writes organizerUid/ownerUid = request.auth.uid.
-  /// - Ensures memberIds contains request.auth.uid.
+  /// Ensures:
+  /// - organizerUid/ownerUid = auth uid
+  /// - memberIds contains auth uid
+  /// - memberships/{authUid} exists (needed by membership-based rules, chatroom)
   Future<void> saveLeague(League league) async {
     try {
       final authUid = _requireAuthUid();
@@ -167,25 +152,39 @@ class LeaguesRepositoryFirebase {
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
 
-      await _leaguesCol
-          .doc(id)
-          .set(
-            {
-              ...fixed.toJson(),
+      final leagueRef = _leaguesCol.doc(id);
+      final membershipRef = leagueRef.collection('memberships').doc(authUid);
 
-              // Rules-authoritative owner fields
-              'organizerUid': authUid,
-              'ownerUid': authUid,
+      final now = DateTime.now().millisecondsSinceEpoch;
 
-              // Back-compat but must be Firebase UID if present
-              'ownerId': authUid,
+      final batch = _firestore.batch();
 
-              // Membership must contain ONLY Firebase UIDs.
-              'memberIds': FieldValue.arrayUnion([authUid]),
-            },
-            SetOptions(merge: true),
-          )
-          .timeout(const Duration(seconds: 25));
+      batch.set(
+        leagueRef,
+        {
+          ...fixed.toJson(),
+          'organizerUid': authUid,
+          'ownerUid': authUid,
+          'ownerId': authUid,
+          'memberIds': FieldValue.arrayUnion([authUid]),
+          'updatedAtMs': now,
+        },
+        SetOptions(merge: true),
+      );
+
+      final membership = Membership(
+        id: authUid,
+        leagueId: id,
+        userId: authUid,
+        teamId: null,
+        role: LeagueRole.organizer,
+        updatedAtMs: now,
+        version: 1,
+      );
+
+      batch.set(membershipRef, membership.toRemoteMap(), SetOptions(merge: true));
+
+      await batch.commit().timeout(const Duration(seconds: 25));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
