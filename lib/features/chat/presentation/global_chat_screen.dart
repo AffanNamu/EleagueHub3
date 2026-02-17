@@ -30,6 +30,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   User get _user => FirebaseAuth.instance.currentUser!;
 
+  // MUST match app_router.dart and firestore.rules
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
   bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
 
@@ -43,25 +44,20 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   String _senderPhoto() => (_user.photoURL ?? '').trim();
 
-  void _toast(String msg) {
+  void _toast(String msg, {bool error = false}) {
+    if (!mounted) return;
+    final cs = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
+        backgroundColor: error ? cs.error : null,
         content: Text(msg),
       ),
     );
   }
 
-  void _toastErr(Object e) {
-    final cs = Theme.of(context).colorScheme;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Color.alphaBlend(cs.error.withOpacity(0.20), const Color(0xFF0B1220)),
-        content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))),
-      ),
-    );
-  }
+  void _toastErr(Object e) => _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
   Future<void> _requestAccess() async {
     setState(() => _sending = true);
@@ -86,7 +82,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
-      _toastErr(e is Object ? e : Exception('unknown'));
+      _toastErr(e);
     }
   }
 
@@ -110,7 +106,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
-      _toastErr(e is Object ? e : Exception('unknown'));
+      _toastErr(e);
     }
   }
 
@@ -129,7 +125,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       if (!pick.isSuccess) {
         if (mounted) setState(() => _sending = false);
         final msg = (pick.errorMessage ?? 'Could not pick image.').trim();
-        _toastErr(StateError(msg));
+        _toast(msg, error: true);
         return;
       }
 
@@ -148,8 +144,90 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
-      _toastErr(e is Object ? e : Exception('unknown'));
+      _toastErr(e);
     }
+  }
+
+  Widget _chatBody({required bool canSend}) {
+    final theme = Theme.of(context);
+
+    return Column(
+      children: [
+        Expanded(
+          child: StreamBuilder<List<ChatMessage>>(
+            stream: _repo.globalChatStream(),
+            builder: (context, snap) {
+              if (snap.hasError) {
+                final err = snap.error;
+                final msg = UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
+
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Glass(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.error_outline, color: theme.colorScheme.error, size: 36),
+                          const SizedBox(height: 10),
+                          Text(
+                            msg,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface.withOpacity(0.75),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          FilledButton(
+                            onPressed: () => setState(() {}),
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              final msgs = snap.data ?? const <ChatMessage>[];
+              if (msgs.isEmpty) {
+                return Center(
+                  child: Text(
+                    'No messages yet',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface.withOpacity(0.55),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                reverse: true,
+                padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
+                itemCount: msgs.length,
+                itemBuilder: (_, i) {
+                  final m = msgs[i];
+                  final isMe = m.senderId.trim() == _user.uid.trim();
+                  return ChatBubble(message: m, isMe: isMe);
+                },
+              );
+            },
+          ),
+        ),
+        ChatInputBar(
+          controller: _textCtrl,
+          isSending: _sending,
+          codeMode: _codeMode,
+          enabled: canSend,
+          onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
+          onPickImage: _pickAndSendImage,
+          onSend: _sendText,
+        ),
+      ],
+    );
   }
 
   @override
@@ -161,6 +239,10 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    // FIX 1: Super admin should NOT have to request approval.
+    // They can open Global Chat directly (rules also allow it).
+    final bypassRequest = _isSuperAdmin;
 
     return Container(
       decoration: BoxDecoration(
@@ -180,133 +262,105 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
               ),
           ],
         ),
-        body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: _repo.globalChatRequestDoc(_user.uid).snapshots(),
-          builder: (context, snap) {
-            final data = snap.data?.data();
-
-            final status = (data?['status'] as String? ?? '').trim().toLowerCase();
-            final approved = status == 'approved';
-            final pending = status == 'pending';
-            final rejected = status == 'rejected';
-
-            if (!approved) {
-              return Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Glass(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Access required',
-                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            pending
-                                ? 'Your request is pending admin approval.'
-                                : rejected
-                                    ? 'Your request was rejected. You can request again.'
-                                    : 'Request access to join the global public chatroom.',
+        body: bypassRequest
+            ? _chatBody(canSend: true)
+            : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: _repo.globalChatRequestDoc(_user.uid).snapshots(),
+                builder: (context, snap) {
+                  if (snap.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Glass(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            UserFriendlyError.toMessage(snap.error is Object ? snap.error! : Exception('unknown')),
+                            textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: theme.colorScheme.onSurface.withOpacity(0.65),
+                              color: theme.colorScheme.onSurface.withOpacity(0.75),
                               fontWeight: FontWeight.w700,
-                              height: 1.35,
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: FilledButton.icon(
-                                  onPressed: _sending ? null : _requestAccess,
-                                  icon: const Icon(Icons.lock_open_rounded),
-                                  label: Text(
-                                    pending ? 'Pending…' : 'Request access',
-                                    style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    );
+                  }
+
+                  final data = snap.data?.data();
+                  final statusRaw = (data?['status'] as String? ?? '').trim();
+                  final status = statusRaw.toLowerCase();
+
+                  final approved = status == 'approved';
+                  final pending = status == 'pending';
+                  final rejected = status == 'rejected';
+
+                  if (!approved) {
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Glass(
+                            padding: const EdgeInsets.all(18),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Access required',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    color: theme.colorScheme.onSurface,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Only approved users can read and send messages.',
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurface.withOpacity(0.45),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
+                                const SizedBox(height: 8),
+                                Text(
+                                  pending
+                                      ? 'Your request is pending admin approval.'
+                                      : rejected
+                                          ? 'Your request was rejected. You can request again.'
+                                          : 'Request access to join the global public chatroom.',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface.withOpacity(0.65),
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.35,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: _sending ? null : _requestAccess,
+                                        icon: const Icon(Icons.lock_open_rounded),
+                                        label: Text(
+                                          pending ? 'Pending…' : 'Request access',
+                                          style: const TextStyle(fontWeight: FontWeight.w900),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Only approved users can read and send messages.',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface.withOpacity(0.45),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                ),
-              );
-            }
+                    );
+                  }
 
-            return Column(
-              children: [
-                Expanded(
-                  child: StreamBuilder<List<ChatMessage>>(
-                    stream: _repo.globalChatStream(),
-                    builder: (context, snap) {
-                      if (snap.hasError) {
-                        return Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              UserFriendlyError.toMessage(snap.error is Object ? snap.error! : Exception('unknown')),
-                            ),
-                          ),
-                        );
-                      }
-
-                      final msgs = snap.data ?? const <ChatMessage>[];
-                      if (msgs.isEmpty) {
-                        return Center(
-                          child: Text(
-                            'No messages yet',
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurface.withOpacity(0.55),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        );
-                      }
-
-                      return ListView.builder(
-                        reverse: true,
-                        padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
-                        itemCount: msgs.length,
-                        itemBuilder: (_, i) {
-                          final m = msgs[i];
-                          final isMe = m.senderId.trim() == _user.uid.trim();
-                          return ChatBubble(message: m, isMe: isMe);
-                        },
-                      );
-                    },
-                  ),
-                ),
-                ChatInputBar(
-                  controller: _textCtrl,
-                  isSending: _sending,
-                  codeMode: _codeMode,
-                  enabled: true,
-                  onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
-                  onPickImage: _pickAndSendImage,
-                  onSend: _sendText,
-                ),
-              ],
-            );
-          },
-        ),
+                  return _chatBody(canSend: true);
+                },
+              ),
       ),
     );
   }

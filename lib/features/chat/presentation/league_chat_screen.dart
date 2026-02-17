@@ -5,6 +5,7 @@ import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/chat_repository.dart';
 import '../models/chat_message.dart';
@@ -42,16 +43,20 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   String _senderPhoto() => (_user.photoURL ?? '').trim();
 
-  void _toastErr(Object e) {
+  void _toast(String msg, {bool error = false}) {
+    if (!mounted) return;
     final cs = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: Color.alphaBlend(cs.error.withOpacity(0.20), const Color(0xFF0B1220)),
-        content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))),
+        backgroundColor: error ? cs.error : null,
+        content: Text(msg),
       ),
     );
   }
+
+  void _toastErr(Object e) => _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
   Future<void> _sendText() async {
     final raw = _textCtrl.text.trim();
@@ -74,7 +79,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
-      _toastErr(e is Object ? e : Exception('unknown'));
+      _toastErr(e);
     }
   }
 
@@ -92,8 +97,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       }
       if (!pick.isSuccess) {
         if (mounted) setState(() => _sending = false);
-        final msg = (pick.errorMessage ?? 'Could not pick image.').trim();
-        _toastErr(StateError(msg));
+        _toast((pick.errorMessage ?? 'Could not pick image.').trim(), error: true);
         return;
       }
 
@@ -117,7 +121,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
-      _toastErr(e is Object ? e : Exception('unknown'));
+      _toastErr(e);
     }
   }
 
@@ -148,15 +152,32 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                 stream: _repo.leagueChatStream(widget.leagueId),
                 builder: (context, snap) {
                   if (snap.hasError) {
+                    final msg = UserFriendlyError.toMessage(snap.error is Object ? snap.error! : Exception('unknown'));
+
                     return Center(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
-                        child: Text(
-                          UserFriendlyError.toMessage(snap.error is Object ? snap.error! : Exception('unknown')),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface.withOpacity(0.70),
-                            fontWeight: FontWeight.w700,
+                        child: Glass(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.lock_outline, color: theme.colorScheme.primary, size: 34),
+                              const SizedBox(height: 10),
+                              Text(
+                                msg,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurface.withOpacity(0.75),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              FilledButton(
+                                onPressed: () => Navigator.of(context).maybePop(),
+                                child: const Text('Back'),
+                              ),
+                            ],
                           ),
                         ),
                       ),

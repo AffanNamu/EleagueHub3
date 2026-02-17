@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +11,8 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../logic/league_charges_payment_service.dart';
 import '../logic/league_charges_store.dart';
+
+enum _MembershipStatus { none, deterministic, legacy }
 
 class LeagueAccessGuard extends ConsumerStatefulWidget {
   final String leagueId;
@@ -67,34 +68,57 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     );
   }
 
-  Future<bool> _hasMembershipServer(String leagueId, String uid) async {
-    // Fast path: deterministic doc id == uid (your ParticipantsService uses this).
-    final direct = await _firestore
-        .collection('leagues')
-        .doc(leagueId)
+  void _toastErr(Object e) => _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
+
+  DocumentReference<Map<String, dynamic>> _leagueRef() => _firestore.collection('leagues').doc(widget.leagueId);
+
+  Future<_MembershipStatus> _membershipStatusServer(String uid) async {
+    // Deterministic doc (preferred)
+    final direct = await _leagueRef()
         .collection('memberships')
         .doc(uid)
         .get(const GetOptions(source: Source.server))
         .timeout(const Duration(seconds: 10));
+    if (direct.exists) return _MembershipStatus.deterministic;
 
-    if (direct.exists) return true;
-
-    // Backward-compatible fallback: any membership doc where userId == uid.
-    final qs = await _firestore
-        .collection('leagues')
-        .doc(leagueId)
+    // Legacy fallback: any doc where userId == uid
+    final qs = await _leagueRef()
         .collection('memberships')
         .where('userId', isEqualTo: uid)
         .limit(1)
         .get(const GetOptions(source: Source.server))
         .timeout(const Duration(seconds: 10));
 
-    return qs.docs.isNotEmpty;
+    return qs.docs.isNotEmpty ? _MembershipStatus.legacy : _MembershipStatus.none;
   }
 
-  Future<bool> _hasPaidChargesServer(String leagueId, String uid) async {
+  Future<void> _upsertDeterministicMembershipOnly(String uid) async {
+    // IMPORTANT: This is the fix for your league chat permission issue.
+    // Chat rules allow access when memberships/{uid} exists.
+    // Older data might have random membership doc ids → guard may pass but chat rules fail.
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await _leagueRef()
+        .collection('memberships')
+        .doc(uid)
+        .set(
+          <String, dynamic>{
+            'id': uid,
+            'leagueId': widget.leagueId,
+            'userId': uid,
+            'teamId': null,
+            'role': 0,
+            'updatedAtMs': now,
+            'version': 1,
+          },
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 15));
+  }
+
+  Future<bool> _hasPaidChargesServer(String uid) async {
     final store = LeagueChargesStore.online();
-    return store.hasPaidCharges(userId: uid, leagueId: leagueId);
+    return store.hasPaidCharges(userId: uid, leagueId: widget.leagueId);
   }
 
   Future<void> _checkAccess() async {
@@ -113,12 +137,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-      final doc = await _firestore
-          .collection('leagues')
-          .doc(widget.leagueId)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 15));
-
+      final doc = await _leagueRef().get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 15));
       if (!doc.exists) {
         if (!mounted) return;
         setState(() {
@@ -140,19 +159,30 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       final organizerUid = (data['organizerUid'] ?? '').toString().trim();
       final ownerUid = (data['ownerUid'] ?? '').toString().trim();
 
-      // Access is allowed if:
-      // - organizer/owner
-      // - in leagues/{leagueId}.memberIds
-      // - OR a membership doc exists (canonical participant storage in your app)
-      // - OR user has a leagueCharges receipt (pay-to-access)
+      // Allowed if owner or listed memberIds
       var allowed = memberIds.contains(uid) || organizerUid == uid || ownerUid == uid;
 
+      // Otherwise, check membership collection (including legacy)
       if (!allowed) {
-        allowed = await _hasMembershipServer(widget.leagueId, uid);
+        final st = await _membershipStatusServer(uid);
+        if (st != _MembershipStatus.none) {
+          allowed = true;
+
+          // FIX: if legacy membership exists, create deterministic memberships/{uid}
+          // so chat rules and other rule checks work reliably.
+          if (st == _MembershipStatus.legacy) {
+            await _upsertDeterministicMembershipOnly(uid);
+          }
+        }
       }
 
+      // Otherwise, allow if user has paid receipt; also ensure memberships/{uid} exists for chat rules.
       if (!allowed) {
-        allowed = await _hasPaidChargesServer(widget.leagueId, uid);
+        final paid = await _hasPaidChargesServer(uid);
+        if (paid) {
+          allowed = true;
+          await _upsertDeterministicMembershipOnly(uid);
+        }
       }
 
       if (!mounted) return;
@@ -178,42 +208,12 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   }
 
   String _normalizeCoupon(String raw) {
-    // Keep underscores, remove spaces/dashes and non A-Z/0-9/_.
     return raw
         .trim()
         .toUpperCase()
         .replaceAll(' ', '')
         .replaceAll('-', '')
         .replaceAll(RegExp(r'[^A-Z0-9_]'), '');
-  }
-
-  Future<void> _ensureMemberAccessWrite(String uid) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    final leagueRef = _firestore.collection('leagues').doc(widget.leagueId);
-    final membershipRef = leagueRef.collection('memberships').doc(uid);
-
-    await _firestore.runTransaction((tx) async {
-      tx.set(
-        membershipRef,
-        <String, dynamic>{
-          'id': uid,
-          'leagueId': widget.leagueId,
-          'userId': uid,
-          'teamId': null,
-          'role': 0, // member
-          'updatedAtMs': now,
-          'version': 1,
-        },
-        SetOptions(merge: true),
-      );
-
-      // Keep memberIds array in sync (older UI + rules read this in multiple places).
-      tx.update(leagueRef, <String, dynamic>{
-        'memberIds': FieldValue.arrayUnion([uid]),
-        'updatedAtMs': now,
-      });
-    }).timeout(const Duration(seconds: 25));
   }
 
   Future<void> _redeemCouponAndUnlock() async {
@@ -238,36 +238,26 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      final leagueRef = _firestore.collection('leagues').doc(widget.leagueId);
-      final couponRef = leagueRef.collection('couponCodes').doc(code);
-      final redemptionRef = leagueRef.collection('couponRedemptions').doc(uid);
-      final membershipRef = leagueRef.collection('memberships').doc(uid);
+      final couponRef = _leagueRef().collection('couponCodes').doc(code);
+      final redemptionRef = _leagueRef().collection('couponRedemptions').doc(uid);
 
       await _firestore.runTransaction((tx) async {
-        final leagueSnap = await tx.get(leagueRef);
-        if (!leagueSnap.exists) {
-          throw StateError('League not found.');
-        }
+        final leagueSnap = await tx.get(_leagueRef());
+        if (!leagueSnap.exists) throw StateError('League not found.');
 
         final couponSnap = await tx.get(couponRef);
-        if (!couponSnap.exists) {
-          throw StateError('Invalid coupon code.');
-        }
+        if (!couponSnap.exists) throw StateError('Invalid coupon code.');
 
         final couponData = (couponSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final usedBy = (couponData['usedBy'] as String? ?? '').trim();
-        if (usedBy.isNotEmpty) {
-          throw StateError('This coupon has already been used.');
-        }
+        if (usedBy.isNotEmpty) throw StateError('This coupon has already been used.');
 
-        // Mark coupon as used (RULES require exactly these keys)
         tx.update(couponRef, <String, dynamic>{
           'usedBy': uid,
           'usedAtMs': now,
           'updatedAtMs': now,
         });
 
-        // Record redemption (rules require userId == auth uid)
         tx.set(
           redemptionRef,
           <String, dynamic>{
@@ -279,9 +269,9 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
           SetOptions(merge: true),
         );
 
-        // Ensure membership exists (role 0 = member)
+        // Deterministic membership for rules
         tx.set(
-          membershipRef,
+          _leagueRef().collection('memberships').doc(uid),
           <String, dynamic>{
             'id': uid,
             'leagueId': widget.leagueId,
@@ -293,19 +283,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
           },
           SetOptions(merge: true),
         );
-
-        // Keep memberIds array in sync
-        tx.update(leagueRef, <String, dynamic>{
-          'memberIds': FieldValue.arrayUnion([uid]),
-          'updatedAtMs': now,
-        });
       }).timeout(const Duration(seconds: 25));
 
       _couponCtrl.clear();
       _toast('Coupon redeemed. Access unlocked.');
       await _checkAccess();
     } catch (e) {
-      _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
+      _toastErr(e);
     } finally {
       if (mounted) setState(() => _actionBusy = false);
     }
@@ -325,10 +309,10 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-      // If user already has a receipt, don't charge again—just ensure membership exists.
-      final alreadyPaid = await _hasPaidChargesServer(widget.leagueId, uid);
+      // Avoid double charging
+      final alreadyPaid = await _hasPaidChargesServer(uid);
       if (alreadyPaid) {
-        await _ensureMemberAccessWrite(uid);
+        await _upsertDeterministicMembershipOnly(uid);
         _toast('Access unlocked.');
         await _checkAccess();
         return;
@@ -359,20 +343,15 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
         paidAtMs: result.paidAtMs,
       );
 
-      try {
-        await LeagueChargesStore.online().storeReceipt(receipt);
-      } catch (e) {
-        // Receipt storage failing should not block access (payment already succeeded).
-        _toast('Payment succeeded, but receipt sync failed. Access will still unlock.', error: false);
-      }
+      await LeagueChargesStore.online().storeReceipt(receipt);
 
-      // Unlock: ensure membership + memberIds.
-      await _ensureMemberAccessWrite(uid);
+      // Ensure deterministic membership for rules (especially chatroom).
+      await _upsertDeterministicMembershipOnly(uid);
 
       _toast('Payment successful. Access unlocked.');
       await _checkAccess();
     } catch (e) {
-      _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
+      _toastErr(e);
     } finally {
       if (mounted) setState(() => _actionBusy = false);
     }
@@ -417,7 +396,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Lock icon
                 Container(
                   width: 64,
                   height: 64,
@@ -456,10 +434,8 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-
                 const SizedBox(height: 18),
 
-                // Unlock section (Pay or Coupon)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
@@ -479,8 +455,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                         ),
                       ),
                       const SizedBox(height: 10),
-
-                      // Pay button
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
@@ -492,7 +466,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 12),
                       Text(
                         'Or use a coupon',
@@ -544,81 +517,21 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
                 const SizedBox(height: 18),
 
-                // Navigation buttons
                 Row(
                   children: [
                     Expanded(
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () => context.pop(),
-                          borderRadius: BorderRadius.circular(14),
-                          child: Ink(
-                            height: 46,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: cs.onSurface.withOpacity(0.15)),
-                              color: cs.onSurface.withOpacity(0.05),
-                            ),
-                            child: Center(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: cs.onSurface.withOpacity(0.70)),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Back',
-                                    style: TextStyle(
-                                      color: cs.onSurface.withOpacity(0.70),
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                      child: OutlinedButton.icon(
+                        onPressed: () => context.pop(),
+                        icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 16),
+                        label: const Text('Back', style: TextStyle(fontWeight: FontWeight.w800)),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: _actionBusy ? null : _checkAccess,
-                          borderRadius: BorderRadius.circular(14),
-                          child: Ink(
-                            height: 46,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              gradient: LinearGradient(
-                                colors: [
-                                  cs.primary,
-                                  cs.primary.withOpacity(0.75),
-                                ],
-                              ),
-                              border: Border.all(color: cs.primary.withOpacity(0.40)),
-                            ),
-                            child: const Center(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Retry',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                      child: FilledButton.icon(
+                        onPressed: _actionBusy ? null : _checkAccess,
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Retry', style: TextStyle(fontWeight: FontWeight.w800)),
                       ),
                     ),
                   ],
