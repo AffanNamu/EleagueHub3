@@ -9,10 +9,14 @@ class ChatBubble extends StatelessWidget {
     super.key,
     required this.message,
     required this.isMe,
+    this.canDelete = false,
+    this.onDelete,
   });
 
   final ChatMessage message;
   final bool isMe;
+  final bool canDelete;
+  final VoidCallback? onDelete;
 
   bool get _hasText => message.text.trim().isNotEmpty;
 
@@ -29,7 +33,9 @@ class ChatBubble extends StatelessWidget {
     final time = message.createdAt?.toDate();
     final timeStr = time == null ? '' : DateFormat('HH:mm').format(time);
 
-    final senderName = message.senderName.trim().isEmpty ? 'Player' : message.senderName.trim();
+    final senderName =
+        message.senderName.trim().isEmpty ? 'Player' : message.senderName.trim();
+    final senderPhoto = message.senderPhoto.trim();
 
     Widget content;
     switch (message.type) {
@@ -50,7 +56,8 @@ class ChatBubble extends StatelessWidget {
     }
 
     return Align(
-      alignment: isMe ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+      alignment:
+          isMe ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
         child: Container(
@@ -65,13 +72,31 @@ class ChatBubble extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (!isMe) ...[
-                Text(
-                  senderName,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.70),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 11,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (senderPhoto.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: CircleAvatar(
+                          radius: 10,
+                          backgroundColor: cs.onSurface.withOpacity(0.08),
+                          backgroundImage: NetworkImage(senderPhoto),
+                          onBackgroundImageError: (_, __) {},
+                        ),
+                      ),
+                    Flexible(
+                      child: Text(
+                        senderName,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.70),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 11,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
               ],
@@ -91,6 +116,21 @@ class ChatBubble extends StatelessWidget {
                   if (isMe) ...[
                     const SizedBox(width: 6),
                     Icon(Icons.done_all, size: 14, color: cs.primary.withOpacity(0.65)),
+                  ],
+                  if (canDelete && onDelete != null) ...[
+                    const Spacer(),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: onDelete,
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.delete_outline_rounded,
+                          size: 16,
+                          color: cs.error.withOpacity(0.70),
+                        ),
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -170,7 +210,8 @@ class _CodeBubble extends StatelessWidget {
               icon: Icon(Icons.copy, size: 16, color: cs.primary),
               label: Text(
                 'Copy',
-                style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
+                style: TextStyle(
+                    color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
               ),
             ),
           ),
@@ -226,7 +267,8 @@ class _ImageBubble extends StatelessWidget {
                   url,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Center(
-                    child: Icon(Icons.broken_image_outlined, color: cs.onSurface.withOpacity(0.55)),
+                    child: Icon(Icons.broken_image_outlined,
+                        color: cs.onSurface.withOpacity(0.55)),
                   ),
                   loadingBuilder: (context, child, ev) {
                     if (ev == null) return child;
@@ -234,7 +276,8 @@ class _ImageBubble extends StatelessWidget {
                       child: SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                        child:
+                            CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
                       ),
                     );
                   },

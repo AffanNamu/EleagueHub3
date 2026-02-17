@@ -27,14 +27,45 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   bool _sending = false;
   bool _codeMode = false;
+  bool _identityResolved = false;
+  String _resolvedName = '';
+  String _resolvedPhoto = '';
 
   User get _user => FirebaseAuth.instance.currentUser!;
 
-  // MUST match app_router.dart and firestore.rules
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
   bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
 
-  String _senderName() {
+  @override
+  void initState() {
+    super.initState();
+    _resolveIdentity();
+  }
+
+  Future<void> _resolveIdentity() async {
+    try {
+      final result = await _repo.resolveSenderIdentity(
+        uid: _user.uid,
+        fallbackName: _fallbackName(),
+        fallbackPhoto: _fallbackPhoto(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _resolvedName = result.name;
+        _resolvedPhoto = result.photo;
+        _identityResolved = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _resolvedName = _fallbackName();
+        _resolvedPhoto = _fallbackPhoto();
+        _identityResolved = true;
+      });
+    }
+  }
+
+  String _fallbackName() {
     final dn = (_user.displayName ?? '').trim();
     if (dn.isNotEmpty) return dn;
     final email = (_user.email ?? '').trim();
@@ -42,7 +73,17 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     return 'Player';
   }
 
-  String _senderPhoto() => (_user.photoURL ?? '').trim();
+  String _fallbackPhoto() => (_user.photoURL ?? '').trim();
+
+  String _senderName() {
+    if (_identityResolved && _resolvedName.isNotEmpty) return _resolvedName;
+    return _fallbackName();
+  }
+
+  String _senderPhoto() {
+    if (_identityResolved && _resolvedPhoto.isNotEmpty) return _resolvedPhoto;
+    return _fallbackPhoto();
+  }
 
   void _toast(String msg, {bool error = false}) {
     if (!mounted) return;
@@ -57,7 +98,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     );
   }
 
-  void _toastErr(Object e) => _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
+  void _toastErr(Object e) =>
+      _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
   Future<void> _requestAccess() async {
     setState(() => _sending = true);
@@ -136,7 +178,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
         type: ChatMessageType.image,
-        text: _textCtrl.text.trim(), // optional caption
+        text: _textCtrl.text.trim(),
         imageUrl: url,
       );
 
@@ -144,6 +186,33 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
+      _toastErr(e);
+    }
+  }
+
+  Future<void> _deleteMessage(ChatMessage msg) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        title: const Text('Delete message?'),
+        content: const Text('This message will be permanently removed.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await _repo.deleteGlobalMessage(msg.messageId);
+      _toast('Message deleted');
+    } catch (e) {
       _toastErr(e);
     }
   }
@@ -159,7 +228,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
             builder: (context, snap) {
               if (snap.hasError) {
                 final err = snap.error;
-                final msg = UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
+                final msg =
+                    UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
 
                 return Center(
                   child: Padding(
@@ -211,7 +281,12 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                 itemBuilder: (_, i) {
                   final m = msgs[i];
                   final isMe = m.senderId.trim() == _user.uid.trim();
-                  return ChatBubble(message: m, isMe: isMe);
+                  return ChatBubble(
+                    message: m,
+                    isMe: isMe,
+                    canDelete: _isSuperAdmin,
+                    onDelete: _isSuperAdmin ? () => _deleteMessage(m) : null,
+                  );
                 },
               );
             },
@@ -240,8 +315,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    // FIX 1: Super admin should NOT have to request approval.
-    // They can open Global Chat directly (rules also allow it).
     final bypassRequest = _isSuperAdmin;
 
     return Container(
@@ -274,7 +347,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                         child: Glass(
                           padding: const EdgeInsets.all(16),
                           child: Text(
-                            UserFriendlyError.toMessage(snap.error is Object ? snap.error! : Exception('unknown')),
+                            UserFriendlyError.toMessage(
+                                snap.error is Object ? snap.error! : Exception('unknown')),
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: theme.colorScheme.onSurface.withOpacity(0.75),

@@ -14,10 +14,13 @@ import 'widgets/chat_input_bar.dart';
 
 class LeagueChatScreen extends StatefulWidget {
   final String leagueId;
+  /// Pass the organizerUid of the league so we can check moderation rights.
+  final String? organizerUid;
 
   const LeagueChatScreen({
     super.key,
     required this.leagueId,
+    this.organizerUid,
   });
 
   @override
@@ -30,10 +33,50 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   bool _sending = false;
   bool _codeMode = false;
+  bool _identityResolved = false;
+  String _resolvedName = '';
+  String _resolvedPhoto = '';
 
   User get _user => FirebaseAuth.instance.currentUser!;
 
-  String _senderName() {
+  static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+  bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
+  bool get _isOrganizer =>
+      widget.organizerUid != null &&
+      widget.organizerUid!.trim().isNotEmpty &&
+      widget.organizerUid!.trim() == _user.uid.trim();
+  bool get _canModerate => _isSuperAdmin || _isOrganizer;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveIdentity();
+  }
+
+  Future<void> _resolveIdentity() async {
+    try {
+      final result = await _repo.resolveSenderIdentity(
+        uid: _user.uid,
+        fallbackName: _fallbackName(),
+        fallbackPhoto: _fallbackPhoto(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _resolvedName = result.name;
+        _resolvedPhoto = result.photo;
+        _identityResolved = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _resolvedName = _fallbackName();
+        _resolvedPhoto = _fallbackPhoto();
+        _identityResolved = true;
+      });
+    }
+  }
+
+  String _fallbackName() {
     final dn = (_user.displayName ?? '').trim();
     if (dn.isNotEmpty) return dn;
     final email = (_user.email ?? '').trim();
@@ -41,7 +84,17 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     return 'Player';
   }
 
-  String _senderPhoto() => (_user.photoURL ?? '').trim();
+  String _fallbackPhoto() => (_user.photoURL ?? '').trim();
+
+  String _senderName() {
+    if (_identityResolved && _resolvedName.isNotEmpty) return _resolvedName;
+    return _fallbackName();
+  }
+
+  String _senderPhoto() {
+    if (_identityResolved && _resolvedPhoto.isNotEmpty) return _resolvedPhoto;
+    return _fallbackPhoto();
+  }
 
   void _toast(String msg, {bool error = false}) {
     if (!mounted) return;
@@ -56,7 +109,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     );
   }
 
-  void _toastErr(Object e) => _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
+  void _toastErr(Object e) =>
+      _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
   Future<void> _sendText() async {
     final raw = _textCtrl.text.trim();
@@ -113,7 +167,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
         type: ChatMessageType.image,
-        text: _textCtrl.text.trim(), // optional caption
+        text: _textCtrl.text.trim(),
         imageUrl: url,
       );
 
@@ -121,6 +175,36 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
+      _toastErr(e);
+    }
+  }
+
+  Future<void> _deleteMessage(ChatMessage msg) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        title: const Text('Delete message?'),
+        content: const Text('This message will be permanently removed.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await _repo.deleteLeagueMessage(
+        leagueId: widget.leagueId,
+        messageId: msg.messageId,
+      );
+      _toast('Message deleted');
+    } catch (e) {
       _toastErr(e);
     }
   }
@@ -152,7 +236,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                 stream: _repo.leagueChatStream(widget.leagueId),
                 builder: (context, snap) {
                   if (snap.hasError) {
-                    final msg = UserFriendlyError.toMessage(snap.error is Object ? snap.error! : Exception('unknown'));
+                    final msg = UserFriendlyError.toMessage(
+                        snap.error is Object ? snap.error! : Exception('unknown'));
 
                     return Center(
                       child: Padding(
@@ -162,7 +247,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.lock_outline, color: theme.colorScheme.primary, size: 34),
+                              Icon(Icons.lock_outline,
+                                  color: theme.colorScheme.primary, size: 34),
                               const SizedBox(height: 10),
                               Text(
                                 msg,
@@ -189,7 +275,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                     return Center(
                       child: Text(
                         'No messages yet',
-                        style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.55), fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                            color: theme.colorScheme.onSurface.withOpacity(0.55),
+                            fontWeight: FontWeight.w700),
                       ),
                     );
                   }
@@ -201,7 +289,12 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                     itemBuilder: (_, i) {
                       final m = msgs[i];
                       final isMe = m.senderId.trim() == _user.uid.trim();
-                      return ChatBubble(message: m, isMe: isMe);
+                      return ChatBubble(
+                        message: m,
+                        isMe: isMe,
+                        canDelete: _canModerate,
+                        onDelete: _canModerate ? () => _deleteMessage(m) : null,
+                      );
                     },
                   );
                 },
