@@ -92,7 +92,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   }
 
   Color _baseToastBg(ThemeData theme) {
-    // High-contrast in both themes.
     return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0B1220);
   }
 
@@ -286,6 +285,21 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final space = await _loadSpaceCurrent(widget.leagueId);
 
+    // ── FIXED: Also check memberIds array from the league doc ──
+    // Some users are in memberIds but don't have a memberships subcollection doc
+    // (e.g. viewers, or legacy joins). We need to know if user is in memberIds
+    // so we can show the chat button even when membership == null.
+    final leagueDoc = await _firestore
+        .collection('leagues')
+        .doc(widget.leagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 10));
+    final leagueData = leagueDoc.data() ?? <String, dynamic>{};
+    final memberIds = (leagueData['memberIds'] is List)
+        ? List<String>.from((leagueData['memberIds'] as List).map((e) => e.toString()))
+        : <String>[];
+    final isInMemberIds = memberIds.contains(authUid);
+
     return {
       'league': league,
       'fixtures': fixtures,
@@ -297,6 +311,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       'knockouts': knockouts,
       'announcements': announcements,
       'space': space,
+      'isInMemberIds': isInMemberIds,
     };
   }
 
@@ -419,7 +434,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     }
   }
 
-  Future<void> _onOpenLeagueChatroom() async {
+  Future<void> _onOpenLeagueChatroom(League league) async {
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
       if (!mounted) return;
@@ -438,7 +453,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final isWide = MediaQuery.of(context).size.width > 600;
 
-    // Light theme visibility fix: use the app gradient background here too.
     return Container(
       decoration: BoxDecoration(
         gradient: AppTheme.backgroundGradient(theme.brightness),
@@ -526,6 +540,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
                 final announcements = snapshot.data!['announcements'] as List<LeagueAnnouncement>;
                 final space = snapshot.data!['space'] as Map<String, dynamic>?;
+                final isInMemberIds = snapshot.data!['isInMemberIds'] as bool;
 
                 final sorted = _sortedSchedule(fixtures);
                 final rounds = _allRounds(sorted);
@@ -558,8 +573,12 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     league.organizerUid.trim().isNotEmpty && league.organizerUid.trim() == currentUserId.trim();
                 final isOwner = isOwnerByMembership || isOwnerByLeague;
 
-                // League chatroom access: organizer OR participant membership.
-                final canChat = isOwner || membership != null;
+                // ── FIXED: Show chat for anyone who is in the league ──
+                // membership != null: has memberships/{uid} doc
+                // isInMemberIds: is in the league's memberIds array
+                // isOwner: is the organizer
+                // Any of these means user is a league participant → can chat
+                final canChat = isOwner || membership != null || isInMemberIds;
 
                 final spaceLive = space?['isLive'] == true;
 
@@ -798,7 +817,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
           _buildLeagueSpaceRow(context, league, isOwner, spaceLive, currentUserId),
 
-          // League Chatroom entry (League Details Screen)
+          // League Chatroom button — visible for ALL league participants
           if (canChat) ...[
             const SizedBox(height: 12),
             SizedBox(
@@ -810,7 +829,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: _onOpenLeagueChatroom,
+                onPressed: () => _onOpenLeagueChatroom(league),
                 icon: const Icon(Icons.forum_outlined),
                 label: const Text(
                   'League Chatroom',
