@@ -226,7 +226,8 @@ class ParticipantsService {
           .timeout(const Duration(seconds: 15));
 
       if (qs.docs.isNotEmpty) {
-        const chunkSize = 450;
+        // IMPORTANT: must stay <= ~9 because rules use get() (isOwner) per doc.
+        const chunkSize = 9;
         for (var i = 0; i < qs.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
           final chunk = qs.docs.sublist(i, (i + chunkSize > qs.docs.length) ? qs.docs.length : i + chunkSize);
