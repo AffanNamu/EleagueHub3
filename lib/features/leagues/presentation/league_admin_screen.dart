@@ -12,12 +12,12 @@ import 'package:uuid/uuid.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
-import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/connectivity_service.dart' hide UserFriendlyException;
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../../auth/data/user_profile_repository.dart';
+import '../../auth/data/user_profile_repository.dart' hide UserFriendlyException;
 import '../data/league_spaces_local.dart';
 import '../data/leagues_repository_local.dart';
 import '../logic/coupon_codes_service.dart';
@@ -32,9 +32,6 @@ import '../models/team.dart';
 import 'add_teams_screen.dart';
 import 'league_participants_screen.dart';
 import 'utils/roster_csv_exporter.dart';
-
-// NOTE: UserFriendlyException is defined in leagues_repository_local.dart.
-// Do NOT redefine it here — that caused a duplicate class compile error.
 
 class LeagueAdminScreen extends ConsumerStatefulWidget {
   final bool hasPendingChanges;
@@ -93,14 +90,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(trimmed), behavior: SnackBarBehavior.floating),
+      SnackBar(content: Text(trimmed), behavior: SnackBarBehavior.floating),
     );
   }
 
   String? _authUidOrRedirect() {
-    final uid =
-        (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     if (uid.isEmpty) {
       if (mounted) context.go('/login');
       return null;
@@ -109,8 +104,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   Future<void> _requireOnline() async {
-    await ConnectivityService.instance
-        .requireOnline(timeout: const Duration(seconds: 4));
+    await ConnectivityService.instance.requireOnline(
+      timeout: const Duration(seconds: 4),
+    );
   }
 
   bool _isRulesOwnerForLeague(
@@ -151,7 +147,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     if (!league.couponsEnabled) return 'Not enabled';
     final pct = league.couponDiscountPercent;
     final qty = league.couponCount;
-    return 'Discount $pct% \u2022 Purchased: $qty';
+    return 'Discount $pct% • Purchased: $qty';
   }
 
   String _groupDisplayName(AppLocalizations l10n, String groupId) {
@@ -177,9 +173,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     required List<Team> teams,
     required List<String> allowedGroups,
   }) {
-    final counts = <String, int>{
-      for (final g in allowedGroups) g: 0
-    };
+    final counts = <String, int>{for (final g in allowedGroups) g: 0};
     for (final t in teams) {
       final g = (t.groupId ?? '').trim();
       if (counts.containsKey(g)) {
@@ -187,16 +181,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       }
     }
 
-    final available =
-        counts.entries.where((e) => e.value < 4).toList();
+    final available = counts.entries.where((e) => e.value < 4).toList();
     if (available.isEmpty) return null;
 
     available.sort((a, b) => a.value.compareTo(b.value));
     final min = available.first.value;
-    final minGroups = available
-        .where((e) => e.value == min)
-        .map((e) => e.key)
-        .toList();
+    final minGroups =
+        available.where((e) => e.value == min).map((e) => e.key).toList();
 
     final rnd = Random.secure();
     return minGroups[rnd.nextInt(minGroups.length)];
@@ -247,22 +238,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         if (data != null) {
           remoteOrganizerUid =
               (data['organizerUid'] as String?)?.trim() ?? '';
-          remoteOwnerUid =
-              (data['ownerUid'] as String?)?.trim() ?? '';
+          remoteOwnerUid = (data['ownerUid'] as String?)?.trim() ?? '';
 
           if (remoteOrganizerUid.isEmpty) {
             final legacyOrg =
                 (data['organizerUserId'] as String?)?.trim() ?? '';
-            if (legacyOrg.isNotEmpty &&
-                legacyOrg == currentAuthUid) {
+            if (legacyOrg.isNotEmpty && legacyOrg == currentAuthUid) {
               remoteOrganizerUid = currentAuthUid;
             }
           }
           if (remoteOwnerUid.isEmpty) {
             final legacyOwner =
                 (data['ownerId'] as String?)?.trim() ?? '';
-            if (legacyOwner.isNotEmpty &&
-                legacyOwner == currentAuthUid) {
+            if (legacyOwner.isNotEmpty && legacyOwner == currentAuthUid) {
               remoteOwnerUid = currentAuthUid;
             }
           }
@@ -285,14 +273,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               .timeout(const Duration(seconds: 20));
 
           final myTeamId = currentAuthUid;
-          final alreadyParticipant = myTeamId.isNotEmpty &&
-              teams.any((t) => t.id == myTeamId);
+          final alreadyParticipant =
+              myTeamId.isNotEmpty && teams.any((t) => t.id == myTeamId);
           showAddMe = !alreadyParticipant;
         }
       }
     } catch (e) {
-      _snack(UserFriendlyError.toMessage(
-          e is Object ? e : Exception('unknown')));
+      _snack(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
 
     if (!mounted) return;
@@ -330,8 +319,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       await _requireOnline();
 
-      final result =
-          await context.push<LeagueCreationPaymentResult?>(
+      final result = await context.push<LeagueCreationPaymentResult?>(
         '/leagues/${league.id}/upgrade/payment',
         extra: <String, dynamic>{
           'leagueId': league.id,
@@ -339,8 +327,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           'addonsOnly': true,
           'existingCouponsEnabled': league.couponsEnabled,
           'existingCouponCount': league.couponCount,
-          'existingCouponDiscountPercent':
-              league.couponDiscountPercent,
+          'existingCouponDiscountPercent': league.couponDiscountPercent,
         },
       );
 
@@ -352,19 +339,20 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       }
 
       if (!result.success) {
-        _snack(result.errorMessage?.trim().isNotEmpty == true
-            ? result.errorMessage!
-            : 'Payment failed');
+        _snack(
+          result.errorMessage?.trim().isNotEmpty == true
+              ? result.errorMessage!
+              : 'Payment failed',
+        );
         return;
       }
 
-      // FIX: use clamp instead of inverted condition
       final addCoupons = result.buyCouponsForParticipants
-          ? result.couponCount.clamp(0, 99999)
+          ? (result.couponCount < 0 ? 0 : result.couponCount)
           : 0;
 
-      final nextCouponsEnabled = league.couponsEnabled ||
-          result.buyCouponsForParticipants;
+      final nextCouponsEnabled =
+          league.couponsEnabled || result.buyCouponsForParticipants;
       final nextDiscountPercent = result.buyCouponsForParticipants
           ? result.couponDiscountPercent
           : league.couponDiscountPercent;
@@ -379,14 +367,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         updatedAtMs: now,
       );
 
-      await _repo
-          .saveLeague(updated)
-          .timeout(const Duration(seconds: 25));
+      await _repo.saveLeague(updated).timeout(const Duration(seconds: 25));
 
       try {
         final plan = await RemotePricingService.instance
-            .getPlanForLocale(
-                Localizations.maybeLocaleOf(context))
+            .getPlanForLocale(Localizations.maybeLocaleOf(context))
             .timeout(const Duration(seconds: 15));
 
         if (result.buyCouponsForParticipants) {
@@ -403,7 +388,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       } catch (_) {
         if (mounted) {
           _snack(
-              "We saved your purchase, but couldn't update coupons right now. Please try again.");
+            "We saved your purchase, but couldn't update coupons right now. Please try again.",
+          );
         }
       }
 
@@ -413,8 +399,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       _snack('Purchase successful.');
     } catch (e) {
       if (!mounted) return;
-      _snack(UserFriendlyError.toMessage(
-          e is Object ? e : Exception('unknown')));
+      _snack(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     } finally {
       if (mounted) setState(() => _processingUpgradePayment = false);
     }
@@ -437,8 +424,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
-        final configStream =
-            CouponConfigService().watchConfig(league.id);
+        final configStream = CouponConfigService().watchConfig(league.id);
 
         String money(double v) {
           final r = double.parse(v.toStringAsFixed(2));
@@ -457,14 +443,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                   borderRadius: 28,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        vertical: 12, horizontal: 16),
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           'Coupons',
-                          style:
-                              theme.textTheme.titleMedium?.copyWith(
+                          style: theme.textTheme.titleMedium?.copyWith(
                             color: onSurface,
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
@@ -473,8 +460,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 6),
                         Text(
                           league.name,
-                          style:
-                              theme.textTheme.bodySmall?.copyWith(
+                          style: theme.textTheme.bodySmall?.copyWith(
                             color: onSurface.withOpacity(0.70),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -488,10 +474,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             if (snap.hasError) {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(
-                                    vertical: 16),
+                                  vertical: 16,
+                                ),
                                 child: Text(
                                   UserFriendlyError.toMessage(
-                                      snap.error as Object),
+                                    snap.error as Object,
+                                  ),
                                   style: theme.textTheme.bodyMedium
                                       ?.copyWith(
                                     color: cs.error,
@@ -506,11 +494,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 ConnectionState.waiting) {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(
-                                    vertical: 16),
+                                  vertical: 16,
+                                ),
                                 child: Center(
-                                    child:
-                                        CircularProgressIndicator(
-                                            color: cs.primary)),
+                                  child: CircularProgressIndicator(
+                                    color: cs.primary,
+                                  ),
+                                ),
                               );
                             }
 
@@ -521,16 +511,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     CrossAxisAlignment.stretch,
                                 children: [
                                   Padding(
-                                    padding: const EdgeInsets
-                                        .symmetric(vertical: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
                                     child: Text(
                                       'No coupon configuration yet.',
                                       textAlign: TextAlign.center,
-                                      style: theme
-                                          .textTheme.bodySmall
+                                      style: theme.textTheme.bodySmall
                                           ?.copyWith(
-                                        color: onSurface
-                                            .withOpacity(0.70),
+                                        color: onSurface.withOpacity(0.70),
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
@@ -541,10 +530,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                       Expanded(
                                         child: OutlinedButton(
                                           onPressed: () =>
-                                              Navigator.of(ctx)
-                                                  .pop(),
-                                          child:
-                                              const Text('Close'),
+                                              Navigator.of(ctx).pop(),
+                                          child: const Text('Close'),
                                         ),
                                       ),
                                       const SizedBox(width: 10),
@@ -554,10 +541,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                             Navigator.of(ctx).pop();
                                             _purchaseCouponsOrAdjustSubsidy();
                                           },
-                                          icon: const Icon(Icons
-                                              .add_shopping_cart),
-                                          label: const Text(
-                                              'Buy / enable'),
+                                          icon: const Icon(
+                                            Icons.add_shopping_cart,
+                                          ),
+                                          label: const Text('Buy / enable'),
                                         ),
                                       ),
                                     ],
@@ -568,25 +555,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                             final redeemed = cfg.qtyRedeemed;
                             final usersPay =
-                                (100 - cfg.discountPercent)
-                                    .clamp(0, 100);
+                                (100 - cfg.discountPercent).clamp(0, 100);
 
                             return Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _kv('Currency', cfg.currency,
-                                    theme, cs),
+                                _kv('Currency', cfg.currency, theme, cs),
                                 _kv(
-                                    'Unit price',
-                                    '${money(cfg.unitPrice)} ${cfg.currency}',
-                                    theme,
-                                    cs),
+                                  'Unit price',
+                                  '${money(cfg.unitPrice)} ${cfg.currency}',
+                                  theme,
+                                  cs,
+                                ),
                                 _kv(
-                                    'Effective unit',
-                                    '${money(cfg.effectiveUnit)} ${cfg.currency}',
-                                    theme,
-                                    cs),
+                                  'Effective unit',
+                                  '${money(cfg.effectiveUnit)} ${cfg.currency}',
+                                  theme,
+                                  cs,
+                                ),
                                 _kv(
                                   'Threshold',
                                   cfg.threshold == null
@@ -596,25 +582,38 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   cs,
                                 ),
                                 _kv(
-                                    'Threshold discount',
-                                    '${money(cfg.thresholdDiscountPercent)}%',
-                                    theme,
-                                    cs),
+                                  'Threshold discount',
+                                  '${money(cfg.thresholdDiscountPercent)}%',
+                                  theme,
+                                  cs,
+                                ),
                                 const Divider(),
-                                _kv('Discount',
-                                    '${cfg.discountPercent}%', theme, cs),
                                 _kv(
-                                    'Users pay (at redemption)',
-                                    '$usersPay%',
-                                    theme,
-                                    cs),
+                                  'Discount',
+                                  '${cfg.discountPercent}%',
+                                  theme,
+                                  cs,
+                                ),
+                                _kv(
+                                  'Users pay (at redemption)',
+                                  '$usersPay%',
+                                  theme,
+                                  cs,
+                                ),
                                 const Divider(),
-                                _kv('Purchased (total)',
-                                    '${cfg.qtyTotal}', theme, cs),
-                                _kv('Remaining',
-                                    '${cfg.qtyRemaining}', theme, cs),
-                                _kv('Redeemed', '$redeemed', theme,
-                                    cs),
+                                _kv(
+                                  'Purchased (total)',
+                                  '${cfg.qtyTotal}',
+                                  theme,
+                                  cs,
+                                ),
+                                _kv(
+                                  'Remaining',
+                                  '${cfg.qtyRemaining}',
+                                  theme,
+                                  cs,
+                                ),
+                                _kv('Redeemed', '$redeemed', theme, cs),
                                 const SizedBox(height: 16),
                                 Row(
                                   children: [
@@ -622,8 +621,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                       child: OutlinedButton(
                                         onPressed: () =>
                                             Navigator.of(ctx).pop(),
-                                        child:
-                                            const Text('Close'),
+                                        child: const Text('Close'),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
@@ -633,10 +631,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                           Navigator.of(ctx).pop();
                                           _purchaseCouponsOrAdjustSubsidy();
                                         },
-                                        icon: const Icon(Icons
-                                            .add_shopping_cart),
-                                        label: const Text(
-                                            'Buy more / adjust'),
+                                        icon: const Icon(
+                                          Icons.add_shopping_cart,
+                                        ),
+                                        label:
+                                            const Text('Buy more / adjust'),
                                       ),
                                     ),
                                   ],
@@ -647,10 +646,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     Navigator.of(ctx).pop();
                                     _showCouponCodesSheet();
                                   },
-                                  icon: const Icon(Icons
-                                      .confirmation_number_outlined),
-                                  label: const Text(
-                                      'Manage coupon codes'),
+                                  icon: const Icon(
+                                    Icons.confirmation_number_outlined,
+                                  ),
+                                  label:
+                                      const Text('Manage coupon codes'),
                                 ),
                               ],
                             );
@@ -693,8 +693,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
-        final cfgStream =
-            CouponConfigService().watchConfig(league.id);
+        final cfgStream = CouponConfigService().watchConfig(league.id);
 
         final codesQuery = FirebaseFirestore.instance
             .collection('leagues')
@@ -722,9 +721,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 if (!mounted) return;
                 _snack('Coupon config initialized.');
               } catch (e) {
-                setStateSheet(() => errorText =
-                    UserFriendlyError.toMessage(
-                        e is Object ? e : Exception('unknown')));
+                setStateSheet(
+                  () => errorText = UserFriendlyError.toMessage(
+                    e is Object ? e : Exception('unknown'),
+                  ),
+                );
               }
             }
 
@@ -748,7 +749,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                   final raw = customCtrl.text.trim();
                   if (raw.isEmpty) {
                     setStateSheet(
-                        () => errorText = 'Enter a custom code');
+                      () => errorText = 'Enter a custom code',
+                    );
                     return;
                   }
 
@@ -762,17 +764,20 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                       .timeout(const Duration(seconds: 20));
 
                   if (!mounted) return;
-                  _snack(generated.isEmpty
-                      ? 'No code generated'
-                      : 'Generated: ${generated.first}');
+                  _snack(
+                    generated.isEmpty
+                        ? 'No code generated'
+                        : 'Generated: ${generated.first}',
+                  );
                   return;
                 }
 
                 final cnt =
                     int.tryParse(countCtrl.text.trim()) ?? 0;
                 if (cnt <= 0) {
-                  setStateSheet(() =>
-                      errorText = 'Enter a positive number');
+                  setStateSheet(
+                    () => errorText = 'Enter a positive number',
+                  );
                   return;
                 }
 
@@ -789,9 +794,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 if (!mounted) return;
                 _snack('Generated ${generated.length} codes');
               } catch (e) {
-                setStateSheet(() => errorText =
-                    UserFriendlyError.toMessage(
-                        e is Object ? e : Exception('unknown')));
+                setStateSheet(
+                  () => errorText = UserFriendlyError.toMessage(
+                    e is Object ? e : Exception('unknown'),
+                  ),
+                );
               } finally {
                 setStateSheet(() => generating = false);
               }
@@ -803,22 +810,20 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               required VoidCallback onTap,
             }) {
               return ChoiceChip(
-                label: Text(label,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w800)),
+                label: Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
                 selected: selected,
-                onSelected:
-                    generating ? null : (_) => onTap(),
+                onSelected: generating ? null : (_) => onTap(),
                 selectedColor: cs.primary.withOpacity(0.18),
-                backgroundColor:
-                    cs.onSurface.withOpacity(0.06),
+                backgroundColor: cs.onSurface.withOpacity(0.06),
                 labelStyle: TextStyle(
                   color: selected
                       ? cs.primary
                       : cs.onSurface.withOpacity(0.72),
-                  fontWeight: selected
-                      ? FontWeight.w900
-                      : FontWeight.w800,
+                  fontWeight:
+                      selected ? FontWeight.w900 : FontWeight.w800,
                 ),
               );
             }
@@ -828,13 +833,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 620),
+                    constraints: const BoxConstraints(maxWidth: 620),
                     child: Glass(
                       borderRadius: 28,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                            vertical: 12, horizontal: 16),
+                          vertical: 12,
+                          horizontal: 16,
+                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -852,8 +858,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               league.name,
                               style: theme.textTheme.bodySmall
                                   ?.copyWith(
-                                color:
-                                    onSurface.withOpacity(0.70),
+                                color: onSurface.withOpacity(0.70),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -867,18 +872,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                                 if (snap.hasError) {
                                   return Padding(
-                                    padding:
-                                        const EdgeInsets.only(
-                                            bottom: 10),
+                                    padding: const EdgeInsets.only(
+                                      bottom: 10,
+                                    ),
                                     child: Text(
                                       UserFriendlyError.toMessage(
-                                          snap.error as Object),
-                                      style: theme.textTheme
-                                          .bodySmall
+                                        snap.error as Object,
+                                      ),
+                                      style: theme.textTheme.bodySmall
                                           ?.copyWith(
                                         color: cs.error,
-                                        fontWeight:
-                                            FontWeight.w800,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                       textAlign: TextAlign.center,
                                     ),
@@ -888,9 +892,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 if (snap.connectionState ==
                                     ConnectionState.waiting) {
                                   return Padding(
-                                    padding:
-                                        const EdgeInsets.only(
-                                            bottom: 10),
+                                    padding: const EdgeInsets.only(
+                                      bottom: 10,
+                                    ),
                                     child: Row(
                                       children: [
                                         const SizedBox(
@@ -898,18 +902,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                           height: 16,
                                           child:
                                               CircularProgressIndicator(
-                                                  strokeWidth: 2),
+                                            strokeWidth: 2,
+                                          ),
                                         ),
                                         const SizedBox(width: 10),
                                         Text(
                                           'Loading coupon config...',
-                                          style: theme.textTheme
-                                              .bodySmall
+                                          style: theme
+                                              .textTheme.bodySmall
                                               ?.copyWith(
                                             color: onSurface
                                                 .withOpacity(0.70),
-                                            fontWeight:
-                                                FontWeight.w700,
+                                            fontWeight: FontWeight.w700,
                                           ),
                                         ),
                                       ],
@@ -921,17 +925,20 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   return Container(
                                     width: double.infinity,
                                     margin: const EdgeInsets.only(
-                                        bottom: 10),
-                                    padding:
-                                        const EdgeInsets.all(12),
+                                      bottom: 10,
+                                    ),
+                                    padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
                                       borderRadius:
                                           BorderRadius.circular(14),
-                                      color: cs.onSurface
-                                          .withOpacity(0.04),
+                                      color: cs.onSurface.withOpacity(
+                                        0.04,
+                                      ),
                                       border: Border.all(
-                                          color: cs.onSurface
-                                              .withOpacity(0.10)),
+                                        color: cs.onSurface.withOpacity(
+                                          0.10,
+                                        ),
+                                      ),
                                     ),
                                     child: Column(
                                       crossAxisAlignment:
@@ -939,24 +946,23 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                       children: [
                                         Text(
                                           'Coupon config missing',
-                                          style: theme.textTheme
-                                              .bodyMedium
+                                          style: theme
+                                              .textTheme.bodyMedium
                                               ?.copyWith(
                                             color: onSurface,
-                                            fontWeight:
-                                                FontWeight.w900,
+                                            fontWeight: FontWeight.w900,
                                           ),
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
                                           'Initialize config to enable code generation (organizer only).',
-                                          style: theme.textTheme
-                                              .bodySmall
+                                          style: theme
+                                              .textTheme.bodySmall
                                               ?.copyWith(
-                                            color: onSurface
-                                                .withOpacity(0.65),
-                                            fontWeight:
-                                                FontWeight.w600,
+                                            color: onSurface.withOpacity(
+                                              0.65,
+                                            ),
+                                            fontWeight: FontWeight.w600,
                                             height: 1.25,
                                           ),
                                         ),
@@ -968,10 +974,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                             onPressed: generating
                                                 ? null
                                                 : initConfigIfMissing,
-                                            icon: const Icon(Icons
-                                                .build_circle_outlined),
+                                            icon: const Icon(
+                                              Icons
+                                                  .build_circle_outlined,
+                                            ),
                                             label: const Text(
-                                                'Initialize'),
+                                              'Initialize',
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -986,17 +995,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 return Container(
                                   width: double.infinity,
                                   margin: const EdgeInsets.only(
-                                      bottom: 10),
-                                  padding:
-                                      const EdgeInsets.all(12),
+                                    bottom: 10,
+                                  ),
+                                  padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
                                     borderRadius:
                                         BorderRadius.circular(14),
-                                    color: cs.onSurface
-                                        .withOpacity(0.04),
+                                    color:
+                                        cs.onSurface.withOpacity(0.04),
                                     border: Border.all(
-                                        color: cs.onSurface
-                                            .withOpacity(0.10)),
+                                      color:
+                                          cs.onSurface.withOpacity(0.10),
+                                    ),
                                   ),
                                   child: Row(
                                     children: [
@@ -1015,16 +1025,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                           soldOut
                                               ? 'No coupons remaining (sold out)'
                                               : 'Remaining: $remaining (Total purchased: $total)',
-                                          style: theme.textTheme
-                                              .bodySmall
+                                          style: theme
+                                              .textTheme.bodySmall
                                               ?.copyWith(
                                             color: soldOut
                                                 ? cs.error
-                                                : onSurface
-                                                    .withOpacity(
-                                                        0.80),
-                                            fontWeight:
-                                                FontWeight.w800,
+                                                : onSurface.withOpacity(
+                                                    0.80,
+                                                  ),
+                                            fontWeight: FontWeight.w800,
                                           ),
                                         ),
                                       ),
@@ -1038,8 +1047,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 modeChip(
                                   label: 'Random',
                                   selected: !customMode,
-                                  onTap: () =>
-                                      setStateSheet(() {
+                                  onTap: () => setStateSheet(() {
                                     customMode = false;
                                     errorText = null;
                                   }),
@@ -1048,8 +1056,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 modeChip(
                                   label: 'Custom',
                                   selected: customMode,
-                                  onTap: () =>
-                                      setStateSheet(() {
+                                  onTap: () => setStateSheet(() {
                                     customMode = true;
                                     errorText = null;
                                   }),
@@ -1063,10 +1070,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   Expanded(
                                     child: TextField(
                                       controller: countCtrl,
-                                      keyboardType:
-                                          TextInputType.number,
-                                      decoration:
-                                          const InputDecoration(
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(
                                         labelText:
                                             'How many random codes?',
                                         prefixIcon:
@@ -1076,22 +1081,20 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   ),
                                   const SizedBox(width: 10),
                                   FilledButton.icon(
-                                    onPressed: generating
-                                        ? null
-                                        : generate,
+                                    onPressed:
+                                        generating ? null : generate,
                                     icon: generating
                                         ? const SizedBox(
                                             width: 16,
                                             height: 16,
                                             child:
                                                 CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    color:
-                                                        Colors.white),
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
                                           )
                                         : const Icon(Icons.add),
-                                    label:
-                                        const Text('Generate'),
+                                    label: const Text('Generate'),
                                   ),
                                 ],
                               ),
@@ -1100,8 +1103,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 'Random codes are one-time use and reduce qtyRemaining by 1 per code.',
                                 style: theme.textTheme.bodySmall
                                     ?.copyWith(
-                                  color:
-                                      onSurface.withOpacity(0.60),
+                                  color: onSurface.withOpacity(0.60),
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -1111,12 +1113,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   Expanded(
                                     child: TextField(
                                       controller: customCtrl,
-                                      decoration:
-                                          const InputDecoration(
+                                      decoration: const InputDecoration(
                                         labelText:
                                             'Custom code (single)',
-                                        prefixIcon:
-                                            Icon(Icons.edit),
+                                        prefixIcon: Icon(Icons.edit),
                                         hintText:
                                             'BARCA (creates: ESL_BARCA_<DISCOUNT>%)',
                                       ),
@@ -1124,18 +1124,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   ),
                                   const SizedBox(width: 10),
                                   FilledButton.icon(
-                                    onPressed: generating
-                                        ? null
-                                        : generate,
+                                    onPressed:
+                                        generating ? null : generate,
                                     icon: generating
                                         ? const SizedBox(
                                             width: 16,
                                             height: 16,
                                             child:
                                                 CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    color:
-                                                        Colors.white),
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
                                           )
                                         : const Icon(Icons.check),
                                     label: const Text('Create'),
@@ -1156,132 +1155,109 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             ],
                             const SizedBox(height: 12),
                             Divider(
-                                color:
-                                    onSurface.withOpacity(0.12)),
+                              color: onSurface.withOpacity(0.12),
+                            ),
                             ConstrainedBox(
                               constraints: const BoxConstraints(
-                                  maxHeight: 440),
+                                maxHeight: 440,
+                              ),
                               child: StreamBuilder<
-                                  QuerySnapshot<
-                                      Map<String, dynamic>>>(
+                                  QuerySnapshot<Map<String, dynamic>>>(
                                 stream: codesQuery.snapshots(),
                                 builder: (context, snap) {
                                   if (snap.hasError) {
                                     return Center(
                                       child: Text(
-                                        UserFriendlyError
-                                            .toMessage(
-                                                snap.error
-                                                    as Object),
-                                        style: theme.textTheme
-                                            .bodyMedium
+                                        UserFriendlyError.toMessage(
+                                          snap.error as Object,
+                                        ),
+                                        style: theme.textTheme.bodyMedium
                                             ?.copyWith(
                                           color: cs.error,
-                                          fontWeight:
-                                              FontWeight.w700,
+                                          fontWeight: FontWeight.w700,
                                         ),
-                                        textAlign:
-                                            TextAlign.center,
+                                        textAlign: TextAlign.center,
                                       ),
                                     );
                                   }
                                   if (!snap.hasData) {
                                     return Center(
-                                        child:
-                                            CircularProgressIndicator(
-                                                color:
-                                                    cs.primary));
+                                      child: CircularProgressIndicator(
+                                        color: cs.primary,
+                                      ),
+                                    );
                                   }
-                                  final docs =
-                                      snap.data!.docs;
+                                  final docs = snap.data!.docs;
                                   if (docs.isEmpty) {
                                     return Center(
                                       child: Text(
                                         'No codes yet.',
-                                        style: theme.textTheme
-                                            .bodySmall
+                                        style: theme.textTheme.bodySmall
                                             ?.copyWith(
-                                          color: onSurface
-                                              .withOpacity(0.70),
-                                          fontWeight:
-                                              FontWeight.w700,
+                                          color:
+                                              onSurface.withOpacity(0.70),
+                                          fontWeight: FontWeight.w700,
                                         ),
                                       ),
                                     );
                                   }
                                   return ListView.separated(
                                     itemCount: docs.length,
-                                    separatorBuilder: (_, __) =>
-                                        Divider(
-                                            color: onSurface
-                                                .withOpacity(
-                                                    0.10)),
+                                    separatorBuilder: (_, __) => Divider(
+                                      color: onSurface.withOpacity(0.10),
+                                    ),
                                     itemBuilder: (context, i) {
-                                      final d =
-                                          docs[i].data();
+                                      final d = docs[i].data();
                                       final code = docs[i].id;
                                       final usedBy =
-                                          (d['usedBy']
-                                                  as String?) ??
-                                              '';
+                                          (d['usedBy'] as String?) ?? '';
                                       final isUsed =
                                           usedBy.trim().isNotEmpty;
                                       return ListTile(
                                         dense: true,
-                                        contentPadding:
-                                            EdgeInsets.zero,
+                                        contentPadding: EdgeInsets.zero,
                                         leading: Icon(
                                           isUsed
                                               ? Icons.verified
                                               : Icons
                                                   .confirmation_number_outlined,
                                           color: isUsed
-                                              ? const Color(
-                                                  0xFF22C55E)
+                                              ? const Color(0xFF22C55E)
                                               : cs.primary,
                                         ),
                                         title: Text(
                                           code,
                                           style: theme
-                                              .textTheme
-                                              .bodyMedium
+                                              .textTheme.bodyMedium
                                               ?.copyWith(
                                             color: onSurface,
-                                            fontWeight:
-                                                FontWeight.w900,
+                                            fontWeight: FontWeight.w900,
                                           ),
                                         ),
                                         subtitle: Text(
-                                          isUsed
-                                              ? 'Used'
-                                              : 'Unused',
+                                          isUsed ? 'Used' : 'Unused',
                                           style: theme
-                                              .textTheme
-                                              .bodySmall
+                                              .textTheme.bodySmall
                                               ?.copyWith(
-                                            color: onSurface
-                                                .withOpacity(0.65),
-                                            fontWeight:
-                                                FontWeight.w700,
+                                            color: onSurface.withOpacity(
+                                              0.65,
+                                            ),
+                                            fontWeight: FontWeight.w700,
                                           ),
                                         ),
                                         trailing: IconButton(
                                           tooltip: 'Copy',
                                           icon: Icon(
-                                              Icons.copy,
-                                              color: onSurface
-                                                  .withOpacity(
-                                                      0.72)),
+                                            Icons.copy,
+                                            color:
+                                                onSurface.withOpacity(0.72),
+                                          ),
                                           onPressed: () async {
-                                            await Clipboard
-                                                .setData(
-                                                    ClipboardData(
-                                                        text:
-                                                            code));
-                                            if (!context
-                                                .mounted) return;
-                                            _snack(
-                                                'Copied: $code');
+                                            await Clipboard.setData(
+                                              ClipboardData(text: code),
+                                            );
+                                            if (!context.mounted) return;
+                                            _snack('Copied: $code');
                                           },
                                         ),
                                       );
@@ -1292,8 +1268,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             ),
                             const SizedBox(height: 10),
                             FilledButton(
-                              onPressed: () =>
-                                  Navigator.of(ctx).pop(),
+                              onPressed: () => Navigator.of(ctx).pop(),
                               child: const Text('Close'),
                             ),
                           ],
@@ -1314,7 +1289,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   Widget _kv(
-      String k, String v, ThemeData theme, ColorScheme cs) {
+    String k,
+    String v,
+    ThemeData theme,
+    ColorScheme cs,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -1374,38 +1353,36 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       if (!isOwnerByRules) {
         throw UserFriendlyException(
-            l10n.tr('league_admin_only_organizer_action'));
+          l10n.tr('league_admin_only_organizer_action'),
+        );
       }
 
       if (league.format == LeagueFormat.uclGroup &&
           !(league.maxTeams == 16 || league.maxTeams == 32)) {
         throw UserFriendlyException(
-            l10n.tr('league_admin_ucl_group_maxteams_error'));
+          l10n.tr('league_admin_ucl_group_maxteams_error'),
+        );
       }
       if (league.format == LeagueFormat.uclSwiss &&
           !(league.maxTeams == 18 || league.maxTeams == 36)) {
         throw UserFriendlyException(
-            l10n.tr('league_admin_swiss_maxteams_error'));
+          l10n.tr('league_admin_swiss_maxteams_error'),
+        );
       }
 
       final existingTeams = await _repo
           .getTeams(league.id)
           .timeout(const Duration(seconds: 20));
-      final alreadyHasTeam =
-          existingTeams.any((t) => t.id == authUid);
+      final alreadyHasTeam = existingTeams.any((t) => t.id == authUid);
       if (alreadyHasTeam) {
-        _snack(l10n.tr(
-            'league_admin_already_added_participant_team_exists'));
+        _snack(l10n.tr('league_admin_already_added_participant_team_exists'));
         return;
       }
 
       if (existingTeams.length >= league.maxTeams) {
-        final prefix =
-            l10n.tr('league_admin_league_full_prefix');
-        final suffix =
-            l10n.tr('league_admin_league_full_suffix');
-        throw UserFriendlyException(
-            '$prefix${league.maxTeams}$suffix');
+        final prefix = l10n.tr('league_admin_league_full_prefix');
+        final suffix = l10n.tr('league_admin_league_full_suffix');
+        throw UserFriendlyException('$prefix${league.maxTeams}$suffix');
       }
 
       final profile = await UserProfileRepository()
@@ -1414,19 +1391,21 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       final teamName = profile?.teamName.trim() ?? '';
       if (teamName.isEmpty) {
         throw UserFriendlyException(
-            l10n.tr('league_admin_profile_team_name_missing'));
+          l10n.tr('league_admin_profile_team_name_missing'),
+        );
       }
 
       String? groupId;
       if (league.format == LeagueFormat.uclGroup) {
-        final allowedGroups =
-            _allowedGroupsForUclGroup(league);
+        final allowedGroups = _allowedGroupsForUclGroup(league);
         final picked = _pickGroupWithSpace(
-            teams: existingTeams,
-            allowedGroups: allowedGroups);
+          teams: existingTeams,
+          allowedGroups: allowedGroups,
+        );
         if (picked == null) {
           throw UserFriendlyException(
-              l10n.tr('league_admin_all_groups_full'));
+            l10n.tr('league_admin_all_groups_full'),
+          );
         }
         groupId = picked;
       } else {
@@ -1476,7 +1455,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       final failPrefix =
           l10n.tr('league_admin_failed_add_participant_prefix');
       _snack(
-          '$failPrefix ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}');
+        '$failPrefix ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}',
+      );
     } finally {
       if (mounted) setState(() => _addingMeAsParticipant = false);
     }
@@ -1509,10 +1489,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      final prefix =
-          l10n.tr('league_admin_export_failed_prefix');
+      final prefix = l10n.tr('league_admin_export_failed_prefix');
       _snack(
-          '$prefix ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}');
+        '$prefix ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}',
+      );
     } finally {
       if (mounted) setState(() => _exportingRoster = false);
     }
@@ -1546,12 +1526,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       if (!isOwnerByRules) {
         throw UserFriendlyException(
-            l10n.tr('league_admin_only_organizer_start_space'));
+          l10n.tr('league_admin_only_organizer_start_space'),
+        );
       }
 
       final leagueName = league.name;
-      final suffix =
-          l10n.tr('league_details_space_title_suffix');
+      final suffix = l10n.tr('league_details_space_title_suffix');
       final spaceTitle = '$leagueName $suffix';
 
       final space = await _spaceRepo
@@ -1567,8 +1547,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       _snack(l10n.tr('league_details_space_started'));
     } catch (e) {
       if (!mounted) return;
-      _snack(UserFriendlyError.toMessage(
-          e is Object ? e : Exception('unknown')));
+      _snack(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 
@@ -1603,7 +1584,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       if (!isOwnerByRules) {
         throw UserFriendlyException(
-            l10n.tr('league_admin_only_organizer_end_space'));
+          l10n.tr('league_admin_only_organizer_end_space'),
+        );
       }
 
       final updated = await _spaceRepo
@@ -1615,8 +1597,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       _snack(l10n.tr('league_details_space_ended'));
     } catch (e) {
       if (!mounted) return;
-      _snack(UserFriendlyError.toMessage(
-          e is Object ? e : Exception('unknown')));
+      _snack(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 
@@ -1657,7 +1640,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                     child: _isLeagueLoading
                         ? Center(
                             child: CircularProgressIndicator(
-                                color: cs.primary))
+                              color: cs.primary,
+                            ),
+                          )
                         : _buildSettingsList(context),
                   ),
                 ],
@@ -1675,16 +1660,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final cs = theme.colorScheme;
 
     return ValueListenableBuilder<bool>(
-      valueListenable:
-          ConnectivityService.instance.isConnected,
+      valueListenable: ConnectivityService.instance.isConnected,
       builder: (context, online, _) {
         final title = online ? 'Online' : 'Offline';
         final subtitle = online
             ? 'All changes are saved to the server instantly.'
             : 'You appear to be offline. Some actions may not work.';
 
-        final statusIcon =
-            online ? Icons.wifi : Icons.wifi_off;
+        final statusIcon = online ? Icons.wifi : Icons.wifi_off;
         final statusColor = online
             ? const Color(0xFF22C55E)
             : const Color(0xFFF59E0B);
@@ -1695,28 +1678,23 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Icon(statusIcon,
-                    color: statusColor, size: 40),
+                Icon(statusIcon, color: statusColor, size: 40),
                 const SizedBox(width: 20),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         title,
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(
+                        style: theme.textTheme.titleMedium?.copyWith(
                           color: cs.onSurface,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
                       Text(
                         subtitle,
-                        style:
-                            theme.textTheme.bodySmall?.copyWith(
-                          color:
-                              cs.onSurface.withOpacity(0.70),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.70),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -1727,8 +1705,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 IconButton(
                   tooltip: l10n.tr('common_refresh'),
                   onPressed: _loadLeague,
-                  icon: Icon(Icons.refresh,
-                      color: cs.onSurface.withOpacity(0.72)),
+                  icon: Icon(
+                    Icons.refresh,
+                    color: cs.onSurface.withOpacity(0.72),
+                  ),
                 ),
               ],
             ),
@@ -1740,7 +1720,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   Widget _buildSettingsList(BuildContext context) {
     final l10n = context.l10n;
-
     final league = _league;
 
     return ListView(
@@ -1789,11 +1768,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             _addingMeAsParticipant
                 ? l10n.tr('league_admin_adding_you')
                 : l10n.tr('league_admin_add_me_participant'),
-            l10n.tr(
-                'league_admin_add_me_participant_subtitle'),
-            onTap: _addingMeAsParticipant
-                ? null
-                : _addMeAsParticipant,
+            l10n.tr('league_admin_add_me_participant_subtitle'),
+            onTap: _addingMeAsParticipant ? null : _addMeAsParticipant,
           ),
         _buildSettingsTile(
           context,
@@ -1813,8 +1789,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => LeagueParticipantsScreen(
-                    leagueId: widget.leagueId),
+                builder: (_) =>
+                    LeagueParticipantsScreen(leagueId: widget.leagueId),
               ),
             );
           },
@@ -1823,31 +1799,25 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           context,
           Icons.mic,
           l10n.tr('league_admin_live_voice_settings'),
-          l10n.tr(
-              'league_admin_live_voice_settings_subtitle'),
+          l10n.tr('league_admin_live_voice_settings_subtitle'),
           onTap: _showLiveSettingsSheet,
         ),
         _buildSettingsTile(
           context,
           Icons.spatial_audio_off,
           _space?.isLive == true
-              ? l10n.tr(
-                  'league_admin_league_space_live')
-              : l10n.tr(
-                  'league_admin_league_space_voice_room'),
+              ? l10n.tr('league_admin_league_space_live')
+              : l10n.tr('league_admin_league_space_voice_room'),
           _space?.isLive == true
-              ? l10n.tr(
-                  'league_admin_league_space_live_subtitle')
-              : l10n.tr(
-                  'league_admin_league_space_voice_room_subtitle'),
+              ? l10n.tr('league_admin_league_space_live_subtitle')
+              : l10n.tr('league_admin_league_space_voice_room_subtitle'),
           onTap: _showLeagueSpaceAdminSheet,
         ),
         _buildSettingsTile(
           context,
           Icons.notifications_active,
           l10n.tr('league_admin_send_announcement'),
-          l10n.tr(
-              'league_admin_send_announcement_subtitle'),
+          l10n.tr('league_admin_send_announcement_subtitle'),
           onTap: _showSendAnnouncementSheet,
         ),
         _buildSettingsTile(
@@ -1880,21 +1850,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final isRtl =
-        Directionality.of(context) == TextDirection.rtl;
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
     final chevronIcon =
         isRtl ? Icons.chevron_left : Icons.chevron_right;
-
-    final leadingColor =
-        isDestructive ? cs.error : cs.primary;
+    final leadingColor = isDestructive ? cs.error : cs.primary;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Glass(
         borderRadius: 20,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 12, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(icon, color: leadingColor),
@@ -1913,8 +1879,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            trailing: Icon(chevronIcon,
-                color: cs.onSurface.withOpacity(0.30)),
+            trailing: Icon(
+              chevronIcon,
+              color: cs.onSurface.withOpacity(0.30),
+            ),
             onTap: onTap,
           ),
         ),
@@ -1950,25 +1918,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 520),
+                    constraints: const BoxConstraints(maxWidth: 520),
                     child: Glass(
                       borderRadius: 28,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                            vertical: 8, horizontal: 12),
+                          vertical: 8,
+                          horizontal: 12,
+                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(
-                                      vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                              ),
                               child: Text(
-                                l10n.tr(
-                                    'league_admin_live_voice_settings'),
-                                style: theme
-                                    .textTheme.titleMedium
+                                l10n.tr('league_admin_live_voice_settings'),
+                                style: theme.textTheme.titleMedium
                                     ?.copyWith(
                                   color: onSurface,
                                   fontSize: 16,
@@ -1976,29 +1943,25 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 ),
                               ),
                             ),
-                            Divider(
-                                color: onSurface
-                                    .withOpacity(0.12)),
+                            Divider(color: onSurface.withOpacity(0.12)),
                             SwitchListTile.adaptive(
                               value: chatEnabled,
                               onChanged: (v) =>
-                                  setModalState(
-                                      () => chatEnabled = v),
+                                  setModalState(() => chatEnabled = v),
                               activeColor: cs.primary,
                               title: Text(
-                                l10n.tr(
-                                    'league_admin_viewer_text_chat'),
+                                l10n.tr('league_admin_viewer_text_chat'),
                                 style: TextStyle(
-                                    color: onSurface,
-                                    fontWeight:
-                                        FontWeight.w800),
+                                  color: onSurface,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                               subtitle: Text(
                                 l10n.tr(
-                                    'league_admin_viewer_text_chat_subtitle'),
+                                  'league_admin_viewer_text_chat_subtitle',
+                                ),
                                 style: TextStyle(
-                                  color: onSurface
-                                      .withOpacity(0.65),
+                                  color: onSurface.withOpacity(0.65),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -2007,23 +1970,21 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             SwitchListTile.adaptive(
                               value: voiceEnabled,
                               onChanged: (v) =>
-                                  setModalState(
-                                      () => voiceEnabled = v),
+                                  setModalState(() => voiceEnabled = v),
                               activeColor: cs.primary,
                               title: Text(
-                                l10n.tr(
-                                    'league_admin_viewer_audio'),
+                                l10n.tr('league_admin_viewer_audio'),
                                 style: TextStyle(
-                                    color: onSurface,
-                                    fontWeight:
-                                        FontWeight.w800),
+                                  color: onSurface,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                               subtitle: Text(
                                 l10n.tr(
-                                    'league_admin_viewer_audio_subtitle'),
+                                  'league_admin_viewer_audio_subtitle',
+                                ),
                                 style: TextStyle(
-                                  color: onSurface
-                                      .withOpacity(0.65),
+                                  color: onSurface.withOpacity(0.65),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -2031,24 +1992,23 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             ),
                             SwitchListTile.adaptive(
                               value: reactionsEnabled,
-                              onChanged: (v) =>
-                                  setModalState(() =>
-                                      reactionsEnabled = v),
+                              onChanged: (v) => setModalState(
+                                () => reactionsEnabled = v,
+                              ),
                               activeColor: cs.primary,
                               title: Text(
-                                l10n.tr(
-                                    'league_admin_viewer_reactions'),
+                                l10n.tr('league_admin_viewer_reactions'),
                                 style: TextStyle(
-                                    color: onSurface,
-                                    fontWeight:
-                                        FontWeight.w800),
+                                  color: onSurface,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                               subtitle: Text(
                                 l10n.tr(
-                                    'league_admin_viewer_reactions_subtitle'),
+                                  'league_admin_viewer_reactions_subtitle',
+                                ),
                                 style: TextStyle(
-                                  color: onSurface
-                                      .withOpacity(0.65),
+                                  color: onSurface.withOpacity(0.65),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -2058,28 +2018,32 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               alignment: Alignment.centerRight,
                               child: Padding(
                                 padding: const EdgeInsets.only(
-                                    top: 8,
-                                    right: 4,
-                                    bottom: 8),
+                                  top: 8,
+                                  right: 4,
+                                  bottom: 8,
+                                ),
                                 child: FilledButton(
                                   onPressed: () async {
-                                    await prefs
-                                        .setLiveViewerChatEnabled(
-                                            chatEnabled);
-                                    await prefs
-                                        .setLiveViewerVoiceEnabled(
-                                            voiceEnabled);
+                                    await prefs.setLiveViewerChatEnabled(
+                                      chatEnabled,
+                                    );
+                                    await prefs.setLiveViewerVoiceEnabled(
+                                      voiceEnabled,
+                                    );
                                     await prefs
                                         .setLiveViewerReactionsEnabled(
-                                            reactionsEnabled);
+                                      reactionsEnabled,
+                                    );
 
                                     if (!mounted) return;
                                     Navigator.of(ctx).pop();
-                                    _snack(l10n.tr(
-                                        'league_admin_live_viewer_settings_updated'));
+                                    _snack(
+                                      l10n.tr(
+                                        'league_admin_live_viewer_settings_updated',
+                                      ),
+                                    );
                                   },
-                                  child: Text(
-                                      l10n.tr('common_save')),
+                                  child: Text(l10n.tr('common_save')),
                                 ),
                               ),
                             ),
@@ -2117,10 +2081,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
         final runningPrefix =
             l10n.tr('league_admin_league_space_running_prefix');
-        final startPrefix = l10n
-            .tr('league_admin_league_space_start_description_prefix');
-        final startSuffix = l10n
-            .tr('league_admin_league_space_start_description_suffix');
+        final startPrefix =
+            l10n.tr('league_admin_league_space_start_description_prefix');
+        final startSuffix =
+            l10n.tr('league_admin_league_space_start_description_suffix');
 
         final descText = spaceLive
             ? '$runningPrefix $leagueName.'
@@ -2131,21 +2095,22 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             padding: const EdgeInsets.all(16),
             child: Center(
               child: ConstrainedBox(
-                constraints:
-                    const BoxConstraints(maxWidth: 520),
+                constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        vertical: 12, horizontal: 16),
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           l10n.tr(
-                              'league_admin_league_space_sheet_title'),
-                          style: theme.textTheme.titleMedium
-                              ?.copyWith(
+                            'league_admin_league_space_sheet_title',
+                          ),
+                          style: theme.textTheme.titleMedium?.copyWith(
                             color: onSurface,
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
@@ -2154,10 +2119,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 6),
                         Text(
                           descText,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(
-                            color:
-                                onSurface.withOpacity(0.70),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: onSurface.withOpacity(0.70),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -2171,8 +2134,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 child: TextButton(
                                   onPressed: () =>
                                       Navigator.of(ctx).pop(),
-                                  child: Text(l10n
-                                      .tr('profile_close_tooltip')),
+                                  child: Text(
+                                    l10n.tr('profile_close_tooltip'),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -2183,8 +2147,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     _startSpace();
                                   },
                                   icon: const Icon(Icons.mic),
-                                  label: Text(l10n.tr(
-                                      'league_admin_start_space')),
+                                  label: Text(
+                                    l10n.tr('league_admin_start_space'),
+                                  ),
                                 ),
                               ),
                             ],
@@ -2198,27 +2163,28 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     Navigator.of(ctx).pop();
                                     _onOpenSpace();
                                   },
-                                  icon: const Icon(
-                                      Icons.headset),
-                                  label: Text(l10n.tr(
-                                      'league_admin_open_space')),
+                                  icon: const Icon(Icons.headset),
+                                  label: Text(
+                                    l10n.tr('league_admin_open_space'),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: FilledButton.icon(
-                                  style:
-                                      FilledButton.styleFrom(
-                                          backgroundColor:
-                                              cs.error),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: cs.error,
+                                  ),
                                   onPressed: () {
                                     Navigator.of(ctx).pop();
                                     _endSpace();
                                   },
-                                  icon: const Icon(Icons
-                                      .stop_circle_outlined),
-                                  label: Text(l10n.tr(
-                                      'league_admin_end_space')),
+                                  icon: const Icon(
+                                    Icons.stop_circle_outlined,
+                                  ),
+                                  label: Text(
+                                    l10n.tr('league_admin_end_space'),
+                                  ),
                                 ),
                               ),
                             ],
@@ -2278,26 +2244,26 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         return SafeArea(
           child: Padding(
             padding: EdgeInsets.only(
-                    bottom:
-                        MediaQuery.of(ctx).viewInsets.bottom)
-                .add(const EdgeInsets.all(16)),
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            ).add(const EdgeInsets.all(16)),
             child: Center(
               child: ConstrainedBox(
-                constraints:
-                    const BoxConstraints(maxWidth: 520),
+                constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        vertical: 12, horizontal: 16),
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           l10n.tr(
-                              'league_admin_send_announcement_sheet_title'),
-                          style: theme.textTheme.titleMedium
-                              ?.copyWith(
+                            'league_admin_send_announcement_sheet_title',
+                          ),
+                          style: theme.textTheme.titleMedium?.copyWith(
                             color: onSurface,
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
@@ -2306,11 +2272,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 4),
                         Text(
                           l10n.tr(
-                              'league_admin_send_announcement_sheet_subtitle'),
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(
-                            color:
-                                onSurface.withOpacity(0.70),
+                            'league_admin_send_announcement_sheet_subtitle',
+                          ),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: onSurface.withOpacity(0.70),
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
@@ -2321,7 +2286,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                           controller: titleController,
                           decoration: InputDecoration(
                             labelText: l10n.tr(
-                                'league_admin_announcement_title_optional'),
+                              'league_admin_announcement_title_optional',
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -2330,7 +2296,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                           maxLines: 3,
                           decoration: InputDecoration(
                             labelText: l10n.tr(
-                                'league_admin_announcement_message_label'),
+                              'league_admin_announcement_message_label',
+                            ),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -2340,8 +2307,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               child: TextButton(
                                 onPressed: () =>
                                     Navigator.of(ctx).pop(),
-                                child: Text(
-                                    l10n.tr('common_cancel')),
+                                child: Text(l10n.tr('common_cancel')),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -2349,23 +2315,21 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               child: FilledButton(
                                 onPressed: () async {
                                   final rawTitle =
-                                      titleController.text
-                                          .trim();
+                                      titleController.text.trim();
                                   final msg =
-                                      messageController.text
-                                          .trim();
+                                      messageController.text.trim();
                                   if (msg.isEmpty) return;
 
                                   final title = rawTitle.isEmpty
                                       ? l10n.tr(
-                                          'league_admin_announcement_default_title')
+                                          'league_admin_announcement_default_title',
+                                        )
                                       : rawTitle;
 
                                   final now = DateTime.now()
                                       .millisecondsSinceEpoch;
 
-                                  final ann =
-                                      LeagueAnnouncement(
+                                  final ann = LeagueAnnouncement(
                                     id: _uuid.v4(),
                                     leagueId: widget.leagueId,
                                     title: title,
@@ -2379,14 +2343,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     await _firestore
                                         .collection('leagues')
                                         .doc(widget.leagueId)
-                                        .collection(
-                                            'announcements')
+                                        .collection('announcements')
                                         .doc(ann.id)
-                                        .set(ann.toMap(),
-                                            SetOptions(
-                                                merge: true))
-                                        .timeout(const Duration(
-                                            seconds: 15));
+                                        .set(
+                                          ann.toMap(),
+                                          SetOptions(merge: true),
+                                        )
+                                        .timeout(
+                                          const Duration(seconds: 15),
+                                        );
 
                                     try {
                                       await NotificationService()
@@ -2396,24 +2361,28 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                         message: msg,
                                       );
                                     } catch (_) {
-                                      // Non-fatal
+                                      // Non-fatal.
                                     }
 
                                     if (!ctx.mounted) return;
                                     Navigator.of(ctx).pop();
-                                    _snack(l10n.tr(
-                                        'league_admin_announcement_sent'));
+                                    _snack(
+                                      l10n.tr(
+                                        'league_admin_announcement_sent',
+                                      ),
+                                    );
                                   } catch (e) {
                                     if (!ctx.mounted) return;
-                                    _snack(UserFriendlyError
-                                        .toMessage(e is Object
+                                    _snack(
+                                      UserFriendlyError.toMessage(
+                                        e is Object
                                             ? e
-                                            : Exception(
-                                                'unknown')));
+                                            : Exception('unknown'),
+                                      ),
+                                    );
                                   }
                                 },
-                                child: Text(
-                                    l10n.tr('league_admin_send')),
+                                child: Text(l10n.tr('league_admin_send')),
                               ),
                             ),
                           ],
@@ -2453,53 +2422,50 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             padding: const EdgeInsets.all(16),
             child: Center(
               child: ConstrainedBox(
-                constraints:
-                    const BoxConstraints(maxWidth: 500),
+                constraints: const BoxConstraints(maxWidth: 500),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        vertical: 8, horizontal: 8),
+                      vertical: 8,
+                      horizontal: 8,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Padding(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Text(
-                            l10n.tr(
-                                'league_admin_manage_teams_title'),
-                            style: theme
-                                .textTheme.titleMedium
-                                ?.copyWith(
+                            l10n.tr('league_admin_manage_teams_title'),
+                            style: theme.textTheme.titleMedium?.copyWith(
                               color: onSurface,
                               fontSize: 16,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
                         ),
-                        Divider(
-                            color:
-                                onSurface.withOpacity(0.12)),
+                        Divider(color: onSurface.withOpacity(0.12)),
                         ListTile(
                           leading: CircleAvatar(
                             backgroundColor: cs.primary,
-                            child: Icon(Icons.group,
-                                color: cs.onPrimary),
+                            child: Icon(
+                              Icons.group,
+                              color: cs.onPrimary,
+                            ),
                           ),
                           title: Text(
-                            l10n.tr(
-                                'league_admin_teams_add_edit_title'),
+                            l10n.tr('league_admin_teams_add_edit_title'),
                             style: TextStyle(
-                                color: onSurface,
-                                fontWeight: FontWeight.w900),
+                              color: onSurface,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                           subtitle: Text(
                             l10n.tr(
-                                'league_admin_teams_add_edit_subtitle'),
+                              'league_admin_teams_add_edit_subtitle',
+                            ),
                             style: TextStyle(
-                              color:
-                                  onSurface.withOpacity(0.55),
+                              color: onSurface.withOpacity(0.55),
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -2512,24 +2478,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 8),
                         ListTile(
                           leading: CircleAvatar(
-                            backgroundColor:
-                                onSurface.withOpacity(0.08),
-                            child: Icon(Icons.people,
-                                color: onSurface),
+                            backgroundColor: onSurface.withOpacity(0.08),
+                            child: Icon(Icons.people, color: onSurface),
                           ),
                           title: Text(
                             l10n.tr(
-                                'league_admin_joined_participants_title'),
+                              'league_admin_joined_participants_title',
+                            ),
                             style: TextStyle(
-                                color: onSurface,
-                                fontWeight: FontWeight.w900),
+                              color: onSurface,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                           subtitle: Text(
                             l10n.tr(
-                                'league_admin_joined_participants_subtitle'),
+                              'league_admin_joined_participants_subtitle',
+                            ),
                             style: TextStyle(
-                              color:
-                                  onSurface.withOpacity(0.55),
+                              color: onSurface.withOpacity(0.55),
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -2539,10 +2505,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    LeagueParticipantsScreen(
-                                        leagueId:
-                                            widget.leagueId),
+                                builder: (_) => LeagueParticipantsScreen(
+                                  leagueId: widget.leagueId,
+                                ),
                               ),
                             );
                           },
@@ -2564,8 +2529,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final l10n = context.l10n;
 
     if (_league == null) {
-      _snack(l10n.tr(
-          'league_admin_league_info_not_loaded_yet_try_again'));
+      _snack(l10n.tr('league_admin_league_info_not_loaded_yet_try_again'));
       return;
     }
 
@@ -2597,18 +2561,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         return AlertDialog(
           backgroundColor: cs.surface,
           title: Text(
-            l10n.tr(
-                'league_admin_delete_league_confirm_title'),
+            l10n.tr('league_admin_delete_league_confirm_title'),
             style: TextStyle(
-                color: onSurface,
-                fontWeight: FontWeight.w900),
+              color: onSurface,
+              fontWeight: FontWeight.w900,
+            ),
           ),
           content: Text(
-            l10n.tr(
-                'league_admin_delete_league_confirm_message'),
+            l10n.tr('league_admin_delete_league_confirm_message'),
             style: TextStyle(
-                color: onSurface.withOpacity(0.72),
-                fontWeight: FontWeight.w600),
+              color: onSurface.withOpacity(0.72),
+              fontWeight: FontWeight.w600,
+            ),
           ),
           actions: [
             TextButton(
@@ -2616,8 +2580,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               child: Text(l10n.tr('common_cancel')),
             ),
             FilledButton(
-              style: FilledButton.styleFrom(
-                  backgroundColor: cs.error),
+              style: FilledButton.styleFrom(backgroundColor: cs.error),
               onPressed: () async {
                 try {
                   final uid = _authUidOrRedirect();
@@ -2628,21 +2591,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                   await _repo
                       .deleteLeagueCompletely(widget.leagueId)
                       .timeout(const Duration(seconds: 30));
-
                   if (!mounted) return;
-                  // FIX: pop dialog before navigating to avoid
-                  // using a stale navigator context
                   Navigator.of(ctx).pop();
                   GoRouter.of(context).go('/leagues');
-                  _snack(
-                      l10n.tr('league_admin_league_deleted'));
+                  _snack(l10n.tr('league_admin_league_deleted'));
                 } catch (e) {
                   if (!mounted) return;
                   Navigator.of(ctx).pop();
-                  _snack(UserFriendlyError.toMessage(
-                      e is Object
-                          ? e
-                          : Exception('unknown')));
+                  _snack(
+                    UserFriendlyError.toMessage(
+                      e is Object ? e : Exception('unknown'),
+                    ),
+                  );
                 }
               },
               child: Text(l10n.tr('league_admin_delete')),
