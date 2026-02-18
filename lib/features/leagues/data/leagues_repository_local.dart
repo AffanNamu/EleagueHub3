@@ -96,7 +96,7 @@ class LocalLeaguesRepository {
         final trimmed = context.trim();
         if (trimmed.isNotEmpty) {
           throw UserFriendlyException(
-            'Permission denied ($trimmed). You don’t have permission to do that right now.',
+            'Permission denied ($trimmed). You don\u2019t have permission to do that right now.',
           );
         }
         throw const UserFriendlyException(
@@ -130,17 +130,20 @@ class LocalLeaguesRepository {
         .timeout(const Duration(seconds: 12));
 
     if (!snap.exists) {
-      throw const UserFriendlyException("We couldn't find this league. Please refresh and try again.");
+      throw const UserFriendlyException(
+          "We couldn't find this league. Please refresh and try again.");
     }
 
     final data = snap.data() ?? <String, dynamic>{};
     final organizerUid = (data['organizerUid'] as String? ?? '').trim();
     final ownerUid = (data['ownerUid'] as String? ?? '').trim();
 
-    final ok = (organizerUid.isNotEmpty && organizerUid == authUid) || (ownerUid.isNotEmpty && ownerUid == authUid);
+    final ok = (organizerUid.isNotEmpty && organizerUid == authUid) ||
+        (ownerUid.isNotEmpty && ownerUid == authUid);
 
     if (!ok) {
-      throw const UserFriendlyException('You don\u2019t have permission to do that right now.');
+      throw const UserFriendlyException(
+          'You don\u2019t have permission to do that right now.');
     }
   }
 
@@ -171,7 +174,8 @@ class LocalLeaguesRepository {
       if (!membershipDoc.exists) return;
 
       final role = (membershipDoc.data()?['role'] as num?)?.toInt() ?? -1;
-      if (role != 0) return;
+      // FIX: use enum index instead of hardcoded 0
+      if (role != LeagueRole.organizer.index) return;
 
       await _firestore
           .collection('leagues')
@@ -217,7 +221,9 @@ class LocalLeaguesRepository {
   League _docToLeague(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
     final map = <String, dynamic>{...data};
-    map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
+    map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty)
+        ? map['id']
+        : doc.id;
     return League.fromRemoteMap(map);
   }
 
@@ -235,14 +241,18 @@ class LocalLeaguesRepository {
   }
 
   Future<Map<String, String>> _loadUserImageUrlsByUids(List<String> uids) async {
-    final ids = uids.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(growable: false);
+    final ids = uids
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
     if (ids.isEmpty) return const <String, String>{};
 
     final out = <String, String>{};
 
     const chunkSize = 10;
     for (var i = 0; i < ids.length; i += chunkSize) {
-      final chunk = ids.sublist(i, (i + chunkSize > ids.length) ? ids.length : i + chunkSize);
+      final chunk = ids.sublist(
+          i, (i + chunkSize > ids.length) ? ids.length : i + chunkSize);
 
       final snap = await _firestore
           .collection('users')
@@ -275,7 +285,8 @@ class LocalLeaguesRepository {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      final leagues = snapshot.docs.map((d) => _docToLeague(d)).toList(growable: false);
+      final leagues =
+          snapshot.docs.map((d) => _docToLeague(d)).toList(growable: false);
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
@@ -323,8 +334,11 @@ class LocalLeaguesRepository {
       final authUid = _requireAuthUid();
       await _requireOnline();
 
-      final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
-      final fixedCode = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
+      final leagueId =
+          league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
+      final fixedCode = league.code.trim().isNotEmpty
+          ? league.code.trim().toUpperCase()
+          : await _generateUniqueJoinCode();
 
       final fixed = league.copyWith(
         id: leagueId,
@@ -334,7 +348,8 @@ class LocalLeaguesRepository {
       );
 
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
-      final organizerMembershipRef = leagueRef.collection('memberships').doc(authUid);
+      final organizerMembershipRef =
+          leagueRef.collection('memberships').doc(authUid);
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -372,7 +387,8 @@ class LocalLeaguesRepository {
 
       await batch.commit().timeout(const Duration(seconds: 25));
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving league');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'saving league');
     }
   }
 
@@ -382,16 +398,23 @@ class LocalLeaguesRepository {
 
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
 
-      Future<void> deleteAllDocsIn(String sub, {bool bestEffort = false}) async {
+      Future<void> deleteAllDocsIn(String sub,
+          {bool bestEffort = false}) async {
         try {
           final col = leagueRef.collection(sub);
-          final snap = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 30));
+          final snap = await col
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 30));
           if (snap.docs.isEmpty) return;
 
           const chunkSize = 8;
           for (var i = 0; i < snap.docs.length; i += chunkSize) {
             final batch = _firestore.batch();
-            final chunk = snap.docs.sublist(i, (i + chunkSize > snap.docs.length) ? snap.docs.length : i + chunkSize);
+            final chunk = snap.docs.sublist(
+                i,
+                (i + chunkSize > snap.docs.length)
+                    ? snap.docs.length
+                    : i + chunkSize);
             for (final d in chunk) {
               batch.delete(d.reference);
             }
@@ -402,22 +425,19 @@ class LocalLeaguesRepository {
         }
       }
 
-      // Try to delete known game data
       await deleteAllDocsIn('teams', bestEffort: false);
       await deleteAllDocsIn('matches', bestEffort: false);
       await deleteAllDocsIn('knockout', bestEffort: false);
       await deleteAllDocsIn('memberships', bestEffort: false);
       await deleteAllDocsIn('announcements', bestEffort: true);
       await deleteAllDocsIn('space', bestEffort: true);
-
-      // Coupon subcollections are protected by your rules (delete false),
-      // so we always treat them as best-effort to avoid blocking league delete.
       await deleteAllDocsIn('couponCodes', bestEffort: true);
       await deleteAllDocsIn('couponConfig', bestEffort: true);
 
       await leagueRef.delete().timeout(const Duration(seconds: 20));
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'deleting league');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'deleting league');
     }
   }
 
@@ -430,8 +450,11 @@ class LocalLeaguesRepository {
       await _requireOnline();
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
-      final code = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
+      final leagueId =
+          league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
+      final code = league.code.trim().isNotEmpty
+          ? league.code.trim().toUpperCase()
+          : await _generateUniqueJoinCode();
 
       final stored = league.copyWith(
         id: leagueId,
@@ -442,7 +465,8 @@ class LocalLeaguesRepository {
       );
 
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
-      final organizerMembershipRef = leagueRef.collection('memberships').doc(authUid);
+      final organizerMembershipRef =
+          leagueRef.collection('memberships').doc(authUid);
 
       final batch = _firestore.batch();
 
@@ -480,7 +504,8 @@ class LocalLeaguesRepository {
 
       return stored;
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'creating league');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'creating league');
     }
   }
 
@@ -507,7 +532,8 @@ class LocalLeaguesRepository {
           .timeout(const Duration(seconds: 20));
 
       if (query.docs.isEmpty) {
-        throw const UserFriendlyException("We couldn't find a league with that code.");
+        throw const UserFriendlyException(
+            "We couldn't find a league with that code.");
       }
 
       final leagueDoc = query.docs.first;
@@ -526,18 +552,24 @@ class LocalLeaguesRepository {
           .timeout(const Duration(seconds: 20));
 
       if (mode == LeagueJoinMode.participant) {
-        final membershipRef = leagueRef.collection('memberships').doc(authUid);
+        final membershipRef =
+            leagueRef.collection('memberships').doc(authUid);
 
         final existing = await membershipRef
             .get(const GetOptions(source: Source.server))
             .timeout(const Duration(seconds: 12));
 
-        final existingRoleIdx = (existing.data()?['role'] as num?)?.toInt();
-        final existingRole = (existingRoleIdx != null && existingRoleIdx >= 0 && existingRoleIdx < LeagueRole.values.length)
+        final existingRoleIdx =
+            (existing.data()?['role'] as num?)?.toInt();
+        final existingRole = (existingRoleIdx != null &&
+                existingRoleIdx >= 0 &&
+                existingRoleIdx < LeagueRole.values.length)
             ? LeagueRole.values[existingRoleIdx]
             : null;
 
-        if (!existing.exists || existingRole == null || existingRole == LeagueRole.member) {
+        // FIX: Only write membership if user has no role at all.
+        // Preserves organizer and any elevated role on re-join.
+        if (!existing.exists || existingRole == null) {
           final now = DateTime.now().millisecondsSinceEpoch;
 
           final membership = Membership(
@@ -550,14 +582,19 @@ class LocalLeaguesRepository {
             version: 1,
           );
 
-          await membershipRef.set(membership.toRemoteMap(), SetOptions(merge: true)).timeout(const Duration(seconds: 20));
+          await membershipRef
+              .set(membership.toRemoteMap(), SetOptions(merge: true))
+              .timeout(const Duration(seconds: 20));
         }
       }
 
-      final fresh = await leagueRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+      final fresh = await leagueRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
       return _docToLeague(fresh);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'joining league');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'joining league');
     }
   }
 
@@ -572,7 +609,8 @@ class LocalLeaguesRepository {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      final leagueIds = leaguesSnap.docs.map((d) => d.id).toList(growable: false);
+      final leagueIds =
+          leaguesSnap.docs.map((d) => d.id).toList(growable: false);
       if (leagueIds.isEmpty) return const <Membership>[];
 
       final all = await Future.wait(
@@ -586,11 +624,18 @@ class LocalLeaguesRepository {
 
           return snap.docs.map((d) {
             final map = <String, dynamic>{...d.data()};
-            map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
-            map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+            map['id'] = (map['id'] is String &&
+                    (map['id'] as String).trim().isNotEmpty)
+                ? map['id']
+                : d.id;
+            map['leagueId'] =
+                (map['leagueId'] as String?) ?? leagueId;
             map['userId'] = (map['userId'] as String?) ?? '';
-            map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
-            map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+            map['role'] = (map['role'] as num?)?.toInt() ??
+                LeagueRole.member.index;
+            map['updatedAtMs'] =
+                (map['updatedAtMs'] as num?)?.toInt() ??
+                    DateTime.now().millisecondsSinceEpoch;
             map['version'] = (map['version'] as num?)?.toInt() ?? 1;
             return Membership.fromRemoteMap(map);
           }).toList();
@@ -599,7 +644,8 @@ class LocalLeaguesRepository {
 
       return all.expand((x) => x).toList(growable: false);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'listing memberships');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'listing memberships');
     }
   }
 
@@ -623,12 +669,21 @@ class LocalLeaguesRepository {
           .timeout(const Duration(seconds: 12));
 
       if (direct.exists) {
-        final map = <String, dynamic>{...(direct.data() ?? <String, dynamic>{})};
-        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : direct.id;
-        map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+        final map = <String, dynamic>{
+          ...(direct.data() ?? <String, dynamic>{})
+        };
+        map['id'] = (map['id'] is String &&
+                (map['id'] as String).trim().isNotEmpty)
+            ? map['id']
+            : direct.id;
+        map['leagueId'] =
+            (map['leagueId'] as String?) ?? leagueId;
         map['userId'] = (map['userId'] as String?) ?? uid;
-        map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
-        map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+        map['role'] = (map['role'] as num?)?.toInt() ??
+            LeagueRole.member.index;
+        map['updatedAtMs'] =
+            (map['updatedAtMs'] as num?)?.toInt() ??
+                DateTime.now().millisecondsSinceEpoch;
         map['version'] = (map['version'] as num?)?.toInt() ?? 1;
         return Membership.fromRemoteMap(map);
       }
@@ -646,15 +701,22 @@ class LocalLeaguesRepository {
 
       final doc = snap.docs.first;
       final map = <String, dynamic>{...doc.data()};
-      map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
+      map['id'] = (map['id'] is String &&
+              (map['id'] as String).trim().isNotEmpty)
+          ? map['id']
+          : doc.id;
       map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
       map['userId'] = (map['userId'] as String?) ?? uid;
-      map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
-      map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+      map['role'] =
+          (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+      map['updatedAtMs'] =
+          (map['updatedAtMs'] as num?)?.toInt() ??
+              DateTime.now().millisecondsSinceEpoch;
       map['version'] = (map['version'] as num?)?.toInt() ?? 1;
       return Membership.fromRemoteMap(map);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'getting membership');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'getting membership');
     }
   }
 
@@ -664,8 +726,6 @@ class LocalLeaguesRepository {
     required String teamId,
   }) async {
     try {
-      // Organizer check here helps produce clear errors and avoids confusing failures.
-      // If you want participants to self-assign, remove this and adjust rules accordingly.
       await _requireOrganizerOrThrow(leagueId);
 
       final uid = userId.trim();
@@ -673,10 +733,16 @@ class LocalLeaguesRepository {
         throw const UserFriendlyException('Please select a valid user.');
       }
 
-      final membershipRef = _firestore.collection('leagues').doc(leagueId).collection('memberships').doc(uid);
+      final membershipRef = _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('memberships')
+          .doc(uid);
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      final existing = await membershipRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
+      final existing = await membershipRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
 
       if (!existing.exists) {
         final membership = Membership(
@@ -689,7 +755,9 @@ class LocalLeaguesRepository {
           version: 1,
         );
 
-        await membershipRef.set(membership.toRemoteMap(), SetOptions(merge: true)).timeout(const Duration(seconds: 20));
+        await membershipRef
+            .set(membership.toRemoteMap(), SetOptions(merge: true))
+            .timeout(const Duration(seconds: 20));
         return;
       }
 
@@ -707,7 +775,8 @@ class LocalLeaguesRepository {
           )
           .timeout(const Duration(seconds: 20));
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'assigning team to membership');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'assigning team to membership');
     }
   }
 
@@ -725,12 +794,18 @@ class LocalLeaguesRepository {
 
       final baseTeams = snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
-        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+        map['id'] = (map['id'] is String &&
+                (map['id'] as String).trim().isNotEmpty)
+            ? map['id']
+            : d.id;
         map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
         return Team.fromRemoteMap(map);
       }).toList(growable: false);
 
-      final uidTeamIds = baseTeams.map((t) => t.id.trim()).where((id) => _looksLikeFirebaseUid(id)).toList(growable: false);
+      final uidTeamIds = baseTeams
+          .map((t) => t.id.trim())
+          .where((id) => _looksLikeFirebaseUid(id))
+          .toList(growable: false);
 
       if (uidTeamIds.isEmpty) return baseTeams;
 
@@ -746,7 +821,8 @@ class LocalLeaguesRepository {
         return t;
       }).toList(growable: false);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'loading teams');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'loading teams');
     }
   }
 
@@ -757,17 +833,25 @@ class LocalLeaguesRepository {
       final authUid = _requireAuthUid();
       await _requireOnline();
 
-      final col = _firestore.collection('leagues').doc(leagueId).collection('teams');
+      final col = _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('teams');
 
-      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+      final existing = await col
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
 
       const chunkSize = 8;
 
-      // Phase 1: delete existing teams
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          final chunk = existing.docs.sublist(
+              i,
+              (i + chunkSize > existing.docs.length)
+                  ? existing.docs.length
+                  : i + chunkSize);
           for (final d in chunk) {
             batch.delete(d.reference);
           }
@@ -775,18 +859,25 @@ class LocalLeaguesRepository {
         }
       }
 
-      // Phase 1b: write teams
       for (var i = 0; i < allTeams.length; i += chunkSize) {
         final batch = _firestore.batch();
-        final chunk = allTeams.sublist(i, (i + chunkSize > allTeams.length) ? allTeams.length : i + chunkSize);
+        final chunk = allTeams.sublist(
+            i,
+            (i + chunkSize > allTeams.length)
+                ? allTeams.length
+                : i + chunkSize);
 
         for (final t in chunk) {
           final id = t.id.trim().isEmpty ? _uuid.v4() : t.id.trim();
 
-          final inferredOwnerId =
-              (t.ownerId.trim().isNotEmpty) ? t.ownerId.trim() : (_looksLikeFirebaseUid(id) ? id : authUid);
+          final inferredOwnerId = (t.ownerId.trim().isNotEmpty)
+              ? t.ownerId.trim()
+              : (_looksLikeFirebaseUid(id) ? id : authUid);
 
-          final data = t.copyWith(id: id, leagueId: leagueId, ownerId: inferredOwnerId).toRemoteMap();
+          final data = t
+              .copyWith(
+                  id: id, leagueId: leagueId, ownerId: inferredOwnerId)
+              .toRemoteMap();
 
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
@@ -794,29 +885,60 @@ class LocalLeaguesRepository {
         await batch.commit().timeout(const Duration(seconds: 30));
       }
 
-      // Phase 2: BEST-EFFORT membership assignment.
-      // This should NOT block "Save teams" if membership rules are stricter.
+      // Best-effort membership assignment — does not block teams save.
       for (final t in allTeams) {
         final uid = t.id.trim();
         if (!_looksLikeFirebaseUid(uid)) continue;
 
         try {
-          await assignTeamToUserInLeague(leagueId: leagueId, userId: uid, teamId: uid);
-        } catch (e) {
-          // If membership assignment fails (permission denied), do not fail teams save.
-          // Teams are already saved and fixtures can be generated from teams.
-          if (e is FirebaseException && e.code == 'permission-denied') {
-            continue;
+          final membershipRef = _firestore
+              .collection('leagues')
+              .doc(leagueId)
+              .collection('memberships')
+              .doc(uid);
+
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final existingMembership = await membershipRef
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 12));
+
+          if (!existingMembership.exists) {
+            final membership = Membership(
+              id: uid,
+              leagueId: leagueId,
+              userId: uid,
+              teamId: uid,
+              role: LeagueRole.member,
+              updatedAtMs: now,
+              version: 1,
+            );
+            await membershipRef
+                .set(membership.toRemoteMap(), SetOptions(merge: true))
+                .timeout(const Duration(seconds: 20));
+          } else {
+            final data =
+                existingMembership.data() ?? <String, dynamic>{};
+            final currentVersion =
+                (data['version'] as num?)?.toInt() ?? 1;
+            await membershipRef
+                .set(
+                  {
+                    'teamId': uid,
+                    'updatedAtMs': now,
+                    'version': currentVersion + 1,
+                  },
+                  SetOptions(merge: true),
+                )
+                .timeout(const Duration(seconds: 20));
           }
-          if (e is UserFriendlyException && e.message.contains('permission')) {
-            continue;
-          }
-          // Other errors: keep best-effort behavior to avoid breaking save.
+        } catch (_) {
+          // Best-effort: never block save.
           continue;
         }
       }
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving teams');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'saving teams');
     }
   }
 
@@ -834,58 +956,85 @@ class LocalLeaguesRepository {
 
       return snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
-        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+        map['id'] = (map['id'] is String &&
+                (map['id'] as String).trim().isNotEmpty)
+            ? map['id']
+            : d.id;
         map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
         return FixtureMatch.fromJson(map);
       }).toList(growable: false);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'loading matches');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'loading matches');
     }
   }
 
-  Future<void> saveMatches(String leagueId, List<FixtureMatch> matches) async {
+  Future<void> saveMatches(
+      String leagueId, List<FixtureMatch> matches) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
 
       _requireAuthUid();
       await _requireOnline();
 
-      final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
+      final col = _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('matches');
 
       const chunkSize = 8;
       for (var i = 0; i < matches.length; i += chunkSize) {
         final batch = _firestore.batch();
-        final chunk = matches.sublist(i, (i + chunkSize > matches.length) ? matches.length : i + chunkSize);
+        final chunk = matches.sublist(
+            i,
+            (i + chunkSize > matches.length)
+                ? matches.length
+                : i + chunkSize);
 
         for (final m in chunk) {
           final id = m.id.trim().isEmpty ? _uuid.v4() : m.id.trim();
-          final data = <String, dynamic>{...m.toJson(), 'id': id, 'leagueId': leagueId};
+          final data = <String, dynamic>{
+            ...m.toJson(),
+            'id': id,
+            'leagueId': leagueId
+          };
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
 
         await batch.commit().timeout(const Duration(seconds: 30));
       }
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving matches');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'saving matches');
     }
   }
 
-  Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
+  Future<void> replaceMatches(
+      String leagueId, List<FixtureMatch> matches) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
 
       _requireAuthUid();
       await _requireOnline();
 
-      final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
-      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+      final col = _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('matches');
+      final existing = await col
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
 
       const chunkSize = 8;
 
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          final chunk = existing.docs.sublist(
+              i,
+              (i + chunkSize > existing.docs.length)
+                  ? existing.docs.length
+                  : i + chunkSize);
           for (final d in chunk) {
             batch.delete(d.reference);
           }
@@ -895,7 +1044,8 @@ class LocalLeaguesRepository {
 
       await saveMatches(leagueId, matches);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'replacing matches');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'replacing matches');
     }
   }
 
@@ -913,7 +1063,10 @@ class LocalLeaguesRepository {
 
       final list = snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
-        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+        map['id'] = (map['id'] is String &&
+                (map['id'] as String).trim().isNotEmpty)
+            ? map['id']
+            : d.id;
         map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
         return KnockoutMatch.fromJson(map);
       }).toList(growable: false);
@@ -941,7 +1094,8 @@ class LocalLeaguesRepository {
           final bn = (b.nextMatchId ?? '');
           final c1 = an.compareTo(bn);
           if (c1 != 0) return c1;
-          final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
+          final c2 = (a.isSecondLeg ? 1 : 0)
+              .compareTo(b.isSecondLeg ? 1 : 0);
           if (c2 != 0) return c2;
         }
         return a.id.compareTo(b.id);
@@ -949,27 +1103,38 @@ class LocalLeaguesRepository {
 
       return sorted;
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'loading knockout');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'loading knockout');
     }
   }
 
-  Future<void> saveKnockoutMatches(String leagueId, List<KnockoutMatch> matches) async {
+  Future<void> saveKnockoutMatches(
+      String leagueId, List<KnockoutMatch> matches) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
 
       _requireAuthUid();
       await _requireOnline();
 
-      final col = _firestore.collection('leagues').doc(leagueId).collection('knockout');
+      final col = _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('knockout');
 
-      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+      final existing = await col
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
 
       const chunkSize = 8;
 
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
+          final chunk = existing.docs.sublist(
+              i,
+              (i + chunkSize > existing.docs.length)
+                  ? existing.docs.length
+                  : i + chunkSize);
           for (final d in chunk) {
             batch.delete(d.reference);
           }
@@ -979,18 +1144,25 @@ class LocalLeaguesRepository {
 
       for (var i = 0; i < matches.length; i += chunkSize) {
         final batch = _firestore.batch();
-        final chunk = matches.sublist(i, (i + chunkSize > matches.length) ? matches.length : i + chunkSize);
+        final chunk = matches.sublist(
+            i,
+            (i + chunkSize > matches.length)
+                ? matches.length
+                : i + chunkSize);
 
         for (final m in chunk) {
-          final id = m.id.trim().isNotEmpty ? m.id.trim() : _uuid.v4();
-          final data = m.copyWith(id: id, leagueId: leagueId).toJson();
+          final id =
+              m.id.trim().isNotEmpty ? m.id.trim() : _uuid.v4();
+          final data =
+              m.copyWith(id: id, leagueId: leagueId).toJson();
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
 
         await batch.commit().timeout(const Duration(seconds: 30));
       }
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving knockout');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'),
+          context: 'saving knockout');
     }
   }
 }
