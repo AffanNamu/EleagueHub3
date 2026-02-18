@@ -419,7 +419,7 @@ class LocalLeaguesRepository {
             .timeout(const Duration(seconds: 30));
         if (snap.docs.isEmpty) return;
 
-        const chunkSize = 8;
+        const chunkSize = 450;
         for (var i = 0; i < snap.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
           final chunk = snap.docs.sublist(
@@ -856,7 +856,7 @@ class LocalLeaguesRepository {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      const chunkSize = 8;
+      const chunkSize = 450;
 
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
@@ -948,7 +948,7 @@ class LocalLeaguesRepository {
           .doc(leagueId)
           .collection('matches');
 
-      const chunkSize = 8;
+      const chunkSize = 450;
       for (var i = 0; i < matches.length; i += chunkSize) {
         final batch = _firestore.batch();
         final chunk = matches.sublist(
@@ -990,7 +990,7 @@ class LocalLeaguesRepository {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      const chunkSize = 8;
+      const chunkSize = 450;
 
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
@@ -1092,7 +1092,7 @@ class LocalLeaguesRepository {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      const chunkSize = 8;
+      const chunkSize = 450;
 
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
