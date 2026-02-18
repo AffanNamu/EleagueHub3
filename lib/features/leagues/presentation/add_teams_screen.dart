@@ -973,7 +973,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   /// SAVE button: persists teams only, never generates fixtures.
-  Future<bool> _saveTeamsOnly({bool silent = false}) async {
+  Future<void> _saveTeamsOnly({bool silent = false}) async {
     final l10n = context.l10n;
     final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -1031,11 +1031,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         }
       }
 
-      return true;
     } catch (e) {
       final msg = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
-      if (mounted) _snackErr(msg);
-      return false;
+      if (!silent && mounted) _snackErr(msg);
+      if (silent) rethrow;
     } finally {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -1050,8 +1049,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     setState(() => _generating = true);
     try {
-      final saved = final saved = await _saveTeamsOnly(silent: true);
-      if (!saved) return;
+      await _saveTeamsOnly(silent: true);
       if (!saved) return;
 
 
