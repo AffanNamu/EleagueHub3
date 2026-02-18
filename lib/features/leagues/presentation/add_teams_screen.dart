@@ -1050,9 +1050,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     setState(() => _generating = true);
     try {
       await _saveTeamsOnly(silent: true);
-      if (!saved) return;
-
-
       final total = _existingTeams.length;
 
       if (!_requiredCountReached) {
