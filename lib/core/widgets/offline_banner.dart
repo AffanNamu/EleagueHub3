@@ -16,7 +16,6 @@ class OfflineBanner extends StatelessWidget {
     return Glass(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
       borderRadius: 0,
-      enableBorder: false,
       fill: colorScheme.error.withOpacity(0.85),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
