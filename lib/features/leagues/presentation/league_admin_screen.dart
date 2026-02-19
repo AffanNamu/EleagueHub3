@@ -22,7 +22,7 @@ import '../../auth/data/user_profile_repository.dart'
     hide UserFriendlyException;
 import '../data/league_spaces_local.dart' hide UserFriendlyException;
 // UserFriendlyException is imported from here — canonical source.
-import '../data/leagues_repository_local.dart' hide UserFriendlyException;
+import '../data/leagues_repository_local.dart' show LocalLeaguesRepository, UserFriendlyException;
 import '../logic/coupon_codes_service.dart';
 import '../logic/coupon_config_service.dart' hide UserFriendlyException;
 import '../logic/league_creation_payment_service.dart';
