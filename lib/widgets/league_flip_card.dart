@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +25,13 @@ class LeagueFlipCard extends StatefulWidget {
     this.onTap,
     this.onDoubleTap,
     this.onLongPress,
+    // New Visual Props
+    this.imageUrl,
+    this.isLocked = false,
+    this.onPay,
+    this.isOwner = false,
+    this.isViewer = false,
+    this.isFull = false,
   });
 
   final dynamic league;
@@ -37,6 +46,14 @@ class LeagueFlipCard extends StatefulWidget {
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
   final VoidCallback? onLongPress;
+
+  // Visual props to integrate badges/thumb into the card surface
+  final String? imageUrl;
+  final bool isLocked;
+  final VoidCallback? onPay;
+  final bool isOwner;
+  final bool isViewer;
+  final bool isFull;
 
   @override
   State<LeagueFlipCard> createState() => _LeagueFlipCardState();
@@ -430,7 +447,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w950,
+                        fontWeight: FontWeight.w900,
                         letterSpacing: -0.2,
                       ),
                     ),
@@ -536,7 +553,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.labelLarge?.copyWith(
                                   color: cs.primary,
-                                  fontWeight: FontWeight.w950,
+                                  fontWeight: FontWeight.w900,
                                 ),
                               ),
                             ),
@@ -686,7 +703,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     Text(
                       'Scan to Join',
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w950,
+                        fontWeight: FontWeight.w900,
                         letterSpacing: -0.2,
                       ),
                     ),
@@ -765,7 +782,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w950,
+                          fontWeight: FontWeight.w900,
                           letterSpacing: 2.0,
                           color: code.isEmpty
                               ? cs.onSurface.withValues(alpha: 0.35)
@@ -815,7 +832,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                 Text(
                                   'COPY',
                                   style: theme.textTheme.labelLarge?.copyWith(
-                                    fontWeight: FontWeight.w950,
+                                    fontWeight: FontWeight.w900,
                                     letterSpacing: 0.8,
                                     color: code.isEmpty
                                         ? cs.onSurface.withValues(alpha: 0.45)
@@ -935,7 +952,7 @@ class _ActionChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelLarge?.copyWith(
                 color: fg,
-                fontWeight: FontWeight.w950,
+                fontWeight: FontWeight.w900,
                 letterSpacing: 0.1,
               ),
             ),
@@ -1026,7 +1043,7 @@ class _MiniPill extends StatelessWidget {
             label,
             style: theme.textTheme.labelMedium?.copyWith(
               color: textColor,
-              fontWeight: FontWeight.w950,
+              fontWeight: FontWeight.w900,
             ),
           ),
         ],
@@ -1074,4 +1091,38 @@ class _NanoGridPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _NanoGridPainter oldDelegate) =>
       oldDelegate.color != color;
+}
+
+class _LeagueCardThumb extends StatelessWidget {
+  const _LeagueCardThumb({this.imageUrl});
+  final String? imageUrl;
+
+  Uint8List? _tryDecode(String s) {
+    if (!s.startsWith('data:image')) return null;
+    try {
+      return base64Decode(s.split(',').last);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = (imageUrl ?? '').trim();
+    if (s.isEmpty) {
+      return const Center(
+        child: Icon(Icons.emoji_events_outlined, color: Colors.white),
+      );
+    }
+
+    final bytes = _tryDecode(s);
+    if (bytes != null) return Image.memory(bytes, fit: BoxFit.cover);
+
+    return Image.network(
+      s,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) =>
+          const Center(child: Icon(Icons.broken_image, color: Colors.white)),
+    );
+  }
 }
