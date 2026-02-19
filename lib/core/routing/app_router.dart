@@ -32,6 +32,7 @@ import '../../features/leagues/presentation/league_space_room_screen.dart';
 import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/leagues/presentation/match_detail_screen.dart';
+import '../../features/leagues/presentation/premium_access_guard.dart';
 import '../../features/leagues/presentation/qr_scanner_screen.dart';
 import '../../features/live/presentation/global_live_leagues_screen.dart';
 import '../../features/live/presentation/join_match_screen.dart';
@@ -51,24 +52,20 @@ class AuthRouterRefresh extends ChangeNotifier {
       final prevUserId = _user?.uid;
       _user = user;
 
-      // Start admins watcher as soon as we have a session context.
       AppAdminsService.instance.ensureStarted();
 
       _cancelRetry();
       _retryAttempt = 0;
 
-      // Signed out.
       if (_user == null) {
         _setProfileState(_ProfileState.unknown);
         if (prevUserId != null) notifyListeners();
         return;
       }
 
-      // Signed in.
       _checkProfileFor(_user!.uid);
     });
 
-    // If the profile check failed due to offline/unavailable, retry once we get connectivity back.
     _connSub = ConnectivityService.instance.connectionStream.listen((online) {
       if (!online) {
         _cancelRetry();
@@ -101,11 +98,14 @@ class AuthRouterRefresh extends ChangeNotifier {
 
   bool get isCheckingProfile =>
       isSignedIn &&
-      (_profileState == _ProfileState.unknown || _profileState == _ProfileState.checking);
+      (_profileState == _ProfileState.unknown ||
+          _profileState == _ProfileState.checking);
 
-  bool get needsOnboarding => isSignedIn && _profileState == _ProfileState.missing;
+  bool get needsOnboarding =>
+      isSignedIn && _profileState == _ProfileState.missing;
 
-  bool get hasProfile => isSignedIn && _profileState == _ProfileState.exists;
+  bool get hasProfile =>
+      isSignedIn && _profileState == _ProfileState.exists;
 
   Future<void> refreshProfileStatus() async {
     final uid = _user?.uid;
@@ -125,8 +125,6 @@ class AuthRouterRefresh extends ChangeNotifier {
   }
 
   Duration _retryDelayForAttempt(int attempt) {
-    // Exponential backoff with cap.
-    // 1s, 2s, 4s, 8s, 16s, 30s...
     final seconds = (1 << attempt).clamp(1, 30);
     return Duration(seconds: seconds);
   }
@@ -150,25 +148,26 @@ class AuthRouterRefresh extends ChangeNotifier {
     _setProfileState(_ProfileState.checking);
 
     try {
-      final exists = await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
+      final exists = await _profiles
+          .profileExists(uid)
+          .timeout(const Duration(seconds: 12));
       _retryAttempt = 0;
-      _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
+      _setProfileState(
+          exists ? _ProfileState.exists : _ProfileState.missing);
       return;
     } catch (e) {
-      // ONLINE-ONLY: do not spam retries every 3 seconds forever.
-      // If it's likely network-related, stay in unknown (Bootstrap) and retry with backoff
-      // only while online.
-      final fallback = (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
+      final fallback = (prev == _ProfileState.exists)
+          ? _ProfileState.exists
+          : _ProfileState.unknown;
       _setProfileState(fallback);
 
       if (kDebugMode) {
-        debugPrint('AuthRouterRefresh: profile check failed for uid=$uid → $e');
+        debugPrint(
+            'AuthRouterRefresh: profile check failed for uid=$uid → $e');
       }
 
-      // If we're offline/unavailable, wait for connectivity stream to trigger a retry.
       if (_isNetworkError(e is Object ? e : Exception('unknown'))) return;
 
-      // Otherwise, retry with backoff a few times (server hiccup, transient).
       if (_retryAttempt >= 5) return;
 
       final delay = _retryDelayForAttempt(_retryAttempt);
@@ -196,7 +195,6 @@ final AuthRouterRefresh authRouterRefresh = AuthRouterRefresh();
 
 bool _isPricingAdminUidSync(String uid) {
   if (uid.isEmpty) return false;
-  // Combine static + dynamic admins (dynamic loaded via AppAdminsService).
   return AppAdminsService.instance.isPricingAdminUid(uid);
 }
 
@@ -206,7 +204,6 @@ final appRouter = GoRouter(
   initialLocation: '/bootstrap',
   refreshListenable: authRouterRefresh,
   redirect: (context, state) {
-    // Make sure our admins watcher is active even if auth state did not change recently.
     AppAdminsService.instance.ensureStarted();
 
     final loc = state.matchedLocation;
@@ -219,25 +216,21 @@ final appRouter = GoRouter(
     final inMarketplaceAdminUpload = loc == '/admin/marketplace-upload';
     final inGlobalChatRequestsAdmin = loc == '/admin/global-chat-requests';
 
-    // Not signed in -> force login.
     if (!authRouterRefresh.isSignedIn) {
       if (inLogin) return null;
       return '/login';
     }
 
-    // Signed in, but still checking profile -> show bootstrap loader.
     if (authRouterRefresh.isCheckingProfile) {
       if (inBootstrap) return null;
       return '/bootstrap';
     }
 
-    // Signed in, profile missing -> force one-time onboarding.
     if (auth_routerRefreshNeedsOnboardingFix(authRouterRefresh)) {
       if (inOnboarding) return null;
       return '/onboarding';
     }
 
-    // Restrict pricing admin screens to whitelisted UIDs (static + dynamic).
     if (inPricingAdmin || inPricingAdmins) {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       if (!_isPricingAdminUidSync(uid)) {
@@ -245,7 +238,6 @@ final appRouter = GoRouter(
       }
     }
 
-    // Restrict marketplace admin upload to super admin UID.
     if (inMarketplaceAdminUpload) {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       if (uid.trim() != _superAdminUid) {
@@ -253,7 +245,6 @@ final appRouter = GoRouter(
       }
     }
 
-    // Restrict global chat requests admin to super admin UID.
     if (inGlobalChatRequestsAdmin) {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       if (uid.trim() != _superAdminUid) {
@@ -261,7 +252,6 @@ final appRouter = GoRouter(
       }
     }
 
-    // Signed in + profile exists -> keep them out of auth screens.
     if (authRouterRefresh.hasProfile) {
       if (inLogin || inOnboarding || inBootstrap) return '/';
       return null;
@@ -291,7 +281,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const CallRoomScreen(),
     ),
 
-    // Pricing Admin (owner/dynamic-admin only)
+    // ── Pricing Admin (pricing-admin UIDs only) ──────────────────────────
     GoRoute(
       path: '/admin/pricing',
       builder: (context, state) => const PricingAdminScreen(),
@@ -301,13 +291,13 @@ final appRouter = GoRouter(
       builder: (context, state) => const PricingAdminsScreen(),
     ),
 
-    // Marketplace Admin Upload (super-admin only)
+    // ── Marketplace Admin Upload (super-admin only) ──────────────────────
     GoRoute(
       path: '/admin/marketplace-upload',
       builder: (context, state) => const AdminMarketplaceUploadScreen(),
     ),
 
-    // Global Chat Requests Admin (super-admin only)
+    // ── Global Chat Requests Admin (super-admin only) ────────────────────
     GoRoute(
       path: '/admin/global-chat-requests',
       builder: (context, state) => const GlobalChatAdminRequestsScreen(),
@@ -328,25 +318,25 @@ final appRouter = GoRouter(
           ],
         ),
 
-        // MARKETPLACE (signed-in users)
+        // ── Marketplace ──────────────────────────────────────────────────
         GoRoute(
           path: 'marketplace',
           builder: (context, state) => const MarketplaceScreen(),
         ),
 
-        // GLOBAL LIVE (Public leagues discovery)
+        // ── Global Live ──────────────────────────────────────────────────
         GoRoute(
           path: 'global-live',
           builder: (context, state) => const GlobalLiveLeaguesScreen(),
         ),
 
-        // GLOBAL CHAT (approved users can read/write; others must request access)
+        // ── Global Chat ──────────────────────────────────────────────────
         GoRoute(
           path: 'global-chat',
           builder: (context, state) => const GlobalChatScreen(),
         ),
 
-        // LIVE (screen-level gating enforces online-only)
+        // ── Live ─────────────────────────────────────────────────────────
         GoRoute(
           path: 'live/join',
           builder: (context, state) => const JoinMatchScreen(),
@@ -388,7 +378,7 @@ final appRouter = GoRouter(
           },
         ),
 
-        // LEAGUES
+        // ── Leagues ──────────────────────────────────────────────────────
         GoRoute(
           path: 'leagues',
           builder: (context, state) => const LeaguesListScreen(),
@@ -408,7 +398,8 @@ final appRouter = GoRouter(
                         leagueName = map['leagueName'] as String;
                       }
                     }
-                    return LeagueCreationPaymentScreen(leagueName: leagueName);
+                    return LeagueCreationPaymentScreen(
+                        leagueName: leagueName);
                   },
                 ),
               ],
@@ -434,9 +425,12 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'add-teams',
               builder: (context, state) {
-                final extra = state.extra as Map<String, dynamic>? ?? {};
-                final leagueId = extra['leagueId'] as String? ?? 'mock-id';
-                final format = extra['format'] as LeagueFormat? ?? LeagueFormat.classic;
+                final extra =
+                    state.extra as Map<String, dynamic>? ?? {};
+                final leagueId =
+                    extra['leagueId'] as String? ?? 'mock-id';
+                final format =
+                    extra['format'] as LeagueFormat? ?? LeagueFormat.classic;
                 return AddTeamsScreen(leagueId: leagueId, format: format);
               },
             ),
@@ -463,7 +457,8 @@ final appRouter = GoRouter(
                 ),
                 GoRoute(
                   path: 'knockout-admin',
-                  builder: (context, state) => AdminKnockoutScoreMgmtScreen(
+                  builder: (context, state) =>
+                      AdminKnockoutScoreMgmtScreen(
                     leagueId: state.pathParameters['id']!,
                   ),
                 ),
@@ -473,8 +468,6 @@ final appRouter = GoRouter(
                     leagueId: state.pathParameters['id']!,
                   ),
                 ),
-
-                // LEAGUE PRIVATE CHATROOM
                 GoRoute(
                   path: 'chat',
                   builder: (context, state) => LeagueAccessGuard(
@@ -528,5 +521,5 @@ final appRouter = GoRouter(
 );
 
 /// Fix: avoid typo-driven analyzer breaks if you later refactor these booleans.
-/// (Keeps current redirect structure stable.)
-bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) => r.needsOnboarding;
+bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
+    r.needsOnboarding;

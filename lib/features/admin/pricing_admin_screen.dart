@@ -17,21 +17,29 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
   bool _saving = false;
   String? _error;
 
-  // NGN
+  // ── NGN ──────────────────────────────────────────────────────────────────
   final _ngnCreate = TextEditingController();
   final _ngnAccess = TextEditingController();
   final _ngnCouponUnit = TextEditingController();
   final _ngnThreshold = TextEditingController();
   final _ngnDiscount = TextEditingController();
   bool _ngnViewers = false;
+  // Premium
+  final _ngnPremiumFee = TextEditingController();
+  final _ngnPremiumDays = TextEditingController();
+  bool _ngnPremiumEnabled = true;
 
-  // USD
+  // ── USD ──────────────────────────────────────────────────────────────────
   final _usdCreate = TextEditingController();
   final _usdAccess = TextEditingController();
   final _usdCouponUnit = TextEditingController();
   final _usdThreshold = TextEditingController();
   final _usdDiscount = TextEditingController();
   bool _usdViewers = false;
+  // Premium
+  final _usdPremiumFee = TextEditingController();
+  final _usdPremiumDays = TextEditingController();
+  bool _usdPremiumEnabled = true;
 
   @override
   void initState() {
@@ -47,38 +55,64 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
     _ngnCouponUnit.dispose();
     _ngnThreshold.dispose();
     _ngnDiscount.dispose();
+    _ngnPremiumFee.dispose();
+    _ngnPremiumDays.dispose();
 
     _usdCreate.dispose();
     _usdAccess.dispose();
     _usdCouponUnit.dispose();
     _usdThreshold.dispose();
     _usdDiscount.dispose();
+    _usdPremiumFee.dispose();
+    _usdPremiumDays.dispose();
+
     super.dispose();
   }
 
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final doc = await _svc.fetch();
       final ngn = (doc['ngn'] as Map).cast<String, dynamic>();
       final usd = (doc['usd'] as Map).cast<String, dynamic>();
 
       setState(() {
+        // NGN
         _ngnCreate.text = '${ngn['createFee'] ?? ''}';
         _ngnAccess.text = '${ngn['accessFee'] ?? ''}';
         _ngnCouponUnit.text = '${ngn['couponUnit'] ?? ''}';
-        _ngnThreshold.text = ngn['couponThreshold'] == null ? '' : '${ngn['couponThreshold']}';
+        _ngnThreshold.text =
+            ngn['couponThreshold'] == null ? '' : '${ngn['couponThreshold']}';
         _ngnDiscount.text = '${ngn['couponDiscountPercent'] ?? ''}';
-        _ngnViewers = (ngn['viewersEnabled'] is bool) ? ngn['viewersEnabled'] as bool : false;
+        _ngnViewers = (ngn['viewersEnabled'] is bool)
+            ? ngn['viewersEnabled'] as bool
+            : false;
+        _ngnPremiumFee.text = '${ngn['premiumFee'] ?? '5000'}';
+        _ngnPremiumDays.text = '${ngn['premiumDurationDays'] ?? '30'}';
+        _ngnPremiumEnabled = (ngn['premiumEnabled'] is bool)
+            ? ngn['premiumEnabled'] as bool
+            : true;
 
+        // USD
         _usdCreate.text = '${usd['createFee'] ?? ''}';
         _usdAccess.text = '${usd['accessFee'] ?? ''}';
         _usdCouponUnit.text = '${usd['couponUnit'] ?? ''}';
-        _usdThreshold.text = usd['couponThreshold'] == null ? '' : '${usd['couponThreshold']}';
+        _usdThreshold.text =
+            usd['couponThreshold'] == null ? '' : '${usd['couponThreshold']}';
         _usdDiscount.text = '${usd['couponDiscountPercent'] ?? ''}';
-        _usdViewers = (usd['viewersEnabled'] is bool) ? usd['viewersEnabled'] as bool : false;
+        _usdViewers = (usd['viewersEnabled'] is bool)
+            ? usd['viewersEnabled'] as bool
+            : false;
+        _usdPremiumFee.text = '${usd['premiumFee'] ?? '9.99'}';
+        _usdPremiumDays.text = '${usd['premiumDurationDays'] ?? '30'}';
+        _usdPremiumEnabled = (usd['premiumEnabled'] is bool)
+            ? usd['premiumEnabled'] as bool
+            : true;
 
         _loading = false;
-        _error = null;
       });
     } on FirebaseException catch (e) {
       setState(() {
@@ -100,25 +134,31 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
     });
 
     try {
-      Map<String, dynamic> _collectNgn() => {
+      Map<String, dynamic> collectNgn() => {
             'createFee': _parse(_ngnCreate.text),
             'accessFee': _parse(_ngnAccess.text),
             'couponUnit': _parse(_ngnCouponUnit.text),
             'couponThreshold': _parseOrNull(_ngnThreshold.text),
             'couponDiscountPercent': _parse(_ngnDiscount.text),
             'viewersEnabled': _ngnViewers,
+            'premiumFee': _parse(_ngnPremiumFee.text),
+            'premiumDurationDays': _parseInt(_ngnPremiumDays.text),
+            'premiumEnabled': _ngnPremiumEnabled,
           };
 
-      Map<String, dynamic> _collectUsd() => {
+      Map<String, dynamic> collectUsd() => {
             'createFee': _parse(_usdCreate.text),
             'accessFee': _parse(_usdAccess.text),
             'couponUnit': _parse(_usdCouponUnit.text),
             'couponThreshold': _parseOrNull(_usdThreshold.text),
             'couponDiscountPercent': _parse(_usdDiscount.text),
             'viewersEnabled': _usdViewers,
+            'premiumFee': _parse(_usdPremiumFee.text),
+            'premiumDurationDays': _parseInt(_usdPremiumDays.text),
+            'premiumEnabled': _usdPremiumEnabled,
           };
 
-      await _svc.save(ngn: _collectNgn(), usd: _collectUsd());
+      await _svc.save(ngn: collectNgn(), usd: collectUsd());
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -128,7 +168,8 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
         ),
       );
     } on FirebaseException catch (e) {
-      setState(() => _error = 'Failed to save pricing: ${e.message ?? e.code}');
+      setState(
+          () => _error = 'Failed to save pricing: ${e.message ?? e.code}');
     } catch (e) {
       setState(() => _error = 'Failed to save pricing: $e');
     } finally {
@@ -139,6 +180,13 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
   double _parse(String s) {
     final v = double.tryParse(s.trim());
     if (v == null) throw StateError('Invalid number: "$s"');
+    return v;
+  }
+
+  int _parseInt(String s) {
+    final v = int.tryParse(s.trim());
+    if (v == null) throw StateError('Invalid integer: "$s"');
+    if (v < 1) throw StateError('Duration must be at least 1 day');
     return v;
   }
 
@@ -176,7 +224,8 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
                     decoration: BoxDecoration(
                       color: cs.error.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: cs.error.withOpacity(0.35)),
+                      border:
+                          Border.all(color: cs.error.withOpacity(0.35)),
                     ),
                     child: Text(
                       _error!,
@@ -188,38 +237,75 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
+
+                // ── NGN ──────────────────────────────────────────────────
                 _currencyCard(
                   title: 'NGN plan',
                   children: [
                     _rowNum('Create fee (NGN)', _ngnCreate),
                     _rowNum('Access fee (NGN)', _ngnAccess),
                     _rowNum('Coupon unit (NGN)', _ngnCouponUnit),
-                    _rowNumAllowNull('Coupon threshold (NGN, empty = none)', _ngnThreshold),
+                    _rowNumAllowNull(
+                        'Coupon threshold (NGN, empty = none)',
+                        _ngnThreshold),
                     _rowNum('Threshold discount (%)', _ngnDiscount),
                     SwitchListTile.adaptive(
                       value: _ngnViewers,
                       onChanged: (v) => setState(() => _ngnViewers = v),
-                      title: const Text('Viewers enabled (legacy; keep off)'),
+                      title: const Text(
+                          'Viewers enabled (legacy; keep off)'),
+                    ),
+                    _sectionDivider('Premium (NGN)'),
+                    _rowNum('Premium fee (NGN)', _ngnPremiumFee),
+                    _rowNum('Premium duration (days)', _ngnPremiumDays),
+                    SwitchListTile.adaptive(
+                      value: _ngnPremiumEnabled,
+                      onChanged: (v) =>
+                          setState(() => _ngnPremiumEnabled = v),
+                      title: const Text('Premium enabled'),
+                      subtitle: const Text(
+                        'When off, all users bypass the premium paywall',
+                      ),
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 12),
+
+                // ── USD ──────────────────────────────────────────────────
                 _currencyCard(
                   title: 'USD plan',
                   children: [
                     _rowNum('Create fee (USD)', _usdCreate),
                     _rowNum('Access fee (USD)', _usdAccess),
                     _rowNum('Coupon unit (USD)', _usdCouponUnit),
-                    _rowNumAllowNull('Coupon threshold (USD, empty = none)', _usdThreshold),
+                    _rowNumAllowNull(
+                        'Coupon threshold (USD, empty = none)',
+                        _usdThreshold),
                     _rowNum('Threshold discount (%)', _usdDiscount),
                     SwitchListTile.adaptive(
                       value: _usdViewers,
                       onChanged: (v) => setState(() => _usdViewers = v),
-                      title: const Text('Viewers enabled (legacy; keep off)'),
+                      title: const Text(
+                          'Viewers enabled (legacy; keep off)'),
+                    ),
+                    _sectionDivider('Premium (USD)'),
+                    _rowNum('Premium fee (USD)', _usdPremiumFee),
+                    _rowNum('Premium duration (days)', _usdPremiumDays),
+                    SwitchListTile.adaptive(
+                      value: _usdPremiumEnabled,
+                      onChanged: (v) =>
+                          setState(() => _usdPremiumEnabled = v),
+                      title: const Text('Premium enabled'),
+                      subtitle: const Text(
+                        'When off, all users bypass the premium paywall',
+                      ),
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 18),
+
                 Row(
                   children: [
                     Expanded(
@@ -236,7 +322,8 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
                               )
                             : const Icon(Icons.save),
                         label: const Text('Save'),
@@ -244,6 +331,7 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 8),
                 Text(
                   'Note: Owner-only. Rules enforce writes only for authorized UIDs.',
@@ -260,7 +348,33 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
     );
   }
 
-  Widget _currencyCard({required String title, required List<Widget> children}) {
+  Widget _sectionDivider(String label) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Row(
+        children: [
+          Expanded(
+              child: Divider(color: cs.onSurface.withOpacity(0.12))),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: cs.primary,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Divider(color: cs.onSurface.withOpacity(0.12))),
+        ],
+      ),
+    );
+  }
+
+  Widget _currencyCard(
+      {required String title, required List<Widget> children}) {
     final cs = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(12),
@@ -289,7 +403,8 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
       padding: const EdgeInsets.only(bottom: 8),
       child: TextField(
         controller: c,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        keyboardType:
+            const TextInputType.numberWithOptions(decimal: true),
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: const Icon(Icons.numbers),
@@ -303,7 +418,8 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
       padding: const EdgeInsets.only(bottom: 8),
       child: TextField(
         controller: c,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        keyboardType:
+            const TextInputType.numberWithOptions(decimal: true),
         decoration: InputDecoration(
           labelText: label,
           helperText: 'Leave empty to disable threshold-based discount',

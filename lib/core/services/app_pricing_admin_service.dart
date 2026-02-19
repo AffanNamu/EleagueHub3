@@ -11,23 +11,24 @@ class AppPricingAdminService {
   Future<Map<String, dynamic>> fetch() async {
     final snap = await _doc.get();
     if (!snap.exists) {
-      // Return safe defaults if doc missing
       return {
-        'ngn': _ngnFromPlan(RemotePricingPlan.defaultsNgn()),
-        'usd': _usdFromPlan(RemotePricingPlan.defaultsUsd()),
+        'ngn': _planToMap(RemotePricingPlan.defaultsNgn()),
+        'usd': _planToMap(RemotePricingPlan.defaultsUsd()),
       };
     }
-    final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    final ngn = (data['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    final usd = (data['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final data =
+        (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    final ngn =
+        (data['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final usd =
+        (data['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
-    // Fill missing with defaults
     final mergedNgn = {
-      ..._ngnFromPlan(RemotePricingPlan.defaultsNgn()),
+      ..._planToMap(RemotePricingPlan.defaultsNgn()),
       ...ngn,
     };
     final mergedUsd = {
-      ..._usdFromPlan(RemotePricingPlan.defaultsUsd()),
+      ..._planToMap(RemotePricingPlan.defaultsUsd()),
       ...usd,
     };
 
@@ -41,14 +42,23 @@ class AppPricingAdminService {
     required Map<String, dynamic> ngn,
     required Map<String, dynamic> usd,
   }) async {
-    // Basic sanitize: ensure required fields exist and are numbers/bools.
-    Map<String, dynamic> _sanitize(Map<String, dynamic> src, bool isUsd) {
+    Map<String, dynamic> _sanitize(
+        Map<String, dynamic> src, bool isUsd) {
       double _toDouble(dynamic v, double fallback) {
         if (v == null) return fallback;
         if (v is num) return v.toDouble();
         if (v is String) return double.tryParse(v.trim()) ?? fallback;
         return fallback;
       }
+
+      int _toInt(dynamic v, int fallback) {
+        if (v == null) return fallback;
+        if (v is int) return v;
+        if (v is num) return v.toInt();
+        if (v is String) return int.tryParse(v.trim()) ?? fallback;
+        return fallback;
+      }
+
       bool _toBool(dynamic v, bool fallback) {
         if (v == null) return fallback;
         if (v is bool) return v;
@@ -69,12 +79,18 @@ class AppPricingAdminService {
         'createFee': _toDouble(src['createFee'], dft.createLeagueFee),
         'accessFee': _toDouble(src['accessFee'], dft.accessFee),
         'couponUnit': _toDouble(src['couponUnit'], dft.couponUnit),
-        // threshold can be null
         'couponThreshold': src['couponThreshold'] == null
             ? null
             : _toDouble(src['couponThreshold'], dft.couponThreshold ?? 0),
-        'couponDiscountPercent': _toDouble(src['couponDiscountPercent'], dft.couponDiscountPercent),
+        'couponDiscountPercent':
+            _toDouble(src['couponDiscountPercent'], dft.couponDiscountPercent),
         'viewersEnabled': _toBool(src['viewersEnabled'], false),
+        // ── PREMIUM FIELDS ──────────────────────────────────────────────────
+        'premiumFee': _toDouble(src['premiumFee'], dft.premiumFee),
+        'premiumDurationDays':
+            _toInt(src['premiumDurationDays'], dft.premiumDurationDays),
+        'premiumEnabled': _toBool(src['premiumEnabled'], dft.premiumEnabled),
+        // ────────────────────────────────────────────────────────────────────
       };
     }
 
@@ -87,21 +103,16 @@ class AppPricingAdminService {
     }, SetOptions(merge: true));
   }
 
-  Map<String, dynamic> _ngnFromPlan(RemotePricingPlan p) => {
+  /// Single helper so NGN and USD maps are always identical in structure.
+  Map<String, dynamic> _planToMap(RemotePricingPlan p) => {
         'createFee': p.createLeagueFee,
         'accessFee': p.accessFee,
         'couponUnit': p.couponUnit,
         'couponThreshold': p.couponThreshold,
         'couponDiscountPercent': p.couponDiscountPercent,
         'viewersEnabled': p.viewersEnabled,
-      };
-
-  Map<String, dynamic> _usdFromPlan(RemotePricingPlan p) => {
-        'createFee': p.createLeagueFee,
-        'accessFee': p.accessFee,
-        'couponUnit': p.couponUnit,
-        'couponThreshold': p.couponThreshold,
-        'couponDiscountPercent': p.couponDiscountPercent,
-        'viewersEnabled': p.viewersEnabled,
+        'premiumFee': p.premiumFee,
+        'premiumDurationDays': p.premiumDurationDays,
+        'premiumEnabled': p.premiumEnabled,
       };
 }

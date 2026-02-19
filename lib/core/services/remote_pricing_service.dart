@@ -5,13 +5,25 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../config/flutterwave_config.dart';
 
 class RemotePricingPlan {
-  final String currency; // 'NGN' or 'USD'
-  final double createLeagueFee; // mandatory league creation fee
-  final double accessFee; // paywall fee when no coupons apply (kept for guard)
-  final double couponUnit; // full access-fee equivalent per coupon (before partial-payment)
-  final double? couponThreshold; // subtotal threshold to apply discount
-  final double couponDiscountPercent; // discount percent when threshold is met
-  final bool viewersEnabled; // legacy switch
+  final String currency;
+  final double createLeagueFee;
+  final double accessFee;
+  final double couponUnit;
+  final double? couponThreshold;
+  final double couponDiscountPercent;
+  final bool viewersEnabled;
+
+  // ── PREMIUM FIELDS ──────────────────────────────────────────────────────────
+  /// Price of one premium subscription period in this currency.
+  final double premiumFee;
+
+  /// How many days one premium purchase lasts.
+  final int premiumDurationDays;
+
+  /// Super-admin kill-switch: when false the premium paywall is hidden and
+  /// PremiumAccessGuard passes everyone through.
+  final bool premiumEnabled;
+  // ────────────────────────────────────────────────────────────────────────────
 
   const RemotePricingPlan({
     required this.currency,
@@ -21,6 +33,9 @@ class RemotePricingPlan {
     required this.couponThreshold,
     required this.couponDiscountPercent,
     required this.viewersEnabled,
+    required this.premiumFee,
+    required this.premiumDurationDays,
+    required this.premiumEnabled,
   });
 
   RemotePricingPlan copyWith({
@@ -31,6 +46,9 @@ class RemotePricingPlan {
     double? couponThreshold,
     double? couponDiscountPercent,
     bool? viewersEnabled,
+    double? premiumFee,
+    int? premiumDurationDays,
+    bool? premiumEnabled,
   }) {
     return RemotePricingPlan(
       currency: currency ?? this.currency,
@@ -38,12 +56,15 @@ class RemotePricingPlan {
       accessFee: accessFee ?? this.accessFee,
       couponUnit: couponUnit ?? this.couponUnit,
       couponThreshold: couponThreshold ?? this.couponThreshold,
-      couponDiscountPercent: couponDiscountPercent ?? this.couponDiscountPercent,
+      couponDiscountPercent:
+          couponDiscountPercent ?? this.couponDiscountPercent,
       viewersEnabled: viewersEnabled ?? this.viewersEnabled,
+      premiumFee: premiumFee ?? this.premiumFee,
+      premiumDurationDays: premiumDurationDays ?? this.premiumDurationDays,
+      premiumEnabled: premiumEnabled ?? this.premiumEnabled,
     );
   }
 
-  // Defaults when /app/pricing missing or unreadable.
   factory RemotePricingPlan.defaultsUsd() => const RemotePricingPlan(
         currency: 'USD',
         createLeagueFee: 5.0,
@@ -52,6 +73,9 @@ class RemotePricingPlan {
         couponThreshold: 20.0,
         couponDiscountPercent: 30.0,
         viewersEnabled: false,
+        premiumFee: 9.99,
+        premiumDurationDays: 30,
+        premiumEnabled: true,
       );
 
   factory RemotePricingPlan.defaultsNgn() => const RemotePricingPlan(
@@ -62,6 +86,9 @@ class RemotePricingPlan {
         couponThreshold: null,
         couponDiscountPercent: 30.0,
         viewersEnabled: false,
+        premiumFee: 5000.0,
+        premiumDurationDays: 30,
+        premiumEnabled: true,
       );
 
   static double _numToDouble(dynamic v, {double fallback = 0}) {
@@ -83,6 +110,14 @@ class RemotePricingPlan {
     return fallback;
   }
 
+  static int _numToInt(dynamic v, {int fallback = 30}) {
+    if (v == null) return fallback;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim()) ?? fallback;
+    return fallback;
+  }
+
   static RemotePricingPlan fromMap({
     required String currency,
     required Map<String, dynamic> map,
@@ -90,31 +125,39 @@ class RemotePricingPlan {
   }) {
     return RemotePricingPlan(
       currency: currency,
-      createLeagueFee: _numToDouble(map['createFee'], fallback: defaults.createLeagueFee),
+      createLeagueFee:
+          _numToDouble(map['createFee'], fallback: defaults.createLeagueFee),
       accessFee: _numToDouble(map['accessFee'], fallback: defaults.accessFee),
-      couponUnit: _numToDouble(map['couponUnit'], fallback: defaults.couponUnit),
+      couponUnit:
+          _numToDouble(map['couponUnit'], fallback: defaults.couponUnit),
       couponThreshold: map.containsKey('couponThreshold')
-          ? (_numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0) == 0
+          ? (_numToDouble(map['couponThreshold'],
+                      fallback: defaults.couponThreshold ?? 0) ==
+                  0
               ? null
-              : _numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0))
+              : _numToDouble(map['couponThreshold'],
+                  fallback: defaults.couponThreshold ?? 0))
           : defaults.couponThreshold,
-      couponDiscountPercent: _numToDouble(map['couponDiscountPercent'], fallback: defaults.couponDiscountPercent),
-      viewersEnabled: _boolFromAny(map['viewersEnabled'], fallback: defaults.viewersEnabled),
+      couponDiscountPercent: _numToDouble(map['couponDiscountPercent'],
+          fallback: defaults.couponDiscountPercent),
+      viewersEnabled:
+          _boolFromAny(map['viewersEnabled'], fallback: defaults.viewersEnabled),
+      premiumFee:
+          _numToDouble(map['premiumFee'], fallback: defaults.premiumFee),
+      premiumDurationDays: _numToInt(map['premiumDurationDays'],
+          fallback: defaults.premiumDurationDays),
+      premiumEnabled:
+          _boolFromAny(map['premiumEnabled'], fallback: defaults.premiumEnabled),
     );
   }
 }
 
 /// Shared breakdown for "organizer coupon purchase" pricing.
-///
-/// Business rule implemented:
-/// - Organizer pays only the discount portion of couponUnit:
-///   organizerUnit = couponUnit * (discountPercent / 100)
-/// - Bulk/threshold discount applies to that organizer subtotal (what is actually paid).
 class OrganizerCouponPricing {
-  final double organizerUnit; // unrounded per-coupon organizer unit
+  final double organizerUnit;
   final int qty;
-  final double rawSubtotal; // rounded for currency
-  final double discountedSubtotal; // rounded for currency
+  final double rawSubtotal;
+  final double discountedSubtotal;
   final bool bulkDiscountApplied;
 
   const OrganizerCouponPricing({
@@ -150,7 +193,8 @@ class RemotePricingService {
 
   Future<_RemotePricingCache> _fetch() async {
     try {
-      final doc = await _firestore.collection('app').doc('pricing').get();
+      final doc =
+          await _firestore.collection('app').doc('pricing').get();
       if (!doc.exists) {
         return _RemotePricingCache(
           fetchedAt: DateTime.now(),
@@ -159,9 +203,12 @@ class RemotePricingService {
         );
       }
 
-      final raw = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ngnMap = (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final usdMap = (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final raw =
+          (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final ngnMap =
+          (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final usdMap =
+          (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
       final ngn = RemotePricingPlan.fromMap(
         currency: 'NGN',
@@ -181,7 +228,6 @@ class RemotePricingService {
         usd: usd,
       );
     } catch (_) {
-      // Fail-safe to defaults if Firestore unavailable or rules deny.
       return _RemotePricingCache(
         fetchedAt: DateTime.now(),
         ngn: RemotePricingPlan.defaultsNgn(),
@@ -195,7 +241,6 @@ class RemotePricingService {
     return c == 'NG';
   }
 
-  // Resolve the plan (NGN vs USD) using forced country first, then locale.
   Future<RemotePricingPlan> getPlanForLocale(Locale? locale) async {
     if (_cache == null || !_cache!.isFresh) {
       _cache = await _fetch();
@@ -219,7 +264,6 @@ class RemotePricingService {
     return _round2(v);
   }
 
-  // Compute coupon subtotal (applies discount only when threshold is set and reached).
   double couponSubtotalWithThresholdDiscount({
     required RemotePricingPlan plan,
     required int couponCount,
@@ -232,7 +276,8 @@ class RemotePricingService {
     if (threshold == null) return _roundMoney(plan.currency, subtotal);
 
     if (subtotal >= threshold) {
-      final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
+      final pct =
+          (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
       final discounted = subtotal * ((100.0 - pct) / 100.0);
       return _roundMoney(plan.currency, discounted);
     }
@@ -240,8 +285,6 @@ class RemotePricingService {
     return _roundMoney(plan.currency, subtotal);
   }
 
-  /// New helper used by coupon purchase flows:
-  /// organizer pays only the discount portion of couponUnit.
   OrganizerCouponPricing computeOrganizerCouponPricing({
     required RemotePricingPlan plan,
     required int couponCount,
@@ -265,21 +308,24 @@ class RemotePricingService {
 
     final threshold = plan.couponThreshold;
     final thresholdConfigured = threshold != null && threshold > 0;
-    final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
+    final pct =
+        (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
 
     bool bulkApplied = false;
     double discountedSubtotalUnrounded = rawSubtotalUnrounded;
 
     if (thresholdConfigured && rawSubtotalUnrounded >= threshold!) {
       bulkApplied = true;
-      discountedSubtotalUnrounded = rawSubtotalUnrounded * ((100.0 - pct) / 100.0);
+      discountedSubtotalUnrounded =
+          rawSubtotalUnrounded * ((100.0 - pct) / 100.0);
     }
 
     return OrganizerCouponPricing(
       organizerUnit: organizerUnit,
       qty: qty,
       rawSubtotal: _roundMoney(plan.currency, rawSubtotalUnrounded),
-      discountedSubtotal: _roundMoney(plan.currency, discountedSubtotalUnrounded),
+      discountedSubtotal:
+          _roundMoney(plan.currency, discountedSubtotalUnrounded),
       bulkDiscountApplied: bulkApplied,
     );
   }
