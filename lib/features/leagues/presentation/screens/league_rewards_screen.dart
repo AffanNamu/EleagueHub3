@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/color_compat.dart';
 import '../../data/models/reward_model.dart';
 import '../../data/services/reward_firestore_service.dart';
 import '../widgets/reward_card.dart';
@@ -28,11 +29,16 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) return false;
 
-    final leagueSnap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
+    final leagueSnap = await FirebaseFirestore.instance
+        .collection('leagues')
+        .doc(widget.leagueId)
+        .get();
     final data = leagueSnap.data();
     if (data == null) return false;
 
-    final organizerUid = (data['organizerUid'] ?? data['createdBy'] ?? data['ownerUid'] ?? '').toString();
+    final organizerUid =
+        (data['organizerUid'] ?? data['createdBy'] ?? data['ownerUid'] ?? '')
+            .toString();
     return organizerUid.isNotEmpty && organizerUid == uid;
   }
 
@@ -144,7 +150,8 @@ class _EmptyState extends StatelessWidget {
         tween: Tween<double>(begin: 0.92, end: 1.0),
         duration: const Duration(milliseconds: 260),
         curve: Curves.easeOutCubic,
-        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+        builder: (context, scale, child) =>
+            Transform.scale(scale: scale, child: child),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
@@ -182,7 +189,8 @@ class _ErrorState extends StatelessWidget {
         child: Text(
           message,
           textAlign: TextAlign.center,
-          style: textTheme.bodyMedium?.copyWith(color: Colors.redAccent.withValues(alpha: 0.9)),
+          style: textTheme.bodyMedium
+              ?.copyWith(color: Colors.redAccent.withValues(alpha: 0.9)),
         ),
       ),
     );

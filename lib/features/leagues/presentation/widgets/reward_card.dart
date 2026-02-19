@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/color_compat.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../data/models/reward_model.dart';
 
@@ -28,11 +29,11 @@ class RewardCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     switch (reward.position) {
       case 1:
-        return const Color(0xFFFFD54F); // gold
+        return const Color(0xFFFFD54F);
       case 2:
-        return const Color(0xFFB0BEC5); // silver-ish
+        return const Color(0xFFB0BEC5);
       case 3:
-        return const Color(0xFFBCAAA4); // bronze-ish
+        return const Color(0xFFBCAAA4);
       default:
         return cs.primary.withValues(alpha: 0.85);
     }
@@ -108,7 +109,8 @@ class RewardCard extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+                  border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.12), width: 1),
                   gradient: LinearGradient(
                     colors: <Color>[
                       Colors.white.withValues(alpha: 0.10),
@@ -208,7 +210,9 @@ class _TitleAndDescription extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          reward.description.trim().isEmpty ? '—' : reward.description.trim(),
+          reward.description.trim().isEmpty
+              ? '—'
+              : reward.description.trim(),
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
           style: textTheme.bodyMedium?.copyWith(
@@ -265,7 +269,8 @@ class _TypeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = type.trim().isEmpty ? 'other' : type.trim().toLowerCase();
+    final label =
+        type.trim().isEmpty ? 'other' : type.trim().toLowerCase();
     final display = label[0].toUpperCase() + label.substring(1);
 
     return DecoratedBox(

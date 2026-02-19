@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/color_compat.dart';
 import '../../data/models/reward_model.dart';
 import '../../data/services/reward_firestore_service.dart';
 import '../../../marketplace/data/cloudinary_upload_service.dart';
@@ -22,7 +23,8 @@ class EditLeagueRewardsScreen extends StatefulWidget {
   final String leagueId;
 
   @override
-  State<EditLeagueRewardsScreen> createState() => _EditLeagueRewardsScreenState();
+  State<EditLeagueRewardsScreen> createState() =>
+      _EditLeagueRewardsScreenState();
 }
 
 class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
@@ -32,11 +34,16 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) return false;
 
-    final leagueSnap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
+    final leagueSnap = await FirebaseFirestore.instance
+        .collection('leagues')
+        .doc(widget.leagueId)
+        .get();
     final data = leagueSnap.data();
     if (data == null) return false;
 
-    final organizerUid = (data['organizerUid'] ?? data['createdBy'] ?? data['ownerUid'] ?? '').toString();
+    final organizerUid =
+        (data['organizerUid'] ?? data['createdBy'] ?? data['ownerUid'] ?? '')
+            .toString();
     return organizerUid.isNotEmpty && organizerUid == uid;
   }
 
@@ -85,7 +92,9 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
           title: const Text('Delete reward?'),
           content: Text('This will permanently remove "${reward.rewardName}".'),
           actions: <Widget>[
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel')),
             FilledButton.tonal(
               onPressed: () => Navigator.pop(context, true),
               child: const Text('Delete'),
@@ -138,7 +147,10 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
           builder: (context, permSnap) {
             if (permSnap.connectionState != ConnectionState.done) {
               return const Center(
-                child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.6)),
+                child: SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2.6)),
               );
             }
 
@@ -178,7 +190,10 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
 
                 if (!snapshot.hasData) {
                   return const Center(
-                    child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.6)),
+                    child: SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2.6)),
                   );
                 }
 
@@ -207,12 +222,14 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                           IconButton(
                             tooltip: 'Edit',
                             onPressed: () => _editReward(reward),
-                            icon: const Icon(Icons.edit_outlined, color: Colors.white),
+                            icon: const Icon(Icons.edit_outlined,
+                                color: Colors.white),
                           ),
                           IconButton(
                             tooltip: 'Delete',
                             onPressed: () => _deleteReward(reward),
-                            icon: const Icon(Icons.delete_outline, color: Colors.white),
+                            icon: const Icon(Icons.delete_outline,
+                                color: Colors.white),
                           ),
                         ],
                       ),
@@ -252,8 +269,8 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
   late String _description;
   late String _rewardType;
 
-  XFile? _pickedXFile; // preferred (ImagePicker)
-  PlatformFile? _pickedPlatformFile; // fallback (FilePicker)
+  XFile? _pickedXFile;
+  PlatformFile? _pickedPlatformFile;
 
   String _existingImageUrl = '';
 
@@ -281,7 +298,6 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
   }
 
   Future<void> _pickImage() async {
-    // 1) Try ImagePicker first (requested)
     if (!kIsWeb) {
       try {
         final picker = ImagePicker();
@@ -297,12 +313,9 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
           });
           return;
         }
-      } catch (_) {
-        // fall back to FilePicker below
-      }
+      } catch (_) {}
     }
 
-    // 2) Fallback: FilePicker (web/desktop friendly)
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
@@ -319,13 +332,17 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), behavior: SnackBarBehavior.floating),
+        SnackBar(
+            content: Text(e.toString()),
+            behavior: SnackBarBehavior.floating),
       );
     }
   }
 
   Future<PlatformFile> _platformFileFromXFile(XFile x) async {
-    final name = (x.name).trim().isNotEmpty ? x.name.trim() : _fallbackNameFromPath(x.path);
+    final name = (x.name).trim().isNotEmpty
+        ? x.name.trim()
+        : _fallbackNameFromPath(x.path);
 
     final p = x.path.trim();
     if (p.isNotEmpty) {
@@ -346,7 +363,6 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
       );
     }
 
-    // If path is unavailable (rare), fallback to bytes.
     final bytes = await x.readAsBytes();
     return PlatformFile(
       name: name,
@@ -357,8 +373,6 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
 
   Future<String> _uploadToCloudinary(PlatformFile file) async {
     final cloudinary = CloudinaryUploadService();
-
-    // Keep league rewards in a dedicated folder namespace.
     final folder = 'eleaguehub/league_rewards/${widget.leagueId}';
 
     final url = await cloudinary.uploadImagePlatformFile(
@@ -432,7 +446,8 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
         child: Container(
           decoration: BoxDecoration(
             color: const Color(0xFF0E1628),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(24)),
             border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
           ),
           child: SafeArea(
@@ -455,14 +470,16 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                       Expanded(
                         child: Text(
                           widget.title,
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                  ),
                         ),
                       ),
                       IconButton(
-                        onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                        onPressed:
+                            _busy ? null : () => Navigator.of(context).pop(),
                         icon: const Icon(Icons.close, color: Colors.white),
                       ),
                     ],
@@ -500,18 +517,26 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: DropdownButtonFormField<String>(
-                                value: RewardModel.normalizeRewardType(_rewardType),
+                                value: RewardModel.normalizeRewardType(
+                                    _rewardType),
                                 decoration: const InputDecoration(
                                   labelText: 'Reward Type',
                                   border: OutlineInputBorder(),
                                 ),
                                 dropdownColor: const Color(0xFF0E1628),
                                 items: const <DropdownMenuItem<String>>[
-                                  DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                                  DropdownMenuItem(value: 'physical', child: Text('Physical')),
-                                  DropdownMenuItem(value: 'digital', child: Text('Digital')),
-                                  DropdownMenuItem(value: 'trophy', child: Text('Trophy')),
-                                  DropdownMenuItem(value: 'other', child: Text('Other')),
+                                  DropdownMenuItem(
+                                      value: 'cash', child: Text('Cash')),
+                                  DropdownMenuItem(
+                                      value: 'physical',
+                                      child: Text('Physical')),
+                                  DropdownMenuItem(
+                                      value: 'digital',
+                                      child: Text('Digital')),
+                                  DropdownMenuItem(
+                                      value: 'trophy', child: Text('Trophy')),
+                                  DropdownMenuItem(
+                                      value: 'other', child: Text('Other')),
                                 ],
                                 onChanged: _busy
                                     ? null
@@ -532,7 +557,8 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                             border: OutlineInputBorder(),
                           ),
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty) return 'Reward name is required';
+                            if (v == null || v.trim().isEmpty)
+                              return 'Reward name is required';
                             if (v.trim().length < 2) return 'Too short';
                             return null;
                           },
@@ -575,7 +601,8 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                                 ? const SizedBox(
                                     height: 18,
                                     width: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
                                   )
                                 : const Text('Save'),
                           ),
@@ -620,13 +647,16 @@ class _ImagePickerRow extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          ClipRRect(borderRadius: BorderRadius.circular(12), child: preview),
+          ClipRRect(
+              borderRadius: BorderRadius.circular(12), child: preview),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               pickedXFile != null || pickedPlatformFile != null
                   ? 'Selected image'
-                  : (existingUrl.trim().isNotEmpty ? 'Using existing image' : 'No image selected'),
+                  : (existingUrl.trim().isNotEmpty
+                      ? 'Using existing image'
+                      : 'No image selected'),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Colors.white.withValues(alpha: 0.82),
                   ),
@@ -682,7 +712,8 @@ class _ImagePickerRow extends StatelessWidget {
 
   Widget _platformPreview(PlatformFile f) {
     if (f.bytes != null && f.bytes!.isNotEmpty) {
-      return Image.memory(f.bytes!, width: 64, height: 64, fit: BoxFit.cover);
+      return Image.memory(f.bytes!,
+          width: 64, height: 64, fit: BoxFit.cover);
     }
     final p = (f.path ?? '').trim();
     if (p.isNotEmpty) {
@@ -701,9 +732,10 @@ class _ImagePickerRow extends StatelessWidget {
     return Container(
       width: 64,
       height: 64,
-      color: Colors.white.withValues(alpha: 0.08),
+      color: Colors.white.withOpacity(0.08),
       alignment: Alignment.center,
-      child: Icon(Icons.image_outlined, color: Colors.white.withValues(alpha: 0.55)),
+      child: Icon(Icons.image_outlined,
+          color: Colors.white.withOpacity(0.55)),
     );
   }
 }

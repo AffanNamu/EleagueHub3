@@ -3,56 +3,36 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../core/color_compat.dart';
 import '../core/widgets/glass.dart';
 import '../features/leagues/data/services/reward_firestore_service.dart';
 
-/// Backward-compatible LeagueFlipCard.
-///
-/// Supports BOTH legacy usage (named fields like leagueName/leagueCode/qrWidget)
-/// and new usage (passing a `league` object/map).
-///
-/// Rewards:
-/// - Shows 🏆 Rewards Available badge only if rewards exist
-/// - Shows a small "Top reward" preview (reward at lowest `position`) using
-///   a safe single Firestore read: orderBy(position) limit(1)
 class LeagueFlipCard extends StatefulWidget {
   const LeagueFlipCard({
     super.key,
     this.league,
-
-    /// Optional for badge/preview lookup (recommended).
     this.leagueId,
-
-    /// Show 🏆 Rewards Available badge (default: true).
     this.showRewardsBadge = true,
-
-    /// Show "Top reward" preview (default: true).
     this.showRewardsPreview = true,
-
-    // Legacy API (still supported)
     this.leagueName,
     this.leagueCode,
     this.distribution,
     this.subtitle,
     this.qrWidget,
-
     this.onTap,
     this.onDoubleTap,
     this.onLongPress,
   });
 
   final dynamic league;
-
   final String? leagueId;
   final bool showRewardsBadge;
   final bool showRewardsPreview;
-
   final String? leagueName;
   final String? leagueCode;
   final String? distribution;
   final String? subtitle;
   final Widget? qrWidget;
-
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
   final VoidCallback? onLongPress;
@@ -61,7 +41,8 @@ class LeagueFlipCard extends StatefulWidget {
   State<LeagueFlipCard> createState() => _LeagueFlipCardState();
 }
 
-class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProviderStateMixin {
+class _LeagueFlipCardState extends State<LeagueFlipCard>
+    with SingleTickerProviderStateMixin {
   final RewardFirestoreService _rewardsService = RewardFirestoreService();
 
   late final AnimationController _controller;
@@ -69,13 +50,16 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
   bool _showBack = false;
 
-  final Map<String, Future<String?>> _topRewardFutureCache = <String, Future<String?>>{};
+  final Map<String, Future<String?>> _topRewardFutureCache =
+      <String, Future<String?>>{};
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(duration: const Duration(milliseconds: 420), vsync: this);
-    _anim = CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic);
+    _controller = AnimationController(
+        duration: const Duration(milliseconds: 420), vsync: this);
+    _anim = CurvedAnimation(
+        parent: _controller, curve: Curves.easeInOutCubic);
   }
 
   @override
@@ -96,18 +80,13 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
     return const <String, dynamic>{};
   }
 
-  String _readString(dynamic obj, List<String> keys, {String fallback = ''}) {
+  String _readString(dynamic obj, List<String> keys,
+      {String fallback = ''}) {
     final map = _extractMap(obj);
     for (final k in keys) {
       final v = map[k];
       if (v != null && v.toString().trim().isNotEmpty) return v.toString();
     }
-    try {
-      for (final k in keys) {
-        final v = (obj as dynamic).__getattribute__(k);
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString();
-      }
-    } catch (_) {}
     return fallback;
   }
 
@@ -117,12 +96,16 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
     final league = widget.league;
     final map = _extractMap(league);
-    final id = (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '').toString().trim();
+    final id =
+        (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '')
+            .toString()
+            .trim();
     if (id.isNotEmpty) return id;
 
     try {
       final v = (league as dynamic).id;
-      if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+      if (v != null && v.toString().trim().isNotEmpty)
+        return v.toString().trim();
     } catch (_) {}
 
     return '';
@@ -131,42 +114,41 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
   String _title() {
     final legacy = (widget.leagueName ?? '').trim();
     if (legacy.isNotEmpty) return legacy;
-
-    return _readString(widget.league, const ['name', 'leagueName', 'title'], fallback: 'League');
+    return _readString(widget.league, const ['name', 'leagueName', 'title'],
+        fallback: 'League');
   }
 
   String _code() {
     final legacy = (widget.leagueCode ?? '').trim();
     if (legacy.isNotEmpty) return legacy;
-
-    return _readString(widget.league, const ['code', 'joinCode'], fallback: '');
+    return _readString(widget.league, const ['code', 'joinCode'],
+        fallback: '');
   }
 
   String _distribution() {
     final legacy = (widget.distribution ?? '').trim();
     if (legacy.isNotEmpty) return legacy;
-
-    final fmt = _readString(widget.league, const ['formatName', 'format', 'leagueFormat'], fallback: '');
-    final season = _readString(widget.league, const ['season'], fallback: '');
-    final combo = [fmt, season].where((e) => e.trim().isNotEmpty).join(' • ');
-    return combo;
+    final fmt = _readString(
+        widget.league, const ['formatName', 'format', 'leagueFormat'],
+        fallback: '');
+    final season =
+        _readString(widget.league, const ['season'], fallback: '');
+    return [fmt, season].where((e) => e.trim().isNotEmpty).join(' • ');
   }
 
   String _subtitle() {
     final legacy = (widget.subtitle ?? '').trim();
     if (legacy.isNotEmpty) return legacy;
-
-    return _readString(widget.league, const ['subtitle', 'region'], fallback: '');
+    return _readString(widget.league, const ['subtitle', 'region'],
+        fallback: '');
   }
 
   String _qrPayload() {
     final map = _extractMap(widget.league);
     final override = (map['qrPayloadOverride'] ?? '').toString().trim();
     if (override.isNotEmpty) return override;
-
     final qr = (map['qrPayload'] ?? '').toString().trim();
     if (qr.isNotEmpty) return qr;
-
     return _code();
   }
 
@@ -201,7 +183,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
         tween: Tween<double>(begin: 0.98, end: 1.0),
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        builder: (context, s, child) => Transform.scale(scale: s, child: child),
+        builder: (context, s, child) =>
+            Transform.scale(scale: s, child: child),
         child: Glass(
           borderRadius: 26,
           padding: const EdgeInsets.all(16),
@@ -214,7 +197,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                 final angle = t * math.pi;
                 final isBackVisible = t >= 0.5;
 
-                final face = isBackVisible ? _backFace(context) : _frontFace(context, leagueId);
+                final face = isBackVisible
+                    ? _backFace(context)
+                    : _frontFace(context, leagueId);
 
                 return Transform(
                   alignment: Alignment.center,
@@ -223,7 +208,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     ..rotateY(angle),
                   child: Transform(
                     alignment: Alignment.center,
-                    transform: isBackVisible ? Matrix4.identity()..rotateY(math.pi) : Matrix4.identity(),
+                    transform: isBackVisible
+                        ? (Matrix4.identity()..rotateY(math.pi))
+                        : Matrix4.identity(),
                     child: face,
                   ),
                 );
@@ -244,8 +231,11 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
     final distribution = _distribution();
     final subtitle = _subtitle();
 
-    final bool wantsRewardsUi = (widget.showRewardsBadge || widget.showRewardsPreview) && leagueId.trim().isNotEmpty;
-    final Future<String?>? topRewardFuture = wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
+    final bool wantsRewardsUi =
+        (widget.showRewardsBadge || widget.showRewardsPreview) &&
+            leagueId.trim().isNotEmpty;
+    final Future<String?>? topRewardFuture =
+        wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
 
     return Stack(
       children: [
@@ -262,7 +252,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+              border: Border.all(
+                  color: cs.onSurface.withValues(alpha: 0.10)),
             ),
           ),
         ),
@@ -287,7 +278,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                         end: Alignment.bottomRight,
                       ),
                     ),
-                    child: const Icon(Icons.emoji_events_outlined, color: Colors.white),
+                    child: const Icon(Icons.emoji_events_outlined,
+                        color: Colors.white),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -327,34 +319,41 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                   ),
                 ),
               ],
-
-              // Small Rewards Preview (Top-1 reward)
-              if (widget.showRewardsPreview && topRewardFuture != null) ...[
+              if (widget.showRewardsPreview &&
+                  topRewardFuture != null) ...[
                 const SizedBox(height: 10),
                 FutureBuilder<String?>(
                   future: topRewardFuture,
                   builder: (context, snap) {
                     final name = (snap.data ?? '').trim();
                     if (name.isEmpty) {
-                      // Keep UI clean: show nothing if no rewards.
-                      // While loading, show a subtle placeholder pill.
-                      if (snap.connectionState != ConnectionState.waiting) return const SizedBox.shrink();
+                      if (snap.connectionState !=
+                          ConnectionState.waiting)
+                        return const SizedBox.shrink();
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(999),
                           color: cs.onSurface.withValues(alpha: 0.05),
-                          border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+                          border: Border.all(
+                              color: cs.onSurface
+                                  .withValues(alpha: 0.10)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.card_giftcard_outlined, size: 16, color: cs.onSurface.withValues(alpha: 0.45)),
+                            Icon(Icons.card_giftcard_outlined,
+                                size: 16,
+                                color: cs.onSurface
+                                    .withValues(alpha: 0.45)),
                             const SizedBox(width: 8),
                             Text(
                               'Checking rewards...',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: cs.onSurface.withValues(alpha: 0.55),
+                              style: theme.textTheme.labelMedium
+                                  ?.copyWith(
+                                color: cs.onSurface
+                                    .withValues(alpha: 0.55),
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -369,23 +368,28 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                       switchOutCurve: Curves.easeOutCubic,
                       child: Container(
                         key: ValueKey<String>('topReward:$name'),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(999),
                           color: cs.primary.withValues(alpha: 0.12),
-                          border: Border.all(color: cs.primary.withValues(alpha: 0.28)),
+                          border: Border.all(
+                              color: cs.primary
+                                  .withValues(alpha: 0.28)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.card_giftcard_outlined, size: 16, color: cs.primary),
+                            Icon(Icons.card_giftcard_outlined,
+                                size: 16, color: cs.primary),
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
                                 'Top reward: $name',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelLarge?.copyWith(
+                                style: theme.textTheme.labelLarge
+                                    ?.copyWith(
                                   color: cs.primary,
                                   fontWeight: FontWeight.w900,
                                 ),
@@ -398,17 +402,19 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                   },
                 ),
               ],
-
               const Spacer(),
               Row(
                 children: [
                   if (code.isNotEmpty)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(999),
                         color: cs.onSurface.withValues(alpha: 0.06),
-                        border: Border.all(color: cs.onSurface.withValues(alpha: 0.12)),
+                        border: Border.all(
+                            color: cs.onSurface
+                                .withValues(alpha: 0.12)),
                       ),
                       child: Text(
                         'CODE: $code',
@@ -420,11 +426,13 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     ),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(999),
                       color: cs.primary.withValues(alpha: 0.14),
-                      border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+                      border: Border.all(
+                          color: cs.primary.withValues(alpha: 0.35)),
                     ),
                     child: Text(
                       'TAP TO FLIP',
@@ -440,8 +448,6 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
             ],
           ),
         ),
-
-        // Rewards badge, driven by the same topReward read (no extra read).
         if (widget.showRewardsBadge && topRewardFuture != null)
           Positioned(
             right: 14,
@@ -469,7 +475,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     ],
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
                     child: Text(
                       '🏆 Rewards Available',
                       style: theme.textTheme.labelMedium?.copyWith(
@@ -509,7 +516,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
         color: cs.onSurface.withValues(alpha: 0.03),
-        border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+        border:
+            Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
