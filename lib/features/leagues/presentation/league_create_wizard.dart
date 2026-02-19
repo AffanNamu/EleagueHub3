@@ -26,6 +26,7 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import 'screens/edit_league_rewards_screen.dart';
 
 class LeagueCreateWizard extends ConsumerStatefulWidget {
   const LeagueCreateWizard({super.key});
@@ -54,6 +55,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   LeaguePrivacy _privacy = LeaguePrivacy.private;
 
   bool _doubleRoundRobin = true;
+
+  // NEW: Rewards toggle (wizard-level intent)
+  bool _containsRewards = false;
+
   bool _submitting = false;
 
   LeagueCreationPaymentResult? _payment;
@@ -93,7 +98,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   String get _couponLabel {
     if (!_couponsEnabled) return 'Coupons: None';
-
     final pctLabel = 'Discount $_discountPercent%';
     final countLabel = _couponCount > 0 ? ' • Qty: $_couponCount' : '';
     return 'Coupons: $pctLabel$countLabel';
@@ -110,8 +114,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   void _showSnack(String message) {
     if (!mounted) return;
+    final msg = message.trim();
+    if (msg.isEmpty) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
     );
   }
 
@@ -185,6 +192,71 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     }
 
     throw StateError("We couldn't create a league code right now. Please try again.");
+  }
+
+  Future<void> _payIfNeeded() async {
+    final l10n = context.l10n;
+    if (_submitting) return;
+
+    if (!_creationRequiresPayment) return;
+
+    final name = _name.text.trim().isEmpty ? l10n.tr('common_league_placeholder') : _name.text.trim();
+
+    final result = await context.push<LeagueCreationPaymentResult?>(
+      '/leagues/create/payment',
+      extra: <String, dynamic>{
+        'leagueId': _draftLeagueId,
+        'leagueName': name,
+        'addonsOnly': false,
+        'existingCouponsEnabled': _couponsEnabled,
+        'existingCouponCount': _couponCount,
+        'existingCouponDiscountPercent': _discountPercent,
+      },
+    );
+
+    if (!mounted) return;
+
+    if (result != null && result.success) {
+      setState(() => _payment = result);
+      _showSnack(l10n.tr('league_create_payment_successful'));
+      return;
+    }
+
+    if (result == null) {
+      _showSnack(l10n.tr('league_create_payment_cancelled'));
+      return;
+    }
+
+    _showSnack(result.errorMessage ?? l10n.tr('leagues_payment_failed'));
+  }
+
+  Future<bool> _validateAndNext() async {
+    final l10n = context.l10n;
+
+    if (_step == 0) {
+      if (_name.text.trim().isEmpty) {
+        _showSnack(l10n.tr('league_create_error_name_required'));
+        return false;
+      }
+      setState(() => _step = 1);
+      return true;
+    }
+
+    if (_step == 1) {
+      setState(() => _step = 2);
+      return true;
+    }
+
+    return true;
+  }
+
+  void _backOrClose() {
+    if (_submitting) return;
+    if (_step == 0) {
+      context.pop();
+      return;
+    }
+    setState(() => _step = max(0, _step - 1));
   }
 
   @override
@@ -267,6 +339,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     LeagueFlipCard(
+                      leagueId: league.id,
                       leagueName: league.name,
                       leagueCode: league.code,
                       distribution: '${league.format.displayName} • ${league.season}',
@@ -341,6 +414,23 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                               style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900),
                             ),
                           ),
+                          if (_containsRewards) ...[
+                            const SizedBox(height: 10),
+                            FilledButton.tonalIcon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => EditLeagueRewardsScreen(leagueId: league.id),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.card_giftcard_outlined),
+                              label: const Text(
+                                'Manage Rewards',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -432,6 +522,40 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     final paymentColor = _creationRequiresPayment ? (_paymentCompleted ? cs.primary : _premiumAmber) : cs.primary;
 
+    Widget row(IconData icon, String label, String value, {Color? color}) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18, color: cs.primary),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 92,
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurface.withOpacity(0.70),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                value,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: color ?? cs.onSurface,
+                  fontWeight: FontWeight.w800,
+                  height: 1.25,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Glass(
       padding: const EdgeInsets.all(16),
       borderRadius: 28,
@@ -447,63 +571,38 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             ),
           ),
           const SizedBox(height: 12),
-          Text(
-            l10n.tr('league_create_summary_type_label'),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.70),
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-            ),
-          ),
-          Text(
-            _format.displayName,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
+          row(Icons.auto_awesome, l10n.tr('league_create_summary_type_label'), _format.displayName),
+          row(
+            Icons.label,
             l10n.tr('league_create_summary_name_label'),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.70),
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-            ),
-          ),
-          Text(
             _name.text.trim().isEmpty ? l10n.tr('league_create_summary_not_set') : _name.text.trim(),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface,
-              fontWeight: FontWeight.w800,
-            ),
           ),
-          const SizedBox(height: 10),
-          Text(
+          row(
+            Icons.lock,
+            l10n.tr('league_create_summary_privacy_label'),
+            _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
+          ),
+          row(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
+          row(
+            Icons.card_giftcard_outlined,
+            'Rewards',
+            _containsRewards ? 'Yes' : 'No',
+            color: _containsRewards ? cs.primary : cs.onSurface.withOpacity(0.75),
+          ),
+          row(
+            _creationRequiresPayment ? (_paymentCompleted ? Icons.verified : Icons.lock_outline) : Icons.verified,
             l10n.tr('league_create_summary_creation_fee_label'),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.70),
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-            ),
-          ),
-          Text(
             _creationRequiresPayment
                 ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
                 : l10n.tr('league_create_fee_free'),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: paymentColor,
-              fontWeight: FontWeight.w900,
-            ),
+            color: paymentColor,
           ),
           if (_couponsEnabled) ...[
-            const SizedBox(height: 10),
-            Text(
-              _couponLabel,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.primary,
-                fontWeight: FontWeight.w800,
-              ),
+            row(
+              Icons.confirmation_number_outlined,
+              'Coupons',
+              _couponLabel.replaceFirst('Coupons: ', ''),
+              color: cs.primary,
             ),
           ],
           const SizedBox(height: 10),
@@ -522,9 +621,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   String _unlockNote(AppLocalizations l10n) {
-    return _creationRequiresPayment
-        ? l10n.tr('league_create_fee_note_requires_payment')
-        : l10n.tr('league_create_fee_note_free');
+    return _creationRequiresPayment ? l10n.tr('league_create_fee_note_requires_payment') : l10n.tr('league_create_fee_note_free');
   }
 
   Widget _buildStepHeader() {
@@ -640,18 +737,267 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   Widget _stepBody({Key? key}) {
-    // NOTE: Keep your existing wizard steps (not altered here).
+    switch (_step) {
+      case 0:
+        return _stepBasics(key: key);
+      case 1:
+        return _stepRules(key: key);
+      case 2:
+        return _stepReview(key: key);
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _stepBasics({Key? key}) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    Widget formatChip(LeagueFormat fmt, String label) {
+      final selected = _format == fmt;
+      return ChoiceChip(
+        selected: selected,
+        label: Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
+        selectedColor: cs.primary.withOpacity(0.18),
+        backgroundColor: cs.onSurface.withOpacity(0.06),
+        labelStyle: TextStyle(
+          color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
+          fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+        ),
+        onSelected: _submitting
+            ? null
+            : (v) {
+                if (!v) return;
+                setState(() {
+                  _format = fmt;
+                  if (!_creationRequiresPayment) _payment = null;
+                });
+              },
+      );
+    }
+
     return Column(
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 6),
-        Text(
-          'Wizard steps UI not shown in this snippet.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w700,
+        _sectionTitle('Basics', Icons.edit_note),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _name,
+          decoration: const InputDecoration(
+            labelText: 'League name (required)',
+            prefixIcon: Icon(Icons.edit_outlined),
+          ),
+          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _description,
+          minLines: 3,
+          maxLines: 7,
+          decoration: const InputDecoration(
+            labelText: 'Description (optional)',
+            prefixIcon: Icon(Icons.subject_outlined),
+            alignLabelWithHint: true,
+          ),
+          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 12),
+        _sectionTitle('Format', Icons.auto_awesome),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            formatChip(LeagueFormat.classic, 'Classic'),
+            formatChip(LeagueFormat.uclGroup, 'Group'),
+            formatChip(LeagueFormat.uclSwiss, 'Series'),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _sectionTitle('Images (optional)', Icons.image_outlined),
+        const SizedBox(height: 10),
+        _OptionalImageField(
+          controller: _leagueImageUrl,
+          label: 'League Image URL (optional)',
+          uploading: _uploadingLeagueImage,
+          onUpload: () => _uploadImage(kind: LeagueMediaKind.leagueImage),
+          onClear: () => setState(() => _leagueImageUrl.text = ''),
+        ),
+        const SizedBox(height: 10),
+        _OptionalImageField(
+          controller: _sponsorImageUrl,
+          label: 'Sponsor Image URL (optional)',
+          uploading: _uploadingSponsorImage,
+          onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
+          onClear: () => setState(() => _sponsorImageUrl.text = ''),
+        ),
+      ],
+    );
+  }
+
+  Widget _stepRules({Key? key}) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Column(
+      key: key,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionTitle('Rules & Access', Icons.rule),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            color: cs.onSurface.withOpacity(0.04),
+            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+          ),
+          child: Column(
+            children: [
+              SwitchListTile.adaptive(
+                value: _privacy == LeaguePrivacy.private,
+                onChanged: _submitting
+                    ? null
+                    : (v) => setState(() => _privacy = v ? LeaguePrivacy.private : LeaguePrivacy.public),
+                activeColor: cs.primary,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  'Private league',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  _privacy == LeaguePrivacy.private
+                      ? 'Only members can view and join.'
+                      : 'Anyone can view, join with code.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
+                    fontSize: 12,
+                    height: 1.25,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-          textAlign: TextAlign.center,
+              Divider(color: cs.onSurface.withOpacity(0.12)),
+              SwitchListTile.adaptive(
+                value: _doubleRoundRobin,
+                onChanged: _submitting ? null : (v) => setState(() => _doubleRoundRobin = v),
+                activeColor: cs.primary,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  'Double round robin',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  'Each team plays twice (home/away).',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
+                    fontSize: 12,
+                    height: 1.25,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Divider(color: cs.onSurface.withOpacity(0.12)),
+              SwitchListTile.adaptive(
+                value: _containsRewards,
+                onChanged: _submitting ? null : (v) => setState(() => _containsRewards = v),
+                activeColor: cs.primary,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  'Does this league contain rewards?',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  _containsRewards
+                      ? 'Yes — you will be prompted to add rewards after creation.'
+                      : 'No — you can add rewards later from League Admin.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
+                    fontSize: 12,
+                    height: 1.25,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stepReview({Key? key}) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final canCreate = _name.text.trim().isNotEmpty && (!_creationRequiresPayment || _paymentCompleted);
+
+    final paymentTitle = _paymentCompleted ? l10n.tr('league_create_payment_completed_title') : l10n.tr('league_create_payment_required_title');
+    final paymentSubtitle = _paymentCompleted
+        ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}'
+        : l10n.tr('league_create_payment_required_subtitle');
+
+    final paymentIcon = _paymentCompleted ? Icons.verified : Icons.lock_outline;
+    final paymentAccent = _paymentCompleted ? cs.primary : _premiumAmber;
+
+    return Column(
+      key: key,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionTitle('Review', Icons.check_circle_outline),
+        const SizedBox(height: 10),
+        _infoBanner(
+          icon: Icons.emoji_events_outlined,
+          title: _name.text.trim().isEmpty ? l10n.tr('league_create_league_name_not_set') : _name.text.trim(),
+          subtitle: '${_format.displayName} • $_maxTeams teams • ${_privacy == LeaguePrivacy.private ? 'Private' : 'Public'}',
+        ),
+        const SizedBox(height: 10),
+        _confirmRow(Icons.card_giftcard_outlined, 'Rewards', _containsRewards ? 'Yes' : 'No',
+            valueColor: _containsRewards ? cs.primary : cs.onSurface.withOpacity(0.75)),
+        if (_couponsEnabled)
+          _confirmRow(
+            Icons.confirmation_number_outlined,
+            'Coupons',
+            _couponLabel.replaceFirst('Coupons: ', ''),
+            valueColor: cs.primary,
+          ),
+        if (_creationRequiresPayment) ...[
+          const SizedBox(height: 10),
+          _infoBanner(
+            icon: paymentIcon,
+            title: paymentTitle,
+            subtitle: paymentSubtitle,
+            accent: paymentAccent,
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _submitting ? null : _payIfNeeded,
+            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+            child: Text(
+              _paymentCompleted ? l10n.tr('league_create_payment_done_view_receipt') : l10n.tr('league_create_pay_now'),
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+
+        // Single working create button for wizard
+        FilledButton(
+          onPressed: (_submitting || !canCreate) ? null : () => _create(context),
+          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+          child: _submitting
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : Text(
+                  l10n.tr('league_create_create_league_button_upper'),
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
         ),
       ],
     );
@@ -661,31 +1007,156 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     final l10n = context.l10n;
     final cs = Theme.of(context).colorScheme;
 
+    final isLast = _step == 2;
+
     return Row(
       children: [
         Expanded(
           child: OutlinedButton(
-            onPressed: _submitting ? null : () => context.pop(),
+            onPressed: _submitting ? null : _backOrClose,
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
               side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
               foregroundColor: cs.onSurface.withOpacity(0.80),
             ),
-            child: Text(l10n.tr('common_cancel'), style: const TextStyle(fontWeight: FontWeight.w900)),
+            child: Text(
+              (_step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back')).toUpperCase(),
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: FilledButton(
-            onPressed: _submitting ? null : () => _create(context),
+            onPressed: (_submitting || isLast)
+                ? null
+                : () async {
+                    await _validateAndNext();
+                  },
             style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
             child: Text(
-              l10n.tr('league_create_create_league_button_upper'),
+              l10n.tr('common_next').toUpperCase(),
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _confirmRow(
+    IconData icon,
+    String label,
+    String value, {
+    Color? valueColor,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: cs.primary),
+          const SizedBox(width: 10),
+          Text(
+            '$label: ',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.70),
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: valueColor ?? cs.onSurface,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String text, IconData icon) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: cs.primary.withOpacity(0.14),
+            border: Border.all(color: cs.primary.withOpacity(0.35)),
+          ),
+          child: Icon(icon, size: 18, color: cs.primary),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          text,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: cs.onSurface,
+            fontWeight: FontWeight.w900,
+            fontSize: 16,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _infoBanner({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    Color? accent,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final a = accent ?? cs.primary;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: cs.onSurface.withOpacity(0.04),
+        border: Border.all(color: a.withOpacity(0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: a, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.70),
+                    height: 1.25,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -782,6 +1253,16 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         _createdLeague = league;
         _submitting = false;
       });
+
+      // NEW: Immediately offer rewards management if organizer selected Yes.
+      if (_containsRewards) {
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => EditLeagueRewardsScreen(leagueId: league.id),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
@@ -841,8 +1322,10 @@ class _OptionalImageField extends StatelessWidget {
                 ? Image.network(
                     url,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
+                    errorBuilder: (_, __, ___) => Icon(
+                      Icons.emoji_events_outlined,
+                      color: cs.onSurface.withOpacity(0.55),
+                    ),
                   )
                 : Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55))),
       ),

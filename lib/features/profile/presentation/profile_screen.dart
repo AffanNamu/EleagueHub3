@@ -28,6 +28,7 @@ import '../../legal/affiliate_disclosure_screen.dart';
 import '../../legal/contact_screen.dart';
 import '../../legal/privacy_policy_screen.dart';
 import '../../legal/terms_of_service_screen.dart';
+import '../../leagues/data/services/reward_firestore_service.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
 
@@ -344,7 +345,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           height: 4,
                           margin: const EdgeInsets.only(bottom: 14),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.25),
+                            color: onSurface.withOpacity(0.20),
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -543,9 +544,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                           final expected = (d['expectedAmount'] as num?)?.toDouble() ?? 0.0;
                                           final currency = (d['currency'] as String?) ?? cfg.currency;
                                           final isPaid = status == 'paid';
-                                          final when = paidAtMs > 0
-                                              ? DateTime.fromMillisecondsSinceEpoch(paidAtMs).toLocal().toString()
-                                              : '—';
+                                          final when = paidAtMs > 0 ? DateTime.fromMillisecondsSinceEpoch(paidAtMs).toLocal().toString() : '—';
                                           return ListTile(
                                             dense: true,
                                             contentPadding: EdgeInsets.zero,
@@ -555,9 +554,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               size: 20,
                                             ),
                                             title: Text(
-                                              userId.isEmpty
-                                                  ? '(unknown user)'
-                                                  : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
+                                              userId.isEmpty ? '(unknown user)' : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
                                               style: theme.textTheme.bodyMedium?.copyWith(color: onSurface, fontWeight: FontWeight.w900),
                                             ),
                                             subtitle: Text(
@@ -675,6 +672,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ? _cloudinaryOptimizedUrl(rawAvatarUrl, width: 256, height: 256, crop: 'fill')
                     : rawAvatarUrl;
 
+                final muted = onSurface.withOpacity(0.55);
+
                 return Column(
                   children: [
                     // Avatar + Name row
@@ -759,6 +758,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         style: t.titleLarge?.copyWith(
                                           fontWeight: FontWeight.w900,
                                           fontSize: 20,
+                                          color: onSurface,
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -766,7 +766,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   ),
                                   IconButton(
                                     tooltip: l10n.tr('profile_edit_team_name_tooltip'),
-                                    icon: Icon(Icons.edit_rounded, color: Colors.white.withOpacity(0.6), size: 18),
+                                    icon: Icon(Icons.edit_rounded, color: muted, size: 18),
                                     onPressed: uid.isEmpty
                                         ? null
                                         : () {
@@ -779,13 +779,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               const SizedBox(height: 2),
                               Row(
                                 children: [
-                                  Icon(Icons.tag_rounded, size: 13, color: Colors.white.withOpacity(0.4)),
+                                  Icon(Icons.tag_rounded, size: 13, color: onSurface.withOpacity(0.45)),
                                   const SizedBox(width: 4),
                                   Expanded(
                                     child: Text(
                                       uid.isEmpty ? l10n.tr('profile_not_signed_in') : shortUserId,
                                       style: TextStyle(
-                                        color: Colors.white.withOpacity(0.50),
+                                        color: onSurface.withOpacity(0.60),
                                         fontWeight: FontWeight.w700,
                                         fontSize: 12,
                                       ),
@@ -805,7 +805,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                           },
                                     child: Padding(
                                       padding: const EdgeInsets.all(4),
-                                      child: Icon(Icons.copy_rounded, size: 14, color: Colors.white.withOpacity(0.4)),
+                                      child: Icon(Icons.copy_rounded, size: 14, color: onSurface.withOpacity(0.45)),
                                     ),
                                   ),
                                 ],
@@ -901,10 +901,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   child: _StatCard(
                     icon: Icons.sports_rounded,
                     label: l10n.tr('profile_stat_format'),
-                    value: currentLeague.name
-                        .toUpperCase()
-                        .replaceAll('CLASSIC', 'CL')
-                        .replaceAll('SWISS', 'SW'),
+                    value: currentLeague.name.toUpperCase().replaceAll('CLASSIC', 'CL').replaceAll('SWISS', 'SW'),
                   ),
                 ),
               ],
@@ -912,6 +909,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
 
           const SizedBox(height: 22),
+
+          // ── Super Admin: Rewards fulfillment monitoring ──
+          if (isSuperAdmin) ...[
+            SectionHeader('Rewards Fulfillment'),
+            const SizedBox(height: 12),
+            _SuperAdminRewardsPanel(
+              superAdminUid: uid,
+            ),
+            const SizedBox(height: 22),
+          ],
 
           // ── Coupons ──
           SectionHeader('Coupons'),
@@ -921,13 +928,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               padding: const EdgeInsets.all(18),
               child: Row(
                 children: [
-                  Icon(Icons.lock_outline_rounded, color: Colors.white.withOpacity(0.4)),
+                  Icon(Icons.lock_outline_rounded, color: onSurface.withOpacity(0.45)),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'Sign in to view your coupons.',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.55),
+                        color: onSurface.withOpacity(0.65),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -939,11 +946,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             Glass(
               padding: const EdgeInsets.all(14),
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('leagues')
-                    .where('organizerUid', isEqualTo: uid)
-                    .limit(25)
-                    .snapshots(),
+                stream: FirebaseFirestore.instance.collection('leagues').where('organizerUid', isEqualTo: uid).limit(25).snapshots(),
                 builder: (context, snap) {
                   if (snap.hasError) {
                     return Text(
@@ -956,9 +959,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     return Center(child: CircularProgressIndicator(color: cs.primary));
                   }
 
-                  final leagues = snap.data!.docs
-                      .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
-                      .where((m) {
+                  final leagues = snap.data!.docs.map((d) => <String, dynamic>{...d.data(), 'id': d.id}).where((m) {
                     final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
                     if (!enabled) return false;
                     final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
@@ -968,13 +969,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   if (leagues.isEmpty) {
                     return Row(
                       children: [
-                        Icon(Icons.confirmation_number_outlined, color: Colors.white.withOpacity(0.4)),
+                        Icon(Icons.confirmation_number_outlined, color: onSurface.withOpacity(0.45)),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'No coupons found. Enable coupons during league creation payment.',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.55),
+                              color: onSurface.withOpacity(0.65),
                               fontWeight: FontWeight.w600,
                               height: 1.35,
                             ),
@@ -1024,7 +1025,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
                   ),
                 ),
-                Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                Divider(color: onSurface.withOpacity(0.08), height: 1),
                 _LegalNavRow(
                   icon: Icons.article_outlined,
                   title: 'Terms of Service',
@@ -1033,7 +1034,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
                   ),
                 ),
-                Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                Divider(color: onSurface.withOpacity(0.08), height: 1),
                 _LegalNavRow(
                   icon: Icons.support_agent_outlined,
                   title: 'Contact',
@@ -1042,7 +1043,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     MaterialPageRoute<void>(builder: (_) => const ContactScreen()),
                   ),
                 ),
-                Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                Divider(color: onSurface.withOpacity(0.08), height: 1),
                 _LegalNavRow(
                   icon: Icons.link_outlined,
                   title: 'Affiliate Disclosure',
@@ -1073,7 +1074,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         MaterialPageRoute<void>(builder: (_) => const AdminMarketplaceUploadScreen()),
                       ),
                     ),
-                    if (isPricingAdmin) Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                    if (isPricingAdmin) Divider(color: onSurface.withOpacity(0.08), height: 1),
                   ],
                   if (isPricingAdmin) ...[
                     _AdminRow(
@@ -1081,7 +1082,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       title: 'Pricing Admin',
                       onTap: () => GoRouter.of(context).push('/admin/pricing'),
                     ),
-                    Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                    Divider(color: onSurface.withOpacity(0.08), height: 1),
                     _AdminRow(
                       icon: Icons.group_add_rounded,
                       title: 'Manage Pricing Admins',
@@ -1300,6 +1301,739 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 }
 
 // ─────────────────────────────────────────────
+// Super Admin Rewards Panel
+// ─────────────────────────────────────────────
+
+class _SuperAdminRewardsPanel extends StatefulWidget {
+  const _SuperAdminRewardsPanel({
+    required this.superAdminUid,
+  });
+
+  final String superAdminUid;
+
+  @override
+  State<_SuperAdminRewardsPanel> createState() => _SuperAdminRewardsPanelState();
+}
+
+class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
+  final RewardFirestoreService _rewardsService = RewardFirestoreService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  static const int _limit = 40;
+
+  final Map<String, Future<_LeagueProgressStatus>> _statusFutures = <String, Future<_LeagueProgressStatus>>{};
+
+  Future<_LeagueProgressStatus> _statusFuture(String leagueId) {
+    return _statusFutures.putIfAbsent(leagueId, () => _fetchLeagueProgress(leagueId));
+  }
+
+  Future<_LeagueProgressStatus> _fetchLeagueProgress(String leagueId) async {
+    try {
+      final matchesCol = _firestore.collection('leagues').doc(leagueId).collection('matches');
+
+      final any = await matchesCol.limit(1).get();
+      if (any.docs.isEmpty) return _LeagueProgressStatus.notStarted;
+
+      try {
+        final unplayed = await matchesCol.where('isPlayed', isEqualTo: false).limit(1).get();
+        if (unplayed.docs.isNotEmpty) return _LeagueProgressStatus.inProgress;
+        return _LeagueProgressStatus.finished;
+      } catch (_) {
+        // If the field doesn't exist or query fails, fall back to unknown.
+        return _LeagueProgressStatus.unknown;
+      }
+    } catch (_) {
+      return _LeagueProgressStatus.unknown;
+    }
+  }
+
+  int _intFrom(dynamic v, {int fallback = 0}) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim()) ?? fallback;
+    return fallback;
+  }
+
+  String _stringFrom(dynamic v, {String fallback = ''}) {
+    final s = (v ?? '').toString();
+    return s.trim().isEmpty ? fallback : s.trim();
+  }
+
+  int? _scoreFromMap(Map<String, dynamic> m, List<String> keys) {
+    for (final k in keys) {
+      if (!m.containsKey(k)) continue;
+      final v = m[k];
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) {
+        final parsed = int.tryParse(v.trim());
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
+  }
+
+  bool _isPlayedFromMap(Map<String, dynamic> m) {
+    final v = m['isPlayed'] ?? m['played'] ?? m['isComplete'] ?? m['completed'];
+    if (v is bool) return v;
+    if (v is int) return v == 1;
+    if (v is String) {
+      final s = v.trim().toLowerCase();
+      if (s == 'true' || s == '1' || s == 'yes') return true;
+      if (s == 'false' || s == '0' || s == 'no') return false;
+    }
+    return false;
+  }
+
+  Future<_WinnerResult?> _computeWinner(String leagueId) async {
+    final teamsSnap = await _firestore.collection('leagues').doc(leagueId).collection('teams').get();
+    final matchesSnap = await _firestore.collection('leagues').doc(leagueId).collection('matches').get();
+
+    if (teamsSnap.docs.isEmpty) return null;
+    if (matchesSnap.docs.isEmpty) return null;
+
+    final teamNames = <String, String>{
+      for (final d in teamsSnap.docs)
+        d.id: _stringFrom(d.data()['name'] ?? d.data()['teamName'] ?? d.data()['displayName'] ?? '', fallback: d.id),
+    };
+
+    final stats = <String, _TeamStats>{
+      for (final id in teamNames.keys) id: _TeamStats(teamId: id, teamName: teamNames[id] ?? id),
+    };
+
+    bool anyPlayed = false;
+
+    for (final md in matchesSnap.docs) {
+      final m = md.data();
+
+      final homeId = _stringFrom(m['homeTeamId'] ?? m['homeId'] ?? m['homeTeam'] ?? '');
+      final awayId = _stringFrom(m['awayTeamId'] ?? m['awayId'] ?? m['awayTeam'] ?? '');
+
+      if (homeId.isEmpty || awayId.isEmpty) continue;
+
+      final played = _isPlayedFromMap(m);
+      if (!played) continue;
+
+      final hs = _scoreFromMap(m, const ['homeScore', 'homeGoals', 'homeTeamScore', 'scoreHome', 'home']);
+      final as = _scoreFromMap(m, const ['awayScore', 'awayGoals', 'awayTeamScore', 'scoreAway', 'away']);
+
+      if (hs == null || as == null) continue;
+
+      anyPlayed = true;
+
+      stats.putIfAbsent(homeId, () => _TeamStats(teamId: homeId, teamName: teamNames[homeId] ?? homeId));
+      stats.putIfAbsent(awayId, () => _TeamStats(teamId: awayId, teamName: teamNames[awayId] ?? awayId));
+
+      final home = stats[homeId]!;
+      final away = stats[awayId]!;
+
+      home.played++;
+      away.played++;
+
+      home.goalsFor += hs;
+      home.goalsAgainst += as;
+
+      away.goalsFor += as;
+      away.goalsAgainst += hs;
+
+      if (hs > as) {
+        home.points += 3;
+        home.wins++;
+        away.losses++;
+      } else if (hs < as) {
+        away.points += 3;
+        away.wins++;
+        home.losses++;
+      } else {
+        home.points += 1;
+        away.points += 1;
+        home.draws++;
+        away.draws++;
+      }
+    }
+
+    if (!anyPlayed) return null;
+
+    final rows = stats.values.toList()
+      ..sort((a, b) {
+        final p = b.points.compareTo(a.points);
+        if (p != 0) return p;
+        final gd = b.goalDiff.compareTo(a.goalDiff);
+        if (gd != 0) return gd;
+        final gf = b.goalsFor.compareTo(a.goalsFor);
+        if (gf != 0) return gf;
+        return a.teamName.toLowerCase().compareTo(b.teamName.toLowerCase());
+      });
+
+    final top = rows.first;
+    return _WinnerResult(
+      teamId: top.teamId,
+      teamName: top.teamName,
+      points: top.points,
+      played: top.played,
+      goalDiff: top.goalDiff,
+      goalsFor: top.goalsFor,
+      goalsAgainst: top.goalsAgainst,
+      wins: top.wins,
+      draws: top.draws,
+      losses: top.losses,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
+    final leaguesQuery = _firestore.collection('leagues').orderBy('updatedAtMs', descending: true).limit(_limit);
+
+    return Glass(
+      padding: const EdgeInsets.all(14),
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: leaguesQuery.snapshots(),
+        builder: (context, snap) {
+          if (snap.hasError) {
+            return Text(
+              UserFriendlyError.toMessage(snap.error as Object),
+              style: theme.textTheme.bodyMedium?.copyWith(color: cs.error, fontWeight: FontWeight.w800),
+            );
+          }
+          if (!snap.hasData) {
+            return Center(child: CircularProgressIndicator(color: cs.primary));
+          }
+
+          final docs = snap.data!.docs;
+          if (docs.isEmpty) {
+            return Text(
+              'No leagues found.',
+              style: theme.textTheme.bodyMedium?.copyWith(color: onSurface.withOpacity(0.70), fontWeight: FontWeight.w700),
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Leagues with rewards (latest $_limit)',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: onSurface,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 10),
+              for (final d in docs) ...[
+                _SuperAdminRewardLeagueTile(
+                  leagueId: d.id,
+                  leagueData: d.data(),
+                  rewardsService: _rewardsService,
+                  statusFuture: _statusFuture(d.id),
+                  onOpenLeague: () => GoRouter.of(context).push('/leagues/${d.id}'),
+                  onOpenStandings: () => GoRouter.of(context).push('/leagues/${d.id}/standings'),
+                  onComputeWinner: () async {
+                    await showDialog<void>(
+                      context: context,
+                      barrierDismissible: true,
+                      builder: (ctx) {
+                        final t = Theme.of(ctx);
+                        final cs = t.colorScheme;
+                        final onSurface = cs.onSurface;
+
+                        return Dialog(
+                          backgroundColor: Colors.transparent,
+                          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                          child: Glass(
+                            borderRadius: 24,
+                            padding: const EdgeInsets.all(16),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 520),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 42,
+                                        height: 42,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(14),
+                                          color: cs.primary.withOpacity(0.12),
+                                          border: Border.all(color: cs.primary.withOpacity(0.22)),
+                                        ),
+                                        child: Icon(Icons.emoji_events_outlined, color: cs.primary),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          'Compute Winner',
+                                          style: t.textTheme.titleMedium?.copyWith(
+                                            color: onSurface,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        onPressed: () => Navigator.of(ctx).pop(),
+                                        icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  FutureBuilder<_WinnerResult?>(
+                                    future: _computeWinner(d.id),
+                                    builder: (context, ws) {
+                                      if (ws.connectionState != ConnectionState.done) {
+                                        return Padding(
+                                          padding: const EdgeInsets.symmetric(vertical: 18),
+                                          child: Row(
+                                            children: [
+                                              SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(strokeWidth: 2.4, color: cs.primary),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Text(
+                                                  'Computing from matches...',
+                                                  style: t.textTheme.bodyMedium?.copyWith(
+                                                    color: onSurface.withOpacity(0.70),
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }
+
+                                      final res = ws.data;
+                                      if (res == null) {
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                                          children: [
+                                            Text(
+                                              'Winner unavailable',
+                                              style: t.textTheme.bodyMedium?.copyWith(
+                                                color: onSurface,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'Not enough played matches or missing scores. Open Standings to confirm.',
+                                              style: t.textTheme.bodySmall?.copyWith(
+                                                color: onSurface.withOpacity(0.70),
+                                                fontWeight: FontWeight.w600,
+                                                height: 1.3,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            FilledButton.tonal(
+                                              onPressed: () {
+                                                Navigator.of(ctx).pop();
+                                                GoRouter.of(context).push('/leagues/${d.id}/standings');
+                                              },
+                                              child: const Text('Open Standings'),
+                                            ),
+                                          ],
+                                        );
+                                      }
+
+                                      return Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          Text(
+                                            'Winner: ${res.teamName}',
+                                            style: t.textTheme.titleMedium?.copyWith(
+                                              color: onSurface,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          _kvRow(ctx, 'Team ID', res.teamId),
+                                          _kvRow(ctx, 'Points', '${res.points}'),
+                                          _kvRow(ctx, 'Played', '${res.played}'),
+                                          _kvRow(ctx, 'Goal Diff', '${res.goalDiff}'),
+                                          _kvRow(ctx, 'W-D-L', '${res.wins}-${res.draws}-${res.losses}'),
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: OutlinedButton.icon(
+                                                  onPressed: () async {
+                                                    await Clipboard.setData(ClipboardData(text: res.teamId));
+                                                    if (!context.mounted) return;
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      const SnackBar(content: Text('Copied team id')),
+                                                    );
+                                                  },
+                                                  icon: const Icon(Icons.copy),
+                                                  label: const Text('Copy Team ID'),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: FilledButton(
+                                                  onPressed: () {
+                                                    Navigator.of(ctx).pop();
+                                                    GoRouter.of(context).push('/leagues/${d.id}/standings');
+                                                  },
+                                                  child: const Text('Standings'),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _kvRow(BuildContext context, String k, String v) {
+    final t = Theme.of(context);
+    final cs = t.colorScheme;
+    final onSurface = cs.onSurface;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              k,
+              style: t.textTheme.bodySmall?.copyWith(
+                color: onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              v,
+              style: t.textTheme.bodySmall?.copyWith(
+                color: onSurface.withOpacity(0.92),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SuperAdminRewardLeagueTile extends StatelessWidget {
+  const _SuperAdminRewardLeagueTile({
+    required this.leagueId,
+    required this.leagueData,
+    required this.rewardsService,
+    required this.statusFuture,
+    required this.onOpenLeague,
+    required this.onOpenStandings,
+    required this.onComputeWinner,
+  });
+
+  final String leagueId;
+  final Map<String, dynamic> leagueData;
+  final RewardFirestoreService rewardsService;
+  final Future<_LeagueProgressStatus> statusFuture;
+
+  final VoidCallback onOpenLeague;
+  final VoidCallback onOpenStandings;
+  final VoidCallback onComputeWinner;
+
+  String _s(dynamic v, {String fallback = ''}) {
+    final s = (v ?? '').toString().trim();
+    return s.isEmpty ? fallback : s;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
+    final name = _s(leagueData['name'], fallback: 'League');
+    final code = _s(leagueData['code']);
+    final organizerUid = _s(leagueData['organizerUid']);
+    final ownerUid = _s(leagueData['ownerUid']);
+    final org = organizerUid.isNotEmpty ? organizerUid : ownerUid;
+
+    // Single safe read: top reward name (also drives "rewards exist" decision)
+    return FutureBuilder<String?>(
+      future: rewardsService.fetchTopRewardName(leagueId: leagueId),
+      builder: (context, rs) {
+        if (rs.hasError) {
+          // Don’t hide the league if reward read fails; show minimal tile.
+          return Glass(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Rewards: unavailable (${rs.error})',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.error.withOpacity(0.9),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: OutlinedButton(onPressed: onOpenLeague, child: const Text('Open'))),
+                    const SizedBox(width: 10),
+                    Expanded(child: FilledButton(onPressed: onOpenStandings, child: const Text('Standings'))),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+
+        final topReward = (rs.data ?? '').trim();
+        final hasRewards = topReward.isNotEmpty;
+
+        // Hide leagues that have no rewards
+        if (!hasRewards && rs.connectionState == ConnectionState.done) {
+          return const SizedBox.shrink();
+        }
+
+        return Glass(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      name,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFFD54F), Color(0xFFFF8A65)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: Text(
+                      '🏆 Rewards',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.black.withOpacity(0.86),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              if (topReward.isNotEmpty)
+                Text(
+                  'Top reward: $topReward',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                )
+              else
+                Text(
+                  'Checking rewards...',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: onSurface.withOpacity(0.60),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              const SizedBox(height: 6),
+              FutureBuilder<_LeagueProgressStatus>(
+                future: statusFuture,
+                builder: (context, ss) {
+                  final status = ss.data ?? _LeagueProgressStatus.unknown;
+                  final text = switch (status) {
+                    _LeagueProgressStatus.notStarted => 'Status: Not started',
+                    _LeagueProgressStatus.inProgress => 'Status: In progress',
+                    _LeagueProgressStatus.finished => 'Status: Finished',
+                    _LeagueProgressStatus.unknown => 'Status: Unknown',
+                  };
+                  final color = switch (status) {
+                    _LeagueProgressStatus.notStarted => onSurface.withOpacity(0.65),
+                    _LeagueProgressStatus.inProgress => const Color(0xFFF59E0B),
+                    _LeagueProgressStatus.finished => const Color(0xFF22C55E),
+                    _LeagueProgressStatus.unknown => onSurface.withOpacity(0.60),
+                  };
+
+                  return Text(
+                    text,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onOpenLeague,
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Open'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: onOpenStandings,
+                      icon: const Icon(Icons.leaderboard_outlined),
+                      label: const Text('Standings'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: onComputeWinner,
+                      icon: const Icon(Icons.emoji_events_outlined),
+                      label: const Text('Winner'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: org.isEmpty
+                          ? null
+                          : () async {
+                              await Clipboard.setData(ClipboardData(text: org));
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied organizer UID')));
+                            },
+                      icon: const Icon(Icons.copy),
+                      label: const Text('Copy Organizer'),
+                    ),
+                  ),
+                ],
+              ),
+              if (code.isNotEmpty || org.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                if (code.isNotEmpty)
+                  Text(
+                    'Code: $code',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: onSurface.withOpacity(0.70),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                if (org.isNotEmpty)
+                  Text(
+                    'Organizer UID: ${org.length > 14 ? '${org.substring(0, 14)}…' : org}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: onSurface.withOpacity(0.70),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+enum _LeagueProgressStatus { notStarted, inProgress, finished, unknown }
+
+class _TeamStats {
+  _TeamStats({
+    required this.teamId,
+    required this.teamName,
+  });
+
+  final String teamId;
+  final String teamName;
+
+  int points = 0;
+  int played = 0;
+
+  int wins = 0;
+  int draws = 0;
+  int losses = 0;
+
+  int goalsFor = 0;
+  int goalsAgainst = 0;
+
+  int get goalDiff => goalsFor - goalsAgainst;
+}
+
+class _WinnerResult {
+  const _WinnerResult({
+    required this.teamId,
+    required this.teamName,
+    required this.points,
+    required this.played,
+    required this.goalDiff,
+    required this.goalsFor,
+    required this.goalsAgainst,
+    required this.wins,
+    required this.draws,
+    required this.losses,
+  });
+
+  final String teamId;
+  final String teamName;
+
+  final int points;
+  final int played;
+
+  final int goalDiff;
+  final int goalsFor;
+  final int goalsAgainst;
+
+  final int wins;
+  final int draws;
+  final int losses;
+}
+
+// ─────────────────────────────────────────────
 // Profile Action Chip
 // ─────────────────────────────────────────────
 class _ProfileActionChip extends StatelessWidget {
@@ -1365,12 +2099,13 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: cs.onSurface.withOpacity(0.04),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: cs.onSurface.withOpacity(0.08)),
       ),
       child: Column(
         children: [
@@ -1381,6 +2116,7 @@ class _StatCard extends StatelessWidget {
               value,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w900,
+                color: onSurface,
               ),
             ),
           ),
@@ -1388,9 +2124,9 @@ class _StatCard extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.45),
+              color: onSurface.withOpacity(0.60),
               fontSize: 11,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
             maxLines: 1,
           ),
@@ -1419,6 +2155,10 @@ class _LegalNavRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    final chevron = isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
+
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
@@ -1444,13 +2184,14 @@ class _LegalNavRow extends StatelessWidget {
                     title,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w900,
+                      color: onSurface,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.45),
+                      color: onSurface.withOpacity(0.60),
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                       height: 1.25,
@@ -1459,7 +2200,7 @@ class _LegalNavRow extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 20),
+            Icon(chevron, color: onSurface.withOpacity(0.35), size: 20),
           ],
         ),
       ),
@@ -1484,6 +2225,10 @@ class _AdminRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    final chevron = isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
+
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
@@ -1504,10 +2249,13 @@ class _AdminRow extends StatelessWidget {
             Expanded(
               child: Text(
                 title,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: onSurface,
+                    ),
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 20),
+            Icon(chevron, color: onSurface.withOpacity(0.35), size: 20),
           ],
         ),
       ),
@@ -1532,6 +2280,7 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
     return Glass(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
@@ -1554,13 +2303,16 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
                   leagueName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: onSurface,
+                      ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.50),
+                    color: onSurface.withOpacity(0.60),
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),

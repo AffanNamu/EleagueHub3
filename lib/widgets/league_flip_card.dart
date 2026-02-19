@@ -1,46 +1,80 @@
-import 'dart:math';
-import 'dart:ui';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
-import '../core/locale/app_localizations.dart';
-import '../core/theme/app_theme.dart';
+import '../core/widgets/glass.dart';
+import '../features/leagues/data/services/reward_firestore_service.dart';
 
+/// Backward-compatible LeagueFlipCard.
+///
+/// Supports BOTH legacy usage (named fields like leagueName/leagueCode/qrWidget)
+/// and new usage (passing a `league` object/map).
+///
+/// Rewards:
+/// - Shows 🏆 Rewards Available badge only if rewards exist
+/// - Shows a small "Top reward" preview (reward at lowest `position`) using
+///   a safe single Firestore read: orderBy(position) limit(1)
 class LeagueFlipCard extends StatefulWidget {
-  final String leagueName;
-  final String leagueCode;
-  final String distribution;
-
-  final Widget? qrWidget;
-  final VoidCallback? onDoubleTap;
-  final VoidCallback? onTap;
-  final String? subtitle;
   const LeagueFlipCard({
     super.key,
-    required this.leagueName,
-    required this.leagueCode,
-    required this.distribution,
-    this.qrWidget,
-    this.onDoubleTap,
-    this.onTap,
+    this.league,
+
+    /// Optional for badge/preview lookup (recommended).
+    this.leagueId,
+
+    /// Show 🏆 Rewards Available badge (default: true).
+    this.showRewardsBadge = true,
+
+    /// Show "Top reward" preview (default: true).
+    this.showRewardsPreview = true,
+
+    // Legacy API (still supported)
+    this.leagueName,
+    this.leagueCode,
+    this.distribution,
     this.subtitle,
+    this.qrWidget,
+
+    this.onTap,
+    this.onDoubleTap,
+    this.onLongPress,
   });
+
+  final dynamic league;
+
+  final String? leagueId;
+  final bool showRewardsBadge;
+  final bool showRewardsPreview;
+
+  final String? leagueName;
+  final String? leagueCode;
+  final String? distribution;
+  final String? subtitle;
+  final Widget? qrWidget;
+
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final VoidCallback? onLongPress;
 
   @override
   State<LeagueFlipCard> createState() => _LeagueFlipCardState();
 }
 
 class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProviderStateMixin {
+  final RewardFirestoreService _rewardsService = RewardFirestoreService();
+
   late final AnimationController _controller;
   late final Animation<double> _anim;
+
+  bool _showBack = false;
+
+  final Map<String, Future<String?>> _topRewardFutureCache = <String, Future<String?>>{};
+
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 650),
-    );
+    _controller = AnimationController(duration: const Duration(milliseconds: 420), vsync: this);
     _anim = CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic);
   }
 
@@ -50,212 +84,462 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
     super.dispose();
   }
 
-  Future<void> _copyCode() async {
-    final l10n = context.l10n;
-    await Clipboard.setData(ClipboardData(text: widget.leagueCode));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.tr('league_flip_card_invite_code_copied')),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  Map<String, dynamic> _extractMap(dynamic obj) {
+    if (obj == null) return const <String, dynamic>{};
+    if (obj is Map<String, dynamic>) return obj;
+    if (obj is Map) return obj.map((k, v) => MapEntry(k.toString(), v));
+    try {
+      final m = (obj as dynamic).toJson();
+      if (m is Map<String, dynamic>) return m;
+      if (m is Map) return m.map((k, v) => MapEntry(k.toString(), v));
+    } catch (_) {}
+    return const <String, dynamic>{};
   }
 
-  void _toggle() {
-    if (_controller.isAnimating) return;
-    if (_controller.value < 0.5) {
+  String _readString(dynamic obj, List<String> keys, {String fallback = ''}) {
+    final map = _extractMap(obj);
+    for (final k in keys) {
+      final v = map[k];
+      if (v != null && v.toString().trim().isNotEmpty) return v.toString();
+    }
+    try {
+      for (final k in keys) {
+        final v = (obj as dynamic).__getattribute__(k);
+        if (v != null && v.toString().trim().isNotEmpty) return v.toString();
+      }
+    } catch (_) {}
+    return fallback;
+  }
+
+  String _deriveLeagueId() {
+    final explicit = (widget.leagueId ?? '').trim();
+    if (explicit.isNotEmpty) return explicit;
+
+    final league = widget.league;
+    final map = _extractMap(league);
+    final id = (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '').toString().trim();
+    if (id.isNotEmpty) return id;
+
+    try {
+      final v = (league as dynamic).id;
+      if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+    } catch (_) {}
+
+    return '';
+  }
+
+  String _title() {
+    final legacy = (widget.leagueName ?? '').trim();
+    if (legacy.isNotEmpty) return legacy;
+
+    return _readString(widget.league, const ['name', 'leagueName', 'title'], fallback: 'League');
+  }
+
+  String _code() {
+    final legacy = (widget.leagueCode ?? '').trim();
+    if (legacy.isNotEmpty) return legacy;
+
+    return _readString(widget.league, const ['code', 'joinCode'], fallback: '');
+  }
+
+  String _distribution() {
+    final legacy = (widget.distribution ?? '').trim();
+    if (legacy.isNotEmpty) return legacy;
+
+    final fmt = _readString(widget.league, const ['formatName', 'format', 'leagueFormat'], fallback: '');
+    final season = _readString(widget.league, const ['season'], fallback: '');
+    final combo = [fmt, season].where((e) => e.trim().isNotEmpty).join(' • ');
+    return combo;
+  }
+
+  String _subtitle() {
+    final legacy = (widget.subtitle ?? '').trim();
+    if (legacy.isNotEmpty) return legacy;
+
+    return _readString(widget.league, const ['subtitle', 'region'], fallback: '');
+  }
+
+  String _qrPayload() {
+    final map = _extractMap(widget.league);
+    final override = (map['qrPayloadOverride'] ?? '').toString().trim();
+    if (override.isNotEmpty) return override;
+
+    final qr = (map['qrPayload'] ?? '').toString().trim();
+    if (qr.isNotEmpty) return qr;
+
+    return _code();
+  }
+
+  void _toggleFlip() {
+    setState(() => _showBack = !_showBack);
+    if (_showBack) {
       _controller.forward();
     } else {
       _controller.reverse();
     }
-    widget.onTap?.call();
+  }
+
+  Future<String?> _topRewardNameFuture(String leagueId) {
+    return _topRewardFutureCache.putIfAbsent(
+      leagueId,
+      () => _rewardsService.fetchTopRewardName(leagueId: leagueId),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final leagueId = _deriveLeagueId();
+
     return GestureDetector(
-      onTap: _toggle,
+      onTap: () {
+        widget.onTap?.call();
+        _toggleFlip();
+      },
+      onLongPress: widget.onLongPress,
       onDoubleTap: widget.onDoubleTap,
-      child: AnimatedBuilder(
-        listenable: _anim,
-        builder: (context, _) {
-          final t = _anim.value;
-          final angle = t * pi;
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0.98, end: 1.0),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        builder: (context, s, child) => Transform.scale(scale: s, child: child),
+        child: Glass(
+          borderRadius: 26,
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            height: 240,
+            child: AnimatedBuilder(
+              animation: _anim,
+              builder: (context, _) {
+                final t = _anim.value;
+                final angle = t * math.pi;
+                final isBackVisible = t >= 0.5;
 
-          final transform = Matrix4.identity()
-            ..setEntry(3, 2, 0.0016)
-            ..rotateY(angle);
+                final face = isBackVisible ? _backFace(context) : _frontFace(context, leagueId);
 
-          final child = angle <= (pi / 2)
-              ? _buildFront()
-              : Transform(
-                  transform: Matrix4.rotationY(pi),
+                return Transform(
                   alignment: Alignment.center,
-                  child: _buildBack(),
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.0016)
+                    ..rotateY(angle),
+                  child: Transform(
+                    alignment: Alignment.center,
+                    transform: isBackVisible ? Matrix4.identity()..rotateY(math.pi) : Matrix4.identity(),
+                    child: face,
+                  ),
                 );
-
-          return Transform(
-            transform: transform,
-            alignment: Alignment.center,
-            child: child,
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _glass({required Widget child}) {
-    final brightness = Theme.of(context).brightness;
-    final fill = AppTheme.glassFill(brightness);
-    final stroke = AppTheme.glassStroke(brightness);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
-          height: 220,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: fill,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: stroke),
+              },
+            ),
           ),
-          child: child,
         ),
       ),
     );
   }
 
-  Widget _buildFront() {
-    final l10n = context.l10n;
+  Widget _frontFace(BuildContext context, String leagueId) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    return _glass(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-        child: Column(
-          children: [
-            // ── Top content (takes available space) ──
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+
+    final title = _title();
+    final code = _code();
+    final distribution = _distribution();
+    final subtitle = _subtitle();
+
+    final bool wantsRewardsUi = (widget.showRewardsBadge || widget.showRewardsPreview) && leagueId.trim().isNotEmpty;
+    final Future<String?>? topRewardFuture = wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(22),
+              gradient: LinearGradient(
+                colors: [
+                  cs.primary.withValues(alpha: 0.14),
+                  cs.secondary.withValues(alpha: 0.10),
+                  cs.onSurface.withValues(alpha: 0.04),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  // Trophy icon
                   Container(
-                    width: 48,
-                    height: 48,
+                    width: 46,
+                    height: 46,
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
+                      borderRadius: BorderRadius.circular(16),
                       gradient: LinearGradient(
+                        colors: [
+                          cs.primary.withValues(alpha: 0.95),
+                          cs.secondary.withValues(alpha: 0.95),
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [
-                          cs.primary.withOpacity(0.25),
-                          Colors.amber.withOpacity(0.15),
-                        ],
                       ),
-                      border: Border.all(color: Colors.amber.withOpacity(0.30)),
                     ),
-                    child: const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 24),
+                    child: const Icon(Icons.emoji_events_outlined, color: Colors.white),
                   ),
-                  const SizedBox(height: 10),
-
-                  // League name
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
+                  const SizedBox(width: 12),
+                  Expanded(
                     child: Text(
-                      widget.leagueName,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 20,
-                        letterSpacing: -0.3,
-                      ),
-                      maxLines: 1,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Distribution
-                  Text(
-                    widget.distribution,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.55),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                  ),
-
-                  // Subtitle (if provided)
-                  if (widget.subtitle != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.subtitle!,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.40),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.2,
+                      ),
                     ),
-                  ],
+                  ),
                 ],
               ),
-            ),
-
-            // ── Bottom hints (fixed, never overlaps) ──
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.only(top: 8),
-              decoration: BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: Colors.white.withOpacity(0.06)),
+              const SizedBox(height: 10),
+              if (distribution.isNotEmpty)
+                Text(
+                  distribution,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withValues(alpha: 0.70),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.touch_app_rounded, size: 13, color: cs.primary.withOpacity(0.8)),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          l10n.tr('league_flip_card_tap_to_join_scan_qr').toUpperCase(),
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: cs.primary.withOpacity(0.85),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.0,
-                          ),
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface.withValues(alpha: 0.78),
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+
+              // Small Rewards Preview (Top-1 reward)
+              if (widget.showRewardsPreview && topRewardFuture != null) ...[
+                const SizedBox(height: 10),
+                FutureBuilder<String?>(
+                  future: topRewardFuture,
+                  builder: (context, snap) {
+                    final name = (snap.data ?? '').trim();
+                    if (name.isEmpty) {
+                      // Keep UI clean: show nothing if no rewards.
+                      // While loading, show a subtle placeholder pill.
+                      if (snap.connectionState != ConnectionState.waiting) return const SizedBox.shrink();
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(999),
+                          color: cs.onSurface.withValues(alpha: 0.05),
+                          border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
                         ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.card_giftcard_outlined, size: 16, color: cs.onSurface.withValues(alpha: 0.45)),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Checking rewards...',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: cs.onSurface.withValues(alpha: 0.55),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeOutCubic,
+                      child: Container(
+                        key: ValueKey<String>('topReward:$name'),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(999),
+                          color: cs.primary.withValues(alpha: 0.12),
+                          border: Border.all(color: cs.primary.withValues(alpha: 0.28)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.card_giftcard_outlined, size: 16, color: cs.primary),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Top reward: $name',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  color: cs.primary,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+
+              const Spacer(),
+              Row(
+                children: [
+                  if (code.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        color: cs.onSurface.withValues(alpha: 0.06),
+                        border: Border.all(color: cs.onSurface.withValues(alpha: 0.12)),
+                      ),
+                      child: Text(
+                        'CODE: $code',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: cs.primary.withValues(alpha: 0.14),
+                      border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+                    ),
+                    child: Text(
+                      'TAP TO FLIP',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: cs.primary,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // Rewards badge, driven by the same topReward read (no extra read).
+        if (widget.showRewardsBadge && topRewardFuture != null)
+          Positioned(
+            right: 14,
+            top: 14,
+            child: FutureBuilder<String?>(
+              future: topRewardFuture,
+              builder: (context, snap) {
+                final name = (snap.data ?? '').trim();
+                if (name.isEmpty) return const SizedBox.shrink();
+
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFD54F), Color(0xFFFF8A65)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 14,
+                        offset: const Offset(0, 8),
                       ),
                     ],
                   ),
-                  if (widget.onDoubleTap != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.tr('league_flip_card_double_tap_to_view_details'),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.40),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    child: Text(
+                      '🏆 Rewards Available',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.black.withValues(alpha: 0.86),
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                  ],
-                ],
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _backFace(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final qr = widget.qrWidget ??
+        QrImageView(
+          data: _qrPayload(),
+          version: QrVersions.auto,
+          gapless: true,
+          eyeStyle: const QrEyeStyle(
+            eyeShape: QrEyeShape.square,
+            color: Colors.black,
+          ),
+          dataModuleStyle: const QrDataModuleStyle(
+            dataModuleShape: QrDataModuleShape.square,
+            color: Colors.black,
+          ),
+        );
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: cs.onSurface.withValues(alpha: 0.03),
+        border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            Text(
+              'Scan to Join',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    color: Colors.white,
+                    padding: const EdgeInsets.all(10),
+                    child: qr,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Tap to flip back',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withValues(alpha: 0.70),
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -263,125 +547,4 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
       ),
     );
   }
-
-  Widget _buildBack() {
-    final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    return _glass(
-      child: Row(
-        children: [
-          // QR code
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.94),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: Center(
-                  child: widget.qrWidget ??
-                      const Icon(Icons.qr_code_2_rounded, size: 80, color: Colors.black87),
-                ),
-              ),
-            ),
-          ),
-
-          // Code + copy
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsetsDirectional.only(end: 16),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.tr('league_flip_card_invite_code_label').toUpperCase(),
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.45),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.0,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Text(
-                      widget.leagueCode,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 2.5,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Copy button
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: _copyCode,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Ink(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          color: cs.primary.withOpacity(0.14),
-                          border: Border.all(color: cs.primary.withOpacity(0.30)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.copy_rounded, size: 14, color: cs.primary),
-                            const SizedBox(width: 6),
-                            Text(
-                              l10n.tr('common_copy').toUpperCase(),
-                              style: TextStyle(
-                                color: cs.primary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class AnimatedBuilder extends AnimatedWidget {
-  const AnimatedBuilder({
-    super.key,
-    required super.listenable,
-    required this.builder,
-    this.child,
-  });
-
-  Animation<dynamic> get animation => listenable as Animation<dynamic>;
-  final TransitionBuilder builder;
-  final Widget? child;
-
-  @override
-  Widget build(BuildContext context) => builder(context, child);
 }

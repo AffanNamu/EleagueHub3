@@ -58,9 +58,26 @@ class RosterCsvRow {
   }
 }
 
-typedef ResolveRosterProfile = Future<ResolvedRosterProfile?> Function(String userIdOrShareId);
+typedef ResolveRosterProfile = Future<ResolvedRosterProfile?> Function(
+  String userIdOrShareId,
+);
 
 bool _looksLikeShareId(String input) => input.trim().startsWith('eS');
+
+/// Heuristic: Firebase Auth UIDs are usually long (28 chars), but we keep it loose.
+bool _looksLikeFirebaseUid(String input) {
+  final t = input.trim();
+  if (t.isEmpty) return false;
+  if (_looksLikeShareId(t)) return false;
+  return t.length > 20;
+}
+
+/// Never show Firebase UIDs in UI (privacy/cleanliness), only show a label.
+String _displayInput(String raw) {
+  final t = raw.trim();
+  if (_looksLikeFirebaseUid(t)) return 'Firebase UID (hidden)';
+  return t;
+}
 
 Future<void> showRosterCsvImportFlow({
   required BuildContext context,
@@ -87,7 +104,9 @@ Future<void> showRosterCsvImportFlow({
     if (bytes == null || bytes.isEmpty) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not read file. Please pick a different CSV.')),
+        const SnackBar(
+          content: Text('Could not read file. Please pick a different CSV.'),
+        ),
       );
       return;
     }
@@ -153,7 +172,8 @@ Future<void> _showImportPreviewSheet({
   Future<RosterCsvRow> validateOne(RosterCsvRow r) async {
     final input = r.input.trim();
     final csvName = r.teamNameFromCsv?.trim();
-    final canFallbackToCsv = !_looksLikeShareId(input) && (csvName != null && csvName.isNotEmpty);
+    final canFallbackToCsv =
+        !_looksLikeShareId(input) && (csvName != null && csvName.isNotEmpty);
 
     try {
       final resolved = await resolveProfile(input);
@@ -185,7 +205,12 @@ Future<void> _showImportPreviewSheet({
       validating = true;
       error = null;
       stateRows = stateRows
-          .map((r) => r.copyWith(status: RosterRowStatus.pending, resolved: null))
+          .map(
+            (r) => r.copyWith(
+              status: RosterRowStatus.pending,
+              resolved: null,
+            ),
+          )
           .toList();
     });
 
@@ -208,9 +233,12 @@ Future<void> _showImportPreviewSheet({
 
   Future<void> addValidAndClose(BuildContext ctx) async {
     final valid = stateRows
-        .where((r) =>
-            (r.status == RosterRowStatus.ok || r.status == RosterRowStatus.okCsv) &&
-            r.resolved != null)
+        .where(
+          (r) =>
+              (r.status == RosterRowStatus.ok ||
+                  r.status == RosterRowStatus.okCsv) &&
+              r.resolved != null,
+        )
         .toList();
 
     if (valid.isEmpty) return;
@@ -230,10 +258,18 @@ Future<void> _showImportPreviewSheet({
       final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
       final theme = Theme.of(ctx);
       final cs = theme.colorScheme;
+      final onSurface = cs.onSurface;
+
+      // Theme-aware colors for light mode readability.
+      final subtleText = onSurface.withOpacity(0.65);
+      final faintText = onSurface.withOpacity(0.48);
+      final borderColor = onSurface.withOpacity(0.10);
+      final chipBg = onSurface.withOpacity(0.06);
 
       return SafeArea(
         child: Padding(
-          padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+          padding: EdgeInsets.only(bottom: bottomInset)
+              .add(const EdgeInsets.all(12)),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 760),
@@ -241,14 +277,18 @@ Future<void> _showImportPreviewSheet({
                 borderRadius: 28,
                 child: StatefulBuilder(
                   builder: (ctx, setModalState) {
-                    final okCount =
-                        stateRows.where((r) => r.status == RosterRowStatus.ok).length;
-                    final okCsvCount =
-                        stateRows.where((r) => r.status == RosterRowStatus.okCsv).length;
-                    final notFoundCount =
-                        stateRows.where((r) => r.status == RosterRowStatus.notFound).length;
-                    final offlineCount =
-                        stateRows.where((r) => r.status == RosterRowStatus.offline).length;
+                    final okCount = stateRows
+                        .where((r) => r.status == RosterRowStatus.ok)
+                        .length;
+                    final okCsvCount = stateRows
+                        .where((r) => r.status == RosterRowStatus.okCsv)
+                        .length;
+                    final notFoundCount = stateRows
+                        .where((r) => r.status == RosterRowStatus.notFound)
+                        .length;
+                    final offlineCount = stateRows
+                        .where((r) => r.status == RosterRowStatus.offline)
+                        .length;
                     final totalValid = okCount + okCsvCount;
 
                     return Padding(
@@ -262,7 +302,7 @@ Future<void> _showImportPreviewSheet({
                             height: 4,
                             margin: const EdgeInsets.only(bottom: 16),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.25),
+                              color: onSurface.withOpacity(0.18),
                               borderRadius: BorderRadius.circular(2),
                             ),
                           ),
@@ -284,7 +324,11 @@ Future<void> _showImportPreviewSheet({
                                     ],
                                   ),
                                 ),
-                                child: Icon(Icons.upload_file_rounded, color: cs.primary, size: 22),
+                                child: Icon(
+                                  Icons.upload_file_rounded,
+                                  color: cs.primary,
+                                  size: 22,
+                                ),
                               ),
                               const SizedBox(width: 14),
                               Expanded(
@@ -293,17 +337,19 @@ Future<void> _showImportPreviewSheet({
                                   children: [
                                     Text(
                                       'Import Roster',
-                                      style: theme.textTheme.titleMedium?.copyWith(
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
                                         fontWeight: FontWeight.w900,
                                         fontSize: 18,
                                         letterSpacing: -0.3,
+                                        color: onSurface,
                                       ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
                                       sourceLabel,
                                       style: TextStyle(
-                                        color: Colors.white.withOpacity(0.45),
+                                        color: faintText,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -314,16 +360,19 @@ Future<void> _showImportPreviewSheet({
                               ),
                               // Capacity badge
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.06),
+                                  color: chipBg,
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                                  border: Border.all(color: borderColor),
                                 ),
                                 child: Text(
                                   '$currentTeamCount / $maxTeams',
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.6),
+                                    color: subtleText,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800,
                                   ),
@@ -342,8 +391,8 @@ Future<void> _showImportPreviewSheet({
                                 _StatusChip(
                                   icon: Icons.list_alt_rounded,
                                   label: '${stateRows.length} Rows',
-                                  color: Colors.white.withOpacity(0.5),
-                                  bg: Colors.white.withOpacity(0.06),
+                                  color: subtleText,
+                                  bg: chipBg,
                                 ),
                                 const SizedBox(width: 8),
                                 _StatusChip(
@@ -387,13 +436,14 @@ Future<void> _showImportPreviewSheet({
                             children: [
                               Expanded(
                                 child: _GlassActionButton(
-                                  icon: validating
-                                      ? null
-                                      : Icons.verified_rounded,
+                                  icon:
+                                      validating ? null : Icons.verified_rounded,
                                   isLoading: validating,
                                   label: 'Validate',
                                   color: cs.primary,
-                                  onPressed: validating ? null : () => validateNow(setModalState),
+                                  onPressed: validating
+                                      ? null
+                                      : () => validateNow(setModalState),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -401,7 +451,7 @@ Future<void> _showImportPreviewSheet({
                                 child: _GlassActionButton(
                                   icon: Icons.close_rounded,
                                   label: 'Close',
-                                  color: Colors.white.withOpacity(0.5),
+                                  color: subtleText,
                                   outlined: true,
                                   onPressed: () => Navigator.of(ctx).pop(),
                                 ),
@@ -422,17 +472,21 @@ Future<void> _showImportPreviewSheet({
                                     height: 32,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: Colors.orangeAccent.withOpacity(0.12),
+                                      color:
+                                          Colors.orangeAccent.withOpacity(0.12),
                                     ),
-                                    child: const Icon(Icons.wifi_off_rounded,
-                                        color: Colors.orangeAccent, size: 16),
+                                    child: const Icon(
+                                      Icons.wifi_off_rounded,
+                                      color: Colors.orangeAccent,
+                                      size: 16,
+                                    ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
                                       'Some rows could not be verified. Reconnect and tap Validate again.',
                                       style: TextStyle(
-                                        color: Colors.white.withOpacity(0.60),
+                                        color: subtleText,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                         height: 1.3,
@@ -453,7 +507,8 @@ Future<void> _showImportPreviewSheet({
                               shrinkWrap: true,
                               physics: const BouncingScrollPhysics(),
                               itemCount: stateRows.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 6),
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 6),
                               itemBuilder: (context, index) {
                                 final r = stateRows[index];
                                 return _RosterRowCard(
@@ -472,8 +527,11 @@ Future<void> _showImportPreviewSheet({
                               padding: const EdgeInsets.all(12),
                               child: Row(
                                 children: [
-                                  Icon(Icons.error_outline_rounded,
-                                      color: Colors.redAccent, size: 18),
+                                  const Icon(
+                                    Icons.error_outline_rounded,
+                                    color: Colors.redAccent,
+                                    size: 18,
+                                  ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
@@ -515,11 +573,11 @@ Future<void> _showImportPreviewSheet({
                                             ],
                                           ),
                                     color: (validating || totalValid == 0)
-                                        ? Colors.white.withOpacity(0.06)
+                                        ? onSurface.withOpacity(0.06)
                                         : null,
                                     border: Border.all(
                                       color: (validating || totalValid == 0)
-                                          ? Colors.white.withOpacity(0.08)
+                                          ? borderColor
                                           : cs.primary.withOpacity(0.40),
                                     ),
                                   ),
@@ -531,16 +589,17 @@ Future<void> _showImportPreviewSheet({
                                           Icons.playlist_add_check_rounded,
                                           size: 20,
                                           color: (validating || totalValid == 0)
-                                              ? Colors.white.withOpacity(0.3)
-                                              : Colors.white,
+                                              ? onSurface.withOpacity(0.35)
+                                              : cs.onPrimary,
                                         ),
                                         const SizedBox(width: 10),
                                         Text(
                                           'Add valid ($totalValid) to preview',
                                           style: TextStyle(
-                                            color: (validating || totalValid == 0)
-                                                ? Colors.white.withOpacity(0.3)
-                                                : Colors.white,
+                                            color:
+                                                (validating || totalValid == 0)
+                                                    ? onSurface.withOpacity(0.35)
+                                                    : cs.onPrimary,
                                             fontWeight: FontWeight.w800,
                                             fontSize: 14,
                                           ),
@@ -580,40 +639,61 @@ class _RosterRowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
     final isOk = row.status == RosterRowStatus.ok && row.resolved != null;
     final isOkCsv = row.status == RosterRowStatus.okCsv && row.resolved != null;
     final isPending = row.status == RosterRowStatus.pending;
     final isOffline = row.status == RosterRowStatus.offline;
 
+    final rawInput = row.input.trim();
+    final displayInput = _displayInput(rawInput);
+    final isHiddenUid = displayInput != rawInput;
+
     final IconData icon;
     final Color iconColor;
     final Color bgColor;
-    final String subtitle;
+
+    String title;
+    String subtitle;
 
     if (isOk) {
       icon = Icons.verified_rounded;
       iconColor = const Color(0xFF00E676);
       bgColor = const Color(0xFF00E676).withOpacity(0.12);
-      subtitle = row.resolved!.teamName;
+
+      // Team name is primary; never show raw Firebase UID.
+      title = row.resolved!.teamName;
+      subtitle = isHiddenUid ? 'Verified • UID hidden' : 'Verified • $displayInput';
     } else if (isOkCsv) {
       icon = Icons.cloud_off_rounded;
       iconColor = Colors.blueAccent;
       bgColor = Colors.blueAccent.withOpacity(0.10);
-      subtitle = 'CSV OK: ${row.resolved!.teamName}';
+
+      title = row.resolved!.teamName;
+      subtitle = isHiddenUid ? 'CSV OK • UID hidden' : 'CSV OK • $displayInput';
     } else if (isPending) {
       icon = Icons.hourglass_empty_rounded;
-      iconColor = Colors.white.withOpacity(0.4);
-      bgColor = Colors.white.withOpacity(0.06);
+      iconColor = onSurface.withOpacity(0.55);
+      bgColor = onSurface.withOpacity(0.06);
+
+      title = displayInput;
       subtitle = 'Pending validation';
     } else if (isOffline) {
       icon = Icons.wifi_off_rounded;
       iconColor = Colors.orangeAccent;
       bgColor = Colors.orangeAccent.withOpacity(0.10);
+
+      title = displayInput;
       subtitle = 'Offline (cannot verify)';
     } else {
       icon = Icons.close_rounded;
       iconColor = Colors.redAccent;
       bgColor = Colors.redAccent.withOpacity(0.10);
+
+      title = displayInput;
       subtitle = 'No profile found';
     }
 
@@ -637,9 +717,9 @@ class _RosterRowCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  row.input,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  title,
+                  style: TextStyle(
+                    color: onSurface,
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
                   ),
@@ -650,8 +730,8 @@ class _RosterRowCard extends StatelessWidget {
                   subtitle,
                   style: TextStyle(
                     color: (isOk || isOkCsv)
-                        ? Colors.white.withOpacity(0.55)
-                        : Colors.white.withOpacity(0.35),
+                        ? onSurface.withOpacity(0.70)
+                        : onSurface.withOpacity(0.55),
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -665,13 +745,16 @@ class _RosterRowCard extends StatelessWidget {
               margin: const EdgeInsets.only(left: 8),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.06),
+                color: onSurface.withOpacity(0.06),
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: onSurface.withOpacity(0.10),
+                ),
               ),
               child: Text(
                 (row.group == null || row.group!.isEmpty) ? '—' : row.group!,
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.5),
+                  color: onSurface.withOpacity(0.72),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                 ),
@@ -759,7 +842,9 @@ class _GlassActionButton extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
             color: outlined ? Colors.transparent : color.withOpacity(0.12),
-            border: Border.all(color: color.withOpacity(outlined ? 0.30 : 0.20)),
+            border: Border.all(
+              color: color.withOpacity(outlined ? 0.30 : 0.20),
+            ),
           ),
           child: Center(
             child: Row(
@@ -769,7 +854,10 @@ class _GlassActionButton extends StatelessWidget {
                   SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: color,
+                    ),
                   )
                 else if (icon != null)
                   Icon(icon, size: 18, color: color),
@@ -800,7 +888,8 @@ List<RosterCsvRow> _parseRosterCsv({
   required List<String> allowedGroups,
 }) {
   final lines = const LineSplitter().convert(csvText);
-  final cleaned = lines.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+  final cleaned =
+      lines.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
   if (cleaned.isEmpty) return [];
 
   final first = _splitCsvLine(cleaned.first).map((e) => e.trim()).toList();
@@ -811,11 +900,18 @@ List<RosterCsvRow> _parseRosterCsv({
   int? teamNameIdx;
 
   if (first.isNotEmpty) {
-    final lowered = first.map((e) => e.toLowerCase().replaceAll(' ', '')).toList();
+    final lowered =
+        first.map((e) => e.toLowerCase().replaceAll(' ', '')).toList();
 
     final idCandidates = <String>{
-      'userid', 'user_id', 'useridorshareid', 'useridor_shareid',
-      'user_id_or_share_id', 'useridorshare', 'shareid', 'share_id',
+      'userid',
+      'user_id',
+      'useridorshareid',
+      'useridor_shareid',
+      'user_id_or_share_id',
+      'useridorshare',
+      'shareid',
+      'share_id',
     };
     final groupCandidates = <String>{'group', 'groupid', 'group_id'};
     final teamNameCandidates = <String>{'teamname', 'team_name'};

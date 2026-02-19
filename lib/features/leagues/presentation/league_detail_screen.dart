@@ -20,6 +20,8 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
 import '../data/leagues_repository_local.dart';
+import '../data/models/reward_model.dart';
+import '../data/services/reward_firestore_service.dart';
 import '../domain/logic/tournament_controller.dart';
 import '../domain/standings/standings.dart';
 import '../domain/standings/standings_calculator.dart';
@@ -30,6 +32,9 @@ import '../models/league_announcement.dart';
 import '../models/league_format.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
+import 'screens/edit_league_rewards_screen.dart';
+import 'screens/league_rewards_screen.dart';
+import 'widgets/reward_card.dart';
 
 class _L10nException implements Exception {
   final String key;
@@ -56,6 +61,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   late final PreferencesService _prefs;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final RewardFirestoreService _rewardsService = RewardFirestoreService();
 
   int? _lastViewedRound;
   static String _lastRoundKey(String leagueId) => 'ui_last_round_$leagueId';
@@ -444,6 +450,24 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     }
   }
 
+  void _openRewardsViewer() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LeagueRewardsScreen(leagueId: widget.leagueId),
+      ),
+    );
+  }
+
+  Future<void> _openRewardsManager() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EditLeagueRewardsScreen(leagueId: widget.leagueId),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -607,6 +631,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                           spaceLive,
                           currentUserId,
                         ),
+                        const SizedBox(height: 16),
+                        _rewardsPreviewCard(context, league, isOwner),
                         const SizedBox(height: 16),
                         _upcomingMatchesCard(
                           context,
@@ -773,6 +799,155 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 return GlassAnnouncement(title: a.title, message: a.message, time: timeStr);
               },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _rewardsPreviewCard(BuildContext context, League league, bool isOwner) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Glass(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.card_giftcard_outlined, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Rewards',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onSurface,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: _openRewardsViewer,
+                child: Text(
+                  'View all',
+                  style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
+                ),
+              ),
+              if (isOwner) ...[
+                const SizedBox(width: 8),
+                FilledButton.tonalIcon(
+                  onPressed: _openRewardsManager,
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text(
+                    'Manage',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          FutureBuilder<bool>(
+            future: _rewardsService.hasRewards(leagueId: league.id),
+            builder: (context, hasSnap) {
+              final hasRewards = hasSnap.data == true;
+
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeOutCubic,
+                child: hasSnap.connectionState != ConnectionState.done
+                    ? Center(
+                        key: const ValueKey('loading'),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2.4, color: cs.primary),
+                          ),
+                        ),
+                      )
+                    : (!hasRewards
+                        ? Container(
+                            key: const ValueKey('empty'),
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: cs.onSurface.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+                            ),
+                            child: Text(
+                              'No rewards available',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: cs.onSurface.withOpacity(0.72),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          )
+                        : StreamBuilder<List<RewardModel>>(
+                            key: const ValueKey('list'),
+                            stream: _rewardsService.streamRewards(leagueId: league.id),
+                            builder: (context, snap) {
+                              if (snap.hasError) {
+                                return Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                  decoration: BoxDecoration(
+                                    color: cs.error.withOpacity(0.10),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: cs.error.withOpacity(0.18)),
+                                  ),
+                                  child: Text(
+                                    'Failed to load rewards',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: cs.error,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              final all = snap.data ?? const <RewardModel>[];
+                              final preview = all.take(3).toList(growable: false);
+
+                              return TweenAnimationBuilder<double>(
+                                tween: Tween<double>(begin: 0.96, end: 1),
+                                duration: const Duration(milliseconds: 240),
+                                curve: Curves.easeOutCubic,
+                                builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                                child: Column(
+                                  children: [
+                                    for (final r in preview) RewardCard(reward: r, onTap: _openRewardsViewer),
+                                    if (all.length > preview.length)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 6),
+                                        child: Align(
+                                          alignment: AlignmentDirectional.center,
+                                          child: Text(
+                                            '+${all.length - preview.length} more',
+                                            style: TextStyle(
+                                              color: cs.onSurface.withOpacity(0.55),
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          )),
+              );
+            },
           ),
         ],
       ),
@@ -1003,7 +1178,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       style: TextButton.styleFrom(
                         foregroundColor: hasKnockouts ? cs.primary : cs.onSurface.withOpacity(0.30),
                       ),
-                      onPressed: hasKnockouts ? () => context.push('/leagues/${widget.leagueId}/knockout') : showNeedKnockoutsSnack,
+                      onPressed: hasKnockouts
+                          ? () => context.push('/leagues/${widget.leagueId}/knockout')
+                          : showNeedKnockoutsSnack,
                       icon: const Icon(Icons.account_tree_outlined, size: 18),
                       label: Text(
                         l10n.tr('league_details_view_knockout_bracket'),

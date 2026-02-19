@@ -57,8 +57,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
   String _languageDisplayName(String code) => _languageAutonyms[code] ?? code.toUpperCase();
 
-  TextDirection _languageTextDirection(String code) =>
-      _isRtlLangCode(code) ? TextDirection.rtl : TextDirection.ltr;
+  TextDirection _languageTextDirection(String code) => _isRtlLangCode(code) ? TextDirection.rtl : TextDirection.ltr;
 
   @override
   void initState() {
@@ -149,8 +148,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
       builder: (ctx) => AlertDialog(
         title: Text(_trOr(l10n, 'live_overlay_permission_title', 'Allow overlay permission')),
         content: Text(
-          _trOr(l10n, 'live_overlay_permission_body',
-              'To show the floating voice/message controls above other apps, Android requires an "Appear on top" permission.'),
+          _trOr(
+            l10n,
+            'live_overlay_permission_body',
+            'To show the floating voice/message controls above other apps, Android requires an "Appear on top" permission.',
+          ),
         ),
         actions: [
           TextButton(
@@ -173,8 +175,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        content: Text(_trOr(l10n, 'live_overlay_permission_snackbar',
-            'Grant the overlay permission, then return to the app.')),
+        content: Text(
+          _trOr(
+            l10n,
+            'live_overlay_permission_snackbar',
+            'Grant the overlay permission, then return to the app.',
+          ),
+        ),
       ),
     );
   }
@@ -251,6 +258,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
 
     final themeState = ref.watch(themeControllerProvider);
     final localeState = ref.watch(localeControllerProvider);
@@ -276,7 +284,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
           icon: Glass(
             padding: const EdgeInsets.all(8),
             borderRadius: 12,
-            child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white.withOpacity(0.9)),
+            child: Icon(
+              Icons.arrow_back_ios_new_rounded,
+              size: 18,
+              color: onSurface.withOpacity(0.9),
+            ),
           ),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
@@ -304,7 +316,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                           gradient: LinearGradient(
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
-                            colors: [cs.primary.withOpacity(0.30), cs.primary.withOpacity(0.08)],
+                            colors: [
+                              cs.primary.withOpacity(0.30),
+                              cs.primary.withOpacity(0.08),
+                            ],
                           ),
                         ),
                         child: Icon(Icons.settings_rounded, color: cs.primary, size: 22),
@@ -320,13 +335,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                 fontWeight: FontWeight.w900,
                                 fontSize: 22,
                                 letterSpacing: -0.5,
+                                color: onSurface,
                               ),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               'Customize your experience',
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.45),
+                                color: onSurface.withOpacity(0.55),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -370,7 +386,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                       Text(
                         l10n.themeHint,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.40),
+                          color: onSurface.withOpacity(0.50),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -393,7 +409,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                       Text(
                         l10n.languageHint,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.45),
+                          color: onSurface.withOpacity(0.55),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -405,9 +421,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.05),
+                            color: onSurface.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.white.withOpacity(0.08)),
+                            border: Border.all(color: onSurface.withOpacity(0.10)),
                           ),
                           child: Row(
                             children: [
@@ -418,11 +434,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                   textDirection: _languageTextDirection(currentLangCode),
                                   child: Text(
                                     _languageDisplayName(currentLangCode),
-                                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      color: onSurface,
+                                    ),
                                   ),
                                 ),
                               ),
-                              Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.3), size: 20),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                color: onSurface.withOpacity(0.35),
+                                size: 20,
+                              ),
                             ],
                           ),
                         ),
@@ -459,7 +483,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                 if (v) await NotificationService().showTestNotification();
                               },
                             ),
-                            Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                            Divider(color: onSurface.withOpacity(0.08), height: 1),
                             _SettingsToggle(
                               icon: Icons.alarm_rounded,
                               title: l10n.notificationsMatchRemindersTitle,
@@ -471,7 +495,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                 await _saveNotifications();
                               },
                             ),
-                            Divider(color: Colors.white.withOpacity(0.06), height: 1),
+                            Divider(color: onSurface.withOpacity(0.08), height: 1),
                             _SettingsToggle(
                               icon: Icons.campaign_rounded,
                               title: l10n.notificationsMarketingTitle,
@@ -501,7 +525,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                       Text(
                         l10n.liveOverlayHint,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.45),
+                          color: onSurface.withOpacity(0.55),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           height: 1.4,
@@ -547,10 +571,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                         children: [
                           Expanded(
                             child: Text(
-                              _trOr(l10n, 'quick_messages_hint',
-                                  'Defaults are included. Premium users can add up to 15 custom quick messages.'),
+                              _trOr(
+                                l10n,
+                                'quick_messages_hint',
+                                'Defaults are included. Premium users can add up to 15 custom quick messages.',
+                              ),
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.45),
+                                color: onSurface.withOpacity(0.55),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 height: 1.4,
@@ -569,9 +596,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                         Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.04),
+                            color: onSurface.withOpacity(0.04),
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.white.withOpacity(0.06)),
+                            border: Border.all(color: onSurface.withOpacity(0.08)),
                           ),
                           child: Row(
                             children: [
@@ -587,10 +614,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  _trOr(l10n, 'quick_messages_premium_required',
-                                      'Premium required to create custom quick messages.'),
+                                  _trOr(
+                                    l10n,
+                                    'quick_messages_premium_required',
+                                    'Premium required to create custom quick messages.',
+                                  ),
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.55),
+                                    color: onSurface.withOpacity(0.70),
                                     fontWeight: FontWeight.w700,
                                     fontSize: 12,
                                   ),
@@ -604,8 +634,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         behavior: SnackBarBehavior.floating,
-                                        content: Text(_trOr(l10n, 'quick_messages_upgrade_soon',
-                                            'Upgrade flow not implemented yet.')),
+                                        content: Text(
+                                          _trOr(
+                                            l10n,
+                                            'quick_messages_upgrade_soon',
+                                            'Upgrade flow not implemented yet.',
+                                          ),
+                                        ),
                                       ),
                                     );
                                   },
@@ -638,13 +673,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             child: Row(
                               children: [
-                                Icon(Icons.chat_bubble_outline_rounded,
-                                    color: Colors.white.withOpacity(0.3), size: 18),
+                                Icon(
+                                  Icons.chat_bubble_outline_rounded,
+                                  color: onSurface.withOpacity(0.35),
+                                  size: 18,
+                                ),
                                 const SizedBox(width: 10),
                                 Text(
                                   _trOr(l10n, 'quick_messages_none_yet', 'No custom messages yet. Add one below.'),
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.45),
+                                    color: onSurface.withOpacity(0.55),
                                     fontWeight: FontWeight.w600,
                                     fontSize: 12,
                                   ),
@@ -690,9 +728,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                               child: TextField(
                                 controller: _quickInput,
                                 maxLength: QuickMessagePolicy.maxChars,
+                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w700),
                                 decoration: InputDecoration(
                                   counterText: '',
                                   hintText: _trOr(l10n, 'quick_messages_add_hint', 'Add custom message…'),
+                                  hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
                                 ),
                               ),
                             ),
@@ -758,15 +798,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'eSportlyic',
-                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                                color: onSurface,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               'Powered by Kaida',
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.40),
+                                color: onSurface.withOpacity(0.50),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -793,6 +837,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -810,17 +858,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                         height: 4,
                         margin: const EdgeInsets.only(top: 8, bottom: 14),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.25),
+                          color: onSurface.withOpacity(0.20),
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Text(
-                          context.l10n.languageTitle,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          ctx.l10n.languageTitle,
+                          style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             fontSize: 18,
+                            color: onSurface,
                           ),
                         ),
                       ),
@@ -834,7 +883,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                           itemBuilder: (context, i) {
                             final code = codes[i];
                             final selected = code == current;
-                            final cs = Theme.of(context).colorScheme;
 
                             return InkWell(
                               onTap: () async {
@@ -853,14 +901,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                           _languageDisplayName(code),
                                           style: TextStyle(
                                             fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
-                                            color: selected ? cs.primary : Colors.white.withOpacity(0.7),
+                                            color: selected ? cs.primary : onSurface.withOpacity(0.80),
                                             fontSize: 15,
                                           ),
                                         ),
                                       ),
                                     ),
-                                    if (selected)
-                                      Icon(Icons.check_circle_rounded, color: cs.primary, size: 20),
+                                    if (selected) Icon(Icons.check_circle_rounded, color: cs.primary, size: 20),
                                   ],
                                 ),
                               ),
@@ -892,8 +939,9 @@ class _SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
     return Padding(
-      padding: const EdgeInsets.only(left: 4),
+      padding: const EdgeInsetsDirectional.only(start: 4),
       child: Row(
         children: [
           Icon(icon, size: 16, color: cs.primary.withOpacity(0.7)),
@@ -904,7 +952,7 @@ class _SectionLabel extends StatelessWidget {
               fontWeight: FontWeight.w900,
               fontSize: 14,
               letterSpacing: -0.2,
-              color: Colors.white.withOpacity(0.7),
+              color: onSurface.withOpacity(0.75),
             ),
           ),
         ],
@@ -932,7 +980,8 @@ class _ThemeModeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final color = selected ? cs.primary : Colors.white.withOpacity(0.45);
+    final onSurface = cs.onSurface;
+    final color = selected ? cs.primary : onSurface.withOpacity(0.65);
 
     return InkWell(
       onTap: onTap,
@@ -941,9 +990,9 @@ class _ThemeModeCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          color: selected ? cs.primary.withOpacity(0.12) : Colors.white.withOpacity(0.04),
+          color: selected ? cs.primary.withOpacity(0.12) : onSurface.withOpacity(0.04),
           border: Border.all(
-            color: selected ? cs.primary.withOpacity(0.35) : Colors.white.withOpacity(0.06),
+            color: selected ? cs.primary.withOpacity(0.35) : onSurface.withOpacity(0.10),
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -956,7 +1005,7 @@ class _ThemeModeCard extends StatelessWidget {
               style: TextStyle(
                 color: color,
                 fontSize: 12,
-                fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
+                fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
               ),
             ),
           ],
@@ -989,6 +1038,7 @@ class _SettingsToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
     final effectiveOpacity = enabled ? 1.0 : 0.4;
 
     return Opacity(
@@ -1013,13 +1063,17 @@ class _SettingsToggle extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      color: onSurface,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.40),
+                      color: onSurface.withOpacity(0.55),
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),
@@ -1058,11 +1112,12 @@ class _OverlayStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     final Color color;
     final IconData icon;
 
     if (!enabled) {
-      color = Colors.white.withOpacity(0.4);
+      color = onSurface.withOpacity(0.55);
       icon = Icons.info_outline_rounded;
     } else if (granted) {
       color = const Color(0xFF00E676);
@@ -1116,7 +1171,8 @@ class _PremiumBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isPremium ? const Color(0xFF00E676) : Colors.white.withOpacity(0.4);
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final color = isPremium ? const Color(0xFF00E676) : onSurface.withOpacity(0.55);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -1153,22 +1209,27 @@ class _QuickMessageTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: onSurface.withOpacity(0.04),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: onSurface.withOpacity(0.08)),
       ),
       child: Row(
         children: [
-          Icon(Icons.drag_handle_rounded, color: Colors.white.withOpacity(0.3), size: 18),
+          Icon(Icons.drag_handle_rounded, color: onSurface.withOpacity(0.35), size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                color: onSurface,
+              ),
             ),
           ),
           InkWell(
