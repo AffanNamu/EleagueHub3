@@ -11,18 +11,44 @@ class Glass extends StatelessWidget {
     this.blur = 12.0,
     this.opacity = 0.08,
     this.border = true,
+
+    // Backward/forward compatible params (so other widgets can pass them)
+    // without forcing you to edit those widgets.
+    this.fill,
+    this.enableBorder,
+    this.borderColor,
   });
 
   final Widget child;
   final double borderRadius;
   final EdgeInsetsGeometry padding;
   final double blur;
+
+  /// Used when [fill] is null (keeps existing behavior everywhere else).
   final double opacity;
+
+  /// Existing API: whether to draw border.
   final bool border;
+
+  /// New API: explicit fill color (used by offline_banner.dart).
+  /// If provided, it overrides [opacity]/default fill.
+  final Color? fill;
+
+  /// New API: alias for border (used by offline_banner.dart).
+  /// If provided, it overrides [border].
+  final bool? enableBorder;
+
+  /// Optional override for border color (safe default kept).
+  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
     final br = BorderRadius.circular(borderRadius);
+
+    final effectiveFill = fill ?? Colors.white.withOpacity(opacity);
+    final effectiveBorderEnabled = enableBorder ?? border;
+    final effectiveBorderColor = borderColor ?? Colors.white.withOpacity(0.12);
+
     return ClipRRect(
       borderRadius: br,
       child: BackdropFilter(
@@ -31,9 +57,9 @@ class Glass extends StatelessWidget {
           padding: padding,
           decoration: BoxDecoration(
             borderRadius: br,
-            color: Colors.white.withOpacity(opacity),
-            border: border
-                ? Border.all(color: Colors.white.withOpacity(0.12))
+            color: effectiveFill,
+            border: effectiveBorderEnabled
+                ? Border.all(color: effectiveBorderColor)
                 : null,
           ),
           child: child,
