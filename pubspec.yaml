@@ -61,8 +61,11 @@ dependencies:
   marquee: ^2.2.3
 
   # Voice messages (record + playback)
-  # NOTE: pinned to a Gradle-compatible version for your current Android setup.
-  record: 4.4.4
+  #
+  # record 4.x fails on AGP 8+ because it uses `package="..."` in its plugin AndroidManifest.xml
+  # which is no longer supported for namespace.
+  # Use record 6.x which is compatible with modern Flutter + AGP.
+  record: ^6.0.0
   just_audio: ^0.9.38
   path: ^1.9.0
 
