@@ -21,6 +21,23 @@ allprojects {
     }
 }
 
+// Force Android namespace for plugins that are missing it (AGP 8+ requirement).
+// This fixes: "A problem occurred configuring project ':record' ... Namespace not specified."
+subprojects { project ->
+    afterEvaluate {
+        if (project.plugins.hasPlugin('com.android.library')) {
+            def androidExt = project.extensions.findByName('android')
+            if (androidExt != null) {
+                def ns = androidExt.hasProperty('namespace') ? androidExt.namespace : null
+                if (ns == null || ns.toString().trim().isEmpty()) {
+                    // Stable and unique default (based on module name).
+                    androidExt.namespace = "com.eleaguehub.generated.${project.name.replace('-', '_')}"
+                }
+            }
+        }
+    }
+}
+
 rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
