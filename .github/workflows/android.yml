@@ -14,45 +14,34 @@ jobs:
 
     steps:
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: 17
 
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
-          channel: stable
+          flutter-version: 3.24.5
 
 
-      # 🔥 CRITICAL FIX — CREATE local.properties dynamically
-      - name: Create Android local.properties
+      # 🔥 THIS IS THE REAL FIX
+      - name: Fix local.properties
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
           echo "flutter.sdk=$FLUTTER_ROOT" >> android/local.properties
-          cat android/local.properties
 
 
-      - name: Flutter pub get
-        run: flutter pub get
+      - run: flutter pub get
 
 
-      - name: Build Release APK
-        run: |
-          flutter build apk --release --no-tree-shake-icons \
-          --dart-define=CLOUDINARY_CLOUD_NAME=$CLOUDINARY_CLOUD_NAME \
-          --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=$CLOUDINARY_UNSIGNED_UPLOAD_PRESET
+      - run: flutter build apk --release
 
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: build/app/outputs/flutter-apk/app-release.apk
