@@ -24,20 +24,49 @@ jobs:
         with:
           flutter-version: '3.24.5'
 
+      - name: Debug Flutter paths
+        run: |
+          echo "which flutter: $(which flutter)"
+          flutter --version
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          flutter doctor -v
+
       - name: Generate local.properties
         run: |
-          FLUTTER_SDK_PATH=$(which flutter | xargs readlink -f | sed 's|/bin/flutter||')
+          FLUTTER_PATH=$(dirname $(dirname $(realpath $(which flutter))))
+          echo "Resolved Flutter SDK path: $FLUTTER_PATH"
+          ls -la "$FLUTTER_PATH/packages/flutter_tools/gradle" || true
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-          echo "flutter.sdk=$FLUTTER_SDK_PATH" >> android/local.properties
-          echo "--- local.properties contents ---"
+          echo "flutter.sdk=$FLUTTER_PATH" >> android/local.properties
+          echo "--- local.properties ---"
           cat android/local.properties
-          echo "--- verifying flutter.sdk path ---"
-          ls -la "$FLUTTER_SDK_PATH/packages/flutter_tools/gradle" || echo "WARNING: gradle dir not found"
-          
+
+      - name: Verify settings.gradle can read local.properties
+        run: |
+          echo "--- Checking local.properties exists ---"
+          ls -la android/local.properties
+          echo "--- Checking flutter_tools/gradle exists ---"
+          FLUTTER_PATH=$(grep 'flutter.sdk' android/local.properties | cut -d'=' -f2)
+          ls -la "$FLUTTER_PATH/packages/flutter_tools/gradle/" || echo "MISSING!"
+
       - name: Install dependencies
         run: flutter pub get
-        
+
+      - name: Verify local.properties after pub get
+        run: |
+          echo "--- local.properties after pub get ---"
+          cat android/local.properties
+
       - name: Build APK
+        run: |
+          cd android
+          ./gradlew assembleRelease \
+            -Pdart-defines=$(echo "CLOUDINARY_CLOUD_NAME=$CLOUDINARY_CLOUD_NAME,CLOUDINARY_UNSIGNED_UPLOAD_PRESET=$CLOUDINARY_UNSIGNED_UPLOAD_PRESET" | base64 -w0)
+        continue-on-error: true
+
+      - name: Build APK via Flutter
         run: |
           flutter build apk --release --no-tree-shake-icons \
             --dart-define=CLOUDINARY_CLOUD_NAME=$CLOUDINARY_CLOUD_NAME \
