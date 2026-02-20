@@ -16,6 +16,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Debug: show commit + files
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PWD=$(pwd)"
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "COMMIT:"
+          git rev-parse HEAD
+          echo "TOP LEVEL:"
+          ls -la
+          echo "ANDROID DIR:"
+          ls -la android || true
+          echo "FIND gradlew:"
+          find "$GITHUB_WORKSPACE" -maxdepth 4 -name gradlew -print || true
+          echo "TRACKED gradlew?"
+          git ls-files android/gradlew || true
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -53,26 +72,30 @@ jobs:
             exit 1
           fi
 
-          cat > android/local.properties <<PROP
+          cat > "$GITHUB_WORKSPACE/android/local.properties" <<PROP
           sdk.dir=${ANDROID_SDK_DIR}
           flutter.sdk=${FLUTTER_ROOT}
           PROP
 
           echo "android/local.properties:"
-          cat android/local.properties
+          cat "$GITHUB_WORKSPACE/android/local.properties"
 
       - name: Verify Gradle wrapper exists
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -f android/gradlew ]]; then
-            echo "ERROR: android/gradlew is missing."
-            echo "Run the 'Bootstrap Android Gradle Wrapper' workflow once to commit wrapper files."
+          if [[ ! -f "$GITHUB_WORKSPACE/android/gradlew" ]]; then
+            echo "ERROR: $GITHUB_WORKSPACE/android/gradlew is missing in this checkout."
+            echo "android/ listing:"
+            ls -la "$GITHUB_WORKSPACE/android" || true
+            echo "Tracked files:"
+            git ls-files | grep -E '^android/gradlew$|^android/gradle/wrapper/' || true
             exit 1
           fi
 
       - name: Make gradlew executable
-        run: chmod +x android/gradlew
+        shell: bash
+        run: chmod +x "$GITHUB_WORKSPACE/android/gradlew"
 
       - name: Build release APK
         run: flutter build apk --release
