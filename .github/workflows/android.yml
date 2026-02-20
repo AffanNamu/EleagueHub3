@@ -27,16 +27,25 @@ jobs:
 
       - name: Create local.properties
         run: |
-          FLUTTER_SDK=$(flutter sdk-path)
+          FLUTTER_SDK="$(flutter --no-version-check config --machine 2>/dev/null | grep '"flutter-sdk"' | cut -d'"' -f4)"
+          if [ -z "$FLUTTER_SDK" ]; then
+            FLUTTER_SDK="$(dirname $(dirname $(which flutter)))"
+          fi
           echo "Flutter SDK at: $FLUTTER_SDK"
+          ls -la "$FLUTTER_SDK/packages/flutter_tools/gradle/" || echo "gradle dir not found, trying to find it..."
+          find / -path "*/packages/flutter_tools/gradle" -type d 2>/dev/null | head -5
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           echo "flutter.sdk=$FLUTTER_SDK" >> android/local.properties
+          echo "--- local.properties ---"
           cat android/local.properties
-          echo "---"
-          ls "$FLUTTER_SDK/packages/flutter_tools/gradle/"
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Verify local.properties
+        run: |
+          echo "--- local.properties after pub get ---"
+          cat android/local.properties
 
       - name: Build APK
         run: |
