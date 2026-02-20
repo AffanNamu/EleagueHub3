@@ -61,7 +61,8 @@ dependencies:
   marquee: ^2.2.3
 
   # Voice messages (record + playback)
-  record: ^5.0.5
+  # NOTE: pinned to a Gradle-compatible version for your current Android setup.
+  record: 4.4.4
   just_audio: ^0.9.38
   path: ^1.9.0
 
