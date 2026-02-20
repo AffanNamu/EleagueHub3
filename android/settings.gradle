@@ -1,19 +1,41 @@
+import java.util.Properties
+
+// Load android/local.properties if it exists
+def localProperties = new Properties()
+def localPropertiesFile = new File(settingsDir, "local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
+// Prefer FLUTTER_ROOT from the environment, but fall back to local.properties
+def flutterSdkPath = System.getenv("FLUTTER_ROOT")
+if (flutterSdkPath == null || flutterSdkPath.trim().isEmpty()) {
+    flutterSdkPath = localProperties.getProperty("flutter.sdk")
+}
+
+if (flutterSdkPath == null || flutterSdkPath.trim().isEmpty()) {
+    throw new GradleException(
+        "Flutter SDK not found. Set FLUTTER_ROOT environment variable " +
+        "or flutter.sdk in android/local.properties."
+    )
+}
+
 pluginManagement {
-
-    def flutterSdkPath = System.getenv("FLUTTER_ROOT")
-
-    if (flutterSdkPath == null) {
-        def properties = new Properties()
-        file("local.properties").withInputStream { properties.load(it) }
-        flutterSdkPath = properties.getProperty("flutter.sdk")
-    }
-
-    includeBuild("${flutterSdkPath}/packages/flutter_tools/gradle")
-
     repositories {
         google()
         mavenCentral()
         gradlePluginPortal()
+    }
+
+    // This makes dev.flutter.* plugins (including flutter-gradle-plugin) visible to Gradle
+    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
     }
 }
 
@@ -25,4 +47,4 @@ plugins {
     id "com.google.firebase.crashlytics" version "2.9.9" apply false
 }
 
-include ":app"
+include(":app")

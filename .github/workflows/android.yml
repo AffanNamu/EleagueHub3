@@ -3,6 +3,7 @@ name: Android CI
 on:
   push:
     branches: [ main ]
+  pull_request:
 
 jobs:
   build:
@@ -13,36 +14,68 @@ jobs:
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/checkout@v4
-
-
-      - uses: actions/setup-java@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
 
-
-      - uses: subosito/flutter-action@v2
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.24.5
+          channel: stable
+          cache: true
 
-
-      # 🔥 THIS IS THE REAL FIX
-      - name: Fix local.properties
+      - name: Detect FLUTTER_ROOT
+        shell: bash
         run: |
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
-          echo "flutter.sdk=$FLUTTER_ROOT" >> android/local.properties
+          set -euo pipefail
+          FLUTTER_BIN="$(command -v flutter)"
+          FLUTTER_ROOT="$(dirname "$(dirname "$FLUTTER_BIN")")"
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
+          echo "Flutter binary: $FLUTTER_BIN"
+          echo "Flutter root:   $FLUTTER_ROOT"
 
+      - name: Flutter pub get
+        run: flutter pub get
 
-      - run: flutter pub get
+      - name: Ensure Gradle wrapper is executable
+        run: chmod +x android/gradlew
 
+      - name: Write android/local.properties
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - run: flutter build apk --release
+          ANDROID_SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [[ -z "${ANDROID_SDK_DIR}" ]]; then
+            echo "ANDROID_SDK_ROOT or ANDROID_HOME is not set."
+            exit 1
+          fi
 
+          if [[ -z "${FLUTTER_ROOT:-}" ]]; then
+            echo "FLUTTER_ROOT is not set."
+            exit 1
+          fi
 
-      - uses: actions/upload-artifact@v4
+          cat > android/local.properties <<PROP
+          sdk.dir=${ANDROID_SDK_DIR}
+          flutter.sdk=${FLUTTER_ROOT}
+          PROP
+
+          echo "android/local.properties written:"
+          cat android/local.properties
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: build/app/outputs/flutter-apk/app-release.apk
-

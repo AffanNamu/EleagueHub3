@@ -30,11 +30,13 @@ android {
     }
 
     packagingOptions {
-        pickFirst 'lib/**/libc++_shared.so'
+        pickFirst "lib/**/libc++_shared.so"
     }
 
     buildTypes {
         release {
+            // For CI: use debug signing to avoid keystore configuration.
+            // Replace with your release signingConfig for production releases.
             signingConfig signingConfigs.debug
             shrinkResources false
             minifyEnabled false
@@ -48,5 +50,6 @@ dependencies {
 }
 
 flutter {
+    // Path from android/app to the Flutter project root (contains pubspec.yaml)
     source "../.."
 }
