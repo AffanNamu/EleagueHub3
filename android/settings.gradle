@@ -1,23 +1,11 @@
 pluginManagement {
 
-    def flutterSdkPath = null
+    def flutterSdkPath = System.getenv("FLUTTER_ROOT")
 
-    def localPropertiesFile = file("local.properties")
-
-    if (localPropertiesFile.exists()) {
+    if (flutterSdkPath == null) {
         def properties = new Properties()
-        localPropertiesFile.withInputStream { properties.load(it) }
+        file("local.properties").withInputStream { properties.load(it) }
         flutterSdkPath = properties.getProperty("flutter.sdk")
-    }
-
-    // 🔥 CI FIX: fallback to environment variable
-    if (flutterSdkPath == null) {
-        flutterSdkPath = System.getenv("FLUTTER_ROOT")
-    }
-
-    // 🔥 Final fallback to common CI location
-    if (flutterSdkPath == null) {
-        flutterSdkPath = "/opt/hostedtoolcache/flutter/stable-3.24.5-x64"
     }
 
     includeBuild("${flutterSdkPath}/packages/flutter_tools/gradle")
