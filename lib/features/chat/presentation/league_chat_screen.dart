@@ -1,5 +1,12 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as p;
+import 'package:record/record.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
@@ -14,6 +21,7 @@ import 'widgets/chat_input_bar.dart';
 
 class LeagueChatScreen extends StatefulWidget {
   final String leagueId;
+
   /// Pass the organizerUid of the league so we can check moderation rights.
   final String? organizerUid;
 
@@ -37,6 +45,26 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   String _resolvedName = '';
   String _resolvedPhoto = '';
 
+  // ===== Voice recording =====
+  final AudioRecorder _recorder = AudioRecorder();
+  bool _isRecording = false;
+  bool _isVoiceSending = false;
+  bool _recordingPermissionDenied = false;
+  String? _recordingPath;
+  DateTime? _recordingStartedAt;
+  Timer? _recordingTicker;
+
+  // ===== Voice playback (single shared player) =====
+  final AudioPlayer _player = AudioPlayer();
+  StreamSubscription<Duration>? _posSub;
+  StreamSubscription<Duration?>? _durSub;
+  StreamSubscription<PlayerState>? _stateSub;
+
+  String? _playingMessageId;
+  Duration _pos = Duration.zero;
+  Duration _dur = Duration.zero;
+  bool _playing = false;
+
   User get _user => FirebaseAuth.instance.currentUser!;
 
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
@@ -45,12 +73,36 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       widget.organizerUid != null &&
       widget.organizerUid!.trim().isNotEmpty &&
       widget.organizerUid!.trim() == _user.uid.trim();
+
   bool get _canModerate => _isSuperAdmin || _isOrganizer;
 
   @override
   void initState() {
     super.initState();
     _resolveIdentity();
+    _wirePlayer();
+  }
+
+  void _wirePlayer() {
+    _posSub = _player.positionStream.listen((v) {
+      if (!mounted) return;
+      setState(() => _pos = v);
+    });
+    _durSub = _player.durationStream.listen((v) {
+      if (!mounted) return;
+      setState(() => _dur = v ?? Duration.zero);
+    });
+    _stateSub = _player.playerStateStream.listen((s) {
+      if (!mounted) return;
+      final isPlaying = s.playing && s.processingState != ProcessingState.completed;
+      setState(() {
+        _playing = isPlaying;
+        if (s.processingState == ProcessingState.completed) {
+          _pos = Duration.zero;
+          _playing = false;
+        }
+      });
+    });
   }
 
   Future<void> _resolveIdentity() async {
@@ -112,6 +164,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   void _toastErr(Object e) =>
       _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
+  // ===== Delete permission update =====
+  bool _canDeleteMessage(ChatMessage msg) {
+    if (_canModerate) return true;
+    return _user.uid.trim() == msg.senderId.trim();
+  }
+
+  // ===== Send text/image (existing) =====
   Future<void> _sendText() async {
     final raw = _textCtrl.text.trim();
     if (raw.isEmpty) return;
@@ -179,7 +238,213 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     }
   }
 
+  // ===== Voice record/cancel/send =====
+
+  Future<void> _startRecording() async {
+    if (_sending || _isVoiceSending || _isRecording) return;
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final hasPerm = await _recorder.hasPermission();
+      if (!hasPerm) {
+        if (!mounted) return;
+        setState(() => _recordingPermissionDenied = true);
+        _toast('Microphone permission denied', error: true);
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _recordingPermissionDenied = false);
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final tmp = Directory.systemTemp.path;
+      final outPath = p.join(tmp, 'chat_voice_${widget.leagueId}_$nowMs.m4a');
+
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 96000,
+          sampleRate: 44100,
+        ),
+        path: outPath,
+      );
+
+      _recordingTicker?.cancel();
+      _recordingStartedAt = DateTime.now();
+      _recordingTicker = Timer.periodic(const Duration(milliseconds: 250), (_) {
+        if (!mounted) return;
+        setState(() {});
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _isRecording = true;
+        _recordingPath = outPath;
+      });
+    } catch (e) {
+      _toastErr(e);
+    }
+  }
+
+  Future<void> _cancelRecording() async {
+    try {
+      _recordingTicker?.cancel();
+      _recordingTicker = null;
+      _recordingStartedAt = null;
+
+      if (_isRecording) {
+        await _recorder.stop();
+      }
+
+      final path = _recordingPath;
+      if (path != null) {
+        try {
+          final f = File(path);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _isRecording = false;
+        _recordingPath = null;
+      });
+    } catch (e) {
+      _toastErr(e);
+    }
+  }
+
+  Future<void> _sendRecording() async {
+    if (_isVoiceSending || !_isRecording) return;
+
+    final path = (_recordingPath ?? '').trim();
+    if (path.isEmpty) return;
+
+    setState(() => _isVoiceSending = true);
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final stoppedPath = (await _recorder.stop())?.trim();
+      final finalPath = (stoppedPath?.isNotEmpty == true ? stoppedPath! : path);
+
+      _recordingTicker?.cancel();
+      _recordingTicker = null;
+
+      final file = File(finalPath);
+      if (!await file.exists()) throw StateError('Recording not found. Try again.');
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      // Upload to Cloudinary via SAME service architecture as images (CloudinaryUploadService)
+      final voiceUrl = await _repo.uploadLeagueChatVoice(
+        leagueId: widget.leagueId,
+        file: PlatformFile(
+          name: '$nowMs.m4a',
+          path: finalPath,
+          size: await file.length(),
+        ),
+      );
+
+      await _repo.sendLeagueMessage(
+        leagueId: widget.leagueId,
+        senderId: _user.uid,
+        senderName: _senderName(),
+        senderPhoto: _senderPhoto(),
+        type: ChatMessageType.voice,
+        text: _textCtrl.text.trim(), // optional caption
+        voiceUrl: voiceUrl,
+      );
+
+      _textCtrl.clear();
+
+      try {
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+
+      if (!mounted) return;
+      setState(() {
+        _isRecording = false;
+        _recordingPath = null;
+        _recordingStartedAt = null;
+        _isVoiceSending = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isVoiceSending = false);
+      _toastErr(e);
+    }
+  }
+
+  String _recordingElapsed() {
+    final started = _recordingStartedAt;
+    if (!_isRecording || started == null) return '00:00';
+    final d = DateTime.now().difference(started);
+    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$mm:$ss';
+  }
+
+  // ===== Voice playback =====
+  String _fmt(Duration d) {
+    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$mm:$ss';
+  }
+
+  double _progressFor(String messageId) {
+    if (_playingMessageId != messageId) return 0.0;
+    if (_dur.inMilliseconds <= 0) return 0.0;
+    return (_pos.inMilliseconds / _dur.inMilliseconds).clamp(0.0, 1.0);
+  }
+
+  String _posLabelFor(String messageId) {
+    if (_playingMessageId != messageId) return '00:00';
+    return _fmt(_pos);
+  }
+
+  String _durLabelFor(String messageId) {
+    if (_playingMessageId != messageId) return '00:00';
+    return _fmt(_dur);
+  }
+
+  bool _isPlayingFor(String messageId) {
+    return _playingMessageId == messageId && _playing;
+  }
+
+  Future<void> _toggleVoice(ChatMessage msg) async {
+    final url = msg.voiceUrl.trim();
+    if (url.isEmpty) return;
+
+    try {
+      if (_playingMessageId == msg.messageId) {
+        if (_player.playing) {
+          await _player.pause();
+        } else {
+          await _player.play();
+        }
+        return;
+      }
+
+      await _player.stop();
+      setState(() {
+        _playingMessageId = msg.messageId;
+        _pos = Duration.zero;
+        _dur = Duration.zero;
+      });
+
+      await _player.setUrl(url);
+      await _player.play();
+    } catch (e) {
+      _toastErr(e);
+    }
+  }
+
   Future<void> _deleteMessage(ChatMessage msg) async {
+    if (!_canDeleteMessage(msg)) {
+      _toast('You can only delete your own messages.', error: true);
+      return;
+    }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -197,6 +462,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       ),
     );
     if (confirm != true) return;
+
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
       await _repo.deleteLeagueMessage(
@@ -211,8 +477,56 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   @override
   void dispose() {
+    _recordingTicker?.cancel();
+    _posSub?.cancel();
+    _durSub?.cancel();
+    _stateSub?.cancel();
+    _player.dispose();
+    _recorder.dispose();
     _textCtrl.dispose();
     super.dispose();
+  }
+
+  Widget _buildRecordingBar(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      child: Glass(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(Icons.mic, color: cs.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Recording… ${_recordingElapsed()}',
+                style: TextStyle(
+                  color: cs.onSurface.withOpacity(0.85),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: _isVoiceSending ? null : _cancelRecording,
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 6),
+            FilledButton(
+              onPressed: _isVoiceSending ? null : _sendRecording,
+              child: _isVoiceSending
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Send'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -289,25 +603,53 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                     itemBuilder: (_, i) {
                       final m = msgs[i];
                       final isMe = m.senderId.trim() == _user.uid.trim();
+                      final canDelete = _canDeleteMessage(m);
+
                       return ChatBubble(
                         message: m,
                         isMe: isMe,
-                        canDelete: _canModerate,
-                        onDelete: _canModerate ? () => _deleteMessage(m) : null,
+                        canDelete: canDelete,
+                        onDelete: canDelete ? () => _deleteMessage(m) : null,
+                        onPlayVoice: m.type == ChatMessageType.voice ? () => _toggleVoice(m) : null,
+                        isVoicePlaying: _isPlayingFor(m.messageId),
+                        voiceProgress: _progressFor(m.messageId),
+                        voicePositionLabel: _posLabelFor(m.messageId),
+                        voiceDurationLabel: _durLabelFor(m.messageId),
                       );
                     },
                   );
                 },
               ),
             ),
-            ChatInputBar(
-              controller: _textCtrl,
-              isSending: _sending,
-              codeMode: _codeMode,
-              enabled: true,
-              onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
-              onPickImage: _pickAndSendImage,
-              onSend: _sendText,
+            if (_isRecording) _buildRecordingBar(context),
+            Row(
+              children: [
+                Expanded(
+                  child: ChatInputBar(
+                    controller: _textCtrl,
+                    isSending: _sending,
+                    codeMode: _codeMode,
+                    enabled: !_isRecording,
+                    onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
+                    onPickImage: _pickAndSendImage,
+                    onSend: _sendText,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 12),
+                  child: Glass(
+                    padding: const EdgeInsets.all(6),
+                    child: IconButton(
+                      tooltip: _recordingPermissionDenied
+                          ? 'Microphone permission required'
+                          : (_isRecording ? 'Recording…' : 'Record voice'),
+                      onPressed:
+                          (_sending || _isVoiceSending || _isRecording) ? null : _startRecording,
+                      icon: Icon(Icons.mic, color: theme.colorScheme.primary),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

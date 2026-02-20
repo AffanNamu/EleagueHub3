@@ -133,11 +133,84 @@ class CloudinaryUploadService {
     }
   }
 
+  /// Generic uploader for audio/video files (Cloudinary treats audio as "video").
+  ///
+  /// Requirements implemented:
+  /// - Uses SAME Cloudinary cloud name + unsigned preset (env-based) as existing uploads
+  /// - Upload folder is NOT restricted to `eleaguehub/` so we can support:
+  ///   chat_voice_messages/{leagueId}/{timestamp}.m4a
+  /// - resource_type is forced to VIDEO (required for audio)
+  /// - Returns secure_url
+  Future<String> uploadAudioPlatformFileAsVideo({
+    required PlatformFile file,
+    required String folder,
+  }) async {
+    final safeFolder = folder.trim();
+    if (safeFolder.isEmpty) {
+      throw StateError('Upload folder is required.');
+    }
+
+    final name = file.name.trim().isEmpty ? 'audio.m4a' : file.name.trim();
+    final path = (file.path ?? '').trim();
+    final bytes = file.bytes;
+
+    File? tmp;
+    String uploadPath = path;
+
+    try {
+      if (uploadPath.isEmpty) {
+        if (bytes == null || bytes.isEmpty) {
+          throw StateError('Selected audio is not available.');
+        }
+
+        final dir = Directory.systemTemp;
+        final tmpPath = '${dir.path}/eleaguehub_${DateTime.now().millisecondsSinceEpoch}_$name';
+        tmp = File(tmpPath);
+        await tmp.writeAsBytes(bytes, flush: true).timeout(const Duration(seconds: 10));
+        uploadPath = tmp.path;
+      }
+
+      final cloudFile = CloudinaryFile.fromFile(
+        uploadPath,
+        folder: safeFolder,
+        resourceType: CloudinaryResourceType.Video, // required for audio
+      );
+
+      final res = await _client().uploadFile(cloudFile).timeout(const Duration(seconds: 90));
+
+      final secureUrl = res.secureUrl.trim();
+      if (secureUrl.isEmpty) {
+        throw StateError('Upload failed: secure_url missing.');
+      }
+      return secureUrl;
+    } on TimeoutException {
+      throw StateError('Upload timed out. Please try again.');
+    } on CloudinaryException catch (e) {
+      final msg = (e.message ?? '').trim();
+      if (msg.isNotEmpty) throw StateError('Upload failed: $msg');
+      throw StateError('Upload failed.');
+    } finally {
+      try {
+        if (tmp != null && await tmp.exists()) {
+          await tmp.delete();
+        }
+      } catch (_) {}
+    }
+  }
+
   /// Chat helper: keeps folder policy in one place.
   Future<String> uploadChatImage({
     required PlatformFile file,
     required String folder,
   }) {
     return uploadImagePlatformFile(file: file, folder: folder);
+  }
+
+  /// Chat helper: voice uploader (Cloudinary audio-as-video).
+  Future<String> uploadChatVoice({
+    required PlatformFile file,
+    required String folder,
+  }) {
+    return uploadAudioPlatformFileAsVideo(file: file, folder: folder);
   }
 }

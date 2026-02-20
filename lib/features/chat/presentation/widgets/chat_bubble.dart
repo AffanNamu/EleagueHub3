@@ -11,12 +11,24 @@ class ChatBubble extends StatelessWidget {
     required this.isMe,
     this.canDelete = false,
     this.onDelete,
+    this.onPlayVoice,
+    this.isVoicePlaying = false,
+    this.voiceProgress = 0.0, // 0..1
+    this.voicePositionLabel = '',
+    this.voiceDurationLabel = '',
   });
 
   final ChatMessage message;
   final bool isMe;
   final bool canDelete;
   final VoidCallback? onDelete;
+
+  // Voice playback (controlled by parent screen to avoid multiple players)
+  final VoidCallback? onPlayVoice;
+  final bool isVoicePlaying;
+  final double voiceProgress;
+  final String voicePositionLabel;
+  final String voiceDurationLabel;
 
   bool get _hasText => message.text.trim().isNotEmpty;
 
@@ -48,6 +60,17 @@ class ChatBubble extends StatelessWidget {
         break;
       case ChatMessageType.code:
         content = _CodeBubble(code: message.text, maxWidth: maxWidth);
+        break;
+      case ChatMessageType.voice:
+        content = _VoiceBubble(
+          maxWidth: maxWidth,
+          caption: _hasText ? message.text : null,
+          onPlayPause: onPlayVoice,
+          isPlaying: isVoicePlaying,
+          progress: voiceProgress,
+          positionLabel: voicePositionLabel,
+          durationLabel: voiceDurationLabel,
+        );
         break;
       case ChatMessageType.text:
       default:
@@ -158,6 +181,99 @@ class _TextBubble extends StatelessWidget {
         height: 1.35,
         fontSize: 13,
       ),
+    );
+  }
+}
+
+class _VoiceBubble extends StatelessWidget {
+  const _VoiceBubble({
+    required this.maxWidth,
+    required this.onPlayPause,
+    required this.isPlaying,
+    required this.progress,
+    required this.positionLabel,
+    required this.durationLabel,
+    this.caption,
+  });
+
+  final double maxWidth;
+  final VoidCallback? onPlayPause;
+  final bool isPlaying;
+  final double progress; // 0..1
+  final String positionLabel;
+  final String durationLabel;
+  final String? caption;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final safeProgress = progress.clamp(0.0, 1.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            IconButton(
+              onPressed: onPlayPause,
+              icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle),
+              iconSize: 34,
+              color: cs.primary,
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: safeProgress,
+                      minHeight: 5,
+                      backgroundColor: cs.onSurface.withOpacity(0.10),
+                      valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        positionLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurface.withOpacity(0.65),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        durationLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurface.withOpacity(0.65),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (caption != null && caption!.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            caption!.trim(),
+            style: TextStyle(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

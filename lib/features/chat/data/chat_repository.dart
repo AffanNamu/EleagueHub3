@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../auth/data/user_profile_repository.dart';
-import '../../auth/models/user_profile.dart';
 import '../../marketplace/data/cloudinary_upload_service.dart';
 import '../models/chat_message.dart';
 
@@ -71,6 +70,17 @@ class ChatRepository {
     );
   }
 
+  Future<String> uploadLeagueChatVoice({
+    required String leagueId,
+    required PlatformFile file,
+  }) {
+    // REQUIRED: chat_voice_messages/{leagueId}/{timestamp}.m4a
+    return _cloudinary.uploadChatVoice(
+      file: file,
+      folder: 'chat_voice_messages/$leagueId',
+    );
+  }
+
   // ===== Resolve sender display info from Firestore profile =====
 
   /// Fetches the user's Firestore profile and returns (teamName, photoUrl).
@@ -87,13 +97,11 @@ class ChatRepository {
       }
 
       // Prefer teamName from Firestore profile.
-      final resolvedName = profile.teamName.trim().isNotEmpty
-          ? profile.teamName.trim()
-          : fallbackName;
+      final resolvedName =
+          profile.teamName.trim().isNotEmpty ? profile.teamName.trim() : fallbackName;
 
       // Prefer profile photo from Firestore (check multiple fields).
       String resolvedPhoto = fallbackPhoto;
-      // Try to read photoUrl / profileImageUrl / teamImageUrl dynamically.
       try {
         final doc = await _firestore.collection('users').doc(uid).get();
         final data = doc.data();
@@ -109,9 +117,7 @@ class ChatRepository {
             resolvedPhoto = p3;
           }
         }
-      } catch (_) {
-        // Ignore — use fallback.
-      }
+      } catch (_) {}
 
       return (name: resolvedName, photo: resolvedPhoto);
     } catch (_) {
@@ -129,6 +135,7 @@ class ChatRepository {
     required String type,
     String text = '',
     String imageUrl = '',
+    String voiceUrl = '',
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final doc = _leagueChatCol(leagueId).doc();
@@ -144,7 +151,12 @@ class ChatRepository {
         'senderPhoto': safePhoto,
         'text': text.trim(),
         'imageUrl': imageUrl.trim(),
+        'voiceUrl': voiceUrl.trim(),
         'type': type.trim().isEmpty ? ChatMessageType.text : type.trim(),
+        // Required fields (added without breaking existing structure)
+        'leagueId': leagueId.trim(),
+        'timestamp': nowMs,
+        // Existing ordering/timestamp fields
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
       },
@@ -159,6 +171,7 @@ class ChatRepository {
     required String type,
     String text = '',
     String imageUrl = '',
+    String voiceUrl = '',
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final doc = _globalChatCol.doc();
@@ -174,7 +187,9 @@ class ChatRepository {
         'senderPhoto': safePhoto,
         'text': text.trim(),
         'imageUrl': imageUrl.trim(),
+        'voiceUrl': voiceUrl.trim(),
         'type': type.trim().isEmpty ? ChatMessageType.text : type.trim(),
+        'timestamp': nowMs,
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
       },
