@@ -1,0 +1,76 @@
+name: Bootstrap Android Gradle Wrapper
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.24.5
+          channel: stable
+          cache: true
+
+      - name: Generate wrapper files (only if missing)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -f android/gradlew && -f android/gradle/wrapper/gradle-wrapper.properties ]]; then
+            echo "Gradle wrapper already exists. Nothing to do."
+            exit 0
+          fi
+
+          rm -rf /tmp/flutter_wrapper_tmp
+          flutter create --platforms=android -a kotlin /tmp/flutter_wrapper_tmp
+
+          # Copy only wrapper files into your existing android/ folder
+          mkdir -p android/gradle/wrapper
+          cp /tmp/flutter_wrapper_tmp/android/gradlew android/gradlew
+          cp /tmp/flutter_wrapper_tmp/android/gradlew.bat android/gradlew.bat
+          cp /tmp/flutter_wrapper_tmp/android/gradle/wrapper/gradle-wrapper.jar android/gradle/wrapper/gradle-wrapper.jar
+          cp /tmp/flutter_wrapper_tmp/android/gradle/wrapper/gradle-wrapper.properties android/gradle/wrapper/gradle-wrapper.properties
+
+          chmod +x android/gradlew
+
+          echo "Wrapper files generated:"
+          ls -la android/gradlew android/gradlew.bat android/gradle/wrapper
+
+      - name: Commit and push wrapper files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          git add android/gradlew android/gradlew.bat android/gradle/wrapper/gradle-wrapper.jar android/gradle/wrapper/gradle-wrapper.properties
+
+          # Ensure executable bit is stored in git
+          git update-index --chmod=+x android/gradlew
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Add Android Gradle wrapper (CI bootstrap)"
+          git push

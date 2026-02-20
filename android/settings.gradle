@@ -1,13 +1,11 @@
 import java.util.Properties
 
-// Load android/local.properties if it exists
 def localProperties = new Properties()
 def localPropertiesFile = new File(settingsDir, "local.properties")
 if (localPropertiesFile.exists()) {
     localPropertiesFile.withInputStream { localProperties.load(it) }
 }
 
-// Prefer FLUTTER_ROOT from the environment, but fall back to local.properties
 def flutterSdkPath = System.getenv("FLUTTER_ROOT")
 if (flutterSdkPath == null || flutterSdkPath.trim().isEmpty()) {
     flutterSdkPath = localProperties.getProperty("flutter.sdk")
@@ -15,8 +13,7 @@ if (flutterSdkPath == null || flutterSdkPath.trim().isEmpty()) {
 
 if (flutterSdkPath == null || flutterSdkPath.trim().isEmpty()) {
     throw new GradleException(
-        "Flutter SDK not found. Set FLUTTER_ROOT environment variable " +
-        "or flutter.sdk in android/local.properties."
+        "Flutter SDK not found. Set FLUTTER_ROOT or flutter.sdk in android/local.properties."
     )
 }
 
@@ -26,8 +23,6 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
-
-    // This makes dev.flutter.* plugins (including flutter-gradle-plugin) visible to Gradle
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 }
 

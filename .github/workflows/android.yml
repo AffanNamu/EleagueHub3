@@ -38,28 +38,18 @@ jobs:
           FLUTTER_BIN="$(command -v flutter)"
           FLUTTER_ROOT="$(dirname "$(dirname "$FLUTTER_BIN")")"
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
-          echo "Flutter binary: $FLUTTER_BIN"
-          echo "Flutter root:   $FLUTTER_ROOT"
+          echo "Flutter root: $FLUTTER_ROOT"
 
       - name: Flutter pub get
         run: flutter pub get
-
-      - name: Ensure Gradle wrapper is executable
-        run: chmod +x android/gradlew
 
       - name: Write android/local.properties
         shell: bash
         run: |
           set -euo pipefail
-
           ANDROID_SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           if [[ -z "${ANDROID_SDK_DIR}" ]]; then
-            echo "ANDROID_SDK_ROOT or ANDROID_HOME is not set."
-            exit 1
-          fi
-
-          if [[ -z "${FLUTTER_ROOT:-}" ]]; then
-            echo "FLUTTER_ROOT is not set."
+            echo "ANDROID_SDK_ROOT/ANDROID_HOME is not set."
             exit 1
           fi
 
@@ -68,8 +58,21 @@ jobs:
           flutter.sdk=${FLUTTER_ROOT}
           PROP
 
-          echo "android/local.properties written:"
+          echo "android/local.properties:"
           cat android/local.properties
+
+      - name: Verify Gradle wrapper exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f android/gradlew ]]; then
+            echo "ERROR: android/gradlew is missing."
+            echo "Run the 'Bootstrap Android Gradle Wrapper' workflow once to commit wrapper files."
+            exit 1
+          fi
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
 
       - name: Build release APK
         run: flutter build apk --release
