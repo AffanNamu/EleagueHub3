@@ -19,7 +19,20 @@ allprojects {
     }
 }
 
+// This block runs BEFORE each subproject's build.gradle is evaluated,
+// so the flutter property is available when plugins like record_android
+// reference flutter.compileSdkVersion at evaluation time.
 subprojects { project ->
+    if (!project.hasProperty('flutter')) {
+        project.ext.flutter = [
+            compileSdkVersion: 35,
+            minSdkVersion: 21,
+            targetSdkVersion: 35,
+            versionCode: 1,
+            versionName: '1.0',
+        ]
+    }
+
     afterEvaluate {
         if (project.hasProperty('android')) {
             project.android {
@@ -27,9 +40,6 @@ subprojects { project ->
                     namespace = "com.eleaguehub.generated.${project.name.replace('-', '_')}"
                 }
                 compileSdkVersion 35
-                if (!project.hasProperty('flutter')) {
-                    extensions.add('flutter', [compileSdkVersion: 35])
-                }
             }
         }
     }
