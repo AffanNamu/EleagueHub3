@@ -7,9 +7,7 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.1.4'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        // Add the Google Services classpath for Firebase
         classpath 'com.google.gms:google-services:4.4.2'
-        // Crashlytics Gradle plugin
         classpath 'com.google.firebase:firebase-crashlytics-gradle:3.0.2'
     }
 }
@@ -21,17 +19,16 @@ allprojects {
     }
 }
 
-// Force Android namespace for plugins that are missing it (AGP 8+ requirement).
-// This fixes: "A problem occurred configuring project ':record' ... Namespace not specified."
 subprojects { project ->
     afterEvaluate {
-        if (project.plugins.hasPlugin('com.android.library')) {
-            def androidExt = project.extensions.findByName('android')
-            if (androidExt != null) {
-                def ns = androidExt.hasProperty('namespace') ? androidExt.namespace : null
-                if (ns == null || ns.toString().trim().isEmpty()) {
-                    // Stable and unique default (based on module name).
-                    androidExt.namespace = "com.eleaguehub.generated.${project.name.replace('-', '_')}"
+        if (project.hasProperty('android')) {
+            project.android {
+                if (namespace == null || namespace.toString().trim().isEmpty()) {
+                    namespace = "com.eleaguehub.generated.${project.name.replace('-', '_')}"
+                }
+                compileSdkVersion 35
+                if (!project.hasProperty('flutter')) {
+                    extensions.add('flutter', [compileSdkVersion: 35])
                 }
             }
         }
