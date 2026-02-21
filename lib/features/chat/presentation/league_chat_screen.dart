@@ -43,13 +43,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   final TextEditingController _textCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
 
-  // messageId -> key for scroll-to
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
-
-  // messageId -> message (latest in-view snapshot) for AppBar selection actions
   Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
 
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
+
+  // Swipe-to-reply state
+  final ValueNotifier<ChatMessage?> _replyTo = ValueNotifier<ChatMessage?>(null);
 
   bool _sending = false;
   bool _codeMode = false;
@@ -57,7 +57,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   String _resolvedName = '';
   String _resolvedPhoto = '';
 
-  // ===== League permission resolution (owner/organizer) =====
   bool _leagueOwnerOrOrganizer = false;
   bool _leaguePermsResolved = false;
 
@@ -70,7 +69,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   DateTime? _recordingStartedAt;
   Timer? _recordingTicker;
 
-  // ===== Voice playback (single shared player) =====
+  // ===== Voice playback =====
   final AudioPlayer _player = AudioPlayer();
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<Duration?>? _durSub;
@@ -105,7 +104,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }
 
   Future<void> _resolveLeaguePermissions() async {
-    // Safe, one-time fetch; avoids blocking moderators when organizerUid param wasn't supplied.
     try {
       final snap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
       final data = snap.data() ?? <String, dynamic>{};
@@ -113,7 +111,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       bool isOwnerOrOrganizer = false;
       final uid = _user.uid.trim();
 
-      // Match common fields used in rules
       final organizerUid = (data['organizerUid'] as String? ?? '').trim();
       final ownerUid = (data['ownerUid'] as String? ?? '').trim();
       final organizerUserId = (data['organizerUserId'] as String? ?? '').trim();
@@ -226,17 +223,18 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }
 
   bool _canPinMessage(ChatMessage msg) {
-    // League: organizer/admin only (no normal users).
     return _canModerateLeague;
   }
 
-  // ===== Send text/image (existing) =====
+  // ===== Send =====
 
   Future<void> _sendText() async {
     if (_isSelecting) return;
 
     final raw = _textCtrl.text.trim();
     if (raw.isEmpty) return;
+
+    final reply = _replyTo.value;
 
     setState(() => _sending = true);
     try {
@@ -249,9 +247,15 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         senderPhoto: _senderPhoto(),
         type: _codeMode ? ChatMessageType.code : ChatMessageType.text,
         text: raw,
+        replyToMessageId: reply?.messageId ?? '',
+        replyToSenderName: reply?.displaySenderName ?? '',
+        replyToText: reply?.replyPreview() ?? '',
+        replyToType: reply?.type ?? '',
       );
 
       _textCtrl.clear();
+      _replyTo.value = null;
+
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
@@ -261,6 +265,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _pickAndSendImage() async {
     if (_sending || _isSelecting) return;
+
+    final reply = _replyTo.value;
 
     setState(() => _sending = true);
     try {
@@ -291,9 +297,15 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         type: ChatMessageType.image,
         text: _textCtrl.text.trim(),
         imageUrl: url,
+        replyToMessageId: reply?.messageId ?? '',
+        replyToSenderName: reply?.displaySenderName ?? '',
+        replyToText: reply?.replyPreview() ?? '',
+        replyToType: reply?.type ?? '',
       );
 
       _textCtrl.clear();
+      _replyTo.value = null;
+
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
@@ -369,8 +381,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
       if (!mounted) return;
       setState(() {
-        _isRecording = false;
-        _recordingPath = null;
+        _isRecording = false,
+        _recordingPath = null,
       });
     } catch (e) {
       _toastErr(e);
@@ -382,6 +394,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
     final path = (_recordingPath ?? '').trim();
     if (path.isEmpty) return;
+
+    final reply = _replyTo.value;
 
     setState(() => _isVoiceSending = true);
     try {
@@ -413,11 +427,16 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
         type: ChatMessageType.voice,
-        text: _textCtrl.text.trim(),
+        text: _textCtrl.text.trim(), // optional caption
         voiceUrl: voiceUrl,
+        replyToMessageId: reply?.messageId ?? '',
+        replyToSenderName: reply?.displaySenderName ?? '',
+        replyToText: reply?.replyPreview() ?? '',
+        replyToType: reply?.type ?? '',
       );
 
       _textCtrl.clear();
+      _replyTo.value = null;
 
       try {
         if (await file.exists()) await file.delete();
@@ -590,20 +609,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _recordingTicker?.cancel();
-    _posSub?.cancel();
-    _durSub?.cancel();
-    _stateSub?.cancel();
-    _player.dispose();
-    _recorder.dispose();
-    _scrollCtrl.dispose();
-    _selectedMessageId.dispose();
-    _textCtrl.dispose();
-    super.dispose();
-  }
-
   Widget _buildRecordingBar(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
@@ -699,6 +704,21 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }
 
   @override
+  void dispose() {
+    _recordingTicker?.cancel();
+    _posSub?.cancel();
+    _durSub?.cancel();
+    _stateSub?.cancel();
+    _player.dispose();
+    _recorder.dispose();
+    _scrollCtrl.dispose();
+    _selectedMessageId.dispose();
+    _replyTo.dispose();
+    _textCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
@@ -781,10 +801,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                       );
                     }
 
-                    // Update map for AppBar actions
                     _msgById = {for (final m in msgs) m.messageId: m};
 
-                    // prune keys to avoid growth
                     final ids = msgs.map((e) => e.messageId).toSet();
                     _messageKeys.removeWhere((k, _) => !ids.contains(k));
 
@@ -811,6 +829,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                                 selected: selectedId == m.messageId,
                                 onLongPress: () {
                                   HapticFeedback.mediumImpact();
+                                  _replyTo.value = null; // selection cancels reply
                                   _selectedMessageId.value = m.messageId;
                                 },
                                 onTap: () {
@@ -818,6 +837,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                                   _selectedMessageId.value =
                                       (selectedId == m.messageId) ? null : m.messageId;
                                 },
+                                onSwipeReply: selecting
+                                    ? null
+                                    : () {
+                                        _replyTo.value = m;
+                                      },
                                 onPlayVoice: (m.type == ChatMessageType.voice && !selecting)
                                     ? () => _toggleVoice(m)
                                     : null,
@@ -835,10 +859,12 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                 ),
               ),
               if (_isRecording) _buildRecordingBar(context),
-              ValueListenableBuilder<String?>(
-                valueListenable: _selectedMessageId,
-                builder: (context, selectedId, _) {
-                  final selecting = (selectedId ?? '').trim().isNotEmpty;
+              AnimatedBuilder(
+                animation: Listenable.merge([_selectedMessageId, _replyTo]),
+                builder: (context, _) {
+                  final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
+                  final reply = _replyTo.value;
+
                   return Row(
                     children: [
                       Expanded(
@@ -850,6 +876,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                           onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
                           onPickImage: _pickAndSendImage,
                           onSend: _sendText,
+                          replySenderName: reply?.displaySenderName,
+                          replyPreview: reply?.replyPreview(),
+                          onCancelReply: () => _replyTo.value = null,
                         ),
                       ),
                       Padding(

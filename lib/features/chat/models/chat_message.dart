@@ -23,14 +23,13 @@ class ChatMessage {
   /// Stable ordering field (ms since epoch). Used for ordering queries.
   final int createdAtMs;
 
-  /// Optional (added without breaking existing structure)
-  /// League messages store leagueId, global messages store ''.
+  /// Optional (existing in your app for league chat; global may be missing/empty).
   final String leagueId;
 
   /// Optional stable timestamp (ms) used by existing code.
   final int timestamp;
 
-  // ===== Moderation / pinning (NEW) =====
+  // ===== Moderation / pinning =====
   final bool pinned;
   final Timestamp? pinnedAt;
   final String pinnedBy;
@@ -38,6 +37,19 @@ class ChatMessage {
   final bool deleted;
   final Timestamp? deletedAt;
   final String deletedBy;
+
+  // ===== Reply (NEW) =====
+  /// The messageId being replied to. Empty string means "not a reply".
+  final String replyToMessageId;
+
+  /// Sender name of the replied-to message (stored at send time for stable UI).
+  final String replyToSenderName;
+
+  /// Preview text of the replied-to message (stored at send time).
+  final String replyToText;
+
+  /// Type of replied-to message: text/image/voice/code (stored at send time).
+  final String replyToType;
 
   const ChatMessage({
     required this.messageId,
@@ -58,9 +70,15 @@ class ChatMessage {
     required this.deleted,
     required this.deletedAt,
     required this.deletedBy,
+    required this.replyToMessageId,
+    required this.replyToSenderName,
+    required this.replyToText,
+    required this.replyToType,
   });
 
   bool get hasText => text.trim().isNotEmpty;
+
+  bool get isReply => replyToMessageId.trim().isNotEmpty;
 
   String get displaySenderName =>
       senderName.trim().isEmpty ? 'Player' : senderName.trim();
@@ -79,6 +97,10 @@ class ChatMessage {
         return hasText ? text.trim() : 'Message';
     }
   }
+
+  /// Preview used when *this message* is being replied to.
+  /// (We store it into replyToText at send time for the next message.)
+  String replyPreview() => pinnedPreview();
 
   factory ChatMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
@@ -117,6 +139,10 @@ class ChatMessage {
       deleted: _bool(data['deleted']),
       deletedAt: _ts(data['deletedAt']),
       deletedBy: _str(data['deletedBy']),
+      replyToMessageId: _str(data['replyToMessageId']),
+      replyToSenderName: _str(data['replyToSenderName']),
+      replyToText: _str(data['replyToText']),
+      replyToType: _str(data['replyToType']),
     );
   }
 }

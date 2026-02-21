@@ -30,13 +30,13 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   final TextEditingController _textCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
 
-  // messageId -> key for scroll-to
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
-
-  // messageId -> message (latest in-view snapshot) for AppBar selection actions
   Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
 
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
+
+  // Swipe-to-reply state (WhatsApp-style)
+  final ValueNotifier<ChatMessage?> _replyTo = ValueNotifier<ChatMessage?>(null);
 
   bool _sending = false;
   bool _codeMode = false;
@@ -44,7 +44,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   String _resolvedName = '';
   String _resolvedPhoto = '';
 
-  // Global admin config (from /app/admins)
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _adminsSub;
   Set<String> _globalChatAdmins = <String>{};
   bool _allowSenderPinGlobal = false;
@@ -55,6 +54,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
 
   bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
+  bool get _isGlobalAdmin => _globalChatAdmins.contains(_user.uid.trim());
 
   @override
   void initState() {
@@ -145,7 +145,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   void _toastErr(Object e) =>
       _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
-  // ── FIXED: Separate create vs update to match rules exactly ──
   Future<void> _requestAccess() async {
     setState(() => _sending = true);
     try {
@@ -185,6 +184,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     final raw = _textCtrl.text.trim();
     if (raw.isEmpty) return;
 
+    final reply = _replyTo.value;
+
     setState(() => _sending = true);
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
@@ -195,9 +196,15 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         senderPhoto: _senderPhoto(),
         type: _codeMode ? ChatMessageType.code : ChatMessageType.text,
         text: raw,
+        replyToMessageId: reply?.messageId ?? '',
+        replyToSenderName: reply?.displaySenderName ?? '',
+        replyToText: reply?.replyPreview() ?? '',
+        replyToType: reply?.type ?? '',
       );
 
       _textCtrl.clear();
+      _replyTo.value = null;
+
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
@@ -207,6 +214,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   Future<void> _pickAndSendImage() async {
     if (_sending || _isSelecting) return;
+
+    final reply = _replyTo.value;
 
     setState(() => _sending = true);
     try {
@@ -233,9 +242,15 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         type: ChatMessageType.image,
         text: _textCtrl.text.trim(),
         imageUrl: url,
+        replyToMessageId: reply?.messageId ?? '',
+        replyToSenderName: reply?.displaySenderName ?? '',
+        replyToText: reply?.replyPreview() ?? '',
+        replyToType: reply?.type ?? '',
       );
 
       _textCtrl.clear();
+      _replyTo.value = null;
+
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
@@ -245,13 +260,13 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   bool _canDeleteMessage(ChatMessage msg) {
     if (_isSuperAdmin) return true;
-    if (_globalChatAdmins.contains(_user.uid.trim())) return true;
+    if (_isGlobalAdmin) return true;
     return _user.uid.trim() == msg.senderId.trim();
   }
 
   bool _canPinMessage(ChatMessage msg) {
     if (_isSuperAdmin) return true;
-    if (_globalChatAdmins.contains(_user.uid.trim())) return true;
+    if (_isGlobalAdmin) return true;
     final isSender = _user.uid.trim() == msg.senderId.trim();
     return _allowSenderPinGlobal && isSender;
   }
@@ -291,11 +306,14 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       return;
     }
 
+    final isAdmin = _isSuperAdmin || _isGlobalAdmin;
+
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
       await _repo.pinGlobalMessage(
         messageId: msg.messageId,
         pinnedBy: _user.uid,
+        unpinPrevious: isAdmin,
       );
       _selectedMessageId.value = null;
       _toast('Pinned');
@@ -425,7 +443,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
             builder: (context, snap) {
               if (snap.hasError) {
                 final err = snap.error;
-                final msg = UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
+                final msg =
+                    UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
 
                 return Center(
                   child: Padding(
@@ -470,10 +489,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                 );
               }
 
-              // Update map for AppBar actions (no setState needed; we're in build already)
               _msgById = {for (final m in msgs) m.messageId: m};
 
-              // prune keys to avoid growth
               final ids = msgs.map((e) => e.messageId).toSet();
               _messageKeys.removeWhere((k, _) => !ids.contains(k));
 
@@ -501,6 +518,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                           selected: selectedId == m.messageId,
                           onLongPress: () {
                             HapticFeedback.mediumImpact();
+                            _replyTo.value = null; // WhatsApp-like: selection cancels reply
                             _selectedMessageId.value = m.messageId;
                           },
                           onTap: () {
@@ -508,6 +526,11 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                             _selectedMessageId.value =
                                 (selectedId == m.messageId) ? null : m.messageId;
                           },
+                          onSwipeReply: selecting
+                              ? null
+                              : () {
+                                  _replyTo.value = m;
+                                },
                         ),
                       );
                     },
@@ -517,10 +540,12 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
             },
           ),
         ),
-        ValueListenableBuilder<String?>(
-          valueListenable: _selectedMessageId,
-          builder: (context, selectedId, _) {
-            final selecting = (selectedId ?? '').trim().isNotEmpty;
+        AnimatedBuilder(
+          animation: Listenable.merge([_selectedMessageId, _replyTo]),
+          builder: (context, _) {
+            final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
+            final reply = _replyTo.value;
+
             return ChatInputBar(
               controller: _textCtrl,
               isSending: _sending,
@@ -529,6 +554,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
               onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
               onPickImage: _pickAndSendImage,
               onSend: _sendText,
+              replySenderName: reply?.displaySenderName,
+              replyPreview: reply?.replyPreview(),
+              onCancelReply: () => _replyTo.value = null,
             );
           },
         ),
@@ -541,6 +569,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     _adminsSub?.cancel();
     _scrollCtrl.dispose();
     _selectedMessageId.dispose();
+    _replyTo.dispose();
     _textCtrl.dispose();
     super.dispose();
   }

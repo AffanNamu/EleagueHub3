@@ -38,10 +38,6 @@ class ChatRepository {
     return _appAdminsDoc.snapshots();
   }
 
-  Future<DocumentSnapshot<Map<String, dynamic>>> appAdminsDocOnce() {
-    return _appAdminsDoc.get();
-  }
-
   // ===== Streams =====
 
   Stream<List<ChatMessage>> leagueChatStream(String leagueId, {int limit = 100}) {
@@ -60,17 +56,13 @@ class ChatRepository {
         .map((snap) => snap.docs.map(ChatMessage.fromDoc).toList());
   }
 
-  // Latest pinned message (single-doc realtime listener)
   Stream<ChatMessage?> leaguePinnedMessageStream(String leagueId) {
     return _leagueChatCol(leagueId)
         .where('pinned', isEqualTo: true)
         .orderBy('pinnedAt', descending: true)
         .limit(1)
         .snapshots()
-        .map((snap) {
-      if (snap.docs.isEmpty) return null;
-      return ChatMessage.fromDoc(snap.docs.first);
-    });
+        .map((snap) => snap.docs.isEmpty ? null : ChatMessage.fromDoc(snap.docs.first));
   }
 
   Stream<ChatMessage?> globalPinnedMessageStream() {
@@ -79,10 +71,7 @@ class ChatRepository {
         .orderBy('pinnedAt', descending: true)
         .limit(1)
         .snapshots()
-        .map((snap) {
-      if (snap.docs.isEmpty) return null;
-      return ChatMessage.fromDoc(snap.docs.first);
-    });
+        .map((snap) => snap.docs.isEmpty ? null : ChatMessage.fromDoc(snap.docs.first));
   }
 
   // ===== Cloudinary upload =====
@@ -110,7 +99,6 @@ class ChatRepository {
     required String leagueId,
     required PlatformFile file,
   }) {
-    // REQUIRED: chat_voice_messages/{leagueId}/{timestamp}.m4a
     return _cloudinary.uploadChatVoice(
       file: file,
       folder: 'chat_voice_messages/$leagueId',
@@ -119,8 +107,6 @@ class ChatRepository {
 
   // ===== Resolve sender display info from Firestore profile =====
 
-  /// Fetches the user's Firestore profile and returns (teamName, photoUrl).
-  /// Falls back to the provided defaults if the profile is missing or fields are empty.
   Future<({String name, String photo})> resolveSenderIdentity({
     required String uid,
     required String fallbackName,
@@ -132,11 +118,9 @@ class ChatRepository {
         return (name: fallbackName, photo: fallbackPhoto);
       }
 
-      // Prefer teamName from Firestore profile.
       final resolvedName =
           profile.teamName.trim().isNotEmpty ? profile.teamName.trim() : fallbackName;
 
-      // Prefer profile photo from Firestore (check multiple fields).
       String resolvedPhoto = fallbackPhoto;
       try {
         final doc = await _firestore.collection('users').doc(uid).get();
@@ -161,7 +145,7 @@ class ChatRepository {
     }
   }
 
-  // ===== Send messages =====
+  // ===== Send messages (now supports replies) =====
 
   Future<void> sendLeagueMessage({
     required String leagueId,
@@ -172,6 +156,12 @@ class ChatRepository {
     String text = '',
     String imageUrl = '',
     String voiceUrl = '',
+
+    // Reply payload (optional)
+    String replyToMessageId = '',
+    String replyToSenderName = '',
+    String replyToText = '',
+    String replyToType = '',
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final doc = _leagueChatCol(leagueId).doc();
@@ -190,21 +180,25 @@ class ChatRepository {
         'voiceUrl': voiceUrl.trim(),
         'type': type.trim().isEmpty ? ChatMessageType.text : type.trim(),
 
-        // Required fields (existing)
         'leagueId': leagueId.trim(),
         'timestamp': nowMs,
 
-        // Ordering/timestamp fields (existing)
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
 
-        // ===== NEW: pin + moderation defaults =====
+        // Pin/mod defaults
         'pinned': false,
         'pinnedAt': null,
         'pinnedBy': '',
         'deleted': false,
         'deletedAt': null,
         'deletedBy': '',
+
+        // Reply fields (always present; empty means "no reply")
+        'replyToMessageId': replyToMessageId.trim(),
+        'replyToSenderName': replyToSenderName.trim(),
+        'replyToText': replyToText.trim(),
+        'replyToType': replyToType.trim(),
       },
       SetOptions(merge: false),
     );
@@ -218,6 +212,12 @@ class ChatRepository {
     String text = '',
     String imageUrl = '',
     String voiceUrl = '',
+
+    // Reply payload (optional)
+    String replyToMessageId = '',
+    String replyToSenderName = '',
+    String replyToText = '',
+    String replyToType = '',
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final doc = _globalChatCol.doc();
@@ -236,34 +236,30 @@ class ChatRepository {
         'voiceUrl': voiceUrl.trim(),
         'type': type.trim().isNotEmpty ? type.trim() : ChatMessageType.text,
 
-        // Keep field parity with league messages (rules + model safety).
-        'leagueId': '',
         'timestamp': nowMs,
 
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
 
-        // ===== NEW: pin + moderation defaults =====
+        // Pin/mod defaults
         'pinned': false,
         'pinnedAt': null,
         'pinnedBy': '',
         'deleted': false,
         'deletedAt': null,
         'deletedBy': '',
+
+        // Reply fields
+        'replyToMessageId': replyToMessageId.trim(),
+        'replyToSenderName': replyToSenderName.trim(),
+        'replyToText': replyToText.trim(),
+        'replyToType': replyToType.trim(),
       },
       SetOptions(merge: false),
     );
   }
 
-  // ===== Pinning (latest pinned shown; we best-effort unpin previous) =====
-  //
-  // IMPORTANT (cloud_firestore compat):
-  // Transaction.get() in your SDK expects a DocumentReference and does NOT accept Query,
-  // so we do:
-  //  - query previous pinned OUTSIDE
-  //  - commit both unpin+pin in a single WriteBatch (atomic write)
-  //
-  // In a rare race, multiple pinned==true could occur, but UI still shows latest via query+limit(1).
+  // ===== Pinning =====
 
   Future<void> pinLeagueMessage({
     required String leagueId,
@@ -303,9 +299,19 @@ class ChatRepository {
   Future<void> pinGlobalMessage({
     required String messageId,
     required String pinnedBy,
+    bool unpinPrevious = true,
   }) async {
     final col = _globalChatCol;
     final targetRef = col.doc(messageId);
+
+    if (!unpinPrevious) {
+      await targetRef.update(<String, dynamic>{
+        'pinned': true,
+        'pinnedAt': FieldValue.serverTimestamp(),
+        'pinnedBy': pinnedBy.trim(),
+      });
+      return;
+    }
 
     final prevPinnedSnap = await col
         .where('pinned', isEqualTo: true)
@@ -346,7 +352,6 @@ class ChatRepository {
       'deletedAt': FieldValue.serverTimestamp(),
       'deletedBy': deletedBy.trim(),
 
-      // Ensure pinned bar never shows a deleted message.
       'pinned': false,
       'pinnedAt': null,
       'pinnedBy': '',
@@ -362,14 +367,13 @@ class ChatRepository {
       'deletedAt': FieldValue.serverTimestamp(),
       'deletedBy': deletedBy.trim(),
 
-      // Ensure pinned bar never shows a deleted message.
       'pinned': false,
       'pinnedAt': null,
       'pinnedBy': '',
     });
   }
 
-  // ===== Legacy hard delete (kept for compatibility, not used by new UI) =====
+  // ===== Legacy hard delete (compat) =====
 
   Future<void> deleteGlobalMessage(String messageId) async {
     await _globalChatCol.doc(messageId).delete();

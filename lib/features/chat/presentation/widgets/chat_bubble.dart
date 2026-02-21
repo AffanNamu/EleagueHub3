@@ -12,9 +12,14 @@ class ChatBubble extends StatelessWidget {
     this.selected = false,
     this.onTap,
     this.onLongPress,
+
+    // Swipe-to-reply (WhatsApp-style)
+    this.onSwipeReply,
+
+    // Voice playback (controlled by parent screen)
     this.onPlayVoice,
     this.isVoicePlaying = false,
-    this.voiceProgress = 0.0, // 0..1
+    this.voiceProgress = 0.0,
     this.voicePositionLabel = '',
     this.voiceDurationLabel = '',
   });
@@ -22,12 +27,14 @@ class ChatBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isMe;
 
-  // WhatsApp-style selection mode visuals/gestures
   final bool selected;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
-  // Voice playback (controlled by parent screen to avoid multiple players)
+  /// Called when user swipes the message (start->end) to reply.
+  /// If null, swipe-to-reply is disabled for this bubble (e.g., selection mode).
+  final VoidCallback? onSwipeReply;
+
   final VoidCallback? onPlayVoice;
   final bool isVoicePlaying;
   final double voiceProgress;
@@ -97,7 +104,7 @@ class ChatBubble extends StatelessWidget {
       }
     }
 
-    return Align(
+    final bubble = Align(
       alignment: isMe ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
@@ -146,6 +153,18 @@ class ChatBubble extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                 ],
+
+                // Reply quote preview (if this message is a reply)
+                if (message.isReply)
+                  _ReplyQuote(
+                    senderName: message.replyToSenderName.trim().isEmpty
+                        ? 'Message'
+                        : message.replyToSenderName.trim(),
+                    preview: message.replyToText.trim().isEmpty
+                        ? 'Message'
+                        : message.replyToText.trim(),
+                  ),
+
                 content,
                 const SizedBox(height: 6),
                 Row(
@@ -169,6 +188,98 @@ class ChatBubble extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+
+    // Swipe-to-reply (WhatsApp style): swipe start->end triggers reply and does not dismiss.
+    // Disabled when onSwipeReply == null (e.g., selection mode).
+    if (onSwipeReply == null) return bubble;
+
+    return Dismissible(
+      key: ValueKey<String>('reply-swipe-${message.messageId}'),
+      direction: DismissDirection.startToEnd,
+      confirmDismiss: (_) async {
+        HapticFeedback.selectionClick();
+        onSwipeReply?.call();
+        return false; // never dismiss
+      },
+      background: Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        alignment: AlignmentDirectional.centerStart,
+        decoration: BoxDecoration(
+          color: cs.primary.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(Icons.reply_rounded, color: cs.primary),
+      ),
+      child: bubble,
+    );
+  }
+}
+
+class _ReplyQuote extends StatelessWidget {
+  const _ReplyQuote({
+    required this.senderName,
+    required this.preview,
+  });
+
+  final String senderName;
+  final String preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 34,
+            decoration: BoxDecoration(
+              color: cs.primary,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  senderName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  preview,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: cs.onSurface.withOpacity(0.75),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    height: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
