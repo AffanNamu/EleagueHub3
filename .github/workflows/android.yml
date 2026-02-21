@@ -3,105 +3,53 @@ name: Android CI
 on:
   push:
     branches: [ main ]
-  pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     env:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Debug: show commit + files
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "PWD=$(pwd)"
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          echo "COMMIT:"
-          git rev-parse HEAD
-          echo "TOP LEVEL:"
-          ls -la
-          echo "ANDROID DIR:"
-          ls -la android || true
-          echo "FIND gradlew:"
-          find "$GITHUB_WORKSPACE" -maxdepth 4 -name gradlew -print || true
-          echo "TRACKED gradlew?"
-          git ls-files android/gradlew || true
-
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.24.5
-          channel: stable
+          flutter-version: '3.24.5'
+          channel: 'stable'
           cache: true
 
-      - name: Detect FLUTTER_ROOT
-        shell: bash
+      - name: Resolve Flutter SDK path (FLUTTER_ROOT)
         run: |
-          set -euo pipefail
-          FLUTTER_BIN="$(command -v flutter)"
-          FLUTTER_ROOT="$(dirname "$(dirname "$FLUTTER_BIN")")"
+          FLUTTER_BIN="$(which flutter)"
+          echo "flutter bin: $FLUTTER_BIN"
+          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
+          echo "Resolved FLUTTER_ROOT=$FLUTTER_ROOT"
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
-          echo "Flutter root: $FLUTTER_ROOT"
 
-      - name: Flutter pub get
+      - name: Write android/local.properties (required for Gradle)
+        run: |
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+          echo "Using Android SDK at: $SDK_DIR"
+          echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
+          echo "sdk.dir=${SDK_DIR}" >> android/local.properties
+          echo "--- android/local.properties ---"
+          cat android/local.properties
+
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Write android/local.properties
-        shell: bash
+      - name: Build APK
         run: |
-          set -euo pipefail
-          ANDROID_SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          if [[ -z "${ANDROID_SDK_DIR}" ]]; then
-            echo "ANDROID_SDK_ROOT/ANDROID_HOME is not set."
-            exit 1
-          fi
-
-          cat > "$GITHUB_WORKSPACE/android/local.properties" <<PROP
-          sdk.dir=${ANDROID_SDK_DIR}
-          flutter.sdk=${FLUTTER_ROOT}
-          PROP
-
-          echo "android/local.properties:"
-          cat "$GITHUB_WORKSPACE/android/local.properties"
-
-      - name: Verify Gradle wrapper exists
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! -f "$GITHUB_WORKSPACE/android/gradlew" ]]; then
-            echo "ERROR: $GITHUB_WORKSPACE/android/gradlew is missing in this checkout."
-            echo "android/ listing:"
-            ls -la "$GITHUB_WORKSPACE/android" || true
-            echo "Tracked files:"
-            git ls-files | grep -E '^android/gradlew$|^android/gradle/wrapper/' || true
-            exit 1
-          fi
-
-      - name: Make gradlew executable
-        shell: bash
-        run: chmod +x "$GITHUB_WORKSPACE/android/gradlew"
-
-      - name: Build release APK
-        run: flutter build apk --release
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          flutter build apk --release --no-tree-shake-icons \
+            --dart-define=CLOUDINARY_CLOUD_NAME=${{ env.CLOUDINARY_CLOUD_NAME }} \
+            --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=${{ env.CLOUDINARY_UNSIGNED_UPLOAD_PRESET }}

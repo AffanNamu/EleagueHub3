@@ -1,45 +1,47 @@
-import java.util.Properties
-
-def localProperties = new Properties()
-def localPropertiesFile = new File(settingsDir, "local.properties")
-if (localPropertiesFile.exists()) {
-    localPropertiesFile.withInputStream { localProperties.load(it) }
-}
-
-def flutterSdkPath = System.getenv("FLUTTER_ROOT")
-if (flutterSdkPath == null || flutterSdkPath.trim().isEmpty()) {
-    flutterSdkPath = localProperties.getProperty("flutter.sdk")
-}
-
-if (flutterSdkPath == null || flutterSdkPath.trim().isEmpty()) {
-    throw new GradleException(
-        "Flutter SDK not found. Set FLUTTER_ROOT or flutter.sdk in android/local.properties."
-    )
-}
-
 pluginManagement {
+    def flutterSdkPath = {
+        def properties = new Properties()
+        def localPropertiesFile = file("local.properties")
+
+        if (localPropertiesFile.exists()) {
+            localPropertiesFile.withInputStream { properties.load(it) }
+        }
+
+        // 1) Prefer flutter.sdk from android/local.properties
+        def sdkPath = properties.getProperty("flutter.sdk")
+
+        // 2) Fallback to CI env var
+        if (sdkPath == null || sdkPath.trim().isEmpty()) {
+            sdkPath = System.getenv("FLUTTER_ROOT")
+        }
+
+        assert sdkPath != null && !sdkPath.trim().isEmpty() :
+                "Flutter SDK not found. Set flutter.sdk in android/local.properties or set FLUTTER_ROOT."
+
+        return sdkPath
+    }()
+
+    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+
     repositories {
         google()
         mavenCentral()
         gradlePluginPortal()
     }
-    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
-}
-
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        google()
-        mavenCentral()
-    }
 }
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    id "com.android.application" version "8.1.4" apply false
+
+    // Bumped AGP to support newer compileSdk values (like 35)
+    id "com.android.application" version "8.3.2" apply false
+
+    // Kotlin compatible with modern AGP/Flutter
     id "org.jetbrains.kotlin.android" version "1.9.22" apply false
-    id "com.google.gms.google-services" version "4.4.0" apply false
-    id "com.google.firebase.crashlytics" version "2.9.9" apply false
+
+    // Firebase/Google plugins (versions must be declared here)
+    id "com.google.gms.google-services" version "4.4.1" apply false
+    id "com.google.firebase.crashlytics" version "3.0.2" apply false
 }
 
-include(":app")
+include ":app"
