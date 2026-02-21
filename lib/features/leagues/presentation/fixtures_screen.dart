@@ -661,7 +661,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Future<Uint8List> _captureShareCardPngBytes() async {
-    // Ensure the overlay was built/painted.
     await _waitFrames(3);
 
     final boundary = _shareBoundary();
@@ -670,7 +669,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final size = boundary.size;
     if (size.isEmpty) throw StateError('Share card has zero size.');
 
-    // Try multiple pixel ratios for memory safety.
     final ratios = <double>[2.5, 2.0, 1.5, 1.25];
     Object? lastErr;
 
@@ -697,32 +695,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final f = File(outPath);
     await f.writeAsBytes(bytes, flush: true);
     return outPath;
-  }
-
-  /// Fallback message if image capture fails (so share still works).
-  String _shareFixturesFallbackText(List<FixtureMatch> matches) {
-    final l10n = context.l10n;
-
-    final sorted = [...matches];
-    sorted.sort((a, b) {
-      final r = a.roundNumber.compareTo(b.roundNumber);
-      if (r != 0) return r;
-      final si = a.sortIndex.compareTo(b.sortIndex);
-      if (si != 0) return si;
-      return a.id.compareTo(b.id);
-    });
-
-    final lines = <String>[];
-    for (final m in sorted) {
-      final home = (_teamNames[m.homeTeamId] ?? l10n.tr('fixtures_tbd')).trim();
-      final away = (_teamNames[m.awayTeamId] ?? l10n.tr('fixtures_tbd')).trim();
-      final g = (m.groupId ?? '').trim();
-      final groupPart = g.isEmpty ? '' : ' • ${_groupDisplayName(l10n, g)}';
-      final hasScore = m.homeScore != null && m.awayScore != null;
-      final middle = hasScore ? '${m.homeScore}-${m.awayScore}' : 'vs';
-      lines.add('R${m.roundNumber}$groupPart: $home $middle $away');
-    }
-    return lines.join('\n');
   }
 
   Future<void> _shareSelectedFixturesToLeagueChat() async {
@@ -758,7 +730,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         fallbackPhoto: _fallbackSenderPhoto(user),
       );
 
-      // Put overlay in tree (VISIBLE overlay, not hidden) to guarantee paint.
       step = 'render card';
       if (mounted) {
         setState(() {
@@ -773,32 +744,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       }
 
       step = 'capture card';
-      Uint8List pngBytes;
-      try {
-        pngBytes = await _captureShareCardPngBytes();
-      } catch (e, st) {
-        _debugLog('Image capture failed, using fallback text', e, st);
+      final pngBytes = await _captureShareCardPngBytes();
 
-        // Remove overlay immediately
-        if (mounted) setState(() => _sharePayload = null);
-
-        // Fallback to text share (still premium enough to not block admin workflows)
-        step = 'send fallback text';
-        await _chatRepo.sendLeagueMessage(
-          leagueId: widget.leagueId,
-          senderId: user.uid,
-          senderName: identity.name,
-          senderPhoto: identity.photo,
-          type: ChatMessageType.text,
-          text: _shareFixturesFallbackText(selectedMatches),
-        );
-
-        _snack('Shared to league chat');
-        _clearSelection();
-        return;
-      }
-
-      // Remove overlay after capture
       if (mounted) setState(() => _sharePayload = null);
 
       step = 'write temp';
@@ -1433,7 +1380,7 @@ class _TeamThumb extends StatelessWidget {
 }
 
 // ============================================================================
-// Share overlay + share card
+// Share overlay + share card (HIGH CONTRAST for clarity)
 // ============================================================================
 
 class _ShareCardPayload {
@@ -1485,9 +1432,9 @@ class _ShareCaptureOverlay extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: cs.onSurface.withOpacity(0.10),
+                      color: cs.surface.withOpacity(0.90),
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: cs.onSurface.withOpacity(0.16)),
+                      border: Border.all(color: cs.onSurface.withOpacity(0.18)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1530,6 +1477,13 @@ class _FixturesShareCard extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    // IMPORTANT: OPAQUE base color so PNG is readable regardless of background.
+    final base = theme.brightness == Brightness.dark ? const Color(0xFF0B1220) : const Color(0xFFFFFFFF);
+
+    // Pre-blended opaque gradient colors (no transparency in final PNG).
+    final g1 = Color.alphaBlend(cs.primary.withOpacity(0.14), base);
+    final g2 = Color.alphaBlend(cs.primary.withOpacity(0.06), base);
+
     final screenW = MediaQuery.of(context).size.width;
     final cardW = (screenW - 24).clamp(320.0, 720.0);
 
@@ -1546,7 +1500,8 @@ class _FixturesShareCard extends StatelessWidget {
     final shown = sorted.take(maxItems).toList(growable: false);
     final extra = math.max(0, sorted.length - shown.length);
 
-    final subtitle = payload.leagueFormat == LeagueFormat.uclGroup && (payload.selectedGroup ?? '').trim().isNotEmpty
+    final subtitle = payload.leagueFormat == LeagueFormat.uclGroup &&
+            (payload.selectedGroup ?? '').trim().isNotEmpty
         ? (payload.selectedGroup ?? '').trim()
         : '';
 
@@ -1556,143 +1511,150 @@ class _FixturesShareCard extends StatelessWidget {
         width: cardW,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
+          color: base,
           borderRadius: BorderRadius.circular(22),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              cs.primary.withOpacity(0.22),
-              cs.onSurface.withOpacity(0.06),
-              cs.primary.withOpacity(0.12),
-            ],
+            colors: [g1, g2],
           ),
-          border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+          border: Border.all(color: cs.onSurface.withOpacity(0.18)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(theme.brightness == Brightness.dark ? 0.40 : 0.16),
+              color: Colors.black.withOpacity(theme.brightness == Brightness.dark ? 0.45 : 0.16),
               blurRadius: 26,
               offset: const Offset(0, 14),
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: cs.primary.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: cs.primary.withOpacity(0.30)),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(
+            color: theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Color.alphaBlend(cs.primary.withOpacity(0.18), base),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: cs.primary.withOpacity(0.35)),
+                    ),
+                    child: Icon(Icons.emoji_events_rounded, color: cs.primary),
                   ),
-                  child: Icon(Icons.emoji_events_rounded, color: cs.primary),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Fixtures',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          color: cs.onSurface,
-                        ),
-                      ),
-                      if (subtitle.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            subtitle,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.65),
-                              fontWeight: FontWeight.w700,
-                            ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Fixtures',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220),
                           ),
                         ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: cs.onSurface.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: cs.onSurface.withOpacity(0.14)),
-                  ),
-                  child: Text(
-                    '${payload.matches.length} selected',
-                    style: TextStyle(
-                      color: cs.onSurface.withOpacity(0.78),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
+                        if (subtitle.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              subtitle,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220))
+                                    .withOpacity(0.75),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Color.alphaBlend(cs.onSurface.withOpacity(0.06), base),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: cs.onSurface.withOpacity(0.18)),
+                    ),
+                    child: Text(
+                      '${payload.matches.length} selected',
+                      style: TextStyle(
+                        color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220))
+                            .withOpacity(0.85),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Divider(height: 1, color: cs.onSurface.withOpacity(0.18)),
+              const SizedBox(height: 12),
+
+              for (final m in shown) ...[
+                _FixturesShareRow(
+                  base: base,
+                  round: m.roundNumber,
+                  groupLabel: (m.groupId ?? '').trim(),
+                  homeName: (payload.teamNames[m.homeTeamId] ?? 'TBD').trim(),
+                  awayName: (payload.teamNames[m.awayTeamId] ?? 'TBD').trim(),
+                  homeScore: m.homeScore,
+                  awayScore: m.awayScore,
                 ),
+                const SizedBox(height: 10),
               ],
-            ),
-            const SizedBox(height: 14),
-            Divider(height: 1, color: cs.onSurface.withOpacity(0.12)),
-            const SizedBox(height: 12),
 
-            for (final m in shown) ...[
-              _FixturesShareRow(
-                round: m.roundNumber,
-                groupLabel: (m.groupId ?? '').trim(),
-                homeName: (payload.teamNames[m.homeTeamId] ?? 'TBD').trim(),
-                awayName: (payload.teamNames[m.awayTeamId] ?? 'TBD').trim(),
-                homeScore: m.homeScore,
-                awayScore: m.awayScore,
-              ),
-              const SizedBox(height: 10),
-            ],
-
-            if (extra > 0) ...[
-              const SizedBox(height: 2),
-              Text(
-                '+$extra more',
-                style: TextStyle(
-                  color: cs.onSurface.withOpacity(0.55),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 10),
-            Divider(height: 1, color: cs.onSurface.withOpacity(0.12)),
-            const SizedBox(height: 10),
-
-            Row(
-              children: [
-                Icon(Icons.lock_outline_rounded, size: 16, color: cs.onSurface.withOpacity(0.55)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Shared from fixtures',
-                    style: TextStyle(
-                      color: cs.onSurface.withOpacity(0.60),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
+              if (extra > 0) ...[
+                const SizedBox(height: 2),
                 Text(
-                  'eLeagueHub',
+                  '+$extra more',
                   style: TextStyle(
-                    color: cs.primary.withOpacity(0.95),
+                    color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220))
+                        .withOpacity(0.70),
                     fontWeight: FontWeight.w900,
                     fontSize: 12,
-                    letterSpacing: 0.2,
                   ),
                 ),
               ],
-            ),
-          ],
+
+              const SizedBox(height: 10),
+              Divider(height: 1, color: cs.onSurface.withOpacity(0.18)),
+              const SizedBox(height: 10),
+
+              Row(
+                children: [
+                  Icon(Icons.lock_outline_rounded, size: 16, color: cs.onSurface.withOpacity(0.65)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Shared from fixtures',
+                      style: TextStyle(
+                        color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220))
+                            .withOpacity(0.75),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'eLeagueHub',
+                    style: TextStyle(
+                      color: cs.primary.withOpacity(0.95),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1701,6 +1663,7 @@ class _FixturesShareCard extends StatelessWidget {
 
 class _FixturesShareRow extends StatelessWidget {
   const _FixturesShareRow({
+    required this.base,
     required this.round,
     required this.groupLabel,
     required this.homeName,
@@ -1708,6 +1671,8 @@ class _FixturesShareRow extends StatelessWidget {
     required this.homeScore,
     required this.awayScore,
   });
+
+  final Color base;
 
   final int round;
   final String groupLabel;
@@ -1723,16 +1688,27 @@ class _FixturesShareRow extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    final isDark = theme.brightness == Brightness.dark;
+    final fg = isDark ? Colors.white : const Color(0xFF0B1220);
+
     final group = groupLabel.trim();
     final roundChip = 'R$round';
     final scoreText = _hasScore ? '$homeScore  -  $awayScore' : 'vs';
 
+    final rowBg = Color.alphaBlend(cs.onSurface.withOpacity(isDark ? 0.10 : 0.04), base);
+    final rowBorder = cs.onSurface.withOpacity(0.18);
+
+    final scoreBg = Color.alphaBlend(
+      _hasScore ? cs.primary.withOpacity(0.16) : cs.onSurface.withOpacity(isDark ? 0.10 : 0.06),
+      base,
+    );
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.04),
+        color: rowBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+        border: Border.all(color: rowBorder),
       ),
       child: Row(
         children: [
@@ -1742,9 +1718,9 @@ class _FixturesShareRow extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: cs.primary.withOpacity(0.16),
+                  color: Color.alphaBlend(cs.primary.withOpacity(0.16), base),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: cs.primary.withOpacity(0.25)),
+                  border: Border.all(color: cs.primary.withOpacity(0.30)),
                 ),
                 child: Text(
                   roundChip,
@@ -1760,8 +1736,8 @@ class _FixturesShareRow extends StatelessWidget {
                 Text(
                   group,
                   style: TextStyle(
-                    color: cs.onSurface.withOpacity(0.55),
-                    fontWeight: FontWeight.w800,
+                    color: fg.withOpacity(0.70),
+                    fontWeight: FontWeight.w900,
                     fontSize: 11,
                   ),
                 ),
@@ -1779,7 +1755,7 @@ class _FixturesShareRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
+                    color: fg.withOpacity(0.96),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -1789,7 +1765,7 @@ class _FixturesShareRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
+                    color: fg.withOpacity(0.96),
                   ),
                 ),
               ],
@@ -1799,16 +1775,16 @@ class _FixturesShareRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: _hasScore ? cs.primary.withOpacity(0.16) : cs.onSurface.withOpacity(0.06),
+              color: scoreBg,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: _hasScore ? cs.primary.withOpacity(0.25) : cs.onSurface.withOpacity(0.12),
+                color: _hasScore ? cs.primary.withOpacity(0.30) : cs.onSurface.withOpacity(0.18),
               ),
             ),
             child: Text(
               scoreText,
               style: TextStyle(
-                color: _hasScore ? cs.primary.withOpacity(0.95) : cs.onSurface.withOpacity(0.55),
+                color: _hasScore ? cs.primary.withOpacity(0.98) : fg.withOpacity(0.75),
                 fontWeight: FontWeight.w900,
                 fontSize: 14,
               ),
