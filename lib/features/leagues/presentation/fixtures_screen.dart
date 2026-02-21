@@ -73,7 +73,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   final ValueNotifier<Set<String>> _selectedFixtureIds = ValueNotifier<Set<String>>(<String>{});
   bool _isSharingFixtures = false;
 
-  // ===== Share-as-image rendering (premium card) =====
+  // ===== Premium Share-as-image rendering =====
   final GlobalKey _shareCardKey = GlobalKey();
   _ShareCardPayload? _sharePayload;
 
@@ -147,14 +147,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   void _setRound(int round) {
-    // Switching rounds implicitly exits selection mode (prevents sharing hidden selections).
     _clearSelection();
     setState(() => _selectedRound = round);
     _persistRound(round);
   }
 
   void _setGroup(String? group) {
-    // Switching groups implicitly exits selection mode.
     _clearSelection();
     setState(() {
       _selectedGroup = group;
@@ -318,9 +316,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       final key = k.trim();
       final val = v.trim();
       if (key.isEmpty || val.isEmpty) return;
-
       if ((out[key] ?? '').trim().isNotEmpty) return;
-
       out[key] = val;
     });
     return out;
@@ -593,7 +589,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   // ===========================================================================
-  // FIXTURE SELECTION + SHARE (ADMIN ONLY) — SHARE AS PREMIUM IMAGE
+  // FIXTURE SELECTION + SHARE (ADMIN ONLY) — SHARE AS PREMIUM IMAGE (RELIABLE)
   // ===========================================================================
 
   void _toggleFixtureSelection(String matchId) {
@@ -657,34 +653,25 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     return null;
   }
 
-  Future<void> _waitForShareCardPaint({Duration timeout = const Duration(seconds: 2)}) async {
-    final start = DateTime.now();
-
-    while (DateTime.now().difference(start) < timeout) {
+  Future<void> _waitFrames(int frames) async {
+    for (var i = 0; i < frames; i++) {
       await WidgetsBinding.instance.endOfFrame;
-
-      final b = _shareBoundary();
-      if (b != null && !b.debugNeedsPaint) {
-        return;
-      }
-
-      // give next frame a chance
-      await Future<void>.delayed(const Duration(milliseconds: 16));
+      await Future<void>.delayed(const Duration(milliseconds: 8));
     }
-
-    // If still not ready, we try anyway. Some devices keep debugNeedsPaint true.
   }
 
   Future<Uint8List> _captureShareCardPngBytes() async {
-    await _waitForShareCardPaint();
+    // Ensure the overlay was built/painted.
+    await _waitFrames(3);
 
     final boundary = _shareBoundary();
-    if (boundary == null) {
-      throw StateError('Share card not ready (boundary missing).');
-    }
+    if (boundary == null) throw StateError('Share card boundary missing.');
 
-    // Try multiple pixel ratios for memory safety
-    final ratios = <double>[3.0, 2.5, 2.0, 1.5];
+    final size = boundary.size;
+    if (size.isEmpty) throw StateError('Share card has zero size.');
+
+    // Try multiple pixel ratios for memory safety.
+    final ratios = <double>[2.5, 2.0, 1.5, 1.25];
     Object? lastErr;
 
     for (final r in ratios) {
@@ -695,7 +682,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return bd.buffer.asUint8List();
       } catch (e) {
         lastErr = e;
-        _debugLog('toImage failed at pixelRatio=$r (will retry lower)', e);
+        _debugLog('toImage failed at pixelRatio=$r (retry lower)', e);
       }
     }
 
@@ -710,6 +697,32 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final f = File(outPath);
     await f.writeAsBytes(bytes, flush: true);
     return outPath;
+  }
+
+  /// Fallback message if image capture fails (so share still works).
+  String _shareFixturesFallbackText(List<FixtureMatch> matches) {
+    final l10n = context.l10n;
+
+    final sorted = [...matches];
+    sorted.sort((a, b) {
+      final r = a.roundNumber.compareTo(b.roundNumber);
+      if (r != 0) return r;
+      final si = a.sortIndex.compareTo(b.sortIndex);
+      if (si != 0) return si;
+      return a.id.compareTo(b.id);
+    });
+
+    final lines = <String>[];
+    for (final m in sorted) {
+      final home = (_teamNames[m.homeTeamId] ?? l10n.tr('fixtures_tbd')).trim();
+      final away = (_teamNames[m.awayTeamId] ?? l10n.tr('fixtures_tbd')).trim();
+      final g = (m.groupId ?? '').trim();
+      final groupPart = g.isEmpty ? '' : ' • ${_groupDisplayName(l10n, g)}';
+      final hasScore = m.homeScore != null && m.awayScore != null;
+      final middle = hasScore ? '${m.homeScore}-${m.awayScore}' : 'vs';
+      lines.add('R${m.roundNumber}$groupPart: $home $middle $away');
+    }
+    return lines.join('\n');
   }
 
   Future<void> _shareSelectedFixturesToLeagueChat() async {
@@ -738,7 +751,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return;
       }
 
-      // Resolve sender identity for chat
       step = 'resolve identity';
       final identity = await _chatRepo.resolveSenderIdentity(
         uid: user.uid,
@@ -746,7 +758,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         fallbackPhoto: _fallbackSenderPhoto(user),
       );
 
-      // Insert share card into tree
+      // Put overlay in tree (VISIBLE overlay, not hidden) to guarantee paint.
       step = 'render card';
       if (mounted) {
         setState(() {
@@ -760,22 +772,40 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         });
       }
 
-      // Capture to PNG
       step = 'capture card';
-      final pngBytes = await _captureShareCardPngBytes();
+      Uint8List pngBytes;
+      try {
+        pngBytes = await _captureShareCardPngBytes();
+      } catch (e, st) {
+        _debugLog('Image capture failed, using fallback text', e, st);
 
-      // Remove share card after capture (always)
-      if (mounted) {
-        setState(() => _sharePayload = null);
+        // Remove overlay immediately
+        if (mounted) setState(() => _sharePayload = null);
+
+        // Fallback to text share (still premium enough to not block admin workflows)
+        step = 'send fallback text';
+        await _chatRepo.sendLeagueMessage(
+          leagueId: widget.leagueId,
+          senderId: user.uid,
+          senderName: identity.name,
+          senderPhoto: identity.photo,
+          type: ChatMessageType.text,
+          text: _shareFixturesFallbackText(selectedMatches),
+        );
+
+        _snack('Shared to league chat');
+        _clearSelection();
+        return;
       }
 
-      // Write to temp
+      // Remove overlay after capture
+      if (mounted) setState(() => _sharePayload = null);
+
       step = 'write temp';
       final tmpPath = await _writePngToTempFile(pngBytes);
       final f = File(tmpPath);
       if (!await f.exists()) throw StateError('Generated image file not found.');
 
-      // Upload
       step = 'upload image';
       final url = await _chatRepo.uploadLeagueChatImage(
         leagueId: widget.leagueId,
@@ -786,7 +816,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         ),
       );
 
-      // Send as IMAGE message
       step = 'send message';
       await _chatRepo.sendLeagueMessage(
         leagueId: widget.leagueId,
@@ -807,12 +836,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     } catch (e, st) {
       _debugLog('Share failed at step="$step"', e, st);
 
-      // Always remove share payload if something fails, so UI doesn't keep it alive.
       if (mounted && _sharePayload != null) {
         setState(() => _sharePayload = null);
       }
 
-      // Give a more actionable UI error than "something went wrong"
       _snack('Could not share fixtures ($step). Please try again.');
     } finally {
       if (mounted) setState(() => _isSharingFixtures = false);
@@ -941,24 +968,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
           children: [
             mainBody,
 
-            // Hidden share-card renderer (nearly transparent but still paints)
+            // Visible overlay ensures the share card is painted reliably for capture.
             if (_sharePayload != null)
-              IgnorePointer(
-                ignoring: true,
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Opacity(
-                    opacity: 0.01, // small but paints reliably on more devices than 0.001
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: RepaintBoundary(
-                        key: _shareCardKey,
-                        child: _FixturesShareCard(
-                          payload: _sharePayload!,
-                        ),
-                      ),
-                    ),
-                  ),
+              Positioned.fill(
+                child: _ShareCaptureOverlay(
+                  repaintKey: _shareCardKey,
+                  payload: _sharePayload!,
                 ),
               ),
           ],
@@ -1418,7 +1433,7 @@ class _TeamThumb extends StatelessWidget {
 }
 
 // ============================================================================
-// Premium Share Card (Rendered to Image)
+// Share overlay + share card
 // ============================================================================
 
 class _ShareCardPayload {
@@ -1435,6 +1450,72 @@ class _ShareCardPayload {
     required this.matches,
     required this.teamNames,
   });
+}
+
+class _ShareCaptureOverlay extends StatelessWidget {
+  const _ShareCaptureOverlay({
+    required this.repaintKey,
+    required this.payload,
+  });
+
+  final GlobalKey repaintKey;
+  final _ShareCardPayload payload;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return IgnorePointer(
+      ignoring: true,
+      child: Container(
+        color: Colors.black.withOpacity(0.35),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RepaintBoundary(
+                    key: repaintKey,
+                    child: _FixturesShareCard(payload: payload),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: cs.onSurface.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: cs.onSurface.withOpacity(0.16)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Preparing share…',
+                          style: TextStyle(
+                            color: cs.onSurface.withOpacity(0.90),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _FixturesShareCard extends StatelessWidget {
@@ -1461,12 +1542,10 @@ class _FixturesShareCard extends StatelessWidget {
       return a.id.compareTo(b.id);
     });
 
-    // Prevent extremely tall images
     const maxItems = 12;
     final shown = sorted.take(maxItems).toList(growable: false);
     final extra = math.max(0, sorted.length - shown.length);
 
-    final title = 'Fixtures';
     final subtitle = payload.leagueFormat == LeagueFormat.uclGroup && (payload.selectedGroup ?? '').trim().isNotEmpty
         ? (payload.selectedGroup ?? '').trim()
         : '';
@@ -1490,9 +1569,9 @@ class _FixturesShareCard extends StatelessWidget {
           border: Border.all(color: cs.onSurface.withOpacity(0.14)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(theme.brightness == Brightness.dark ? 0.35 : 0.10),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
+              color: Colors.black.withOpacity(theme.brightness == Brightness.dark ? 0.40 : 0.16),
+              blurRadius: 26,
+              offset: const Offset(0, 14),
             ),
           ],
         ),
@@ -1518,7 +1597,7 @@ class _FixturesShareCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title,
+                        'Fixtures',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
                           color: cs.onSurface,
