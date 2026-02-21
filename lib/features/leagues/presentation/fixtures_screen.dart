@@ -313,9 +313,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         final data = d.data();
         final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? (data['id'] as String).trim() : d.id;
 
-        // We intentionally DO NOT read teamImageUrl here as a primary source.
-        // Because requirement is: user profile image is authoritative for UID teams.
-        // If you want custom per-league logos later, we can change the policy.
         final candidate = (data['teamImageUrl'] as String?)?.trim() ?? '';
         if (id.isNotEmpty && candidate.isNotEmpty) out[id] = candidate;
       }
@@ -332,7 +329,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    _clearSelection(); // safe: fixtures list will change, prevent stale selections
+    _clearSelection();
 
     setState(() {
       _isLoading = true;
@@ -350,8 +347,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
 
-      // IMPORTANT:
-      // LocalLeaguesRepository.getTeams() hydrates teamImageUrl from users/{uid} when Team.id looks like UID.
       final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
 
       final allMatches = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
@@ -404,7 +399,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       final isOrganizer = membership?.role == LeagueRole.organizer || (league?.organizerUid.trim() == authUid);
 
-      // Build initial images map from hydrated Team.teamImageUrl
       final localImages = <String, String>{};
       for (final t in teams) {
         final id = t.id.trim();
@@ -431,14 +425,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       _persistGroup(_selectedGroup);
       _persistRound(_selectedRound);
 
-      // Ensure even if a team doc is missing, we can still show the user's profile image by match ids.
       final idsFromMatches = <String>{
         for (final m in allMatches) m.homeTeamId.trim(),
         for (final m in allMatches) m.awayTeamId.trim(),
       }.where((e) => e.isNotEmpty).toList();
       unawaited(_ensureUserImagesForTeamIds(idsFromMatches));
 
-      // Secondary best-effort: teams collection URLs for non-UID teams or custom logos.
       unawaited(_loadTeamImagesBestEffortRemoteFromTeamsCollection());
     } catch (e) {
       if (!mounted) return;
@@ -450,7 +442,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     }
   }
 
-  /// Generate the next Swiss round (or Round 1 if none exist yet) for UCL Swiss leagues.
   Future<void> _generateNextSwissRound() async {
     final l10n = context.l10n;
 
@@ -591,26 +582,23 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Future<void> _handleFixtureTap(FixtureMatch match) async {
-    // In selection mode: tap toggles selection (no navigation).
     if (_isSelectionMode) {
       _toggleFixtureSelection(match.id);
       return;
     }
 
-    // Normal tap behavior: open match details; if streaming try streaming route first.
     final matchDetailsRoute = '/leagues/${widget.leagueId}/matches/${match.id}';
 
     final statusName = match.status.toString().toLowerCase();
-    final isStreaming = statusName.contains('stream'); // safe, doesn't assume enum values
+    final isStreaming = statusName.contains('stream');
 
     if (isStreaming) {
-      // Attempt streaming page route (if present in your router). Fallback safely.
       final streamRoute = '/leagues/${widget.leagueId}/matches/${match.id}/stream';
       try {
         await context.push(streamRoute);
         return;
       } catch (_) {
-        // If route is not registered, fall back to match details.
+        // fallback safely
       }
     }
 
@@ -619,8 +607,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   void _handleFixtureLongPress(FixtureMatch match) {
     if (!_canAdminSelectFixtures) return;
-
-    // Enter selection mode (by selecting first item). Long-press must not navigate.
     HapticFeedback.mediumImpact();
     _toggleFixtureSelection(match.id);
   }
@@ -724,63 +710,67 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final l10n = context.l10n;
     final cs = Theme.of(context).colorScheme;
 
-    return ValueListenableBuilder<Set<String>>(
-      valueListenable: _selectedFixtureIds,
-      builder: (context, selected, _) {
-        final selecting = selected.isNotEmpty;
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(kToolbarHeight),
+      child: ValueListenableBuilder<Set<String>>(
+        valueListenable: _selectedFixtureIds,
+        builder: (context, selected, _) {
+          final selecting = selected.isNotEmpty;
 
-        if (!selecting) {
+          if (!selecting) {
+            return AppBar(
+              title: Text(l10n.tr('fixtures_appbar_title')),
+              elevation: 0,
+              backgroundColor: Colors.transparent,
+              actions: [
+                IconButton(
+                  tooltip: l10n.tr('common_refresh'),
+                  onPressed: _isLoading ? null : _loadInitialData,
+                  icon: const Icon(Icons.refresh),
+                ),
+                if (_format == LeagueFormat.uclSwiss && _isOrganizer)
+                  IconButton(
+                    onPressed: _isGeneratingNextRound ? null : _generateNextSwissRound,
+                    tooltip: l10n.tr('fixtures_generate_next_swiss_round_tooltip'),
+                    icon: _isGeneratingNextRound
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                          )
+                        : Icon(Icons.auto_mode, color: cs.primary),
+                  ),
+              ],
+            );
+          }
+
           return AppBar(
-            title: Text(l10n.tr('fixtures_appbar_title')),
+            leading: IconButton(
+              tooltip: 'Cancel',
+              onPressed: _clearSelection,
+              icon: const Icon(Icons.close_rounded),
+            ),
+            title: Text('${selected.length} selected'),
             elevation: 0,
             backgroundColor: Colors.transparent,
             actions: [
               IconButton(
-                tooltip: l10n.tr('common_refresh'),
-                onPressed: _isLoading ? null : _loadInitialData,
-                icon: const Icon(Icons.refresh),
+                tooltip: 'Share to league chat',
+                onPressed: (!_canAdminSelectFixtures || _isSharingFixtures)
+                    ? null
+                    : _shareSelectedFixturesToLeagueChat,
+                icon: _isSharingFixtures
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                      )
+                    : const Icon(Icons.share_outlined),
               ),
-              if (_format == LeagueFormat.uclSwiss && _isOrganizer)
-                IconButton(
-                  onPressed: _isGeneratingNextRound ? null : _generateNextSwissRound,
-                  tooltip: l10n.tr('fixtures_generate_next_swiss_round_tooltip'),
-                  icon: _isGeneratingNextRound
-                      ? SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                        )
-                      : Icon(Icons.auto_mode, color: cs.primary),
-                ),
             ],
           );
-        }
-
-        // Selection mode (WhatsApp-style)
-        return AppBar(
-          leading: IconButton(
-            tooltip: 'Cancel',
-            onPressed: _clearSelection,
-            icon: const Icon(Icons.close_rounded),
-          ),
-          title: Text('${selected.length} selected'),
-          elevation: 0,
-          backgroundColor: Colors.transparent,
-          actions: [
-            IconButton(
-              tooltip: 'Share to league chat',
-              onPressed: (!_canAdminSelectFixtures || _isSharingFixtures) ? null : _shareSelectedFixturesToLeagueChat,
-              icon: _isSharingFixtures
-                  ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                    )
-                  : const Icon(Icons.share_outlined),
-            ),
-          ],
-        );
-      },
+        },
+      ),
     );
   }
 
@@ -1038,13 +1028,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       );
     }
 
-    // Make sure user images exist for any match ids (post-frame).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ids = <String>[
         for (final m in matches) m.homeTeamId,
         for (final m in matches) m.awayTeamId,
       ];
-      // ignore: discarded_futures
       _ensureUserImagesForTeamIds(ids);
     });
 

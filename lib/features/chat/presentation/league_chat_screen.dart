@@ -46,6 +46,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   // messageId -> key for scroll-to
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
 
+  // messageId -> message (latest in-view snapshot) for AppBar selection actions
+  Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
+
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
 
   bool _sending = false;
@@ -644,30 +647,54 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }
 
   PreferredSizeWidget _buildAppBar() {
-    return ValueListenableBuilder<String?>(
-      valueListenable: _selectedMessageId,
-      builder: (context, selectedId, _) {
-        final selecting = (selectedId ?? '').trim().isNotEmpty;
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(kToolbarHeight),
+      child: ValueListenableBuilder<String?>(
+        valueListenable: _selectedMessageId,
+        builder: (context, selectedId, _) {
+          final selecting = (selectedId ?? '').trim().isNotEmpty;
 
-        if (!selecting) {
+          if (!selecting) {
+            return AppBar(
+              title: const Text('League Chat'),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+            );
+          }
+
+          final selectedMsg = (selectedId != null) ? _msgById[selectedId] : null;
+
           return AppBar(
-            title: const Text('League Chat'),
+            leading: IconButton(
+              tooltip: 'Cancel selection',
+              onPressed: () => _selectedMessageId.value = null,
+              icon: const Icon(Icons.close_rounded),
+            ),
+            title: const Text('1 selected'),
             backgroundColor: Colors.transparent,
             elevation: 0,
+            actions: [
+              IconButton(
+                tooltip: 'Copy',
+                onPressed: selectedMsg == null ? null : () => _copySelected(selectedMsg),
+                icon: const Icon(Icons.copy_rounded),
+              ),
+              if (selectedMsg != null && _canDeleteMessage(selectedMsg))
+                IconButton(
+                  tooltip: 'Delete',
+                  onPressed: () => _softDeleteSelected(selectedMsg),
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              if (selectedMsg != null && _canPinMessage(selectedMsg))
+                IconButton(
+                  tooltip: 'Pin',
+                  onPressed: () => _pinSelected(selectedMsg),
+                  icon: const Icon(Icons.push_pin_outlined),
+                ),
+            ],
           );
-        }
-
-        return AppBar(
-          leading: IconButton(
-            tooltip: 'Cancel selection',
-            onPressed: () => _selectedMessageId.value = null,
-            icon: const Icon(Icons.close_rounded),
-          ),
-          title: const Text('1 selected'),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        );
-      },
+        },
+      ),
     );
   }
 
@@ -754,90 +781,53 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                       );
                     }
 
+                    // Update map for AppBar actions
+                    _msgById = {for (final m in msgs) m.messageId: m};
+
                     // prune keys to avoid growth
                     final ids = msgs.map((e) => e.messageId).toSet();
                     _messageKeys.removeWhere((k, _) => !ids.contains(k));
 
-                    return ValueListenableBuilder<String?>(
-                      valueListenable: _selectedMessageId,
-                      builder: (context, selectedId, _) {
-                        final selecting = (selectedId ?? '').trim().isNotEmpty;
-                        final selectedMsg = selecting
-                            ? msgs.cast<ChatMessage?>().firstWhere(
-                                (m) => m?.messageId == selectedId,
-                                orElse: () => null,
-                              )
-                            : null;
+                    return ListView.builder(
+                      controller: _scrollCtrl,
+                      reverse: true,
+                      padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
+                      itemCount: msgs.length,
+                      itemBuilder: (_, i) {
+                        final m = msgs[i];
+                        final isMe = m.senderId.trim() == _user.uid.trim();
+                        final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
 
-                        return Stack(
-                          children: [
-                            ListView.builder(
-                              controller: _scrollCtrl,
-                              reverse: true,
-                              padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
-                              itemCount: msgs.length,
-                              itemBuilder: (_, i) {
-                                final m = msgs[i];
-                                final isMe = m.senderId.trim() == _user.uid.trim();
-                                final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
+                        return ValueListenableBuilder<String?>(
+                          valueListenable: _selectedMessageId,
+                          builder: (context, selectedId, _) {
+                            final selecting = (selectedId ?? '').trim().isNotEmpty;
 
-                                return KeyedSubtree(
-                                  key: key,
-                                  child: ChatBubble(
-                                    message: m,
-                                    isMe: isMe,
-                                    selected: selectedId == m.messageId,
-                                    onLongPress: () {
-                                      HapticFeedback.mediumImpact();
-                                      _selectedMessageId.value = m.messageId;
-                                    },
-                                    onTap: () {
-                                      if (!selecting) return;
-                                      _selectedMessageId.value =
-                                          (selectedId == m.messageId) ? null : m.messageId;
-                                    },
-                                    onPlayVoice: (m.type == ChatMessageType.voice && !selecting)
-                                        ? () => _toggleVoice(m)
-                                        : null,
-                                    isVoicePlaying: _isPlayingFor(m.messageId),
-                                    voiceProgress: _progressFor(m.messageId),
-                                    voicePositionLabel: _posLabelFor(m.messageId),
-                                    voiceDurationLabel: _durLabelFor(m.messageId),
-                                  ),
-                                );
-                              },
-                            ),
-
-                            if (selecting && selectedMsg != null)
-                              Positioned(
-                                top: 0,
-                                right: 0,
-                                child: SafeArea(
-                                  child: Row(
-                                    children: [
-                                      IconButton(
-                                        tooltip: 'Copy',
-                                        onPressed: () => _copySelected(selectedMsg),
-                                        icon: const Icon(Icons.copy_rounded),
-                                      ),
-                                      if (_canDeleteMessage(selectedMsg))
-                                        IconButton(
-                                          tooltip: 'Delete',
-                                          onPressed: () => _softDeleteSelected(selectedMsg),
-                                          icon: const Icon(Icons.delete_outline_rounded),
-                                        ),
-                                      if (_canPinMessage(selectedMsg))
-                                        IconButton(
-                                          tooltip: 'Pin',
-                                          onPressed: () => _pinSelected(selectedMsg),
-                                          icon: const Icon(Icons.push_pin_outlined),
-                                        ),
-                                      const SizedBox(width: 4),
-                                    ],
-                                  ),
-                                ),
+                            return KeyedSubtree(
+                              key: key,
+                              child: ChatBubble(
+                                message: m,
+                                isMe: isMe,
+                                selected: selectedId == m.messageId,
+                                onLongPress: () {
+                                  HapticFeedback.mediumImpact();
+                                  _selectedMessageId.value = m.messageId;
+                                },
+                                onTap: () {
+                                  if (!selecting) return;
+                                  _selectedMessageId.value =
+                                      (selectedId == m.messageId) ? null : m.messageId;
+                                },
+                                onPlayVoice: (m.type == ChatMessageType.voice && !selecting)
+                                    ? () => _toggleVoice(m)
+                                    : null,
+                                isVoicePlaying: _isPlayingFor(m.messageId),
+                                voiceProgress: _progressFor(m.messageId),
+                                voicePositionLabel: _posLabelFor(m.messageId),
+                                voiceDurationLabel: _durLabelFor(m.messageId),
                               ),
-                          ],
+                            );
+                          },
                         );
                       },
                     );

@@ -198,7 +198,7 @@ class ChatRepository {
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
 
-        // ===== NEW: pin + moderation defaults (required by new features) =====
+        // ===== NEW: pin + moderation defaults =====
         'pinned': false,
         'pinnedAt': null,
         'pinnedBy': '',
@@ -255,7 +255,15 @@ class ChatRepository {
     );
   }
 
-  // ===== Pinning (single latest pinned) =====
+  // ===== Pinning (latest pinned shown; we best-effort unpin previous) =====
+  //
+  // IMPORTANT (cloud_firestore compat):
+  // Transaction.get() in your SDK expects a DocumentReference and does NOT accept Query,
+  // so we do:
+  //  - query previous pinned OUTSIDE
+  //  - commit both unpin+pin in a single WriteBatch (atomic write)
+  //
+  // In a rare race, multiple pinned==true could occur, but UI still shows latest via query+limit(1).
 
   Future<void> pinLeagueMessage({
     required String leagueId,
@@ -265,28 +273,31 @@ class ChatRepository {
     final col = _leagueChatCol(leagueId);
     final targetRef = col.doc(messageId);
 
-    await _firestore.runTransaction((tx) async {
-      final pinnedSnap = await tx.get(
-        col.where('pinned', isEqualTo: true).orderBy('pinnedAt', descending: true).limit(1),
-      );
+    final prevPinnedSnap = await col
+        .where('pinned', isEqualTo: true)
+        .orderBy('pinnedAt', descending: true)
+        .limit(1)
+        .get();
 
-      if (pinnedSnap.docs.isNotEmpty) {
-        final prev = pinnedSnap.docs.first;
-        if (prev.id != messageId) {
-          tx.update(prev.reference, <String, dynamic>{
-            'pinned': false,
-            'pinnedAt': null,
-            'pinnedBy': '',
-          });
-        }
-      }
+    final prevRef = prevPinnedSnap.docs.isEmpty ? null : prevPinnedSnap.docs.first.reference;
 
-      tx.update(targetRef, <String, dynamic>{
-        'pinned': true,
-        'pinnedAt': FieldValue.serverTimestamp(),
-        'pinnedBy': pinnedBy.trim(),
+    final batch = _firestore.batch();
+
+    if (prevRef != null && prevRef.id != messageId) {
+      batch.update(prevRef, <String, dynamic>{
+        'pinned': false,
+        'pinnedAt': null,
+        'pinnedBy': '',
       });
+    }
+
+    batch.update(targetRef, <String, dynamic>{
+      'pinned': true,
+      'pinnedAt': FieldValue.serverTimestamp(),
+      'pinnedBy': pinnedBy.trim(),
     });
+
+    await batch.commit();
   }
 
   Future<void> pinGlobalMessage({
@@ -296,28 +307,31 @@ class ChatRepository {
     final col = _globalChatCol;
     final targetRef = col.doc(messageId);
 
-    await _firestore.runTransaction((tx) async {
-      final pinnedSnap = await tx.get(
-        col.where('pinned', isEqualTo: true).orderBy('pinnedAt', descending: true).limit(1),
-      );
+    final prevPinnedSnap = await col
+        .where('pinned', isEqualTo: true)
+        .orderBy('pinnedAt', descending: true)
+        .limit(1)
+        .get();
 
-      if (pinnedSnap.docs.isNotEmpty) {
-        final prev = pinnedSnap.docs.first;
-        if (prev.id != messageId) {
-          tx.update(prev.reference, <String, dynamic>{
-            'pinned': false,
-            'pinnedAt': null,
-            'pinnedBy': '',
-          });
-        }
-      }
+    final prevRef = prevPinnedSnap.docs.isEmpty ? null : prevPinnedSnap.docs.first.reference;
 
-      tx.update(targetRef, <String, dynamic>{
-        'pinned': true,
-        'pinnedAt': FieldValue.serverTimestamp(),
-        'pinnedBy': pinnedBy.trim(),
+    final batch = _firestore.batch();
+
+    if (prevRef != null && prevRef.id != messageId) {
+      batch.update(prevRef, <String, dynamic>{
+        'pinned': false,
+        'pinnedAt': null,
+        'pinnedBy': '',
       });
+    }
+
+    batch.update(targetRef, <String, dynamic>{
+      'pinned': true,
+      'pinnedAt': FieldValue.serverTimestamp(),
+      'pinnedBy': pinnedBy.trim(),
     });
+
+    await batch.commit();
   }
 
   // ===== Moderation delete (soft delete) =====

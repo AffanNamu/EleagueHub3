@@ -33,6 +33,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   // messageId -> key for scroll-to
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
 
+  // messageId -> message (latest in-view snapshot) for AppBar selection actions
+  Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
+
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
 
   bool _sending = false;
@@ -340,40 +343,63 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     );
   }
 
-  PreferredSizeWidget _buildAppBar({required bool approved}) {
-    return ValueListenableBuilder<String?>(
-      valueListenable: _selectedMessageId,
-      builder: (context, selectedId, _) {
-        final selecting = (selectedId ?? '').trim().isNotEmpty;
+  PreferredSizeWidget _buildAppBar() {
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(kToolbarHeight),
+      child: ValueListenableBuilder<String?>(
+        valueListenable: _selectedMessageId,
+        builder: (context, selectedId, _) {
+          final selecting = (selectedId ?? '').trim().isNotEmpty;
 
-        if (!selecting) {
+          if (!selecting) {
+            return AppBar(
+              title: const Text('Global Chat'),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              actions: [
+                if (_isSuperAdmin)
+                  IconButton(
+                    tooltip: 'Requests',
+                    onPressed: () => context.push('/admin/global-chat-requests'),
+                    icon: const Icon(Icons.admin_panel_settings_outlined),
+                  ),
+              ],
+            );
+          }
+
+          final selectedMsg = (selectedId != null) ? _msgById[selectedId] : null;
+
           return AppBar(
-            title: const Text('Global Chat'),
+            leading: IconButton(
+              tooltip: 'Cancel selection',
+              onPressed: () => _selectedMessageId.value = null,
+              icon: const Icon(Icons.close_rounded),
+            ),
+            title: const Text('1 selected'),
             backgroundColor: Colors.transparent,
             elevation: 0,
             actions: [
-              if (_isSuperAdmin)
+              IconButton(
+                tooltip: 'Copy',
+                onPressed: selectedMsg == null ? null : () => _copySelected(selectedMsg),
+                icon: const Icon(Icons.copy_rounded),
+              ),
+              if (selectedMsg != null && _canDeleteMessage(selectedMsg))
                 IconButton(
-                  tooltip: 'Requests',
-                  onPressed: () => context.push('/admin/global-chat-requests'),
-                  icon: const Icon(Icons.admin_panel_settings_outlined),
+                  tooltip: 'Delete',
+                  onPressed: () => _softDeleteSelected(selectedMsg),
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              if (selectedMsg != null && _canPinMessage(selectedMsg))
+                IconButton(
+                  tooltip: 'Pin',
+                  onPressed: () => _pinSelected(selectedMsg),
+                  icon: const Icon(Icons.push_pin_outlined),
                 ),
             ],
           );
-        }
-
-        // Selection mode: actions are resolved in body where we have the message object.
-        return AppBar(
-          leading: IconButton(
-            tooltip: 'Cancel selection',
-            onPressed: () => _selectedMessageId.value = null,
-            icon: const Icon(Icons.close_rounded),
-          ),
-          title: const Text('1 selected'),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        );
-      },
+        },
+      ),
     );
   }
 
@@ -444,85 +470,47 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                 );
               }
 
+              // Update map for AppBar actions (no setState needed; we're in build already)
+              _msgById = {for (final m in msgs) m.messageId: m};
+
               // prune keys to avoid growth
               final ids = msgs.map((e) => e.messageId).toSet();
               _messageKeys.removeWhere((k, _) => !ids.contains(k));
 
-              return ValueListenableBuilder<String?>(
-                valueListenable: _selectedMessageId,
-                builder: (context, selectedId, _) {
-                  final selecting = (selectedId ?? '').trim().isNotEmpty;
-                  final selectedMsg = selecting
-                      ? msgs.cast<ChatMessage?>().firstWhere(
-                          (m) => m?.messageId == selectedId,
-                          orElse: () => null,
-                        )
-                      : null;
+              return ListView.builder(
+                controller: _scrollCtrl,
+                reverse: true,
+                padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
+                itemCount: msgs.length,
+                itemBuilder: (_, i) {
+                  final m = msgs[i];
+                  final isMe = m.senderId.trim() == _user.uid.trim();
 
-                  return Stack(
-                    children: [
-                      ListView.builder(
-                        controller: _scrollCtrl,
-                        reverse: true,
-                        padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
-                        itemCount: msgs.length,
-                        itemBuilder: (_, i) {
-                          final m = msgs[i];
-                          final isMe = m.senderId.trim() == _user.uid.trim();
+                  final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
 
-                          final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
+                  return ValueListenableBuilder<String?>(
+                    valueListenable: _selectedMessageId,
+                    builder: (context, selectedId, _) {
+                      final selecting = (selectedId ?? '').trim().isNotEmpty;
 
-                          return KeyedSubtree(
-                            key: key,
-                            child: ChatBubble(
-                              message: m,
-                              isMe: isMe,
-                              selected: selectedId == m.messageId,
-                              onLongPress: () {
-                                HapticFeedback.mediumImpact();
-                                _selectedMessageId.value = m.messageId;
-                              },
-                              onTap: () {
-                                if (!selecting) return;
-                                _selectedMessageId.value =
-                                    (selectedId == m.messageId) ? null : m.messageId;
-                              },
-                            ),
-                          );
-                        },
-                      ),
-
-                      // Selection-mode AppBar actions overlay (kept in-screen to access selectedMsg)
-                      if (selecting && selectedMsg != null)
-                        Positioned(
-                          top: 0,
-                          right: 0,
-                          child: SafeArea(
-                            child: Row(
-                              children: [
-                                IconButton(
-                                  tooltip: 'Copy',
-                                  onPressed: () => _copySelected(selectedMsg),
-                                  icon: const Icon(Icons.copy_rounded),
-                                ),
-                                if (_canDeleteMessage(selectedMsg))
-                                  IconButton(
-                                    tooltip: 'Delete',
-                                    onPressed: () => _softDeleteSelected(selectedMsg),
-                                    icon: const Icon(Icons.delete_outline_rounded),
-                                  ),
-                                if (_canPinMessage(selectedMsg))
-                                  IconButton(
-                                    tooltip: 'Pin',
-                                    onPressed: () => _pinSelected(selectedMsg),
-                                    icon: const Icon(Icons.push_pin_outlined),
-                                  ),
-                                const SizedBox(width: 4),
-                              ],
-                            ),
-                          ),
+                      return KeyedSubtree(
+                        key: key,
+                        child: ChatBubble(
+                          message: m,
+                          isMe: isMe,
+                          selected: selectedId == m.messageId,
+                          onLongPress: () {
+                            HapticFeedback.mediumImpact();
+                            _selectedMessageId.value = m.messageId;
+                          },
+                          onTap: () {
+                            if (!selecting) return;
+                            _selectedMessageId.value =
+                                (selectedId == m.messageId) ? null : m.messageId;
+                          },
                         ),
-                    ],
+                      );
+                    },
                   );
                 },
               );
@@ -576,7 +564,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
           return true;
         },
         child: GlassScaffold(
-          appBar: _buildAppBar(approved: bypassRequest),
+          appBar: _buildAppBar(),
           body: bypassRequest
               ? _chatBody(canSend: true)
               : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
