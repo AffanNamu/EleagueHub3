@@ -7,6 +7,14 @@ plugins {
     id "com.google.firebase.crashlytics"
 }
 
+/**
+ * REQUIRED for dev.flutter.flutter-gradle-plugin
+ * Path is relative to android/app -> ../../ is your Flutter project root (where pubspec.yaml is)
+ */
+flutter {
+    source = "../.."
+}
+
 android {
     namespace "com.eleaguehub.app"
     compileSdk 35
@@ -32,18 +40,13 @@ android {
 
     buildTypes {
         release {
-            // CI-friendly signing. Replace with your upload keystore config for Play Store.
+            // CI-friendly signing. Replace later with upload keystore signingConfig for Play Store.
             signingConfig signingConfigs.debug
             minifyEnabled false
             shrinkResources false
         }
         debug { }
     }
-}
-
-flutter {
-    // REQUIRED: points Gradle to the Flutter project root
-    source "../.."
 }
 
 dependencies {
