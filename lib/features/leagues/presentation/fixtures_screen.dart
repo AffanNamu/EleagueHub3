@@ -1,11 +1,18 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
@@ -65,6 +72,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   // Fixtures selection mode (WhatsApp style)
   final ValueNotifier<Set<String>> _selectedFixtureIds = ValueNotifier<Set<String>>(<String>{});
   bool _isSharingFixtures = false;
+
+  // ===== Share-as-image rendering =====
+  final GlobalKey _shareCardKey = GlobalKey();
+  _ShareCardPayload? _sharePayload;
 
   List<FixtureMatch> _allMatches = const [];
   int _totalRounds = 0;
@@ -229,7 +240,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
-    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    final clean = ids
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e))
+        .toList(growable: false);
     if (clean.isEmpty) return const <String, String>{};
 
     final out = <String, String>{};
@@ -308,7 +322,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       final out = <String, String>{};
       for (final d in snap.docs) {
         final data = d.data();
-        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? (data['id'] as String).trim() : d.id;
+        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty)
+            ? (data['id'] as String).trim()
+            : d.id;
 
         final candidate = (data['teamImageUrl'] as String?)?.trim() ?? '';
         if (id.isNotEmpty && candidate.isNotEmpty) out[id] = candidate;
@@ -392,7 +408,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         membership = null;
       }
 
-      final isOrganizer = membership?.role == LeagueRole.organizer || (league?.organizerUid.trim() == authUid);
+      final isOrganizer =
+          membership?.role == LeagueRole.organizer || (league?.organizerUid.trim() == authUid);
 
       final localImages = <String, String>{};
       for (final t in teams) {
@@ -437,6 +454,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     }
   }
 
+  /// Generate the next Swiss round (or Round 1 if none exist yet) for UCL Swiss leagues.
   Future<void> _generateNextSwissRound() async {
     final l10n = context.l10n;
 
@@ -559,7 +577,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   // ===========================================================================
-  // FIXTURE SELECTION + SHARE (ADMIN ONLY)
+  // FIXTURE SELECTION + SHARE (ADMIN ONLY) — SHARE AS PREMIUM IMAGE
   // ===========================================================================
 
   void _toggleFixtureSelection(String matchId) {
@@ -616,31 +634,31 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   String _fallbackSenderPhoto(User user) => (user.photoURL ?? '').trim();
 
-  /// REQUIRED CHANGE:
-  /// Share message should contain ONLY the team names in the format:
-  ///   Barcelona vs Madrid
-  /// and for multiple selections, one per line.
-  String _shareFixturesMessage(List<FixtureMatch> matches) {
-    final l10n = context.l10n;
+  Future<Uint8List> _captureShareCardPngBytes({double pixelRatio = 3.0}) async {
+    // Ensure the share card is fully laid out and painted.
+    await WidgetsBinding.instance.endOfFrame;
+    await Future<void>.delayed(const Duration(milliseconds: 30));
 
-    final sorted = [...matches];
-    sorted.sort((a, b) {
-      final r = a.roundNumber.compareTo(b.roundNumber);
-      if (r != 0) return r;
-      final si = a.sortIndex.compareTo(b.sortIndex);
-      if (si != 0) return si;
-      return a.id.compareTo(b.id);
-    });
-
-    final lines = <String>[];
-    for (final m in sorted) {
-      final homeName = (_teamNames[m.homeTeamId] ?? l10n.tr('fixtures_tbd')).trim();
-      final awayName = (_teamNames[m.awayTeamId] ?? l10n.tr('fixtures_tbd')).trim();
-      lines.add('$homeName vs $awayName');
+    final ctx = _shareCardKey.currentContext;
+    final ro = ctx?.findRenderObject();
+    if (ro is! RenderRepaintBoundary) {
+      throw StateError('Share card not ready for capture.');
     }
 
-    // Keep it clean: just the fixtures list.
-    return lines.join('\n');
+    final img = await ro.toImage(pixelRatio: pixelRatio);
+    final bd = await img.toByteData(format: ui.ImageByteFormat.png);
+    if (bd == null) throw StateError('Could not encode image.');
+    return bd.buffer.asUint8List();
+  }
+
+  Future<String> _writePngToTempFile(Uint8List bytes) async {
+    final tmp = Directory.systemTemp.path;
+    final fileName = 'fixtures_share_${widget.leagueId}_${DateTime.now().millisecondsSinceEpoch}.png';
+    final outPath = p.join(tmp, fileName);
+
+    final f = File(outPath);
+    await f.writeAsBytes(bytes, flush: true);
+    return outPath;
   }
 
   Future<void> _shareSelectedFixturesToLeagueChat() async {
@@ -657,6 +675,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     if (_isSharingFixtures) return;
 
     setState(() => _isSharingFixtures = true);
+
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
@@ -667,26 +686,66 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return;
       }
 
+      // Resolve sender identity for chat
       final identity = await _chatRepo.resolveSenderIdentity(
         uid: user.uid,
         fallbackName: _fallbackSenderName(user),
         fallbackPhoto: _fallbackSenderPhoto(user),
       );
 
-      final msg = _shareFixturesMessage(selectedMatches);
+      // Build payload for rendering
+      setState(() {
+        _sharePayload = _ShareCardPayload(
+          leagueId: widget.leagueId,
+          leagueFormat: _format,
+          selectedGroup: _selectedGroup,
+          matches: selectedMatches,
+          teamNames: _teamNames,
+        );
+      });
 
+      // Capture to PNG
+      final pngBytes = await _captureShareCardPngBytes(pixelRatio: 3.0);
+
+      // Remove hidden render widget after capture
+      if (mounted) {
+        setState(() => _sharePayload = null);
+      }
+
+      // Save to temp and upload
+      final tmpPath = await _writePngToTempFile(pngBytes);
+      final file = File(tmpPath);
+      if (!await file.exists()) throw StateError('Generated image file not found.');
+
+      final url = await _chatRepo.uploadLeagueChatImage(
+        leagueId: widget.leagueId,
+        file: PlatformFile(
+          name: p.basename(tmpPath),
+          path: tmpPath,
+          size: await file.length(),
+        ),
+      );
+
+      // Send as IMAGE message into league chat
       await _chatRepo.sendLeagueMessage(
         leagueId: widget.leagueId,
         senderId: user.uid,
         senderName: identity.name,
         senderPhoto: identity.photo,
-        type: ChatMessageType.text,
-        text: msg,
+        type: ChatMessageType.image,
+        text: '', // premium share: image-only
+        imageUrl: url,
       );
+
+      try {
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
 
       _snack('Shared to league chat');
       _clearSelection();
     } catch (e) {
+      // Always clear payload on error to avoid leaving an invisible widget in tree
+      if (mounted) setState(() => _sharePayload = null);
       _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     } finally {
       if (mounted) setState(() => _isSharingFixtures = false);
@@ -774,6 +833,33 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
 
+    final mainBody = SafeArea(
+      child: _isLoading
+          ? Center(child: CircularProgressIndicator(color: cs.primary))
+          : (_loadError != null
+              ? _buildLoadErrorState(_loadError!)
+              : Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: isTablet ? 800 : 600),
+                    child: RefreshIndicator(
+                      onRefresh: _loadInitialData,
+                      color: cs.primary,
+                      child: Column(
+                        children: [
+                          if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
+                          if (_totalRounds > 0) _buildRoundSelector(_totalRounds),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: SectionHeader(context.l10n.tr('fixtures_section_title')),
+                          ),
+                          Expanded(child: _buildMatchesList()),
+                        ],
+                      ),
+                    ),
+                  ),
+                )),
+    );
+
     return WillPopScope(
       onWillPop: () async {
         if (_isSelectionMode) {
@@ -784,31 +870,31 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       },
       child: GlassScaffold(
         appBar: _buildAppBar(),
-        body: SafeArea(
-          child: _isLoading
-              ? Center(child: CircularProgressIndicator(color: cs.primary))
-              : (_loadError != null
-                  ? _buildLoadErrorState(_loadError!)
-                  : Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: isTablet ? 800 : 600),
-                        child: RefreshIndicator(
-                          onRefresh: _loadInitialData,
-                          color: cs.primary,
-                          child: Column(
-                            children: [
-                              if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
-                              if (_totalRounds > 0) _buildRoundSelector(_totalRounds),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: SectionHeader(context.l10n.tr('fixtures_section_title')),
-                              ),
-                              Expanded(child: _buildMatchesList()),
-                            ],
-                          ),
+        body: Stack(
+          children: [
+            mainBody,
+
+            // Hidden share-card renderer (nearly transparent but still paints)
+            if (_sharePayload != null)
+              IgnorePointer(
+                ignoring: true,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Opacity(
+                    opacity: 0.001, // effectively invisible but still paints for capture
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: RepaintBoundary(
+                        key: _shareCardKey,
+                        child: _FixturesShareCard(
+                          payload: _sharePayload!,
                         ),
                       ),
-                    )),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -1259,6 +1345,340 @@ class _TeamThumb extends StatelessWidget {
                 },
               )
             : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Premium Share Card (Rendered to Image)
+// ============================================================================
+
+class _ShareCardPayload {
+  final String leagueId;
+  final LeagueFormat leagueFormat;
+  final String? selectedGroup;
+  final List<FixtureMatch> matches;
+  final Map<String, String> teamNames;
+
+  const _ShareCardPayload({
+    required this.leagueId,
+    required this.leagueFormat,
+    required this.selectedGroup,
+    required this.matches,
+    required this.teamNames,
+  });
+}
+
+class _FixturesShareCard extends StatelessWidget {
+  final _ShareCardPayload payload;
+
+  const _FixturesShareCard({
+    required this.payload,
+  });
+
+  bool _hasScore(FixtureMatch m) => m.homeScore != null && m.awayScore != null;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final screenW = MediaQuery.of(context).size.width;
+    final cardW = (screenW - 24).clamp(320.0, 720.0);
+
+    final sorted = [...payload.matches];
+    sorted.sort((a, b) {
+      final r = a.roundNumber.compareTo(b.roundNumber);
+      if (r != 0) return r;
+      final si = a.sortIndex.compareTo(b.sortIndex);
+      if (si != 0) return si;
+      return a.id.compareTo(b.id);
+    });
+
+    // Prevent extremely tall images (premium, readable)
+    const maxItems = 12;
+    final shown = sorted.take(maxItems).toList(growable: false);
+    final extra = math.max(0, sorted.length - shown.length);
+
+    final title = 'Fixtures';
+    final subtitle = payload.leagueFormat == LeagueFormat.uclGroup && (payload.selectedGroup ?? '').trim().isNotEmpty
+        ? (payload.selectedGroup ?? '').trim()
+        : '';
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: cardW,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              cs.primary.withOpacity(0.20),
+              cs.onSurface.withOpacity(0.06),
+              cs.primary.withOpacity(0.10),
+            ],
+          ),
+          border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(theme.brightness == Brightness.dark ? 0.35 : 0.10),
+              blurRadius: 22,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: cs.primary.withOpacity(0.30)),
+                  ),
+                  child: Icon(Icons.emoji_events_rounded, color: cs.primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      if (subtitle.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            subtitle,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.65),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: cs.onSurface.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+                  ),
+                  child: Text(
+                    '${payload.matches.length} selected',
+                    style: TextStyle(
+                      color: cs.onSurface.withOpacity(0.78),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Divider(height: 1, color: cs.onSurface.withOpacity(0.12)),
+            const SizedBox(height: 12),
+
+            // Items
+            for (final m in shown) ...[
+              _FixturesShareRow(
+                round: m.roundNumber,
+                groupLabel: (m.groupId ?? '').trim(),
+                homeName: (payload.teamNames[m.homeTeamId] ?? 'TBD').trim(),
+                awayName: (payload.teamNames[m.awayTeamId] ?? 'TBD').trim(),
+                homeScore: m.homeScore,
+                awayScore: m.awayScore,
+              ),
+              const SizedBox(height: 10),
+            ],
+
+            if (extra > 0) ...[
+              const SizedBox(height: 2),
+              Text(
+                '+$extra more',
+                style: TextStyle(
+                  color: cs.onSurface.withOpacity(0.55),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 10),
+            Divider(height: 1, color: cs.onSurface.withOpacity(0.12)),
+            const SizedBox(height: 10),
+
+            // Footer
+            Row(
+              children: [
+                Icon(Icons.lock_outline_rounded, size: 16, color: cs.onSurface.withOpacity(0.55)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Shared from fixtures',
+                    style: TextStyle(
+                      color: cs.onSurface.withOpacity(0.60),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                Text(
+                  'eLeagueHub',
+                  style: TextStyle(
+                    color: cs.primary.withOpacity(0.95),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FixturesShareRow extends StatelessWidget {
+  const _FixturesShareRow({
+    required this.round,
+    required this.groupLabel,
+    required this.homeName,
+    required this.awayName,
+    required this.homeScore,
+    required this.awayScore,
+  });
+
+  final int round;
+  final String groupLabel;
+  final String homeName;
+  final String awayName;
+  final int? homeScore;
+  final int? awayScore;
+
+  bool get _hasScore => homeScore != null && awayScore != null;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final group = groupLabel.trim();
+    final roundChip = 'R$round';
+    final scoreText = _hasScore ? '$homeScore  -  $awayScore' : 'vs';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+      ),
+      child: Row(
+        children: [
+          // round/group
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: cs.primary.withOpacity(0.25)),
+                ),
+                child: Text(
+                  roundChip,
+                  style: TextStyle(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              if (group.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  group,
+                  style: TextStyle(
+                    color: cs.onSurface.withOpacity(0.55),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(width: 12),
+
+          // matchup
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  homeName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  awayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 10),
+
+          // score/vs pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: _hasScore ? cs.primary.withOpacity(0.16) : cs.onSurface.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: _hasScore ? cs.primary.withOpacity(0.25) : cs.onSurface.withOpacity(0.12),
+              ),
+            ),
+            child: Text(
+              scoreText,
+              style: TextStyle(
+                color: _hasScore ? cs.primary.withOpacity(0.95) : cs.onSurface.withOpacity(0.55),
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
