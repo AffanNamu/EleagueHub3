@@ -73,7 +73,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   final ValueNotifier<Set<String>> _selectedFixtureIds = ValueNotifier<Set<String>>(<String>{});
   bool _isSharingFixtures = false;
 
-  // ===== Share-as-image rendering =====
+  // ===== Share-as-image rendering (premium card) =====
   final GlobalKey _shareCardKey = GlobalKey();
   _ShareCardPayload? _sharePayload;
 
@@ -97,6 +97,22 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   bool get _canAdminSelectFixtures => _isOrganizer || _isSuperAdmin;
 
   bool get _isSelectionMode => _selectedFixtureIds.value.isNotEmpty;
+
+  void _debugLog(String msg, [Object? err, StackTrace? st]) {
+    assert(() {
+      // ignore: avoid_print
+      print('[FixturesShare] $msg');
+      if (err != null) {
+        // ignore: avoid_print
+        print('  error: $err');
+      }
+      if (st != null) {
+        // ignore: avoid_print
+        print('  stack:\n$st');
+      }
+      return true;
+    }());
+  }
 
   @override
   void initState() {
@@ -634,21 +650,56 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   String _fallbackSenderPhoto(User user) => (user.photoURL ?? '').trim();
 
-  Future<Uint8List> _captureShareCardPngBytes({double pixelRatio = 3.0}) async {
-    // Ensure the share card is fully laid out and painted.
-    await WidgetsBinding.instance.endOfFrame;
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-
+  RenderRepaintBoundary? _shareBoundary() {
     final ctx = _shareCardKey.currentContext;
     final ro = ctx?.findRenderObject();
-    if (ro is! RenderRepaintBoundary) {
-      throw StateError('Share card not ready for capture.');
+    if (ro is RenderRepaintBoundary) return ro;
+    return null;
+  }
+
+  Future<void> _waitForShareCardPaint({Duration timeout = const Duration(seconds: 2)}) async {
+    final start = DateTime.now();
+
+    while (DateTime.now().difference(start) < timeout) {
+      await WidgetsBinding.instance.endOfFrame;
+
+      final b = _shareBoundary();
+      if (b != null && !b.debugNeedsPaint) {
+        return;
+      }
+
+      // give next frame a chance
+      await Future<void>.delayed(const Duration(milliseconds: 16));
     }
 
-    final img = await ro.toImage(pixelRatio: pixelRatio);
-    final bd = await img.toByteData(format: ui.ImageByteFormat.png);
-    if (bd == null) throw StateError('Could not encode image.');
-    return bd.buffer.asUint8List();
+    // If still not ready, we try anyway. Some devices keep debugNeedsPaint true.
+  }
+
+  Future<Uint8List> _captureShareCardPngBytes() async {
+    await _waitForShareCardPaint();
+
+    final boundary = _shareBoundary();
+    if (boundary == null) {
+      throw StateError('Share card not ready (boundary missing).');
+    }
+
+    // Try multiple pixel ratios for memory safety
+    final ratios = <double>[3.0, 2.5, 2.0, 1.5];
+    Object? lastErr;
+
+    for (final r in ratios) {
+      try {
+        final img = await boundary.toImage(pixelRatio: r);
+        final bd = await img.toByteData(format: ui.ImageByteFormat.png);
+        if (bd == null) throw StateError('PNG encoding failed.');
+        return bd.buffer.asUint8List();
+      } catch (e) {
+        lastErr = e;
+        _debugLog('toImage failed at pixelRatio=$r (will retry lower)', e);
+      }
+    }
+
+    throw StateError('Failed to capture share image. Last error: $lastErr');
   }
 
   Future<String> _writePngToTempFile(Uint8List bytes) async {
@@ -674,6 +725,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     if (selectedIds.isEmpty) return;
     if (_isSharingFixtures) return;
 
+    String step = 'prepare';
     setState(() => _isSharingFixtures = true);
 
     try {
@@ -687,66 +739,81 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       }
 
       // Resolve sender identity for chat
+      step = 'resolve identity';
       final identity = await _chatRepo.resolveSenderIdentity(
         uid: user.uid,
         fallbackName: _fallbackSenderName(user),
         fallbackPhoto: _fallbackSenderPhoto(user),
       );
 
-      // Build payload for rendering
-      setState(() {
-        _sharePayload = _ShareCardPayload(
-          leagueId: widget.leagueId,
-          leagueFormat: _format,
-          selectedGroup: _selectedGroup,
-          matches: selectedMatches,
-          teamNames: _teamNames,
-        );
-      });
+      // Insert share card into tree
+      step = 'render card';
+      if (mounted) {
+        setState(() {
+          _sharePayload = _ShareCardPayload(
+            leagueId: widget.leagueId,
+            leagueFormat: _format,
+            selectedGroup: _selectedGroup,
+            matches: selectedMatches,
+            teamNames: _teamNames,
+          );
+        });
+      }
 
       // Capture to PNG
-      final pngBytes = await _captureShareCardPngBytes(pixelRatio: 3.0);
+      step = 'capture card';
+      final pngBytes = await _captureShareCardPngBytes();
 
-      // Remove hidden render widget after capture
+      // Remove share card after capture (always)
       if (mounted) {
         setState(() => _sharePayload = null);
       }
 
-      // Save to temp and upload
+      // Write to temp
+      step = 'write temp';
       final tmpPath = await _writePngToTempFile(pngBytes);
-      final file = File(tmpPath);
-      if (!await file.exists()) throw StateError('Generated image file not found.');
+      final f = File(tmpPath);
+      if (!await f.exists()) throw StateError('Generated image file not found.');
 
+      // Upload
+      step = 'upload image';
       final url = await _chatRepo.uploadLeagueChatImage(
         leagueId: widget.leagueId,
         file: PlatformFile(
           name: p.basename(tmpPath),
           path: tmpPath,
-          size: await file.length(),
+          size: await f.length(),
         ),
       );
 
-      // Send as IMAGE message into league chat
+      // Send as IMAGE message
+      step = 'send message';
       await _chatRepo.sendLeagueMessage(
         leagueId: widget.leagueId,
         senderId: user.uid,
         senderName: identity.name,
         senderPhoto: identity.photo,
         type: ChatMessageType.image,
-        text: '', // premium share: image-only
+        text: '',
         imageUrl: url,
       );
 
       try {
-        if (await file.exists()) await file.delete();
+        if (await f.exists()) await f.delete();
       } catch (_) {}
 
       _snack('Shared to league chat');
       _clearSelection();
-    } catch (e) {
-      // Always clear payload on error to avoid leaving an invisible widget in tree
-      if (mounted) setState(() => _sharePayload = null);
-      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } catch (e, st) {
+      _debugLog('Share failed at step="$step"', e, st);
+
+      // Always remove share payload if something fails, so UI doesn't keep it alive.
+      if (mounted && _sharePayload != null) {
+        setState(() => _sharePayload = null);
+      }
+
+      // Give a more actionable UI error than "something went wrong"
+      _snack('Could not share fixtures ($step). Please try again.');
     } finally {
       if (mounted) setState(() => _isSharingFixtures = false);
     }
@@ -881,7 +948,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                 child: Align(
                   alignment: Alignment.topCenter,
                   child: Opacity(
-                    opacity: 0.001, // effectively invisible but still paints for capture
+                    opacity: 0.01, // small but paints reliably on more devices than 0.001
                     child: Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: RepaintBoundary(
@@ -1140,22 +1207,22 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final isFinished = match.status == MatchStatus.completed || match.status == MatchStatus.played;
     final hasScore = match.homeScore != null && match.awayScore != null;
 
-    final highlightBorder = selected ? cs.primary.withOpacity(0.95) : cs.onSurface.withOpacity(0.0);
-    final highlightBg = selected ? cs.primary.withOpacity(0.08) : Colors.transparent;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => _handleFixtureTap(match),
-        onLongPress: _canAdminSelectFixtures ? () => _handleFixtureLongPress(match) : null,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _handleFixtureTap(match),
+      onLongPress: _canAdminSelectFixtures ? () => _handleFixtureLongPress(match) : null,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
-            color: highlightBg,
+            color: selected ? cs.primary.withOpacity(0.08) : Colors.transparent,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: highlightBorder, width: 2),
+            border: Border.all(
+              color: selected ? cs.primary.withOpacity(0.95) : cs.onSurface.withOpacity(0.0),
+              width: 2,
+            ),
           ),
           child: Stack(
             children: [
@@ -1377,8 +1444,6 @@ class _FixturesShareCard extends StatelessWidget {
     required this.payload,
   });
 
-  bool _hasScore(FixtureMatch m) => m.homeScore != null && m.awayScore != null;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1396,7 +1461,7 @@ class _FixturesShareCard extends StatelessWidget {
       return a.id.compareTo(b.id);
     });
 
-    // Prevent extremely tall images (premium, readable)
+    // Prevent extremely tall images
     const maxItems = 12;
     final shown = sorted.take(maxItems).toList(growable: false);
     final extra = math.max(0, sorted.length - shown.length);
@@ -1417,9 +1482,9 @@ class _FixturesShareCard extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              cs.primary.withOpacity(0.20),
+              cs.primary.withOpacity(0.22),
               cs.onSurface.withOpacity(0.06),
-              cs.primary.withOpacity(0.10),
+              cs.primary.withOpacity(0.12),
             ],
           ),
           border: Border.all(color: cs.onSurface.withOpacity(0.14)),
@@ -1495,7 +1560,6 @@ class _FixturesShareCard extends StatelessWidget {
             Divider(height: 1, color: cs.onSurface.withOpacity(0.12)),
             const SizedBox(height: 12),
 
-            // Items
             for (final m in shown) ...[
               _FixturesShareRow(
                 round: m.roundNumber,
@@ -1524,7 +1588,6 @@ class _FixturesShareCard extends StatelessWidget {
             Divider(height: 1, color: cs.onSurface.withOpacity(0.12)),
             const SizedBox(height: 10),
 
-            // Footer
             Row(
               children: [
                 Icon(Icons.lock_outline_rounded, size: 16, color: cs.onSurface.withOpacity(0.55)),
@@ -1594,7 +1657,6 @@ class _FixturesShareRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // round/group
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1628,8 +1690,6 @@ class _FixturesShareRow extends StatelessWidget {
             ],
           ),
           const SizedBox(width: 12),
-
-          // matchup
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1656,10 +1716,7 @@ class _FixturesShareRow extends StatelessWidget {
               ],
             ),
           ),
-
           const SizedBox(width: 10),
-
-          // score/vs pill
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
