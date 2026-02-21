@@ -53,3 +53,15 @@ jobs:
           flutter build apk --release --no-tree-shake-icons \
             --dart-define=CLOUDINARY_CLOUD_NAME=${{ env.CLOUDINARY_CLOUD_NAME }} \
             --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=${{ env.CLOUDINARY_UNSIGNED_UPLOAD_PRESET }}
+
+      - name: Show build outputs
+        run: |
+          ls -la build/app/outputs || true
+          ls -la build/app/outputs/flutter-apk || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
