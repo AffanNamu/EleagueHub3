@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,6 +14,8 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
+import '../../chat/data/chat_repository.dart';
+import '../../chat/models/chat_message.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
 import '../models/enums.dart';
@@ -38,6 +41,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   late LocalLeaguesRepository _repo;
   late PreferencesService _prefs;
 
+  final ChatRepository _chatRepo = ChatRepository();
+
   Map<String, String> _teamNames = {};
 
   /// teamId -> imageUrl (PRIMARY: user profile image for UID-based teams)
@@ -57,6 +62,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   // Organizer guard: only organiser can generate Swiss rounds from this screen.
   bool _isOrganizer = false;
 
+  // Fixtures selection mode (WhatsApp style)
+  final ValueNotifier<Set<String>> _selectedFixtureIds = ValueNotifier<Set<String>>(<String>{});
+  bool _isSharingFixtures = false;
+
   List<FixtureMatch> _allMatches = const [];
   int _totalRounds = 0;
 
@@ -67,6 +76,16 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   // Prevent repeated expensive lookups.
   final Set<String> _requestedUserImageIds = <String>{};
+
+  static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+
+  bool get _isSuperAdmin => (FirebaseAuth.instance.currentUser?.uid.trim() ?? '') == _superAdminUid;
+
+  /// Admin-only: selection mode & share.
+  /// Uses existing organizer guard + super admin. (No new backend role assumptions.)
+  bool get _canAdminSelectFixtures => _isOrganizer || _isSuperAdmin;
+
+  bool get _isSelectionMode => _selectedFixtureIds.value.isNotEmpty;
 
   @override
   void initState() {
@@ -95,12 +114,21 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     _prefs.setString(_lastGroupKey(widget.leagueId), group ?? '');
   }
 
+  void _clearSelection() {
+    if (_selectedFixtureIds.value.isEmpty) return;
+    _selectedFixtureIds.value = <String>{};
+  }
+
   void _setRound(int round) {
+    // Switching rounds implicitly exits selection mode (prevents sharing hidden selections).
+    _clearSelection();
     setState(() => _selectedRound = round);
     _persistRound(round);
   }
 
   void _setGroup(String? group) {
+    // Switching groups implicitly exits selection mode.
+    _clearSelection();
     setState(() {
       _selectedGroup = group;
       _selectedRound = 1;
@@ -304,6 +332,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Future<void> _loadInitialData() async {
+    _clearSelection(); // safe: fixtures list will change, prevent stale selections
+
     setState(() {
       _isLoading = true;
       _loadError = null;
@@ -542,64 +572,267 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  // ===========================================================================
+  // FIXTURE SELECTION + SHARE (ADMIN ONLY)
+  // ===========================================================================
+
+  void _toggleFixtureSelection(String matchId) {
+    final id = matchId.trim();
+    if (id.isEmpty) return;
+
+    final cur = _selectedFixtureIds.value;
+    final next = <String>{...cur};
+    if (next.contains(id)) {
+      next.remove(id);
+    } else {
+      next.add(id);
+    }
+    _selectedFixtureIds.value = next;
+  }
+
+  Future<void> _handleFixtureTap(FixtureMatch match) async {
+    // In selection mode: tap toggles selection (no navigation).
+    if (_isSelectionMode) {
+      _toggleFixtureSelection(match.id);
+      return;
+    }
+
+    // Normal tap behavior: open match details; if streaming try streaming route first.
+    final matchDetailsRoute = '/leagues/${widget.leagueId}/matches/${match.id}';
+
+    final statusName = match.status.toString().toLowerCase();
+    final isStreaming = statusName.contains('stream'); // safe, doesn't assume enum values
+
+    if (isStreaming) {
+      // Attempt streaming page route (if present in your router). Fallback safely.
+      final streamRoute = '/leagues/${widget.leagueId}/matches/${match.id}/stream';
+      try {
+        await context.push(streamRoute);
+        return;
+      } catch (_) {
+        // If route is not registered, fall back to match details.
+      }
+    }
+
+    await context.push(matchDetailsRoute);
+  }
+
+  void _handleFixtureLongPress(FixtureMatch match) {
+    if (!_canAdminSelectFixtures) return;
+
+    // Enter selection mode (by selecting first item). Long-press must not navigate.
+    HapticFeedback.mediumImpact();
+    _toggleFixtureSelection(match.id);
+  }
+
+  String _fallbackSenderName(User user) {
+    final dn = (user.displayName ?? '').trim();
+    if (dn.isNotEmpty) return dn;
+    final email = (user.email ?? '').trim();
+    if (email.isNotEmpty) return email.split('@').first;
+    return 'Admin';
+  }
+
+  String _fallbackSenderPhoto(User user) => (user.photoURL ?? '').trim();
+
+  String _shareFixturesMessage(List<FixtureMatch> matches) {
+    final l10n = context.l10n;
+
+    final sorted = [...matches];
+    sorted.sort((a, b) {
+      final r = a.roundNumber.compareTo(b.roundNumber);
+      if (r != 0) return r;
+      final si = a.sortIndex.compareTo(b.sortIndex);
+      if (si != 0) return si;
+      return a.id.compareTo(b.id);
+    });
+
+    final headerGroup = (_format == LeagueFormat.uclGroup && _selectedGroup != null && _selectedGroup!.trim().isNotEmpty)
+        ? ' • ${_groupDisplayName(l10n, _selectedGroup!.trim())}'
+        : '';
+
+    final lines = <String>[];
+    for (final m in sorted) {
+      final homeName = _teamNames[m.homeTeamId] ?? l10n.tr('fixtures_tbd');
+      final awayName = _teamNames[m.awayTeamId] ?? l10n.tr('fixtures_tbd');
+
+      final groupLabel = (m.groupId ?? '').trim();
+      final groupSuffix = (_format == LeagueFormat.uclGroup && groupLabel.isNotEmpty) ? ' • $groupLabel' : '';
+
+      final scoreSuffix = (m.homeScore != null && m.awayScore != null) ? ' (${m.homeScore}-${m.awayScore})' : '';
+
+      final deepLink = '/leagues/${widget.leagueId}/matches/${m.id}';
+
+      lines.add('• R${m.roundNumber}$groupSuffix: $homeName vs $awayName$scoreSuffix\n  $deepLink');
+    }
+
+    final title = 'Selected fixtures • Round $_selectedRound$headerGroup';
+    return '$title\n\n${lines.join('\n\n')}';
+  }
+
+  Future<void> _shareSelectedFixturesToLeagueChat() async {
+    if (!_canAdminSelectFixtures) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) context.go('/login');
+      return;
+    }
+
+    final selectedIds = _selectedFixtureIds.value;
+    if (selectedIds.isEmpty) return;
+    if (_isSharingFixtures) return;
+
+    setState(() => _isSharingFixtures = true);
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final selectedMatches = _allMatches.where((m) => selectedIds.contains(m.id)).toList();
+      if (selectedMatches.isEmpty) {
+        _snack('No fixtures selected');
+        _clearSelection();
+        return;
+      }
+
+      final identity = await _chatRepo.resolveSenderIdentity(
+        uid: user.uid,
+        fallbackName: _fallbackSenderName(user),
+        fallbackPhoto: _fallbackSenderPhoto(user),
+      );
+
+      final msg = _shareFixturesMessage(selectedMatches);
+
+      await _chatRepo.sendLeagueMessage(
+        leagueId: widget.leagueId,
+        senderId: user.uid,
+        senderName: identity.name,
+        senderPhoto: identity.photo,
+        type: ChatMessageType.text,
+        text: msg,
+      );
+
+      _snack('Shared to league chat');
+      _clearSelection();
+    } catch (e) {
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } finally {
+      if (mounted) setState(() => _isSharingFixtures = false);
+    }
+  }
+
+  PreferredSizeWidget _buildAppBar() {
     final l10n = context.l10n;
     final cs = Theme.of(context).colorScheme;
 
-    final width = MediaQuery.of(context).size.width;
-    final isTablet = width > 700;
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: _selectedFixtureIds,
+      builder: (context, selected, _) {
+        final selecting = selected.isNotEmpty;
 
-    return GlassScaffold(
-      appBar: AppBar(
-        title: Text(l10n.tr('fixtures_appbar_title')),
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        actions: [
-          IconButton(
-            tooltip: l10n.tr('common_refresh'),
-            onPressed: _isLoading ? null : _loadInitialData,
-            icon: const Icon(Icons.refresh),
+        if (!selecting) {
+          return AppBar(
+            title: Text(l10n.tr('fixtures_appbar_title')),
+            elevation: 0,
+            backgroundColor: Colors.transparent,
+            actions: [
+              IconButton(
+                tooltip: l10n.tr('common_refresh'),
+                onPressed: _isLoading ? null : _loadInitialData,
+                icon: const Icon(Icons.refresh),
+              ),
+              if (_format == LeagueFormat.uclSwiss && _isOrganizer)
+                IconButton(
+                  onPressed: _isGeneratingNextRound ? null : _generateNextSwissRound,
+                  tooltip: l10n.tr('fixtures_generate_next_swiss_round_tooltip'),
+                  icon: _isGeneratingNextRound
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                        )
+                      : Icon(Icons.auto_mode, color: cs.primary),
+                ),
+            ],
+          );
+        }
+
+        // Selection mode (WhatsApp-style)
+        return AppBar(
+          leading: IconButton(
+            tooltip: 'Cancel',
+            onPressed: _clearSelection,
+            icon: const Icon(Icons.close_rounded),
           ),
-          if (_format == LeagueFormat.uclSwiss && _isOrganizer)
+          title: Text('${selected.length} selected'),
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          actions: [
             IconButton(
-              onPressed: _isGeneratingNextRound ? null : _generateNextSwissRound,
-              tooltip: l10n.tr('fixtures_generate_next_swiss_round_tooltip'),
-              icon: _isGeneratingNextRound
+              tooltip: 'Share to league chat',
+              onPressed: (!_canAdminSelectFixtures || _isSharingFixtures) ? null : _shareSelectedFixturesToLeagueChat,
+              icon: _isSharingFixtures
                   ? SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
                     )
-                  : Icon(Icons.auto_mode, color: cs.primary),
+                  : const Icon(Icons.share_outlined),
             ),
-        ],
-      ),
-      body: SafeArea(
-        child: _isLoading
-            ? Center(child: CircularProgressIndicator(color: cs.primary))
-            : (_loadError != null
-                ? _buildLoadErrorState(_loadError!)
-                : Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: isTablet ? 800 : 600),
-                      child: RefreshIndicator(
-                        onRefresh: _loadInitialData,
-                        color: cs.primary,
-                        child: Column(
-                          children: [
-                            if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
-                            if (_totalRounds > 0) _buildRoundSelector(_totalRounds),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: SectionHeader(l10n.tr('fixtures_section_title')),
-                            ),
-                            Expanded(child: _buildMatchesList()),
-                          ],
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _selectedFixtureIds.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final width = MediaQuery.of(context).size.width;
+    final isTablet = width > 700;
+
+    return WillPopScope(
+      onWillPop: () async {
+        if (_isSelectionMode) {
+          _clearSelection();
+          return false;
+        }
+        return true;
+      },
+      child: GlassScaffold(
+        appBar: _buildAppBar(),
+        body: SafeArea(
+          child: _isLoading
+              ? Center(child: CircularProgressIndicator(color: cs.primary))
+              : (_loadError != null
+                  ? _buildLoadErrorState(_loadError!)
+                  : Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: isTablet ? 800 : 600),
+                        child: RefreshIndicator(
+                          onRefresh: _loadInitialData,
+                          color: cs.primary,
+                          child: Column(
+                            children: [
+                              if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
+                              if (_totalRounds > 0) _buildRoundSelector(_totalRounds),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: SectionHeader(context.l10n.tr('fixtures_section_title')),
+                              ),
+                              Expanded(child: _buildMatchesList()),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  )),
+                    )),
+        ),
       ),
     );
   }
@@ -815,14 +1048,23 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       _ensureUserImagesForTeamIds(ids);
     });
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: matches.length,
-      itemBuilder: (context, index) => _buildMatchCard(matches[index]),
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: _selectedFixtureIds,
+      builder: (context, selected, _) {
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: matches.length,
+          itemBuilder: (context, index) {
+            final m = matches[index];
+            final isSelected = selected.contains(m.id);
+            return _buildMatchCard(m, selected: isSelected);
+          },
+        );
+      },
     );
   }
 
-  Widget _buildMatchCard(FixtureMatch match) {
+  Widget _buildMatchCard(FixtureMatch match, {required bool selected}) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
@@ -837,94 +1079,127 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     final isFinished = match.status == MatchStatus.completed || match.status == MatchStatus.played;
     final hasScore = match.homeScore != null && match.awayScore != null;
 
-    return GestureDetector(
-      onTap: () => context.push('/leagues/${widget.leagueId}/matches/${match.id}'),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        child: Glass(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    final highlightBorder = selected ? cs.primary.withOpacity(0.95) : cs.onSurface.withOpacity(0.0);
+    final highlightBg = selected ? cs.primary.withOpacity(0.08) : Colors.transparent;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _handleFixtureTap(match),
+        onLongPress: _canAdminSelectFixtures ? () => _handleFixtureLongPress(match) : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: highlightBg,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: highlightBorder, width: 2),
+          ),
+          child: Stack(
             children: [
-              if (_format == LeagueFormat.uclGroup && groupLabel != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Text(
-                      _groupDisplayName(l10n, groupLabel),
-                      style: TextStyle(
-                        color: cs.onSurface.withOpacity(0.55),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+              Glass(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_format == LeagueFormat.uclGroup && groupLabel != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Text(
+                            _groupDisplayName(l10n, groupLabel),
+                            style: TextStyle(
+                              color: cs.onSurface.withOpacity(0.55),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                       ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  homeName,
+                                  textAlign: TextAlign.end,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: cs.onSurface,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              _TeamThumb(url: homeUrl),
+                            ],
+                          ),
+                        ),
+                        SizedBox(
+                          width: 88,
+                          child: Center(
+                            child: (isFinished && hasScore)
+                                ? Text(
+                                    '${match.homeScore} - ${match.awayScore}',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      color: cs.primary,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 18,
+                                    ),
+                                  )
+                                : Text(
+                                    l10n.tr('league_details_vs'),
+                                    style: theme.textTheme.labelLarge?.copyWith(
+                                      color: cs.onSurface.withOpacity(0.30),
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              _TeamThumb(url: awayUrl),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  awayName,
+                                  textAlign: TextAlign.start,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: cs.onSurface,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
+                  ],
+                ),
+              ),
+              if (selected)
+                PositionedDirectional(
+                  top: 10,
+                  end: 10,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: cs.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: cs.primary.withOpacity(0.30)),
+                    ),
+                    child: Icon(Icons.check, size: 14, color: cs.onPrimary),
                   ),
                 ),
-              Row(
-                children: [
-                  Expanded(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            homeName,
-                            textAlign: TextAlign.end,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: cs.onSurface,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _TeamThumb(url: homeUrl),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    width: 88,
-                    child: Center(
-                      child: (isFinished && hasScore)
-                          ? Text(
-                              '${match.homeScore} - ${match.awayScore}',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: cs.primary,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 18,
-                              ),
-                            )
-                          : Text(
-                              l10n.tr('league_details_vs'),
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: cs.onSurface.withOpacity(0.30),
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        _TeamThumb(url: awayUrl),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            awayName,
-                            textAlign: TextAlign.start,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: cs.onSurface,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
@@ -13,6 +16,7 @@ import '../data/chat_repository.dart';
 import '../models/chat_message.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/chat_input_bar.dart';
+import 'widgets/pinned_message_bar.dart';
 
 class GlobalChatScreen extends StatefulWidget {
   const GlobalChatScreen({super.key});
@@ -24,6 +28,12 @@ class GlobalChatScreen extends StatefulWidget {
 class _GlobalChatScreenState extends State<GlobalChatScreen> {
   final ChatRepository _repo = ChatRepository();
   final TextEditingController _textCtrl = TextEditingController();
+  final ScrollController _scrollCtrl = ScrollController();
+
+  // messageId -> key for scroll-to
+  final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
+
+  final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
 
   bool _sending = false;
   bool _codeMode = false;
@@ -31,15 +41,46 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   String _resolvedName = '';
   String _resolvedPhoto = '';
 
+  // Global admin config (from /app/admins)
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _adminsSub;
+  Set<String> _globalChatAdmins = <String>{};
+  bool _allowSenderPinGlobal = false;
+
   User get _user => FirebaseAuth.instance.currentUser!;
 
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
   bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
 
+  bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
+
   @override
   void initState() {
     super.initState();
     _resolveIdentity();
+    _listenAdminsDoc();
+  }
+
+  void _listenAdminsDoc() {
+    _adminsSub = _repo.appAdminsDocStream().listen((snap) {
+      final data = snap.data() ?? const <String, dynamic>{};
+      final rawAdmins = data['globalChatAdmins'];
+      final allowSenderPin = data['allowGlobalSenderPin'];
+
+      final admins = <String>{};
+      if (rawAdmins is List) {
+        for (final v in rawAdmins) {
+          if (v is String && v.trim().isNotEmpty) admins.add(v.trim());
+        }
+      }
+
+      final allow = allowSenderPin is bool ? allowSenderPin : false;
+
+      if (!mounted) return;
+      setState(() {
+        _globalChatAdmins = admins;
+        _allowSenderPinGlobal = allow;
+      });
+    });
   }
 
   Future<void> _resolveIdentity() async {
@@ -112,13 +153,11 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       final existing = await docRef.get().timeout(const Duration(seconds: 8));
 
       if (existing.exists) {
-        // UPDATE — only status + metadata; hits the update rule cleanly
         await docRef.update(<String, dynamic>{
           'status': 'pending',
           'updatedAtMs': now,
         });
       } else {
-        // CREATE — full payload, no merge
         await docRef.set(<String, dynamic>{
           'userId': _user.uid,
           'userName': _senderName(),
@@ -138,6 +177,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   Future<void> _sendText() async {
+    if (_isSelecting) return;
+
     final raw = _textCtrl.text.trim();
     if (raw.isEmpty) return;
 
@@ -162,7 +203,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   Future<void> _pickAndSendImage() async {
-    if (_sending) return;
+    if (_sending || _isSelecting) return;
 
     setState(() => _sending = true);
     try {
@@ -199,31 +240,141 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     }
   }
 
-  Future<void> _deleteMessage(ChatMessage msg) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
-        title: const Text('Delete message?'),
-        content: const Text('This message will be permanently removed.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
+  bool _canDeleteMessage(ChatMessage msg) {
+    if (_isSuperAdmin) return true;
+    if (_globalChatAdmins.contains(_user.uid.trim())) return true;
+    return _user.uid.trim() == msg.senderId.trim();
+  }
+
+  bool _canPinMessage(ChatMessage msg) {
+    if (_isSuperAdmin) return true;
+    if (_globalChatAdmins.contains(_user.uid.trim())) return true;
+    final isSender = _user.uid.trim() == msg.senderId.trim();
+    return _allowSenderPinGlobal && isSender;
+  }
+
+  Future<void> _softDeleteSelected(ChatMessage msg) async {
+    if (!_canDeleteMessage(msg)) {
+      _toast('You can only delete your own messages.', error: true);
+      return;
+    }
+    if (msg.deleted) {
+      _toast('Already deleted');
+      _selectedMessageId.value = null;
+      return;
+    }
+
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
-      await _repo.deleteGlobalMessage(msg.messageId);
+      await _repo.softDeleteGlobalMessage(
+        messageId: msg.messageId,
+        deletedBy: _user.uid,
+      );
+      _selectedMessageId.value = null;
       _toast('Message deleted');
     } catch (e) {
       _toastErr(e);
     }
+  }
+
+  Future<void> _pinSelected(ChatMessage msg) async {
+    if (!_canPinMessage(msg)) {
+      _toast('You do not have permission to pin messages.', error: true);
+      return;
+    }
+    if (msg.deleted) {
+      _toast('Cannot pin a deleted message.', error: true);
+      _selectedMessageId.value = null;
+      return;
+    }
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await _repo.pinGlobalMessage(
+        messageId: msg.messageId,
+        pinnedBy: _user.uid,
+      );
+      _selectedMessageId.value = null;
+      _toast('Pinned');
+    } catch (e) {
+      _toastErr(e);
+    }
+  }
+
+  Future<void> _copySelected(ChatMessage msg) async {
+    if (msg.deleted) {
+      _toast('Nothing to copy', error: true);
+      _selectedMessageId.value = null;
+      return;
+    }
+
+    final txt = msg.text.trim().isNotEmpty
+        ? msg.text.trim()
+        : (msg.type == ChatMessageType.image
+            ? msg.imageUrl.trim()
+            : (msg.type == ChatMessageType.voice ? msg.voiceUrl.trim() : ''));
+
+    if (txt.isEmpty) {
+      _toast('Nothing to copy', error: true);
+      _selectedMessageId.value = null;
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: txt));
+    _toast('Copied');
+    _selectedMessageId.value = null;
+  }
+
+  void _scrollToMessage(String messageId) {
+    final key = _messageKeys[messageId];
+    final ctx = key?.currentContext;
+    if (ctx == null) {
+      _toast('Message not loaded yet');
+      return;
+    }
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      alignment: 0.2,
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar({required bool approved}) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: _selectedMessageId,
+      builder: (context, selectedId, _) {
+        final selecting = (selectedId ?? '').trim().isNotEmpty;
+
+        if (!selecting) {
+          return AppBar(
+            title: const Text('Global Chat'),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            actions: [
+              if (_isSuperAdmin)
+                IconButton(
+                  tooltip: 'Requests',
+                  onPressed: () => context.push('/admin/global-chat-requests'),
+                  icon: const Icon(Icons.admin_panel_settings_outlined),
+                ),
+            ],
+          );
+        }
+
+        // Selection mode: actions are resolved in body where we have the message object.
+        return AppBar(
+          leading: IconButton(
+            tooltip: 'Cancel selection',
+            onPressed: () => _selectedMessageId.value = null,
+            icon: const Icon(Icons.close_rounded),
+          ),
+          title: const Text('1 selected'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        );
+      },
+    );
   }
 
   Widget _chatBody({required bool canSend}) {
@@ -231,14 +382,24 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
     return Column(
       children: [
+        StreamBuilder<ChatMessage?>(
+          stream: _repo.globalPinnedMessageStream(),
+          builder: (context, snap) {
+            final pinned = snap.data;
+            if (pinned == null) return const SizedBox.shrink();
+            return PinnedMessageBar(
+              message: pinned,
+              onTap: () => _scrollToMessage(pinned.messageId),
+            );
+          },
+        ),
         Expanded(
           child: StreamBuilder<List<ChatMessage>>(
             stream: _repo.globalChatStream(),
             builder: (context, snap) {
               if (snap.hasError) {
                 final err = snap.error;
-                final msg =
-                    UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
+                final msg = UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
 
                 return Center(
                   child: Padding(
@@ -283,32 +444,105 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                 );
               }
 
-              return ListView.builder(
-                reverse: true,
-                padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
-                itemCount: msgs.length,
-                itemBuilder: (_, i) {
-                  final m = msgs[i];
-                  final isMe = m.senderId.trim() == _user.uid.trim();
-                  return ChatBubble(
-                    message: m,
-                    isMe: isMe,
-                    canDelete: _isSuperAdmin,
-                    onDelete: _isSuperAdmin ? () => _deleteMessage(m) : null,
+              // prune keys to avoid growth
+              final ids = msgs.map((e) => e.messageId).toSet();
+              _messageKeys.removeWhere((k, _) => !ids.contains(k));
+
+              return ValueListenableBuilder<String?>(
+                valueListenable: _selectedMessageId,
+                builder: (context, selectedId, _) {
+                  final selecting = (selectedId ?? '').trim().isNotEmpty;
+                  final selectedMsg = selecting
+                      ? msgs.cast<ChatMessage?>().firstWhere(
+                          (m) => m?.messageId == selectedId,
+                          orElse: () => null,
+                        )
+                      : null;
+
+                  return Stack(
+                    children: [
+                      ListView.builder(
+                        controller: _scrollCtrl,
+                        reverse: true,
+                        padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
+                        itemCount: msgs.length,
+                        itemBuilder: (_, i) {
+                          final m = msgs[i];
+                          final isMe = m.senderId.trim() == _user.uid.trim();
+
+                          final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
+
+                          return KeyedSubtree(
+                            key: key,
+                            child: ChatBubble(
+                              message: m,
+                              isMe: isMe,
+                              selected: selectedId == m.messageId,
+                              onLongPress: () {
+                                HapticFeedback.mediumImpact();
+                                _selectedMessageId.value = m.messageId;
+                              },
+                              onTap: () {
+                                if (!selecting) return;
+                                _selectedMessageId.value =
+                                    (selectedId == m.messageId) ? null : m.messageId;
+                              },
+                            ),
+                          );
+                        },
+                      ),
+
+                      // Selection-mode AppBar actions overlay (kept in-screen to access selectedMsg)
+                      if (selecting && selectedMsg != null)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: SafeArea(
+                            child: Row(
+                              children: [
+                                IconButton(
+                                  tooltip: 'Copy',
+                                  onPressed: () => _copySelected(selectedMsg),
+                                  icon: const Icon(Icons.copy_rounded),
+                                ),
+                                if (_canDeleteMessage(selectedMsg))
+                                  IconButton(
+                                    tooltip: 'Delete',
+                                    onPressed: () => _softDeleteSelected(selectedMsg),
+                                    icon: const Icon(Icons.delete_outline_rounded),
+                                  ),
+                                if (_canPinMessage(selectedMsg))
+                                  IconButton(
+                                    tooltip: 'Pin',
+                                    onPressed: () => _pinSelected(selectedMsg),
+                                    icon: const Icon(Icons.push_pin_outlined),
+                                  ),
+                                const SizedBox(width: 4),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
                   );
                 },
               );
             },
           ),
         ),
-        ChatInputBar(
-          controller: _textCtrl,
-          isSending: _sending,
-          codeMode: _codeMode,
-          enabled: canSend,
-          onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
-          onPickImage: _pickAndSendImage,
-          onSend: _sendText,
+        ValueListenableBuilder<String?>(
+          valueListenable: _selectedMessageId,
+          builder: (context, selectedId, _) {
+            final selecting = (selectedId ?? '').trim().isNotEmpty;
+            return ChatInputBar(
+              controller: _textCtrl,
+              isSending: _sending,
+              codeMode: _codeMode,
+              enabled: canSend && !selecting,
+              onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
+              onPickImage: _pickAndSendImage,
+              onSend: _sendText,
+            );
+          },
         ),
       ],
     );
@@ -316,6 +550,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   @override
   void dispose() {
+    _adminsSub?.cancel();
+    _scrollCtrl.dispose();
+    _selectedMessageId.dispose();
     _textCtrl.dispose();
     super.dispose();
   }
@@ -330,120 +567,118 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       decoration: BoxDecoration(
         gradient: AppTheme.backgroundGradient(theme.brightness),
       ),
-      child: GlassScaffold(
-        appBar: AppBar(
-          title: const Text('Global Chat'),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          actions: [
-            if (_isSuperAdmin)
-              IconButton(
-                tooltip: 'Requests',
-                onPressed: () => context.push('/admin/global-chat-requests'),
-                icon: const Icon(Icons.admin_panel_settings_outlined),
-              ),
-          ],
-        ),
-        body: bypassRequest
-            ? _chatBody(canSend: true)
-            : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: _repo.globalChatRequestDoc(_user.uid).snapshots(),
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Glass(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(
-                            UserFriendlyError.toMessage(
-                                snap.error is Object ? snap.error! : Exception('unknown')),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurface.withOpacity(0.75),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-
-                  final data = snap.data?.data();
-                  final statusRaw = (data?['status'] as String? ?? '').trim();
-                  final status = statusRaw.toLowerCase();
-
-                  final approved = status == 'approved';
-                  final pending = status == 'pending';
-                  final rejected = status == 'rejected';
-
-                  if (!approved) {
-                    return Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 520),
+      child: WillPopScope(
+        onWillPop: () async {
+          if (_isSelecting) {
+            _selectedMessageId.value = null;
+            return false;
+          }
+          return true;
+        },
+        child: GlassScaffold(
+          appBar: _buildAppBar(approved: bypassRequest),
+          body: bypassRequest
+              ? _chatBody(canSend: true)
+              : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: _repo.globalChatRequestDoc(_user.uid).snapshots(),
+                  builder: (context, snap) {
+                    if (snap.hasError) {
+                      return Center(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Glass(
-                            padding: const EdgeInsets.all(18),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Access required',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    color: theme.colorScheme.onSurface,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  pending
-                                      ? 'Your request is pending admin approval.'
-                                      : rejected
-                                          ? 'Your request was rejected. You can request again.'
-                                          : 'Request access to join the global public chatroom.',
-                                  style: TextStyle(
-                                    color: theme.colorScheme.onSurface.withOpacity(0.65),
-                                    fontWeight: FontWeight.w700,
-                                    height: 1.35,
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: FilledButton.icon(
-                                        onPressed: _sending ? null : _requestAccess,
-                                        icon: const Icon(Icons.lock_open_rounded),
-                                        label: Text(
-                                          pending ? 'Pending…' : 'Request access',
-                                          style: const TextStyle(fontWeight: FontWeight.w900),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  'Only approved users can read and send messages.',
-                                  style: TextStyle(
-                                    color: theme.colorScheme.onSurface.withOpacity(0.45),
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              UserFriendlyError.toMessage(
+                                snap.error is Object ? snap.error! : Exception('unknown'),
+                              ),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface.withOpacity(0.75),
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    );
-                  }
+                      );
+                    }
 
-                  return _chatBody(canSend: true);
-                },
-              ),
+                    final data = snap.data?.data();
+                    final statusRaw = (data?['status'] as String? ?? '').trim();
+                    final status = statusRaw.toLowerCase();
+
+                    final approved = status == 'approved';
+                    final pending = status == 'pending';
+                    final rejected = status == 'rejected';
+
+                    if (!approved) {
+                      return Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 520),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Glass(
+                              padding: const EdgeInsets.all(18),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Access required',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    pending
+                                        ? 'Your request is pending admin approval.'
+                                        : rejected
+                                            ? 'Your request was rejected. You can request again.'
+                                            : 'Request access to join the global public chatroom.',
+                                    style: TextStyle(
+                                      color: theme.colorScheme.onSurface.withOpacity(0.65),
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: FilledButton.icon(
+                                          onPressed: _sending ? null : _requestAccess,
+                                          icon: const Icon(Icons.lock_open_rounded),
+                                          label: Text(
+                                            pending ? 'Pending…' : 'Request access',
+                                            style: const TextStyle(fontWeight: FontWeight.w900),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'Only approved users can read and send messages.',
+                                    style: TextStyle(
+                                      color: theme.colorScheme.onSurface.withOpacity(0.45),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+
+                    return _chatBody(canSend: true);
+                  },
+                ),
+        ),
       ),
     );
   }

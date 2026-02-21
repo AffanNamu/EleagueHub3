@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
@@ -18,6 +20,7 @@ import '../data/chat_repository.dart';
 import '../models/chat_message.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/chat_input_bar.dart';
+import 'widgets/pinned_message_bar.dart';
 
 class LeagueChatScreen extends StatefulWidget {
   final String leagueId;
@@ -38,12 +41,22 @@ class LeagueChatScreen extends StatefulWidget {
 class _LeagueChatScreenState extends State<LeagueChatScreen> {
   final ChatRepository _repo = ChatRepository();
   final TextEditingController _textCtrl = TextEditingController();
+  final ScrollController _scrollCtrl = ScrollController();
+
+  // messageId -> key for scroll-to
+  final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
+
+  final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
 
   bool _sending = false;
   bool _codeMode = false;
   bool _identityResolved = false;
   String _resolvedName = '';
   String _resolvedPhoto = '';
+
+  // ===== League permission resolution (owner/organizer) =====
+  bool _leagueOwnerOrOrganizer = false;
+  bool _leaguePermsResolved = false;
 
   // ===== Voice recording =====
   final AudioRecorder _recorder = AudioRecorder();
@@ -69,18 +82,56 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
   bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
-  bool get _isOrganizer =>
+
+  bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
+
+  bool get _isOrganizerFromParam =>
       widget.organizerUid != null &&
       widget.organizerUid!.trim().isNotEmpty &&
       widget.organizerUid!.trim() == _user.uid.trim();
 
-  bool get _canModerate => _isSuperAdmin || _isOrganizer;
+  bool get _canModerateLeague =>
+      _isSuperAdmin || _isOrganizerFromParam || (_leaguePermsResolved && _leagueOwnerOrOrganizer);
 
   @override
   void initState() {
     super.initState();
     _resolveIdentity();
+    _resolveLeaguePermissions();
     _wirePlayer();
+  }
+
+  Future<void> _resolveLeaguePermissions() async {
+    // Safe, one-time fetch; avoids blocking moderators when organizerUid param wasn't supplied.
+    try {
+      final snap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
+      final data = snap.data() ?? <String, dynamic>{};
+
+      bool isOwnerOrOrganizer = false;
+      final uid = _user.uid.trim();
+
+      // Match common fields used in rules
+      final organizerUid = (data['organizerUid'] as String? ?? '').trim();
+      final ownerUid = (data['ownerUid'] as String? ?? '').trim();
+      final organizerUserId = (data['organizerUserId'] as String? ?? '').trim();
+      final ownerId = (data['ownerId'] as String? ?? '').trim();
+
+      if (organizerUid == uid || ownerUid == uid || organizerUserId == uid || ownerId == uid) {
+        isOwnerOrOrganizer = true;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _leagueOwnerOrOrganizer = isOwnerOrOrganizer;
+        _leaguePermsResolved = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _leagueOwnerOrOrganizer = false;
+        _leaguePermsResolved = true;
+      });
+    }
   }
 
   void _wirePlayer() {
@@ -164,14 +215,23 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   void _toastErr(Object e) =>
       _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
-  // ===== Delete permission update =====
+  // ===== Permissions =====
+
   bool _canDeleteMessage(ChatMessage msg) {
-    if (_canModerate) return true;
+    if (_canModerateLeague) return true;
     return _user.uid.trim() == msg.senderId.trim();
   }
 
+  bool _canPinMessage(ChatMessage msg) {
+    // League: organizer/admin only (no normal users).
+    return _canModerateLeague;
+  }
+
   // ===== Send text/image (existing) =====
+
   Future<void> _sendText() async {
+    if (_isSelecting) return;
+
     final raw = _textCtrl.text.trim();
     if (raw.isEmpty) return;
 
@@ -197,7 +257,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }
 
   Future<void> _pickAndSendImage() async {
-    if (_sending) return;
+    if (_sending || _isSelecting) return;
 
     setState(() => _sending = true);
     try {
@@ -241,7 +301,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   // ===== Voice record/cancel/send =====
 
   Future<void> _startRecording() async {
-    if (_sending || _isVoiceSending || _isRecording) return;
+    if (_sending || _isVoiceSending || _isRecording || _isSelecting) return;
 
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
@@ -315,7 +375,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }
 
   Future<void> _sendRecording() async {
-    if (_isVoiceSending || !_isRecording) return;
+    if (_isVoiceSending || !_isRecording || _isSelecting) return;
 
     final path = (_recordingPath ?? '').trim();
     if (path.isEmpty) return;
@@ -335,7 +395,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
-      // Upload to Cloudinary via SAME service architecture as images (CloudinaryUploadService)
       final voiceUrl = await _repo.uploadLeagueChatVoice(
         leagueId: widget.leagueId,
         file: PlatformFile(
@@ -351,7 +410,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
         type: ChatMessageType.voice,
-        text: _textCtrl.text.trim(), // optional caption
+        text: _textCtrl.text.trim(),
         voiceUrl: voiceUrl,
       );
 
@@ -439,40 +498,93 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     }
   }
 
-  Future<void> _deleteMessage(ChatMessage msg) async {
+  Future<void> _softDeleteSelected(ChatMessage msg) async {
     if (!_canDeleteMessage(msg)) {
       _toast('You can only delete your own messages.', error: true);
       return;
     }
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
-        title: const Text('Delete message?'),
-        content: const Text('This message will be permanently removed.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
+    if (msg.deleted) {
+      _toast('Already deleted');
+      _selectedMessageId.value = null;
+      return;
+    }
 
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
-      await _repo.deleteLeagueMessage(
+      await _repo.softDeleteLeagueMessage(
         leagueId: widget.leagueId,
         messageId: msg.messageId,
+        deletedBy: _user.uid,
       );
+      _selectedMessageId.value = null;
       _toast('Message deleted');
     } catch (e) {
       _toastErr(e);
     }
+  }
+
+  Future<void> _pinSelected(ChatMessage msg) async {
+    if (!_canPinMessage(msg)) {
+      _toast('You do not have permission to pin messages.', error: true);
+      return;
+    }
+    if (msg.deleted) {
+      _toast('Cannot pin a deleted message.', error: true);
+      _selectedMessageId.value = null;
+      return;
+    }
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await _repo.pinLeagueMessage(
+        leagueId: widget.leagueId,
+        messageId: msg.messageId,
+        pinnedBy: _user.uid,
+      );
+      _selectedMessageId.value = null;
+      _toast('Pinned');
+    } catch (e) {
+      _toastErr(e);
+    }
+  }
+
+  Future<void> _copySelected(ChatMessage msg) async {
+    if (msg.deleted) {
+      _toast('Nothing to copy', error: true);
+      _selectedMessageId.value = null;
+      return;
+    }
+
+    final txt = msg.text.trim().isNotEmpty
+        ? msg.text.trim()
+        : (msg.type == ChatMessageType.image
+            ? msg.imageUrl.trim()
+            : (msg.type == ChatMessageType.voice ? msg.voiceUrl.trim() : ''));
+
+    if (txt.isEmpty) {
+      _toast('Nothing to copy', error: true);
+      _selectedMessageId.value = null;
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: txt));
+    _toast('Copied');
+    _selectedMessageId.value = null;
+  }
+
+  void _scrollToMessage(String messageId) {
+    final key = _messageKeys[messageId];
+    final ctx = key?.currentContext;
+    if (ctx == null) {
+      _toast('Message not loaded yet');
+      return;
+    }
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      alignment: 0.2,
+    );
   }
 
   @override
@@ -483,6 +595,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     _stateSub?.cancel();
     _player.dispose();
     _recorder.dispose();
+    _scrollCtrl.dispose();
+    _selectedMessageId.dispose();
     _textCtrl.dispose();
     super.dispose();
   }
@@ -529,6 +643,34 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     );
   }
 
+  PreferredSizeWidget _buildAppBar() {
+    return ValueListenableBuilder<String?>(
+      valueListenable: _selectedMessageId,
+      builder: (context, selectedId, _) {
+        final selecting = (selectedId ?? '').trim().isNotEmpty;
+
+        if (!selecting) {
+          return AppBar(
+            title: const Text('League Chat'),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+          );
+        }
+
+        return AppBar(
+          leading: IconButton(
+            tooltip: 'Cancel selection',
+            onPressed: () => _selectedMessageId.value = null,
+            icon: const Icon(Icons.close_rounded),
+          ),
+          title: const Text('1 selected'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -537,121 +679,210 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       decoration: BoxDecoration(
         gradient: AppTheme.backgroundGradient(theme.brightness),
       ),
-      child: GlassScaffold(
-        appBar: AppBar(
-          title: const Text('League Chat'),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
-        body: Column(
-          children: [
-            Expanded(
-              child: StreamBuilder<List<ChatMessage>>(
-                stream: _repo.leagueChatStream(widget.leagueId),
+      child: WillPopScope(
+        onWillPop: () async {
+          if (_isSelecting) {
+            _selectedMessageId.value = null;
+            return false;
+          }
+          return true;
+        },
+        child: GlassScaffold(
+          appBar: _buildAppBar(),
+          body: Column(
+            children: [
+              StreamBuilder<ChatMessage?>(
+                stream: _repo.leaguePinnedMessageStream(widget.leagueId),
                 builder: (context, snap) {
-                  if (snap.hasError) {
-                    final msg = UserFriendlyError.toMessage(
-                        snap.error is Object ? snap.error! : Exception('unknown'));
-
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Glass(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.lock_outline,
-                                  color: theme.colorScheme.primary, size: 34),
-                              const SizedBox(height: 10),
-                              Text(
-                                msg,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: theme.colorScheme.onSurface.withOpacity(0.75),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              FilledButton(
-                                onPressed: () => Navigator.of(context).maybePop(),
-                                child: const Text('Back'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-
-                  final msgs = snap.data ?? const <ChatMessage>[];
-                  if (msgs.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'No messages yet',
-                        style: TextStyle(
-                            color: theme.colorScheme.onSurface.withOpacity(0.55),
-                            fontWeight: FontWeight.w700),
-                      ),
-                    );
-                  }
-
-                  return ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
-                    itemCount: msgs.length,
-                    itemBuilder: (_, i) {
-                      final m = msgs[i];
-                      final isMe = m.senderId.trim() == _user.uid.trim();
-                      final canDelete = _canDeleteMessage(m);
-
-                      return ChatBubble(
-                        message: m,
-                        isMe: isMe,
-                        canDelete: canDelete,
-                        onDelete: canDelete ? () => _deleteMessage(m) : null,
-                        onPlayVoice: m.type == ChatMessageType.voice ? () => _toggleVoice(m) : null,
-                        isVoicePlaying: _isPlayingFor(m.messageId),
-                        voiceProgress: _progressFor(m.messageId),
-                        voicePositionLabel: _posLabelFor(m.messageId),
-                        voiceDurationLabel: _durLabelFor(m.messageId),
-                      );
-                    },
+                  final pinned = snap.data;
+                  if (pinned == null) return const SizedBox.shrink();
+                  return PinnedMessageBar(
+                    message: pinned,
+                    onTap: () => _scrollToMessage(pinned.messageId),
                   );
                 },
               ),
-            ),
-            if (_isRecording) _buildRecordingBar(context),
-            Row(
-              children: [
-                Expanded(
-                  child: ChatInputBar(
-                    controller: _textCtrl,
-                    isSending: _sending,
-                    codeMode: _codeMode,
-                    enabled: !_isRecording,
-                    onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
-                    onPickImage: _pickAndSendImage,
-                    onSend: _sendText,
-                  ),
+              Expanded(
+                child: StreamBuilder<List<ChatMessage>>(
+                  stream: _repo.leagueChatStream(widget.leagueId),
+                  builder: (context, snap) {
+                    if (snap.hasError) {
+                      final msg = UserFriendlyError.toMessage(
+                        snap.error is Object ? snap.error! : Exception('unknown'),
+                      );
+
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Glass(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.lock_outline, color: theme.colorScheme.primary, size: 34),
+                                const SizedBox(height: 10),
+                                Text(
+                                  msg,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface.withOpacity(0.75),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                FilledButton(
+                                  onPressed: () => Navigator.of(context).maybePop(),
+                                  child: const Text('Back'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+
+                    final msgs = snap.data ?? const <ChatMessage>[];
+                    if (msgs.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'No messages yet',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface.withOpacity(0.55),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      );
+                    }
+
+                    // prune keys to avoid growth
+                    final ids = msgs.map((e) => e.messageId).toSet();
+                    _messageKeys.removeWhere((k, _) => !ids.contains(k));
+
+                    return ValueListenableBuilder<String?>(
+                      valueListenable: _selectedMessageId,
+                      builder: (context, selectedId, _) {
+                        final selecting = (selectedId ?? '').trim().isNotEmpty;
+                        final selectedMsg = selecting
+                            ? msgs.cast<ChatMessage?>().firstWhere(
+                                (m) => m?.messageId == selectedId,
+                                orElse: () => null,
+                              )
+                            : null;
+
+                        return Stack(
+                          children: [
+                            ListView.builder(
+                              controller: _scrollCtrl,
+                              reverse: true,
+                              padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
+                              itemCount: msgs.length,
+                              itemBuilder: (_, i) {
+                                final m = msgs[i];
+                                final isMe = m.senderId.trim() == _user.uid.trim();
+                                final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
+
+                                return KeyedSubtree(
+                                  key: key,
+                                  child: ChatBubble(
+                                    message: m,
+                                    isMe: isMe,
+                                    selected: selectedId == m.messageId,
+                                    onLongPress: () {
+                                      HapticFeedback.mediumImpact();
+                                      _selectedMessageId.value = m.messageId;
+                                    },
+                                    onTap: () {
+                                      if (!selecting) return;
+                                      _selectedMessageId.value =
+                                          (selectedId == m.messageId) ? null : m.messageId;
+                                    },
+                                    onPlayVoice: (m.type == ChatMessageType.voice && !selecting)
+                                        ? () => _toggleVoice(m)
+                                        : null,
+                                    isVoicePlaying: _isPlayingFor(m.messageId),
+                                    voiceProgress: _progressFor(m.messageId),
+                                    voicePositionLabel: _posLabelFor(m.messageId),
+                                    voiceDurationLabel: _durLabelFor(m.messageId),
+                                  ),
+                                );
+                              },
+                            ),
+
+                            if (selecting && selectedMsg != null)
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: SafeArea(
+                                  child: Row(
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Copy',
+                                        onPressed: () => _copySelected(selectedMsg),
+                                        icon: const Icon(Icons.copy_rounded),
+                                      ),
+                                      if (_canDeleteMessage(selectedMsg))
+                                        IconButton(
+                                          tooltip: 'Delete',
+                                          onPressed: () => _softDeleteSelected(selectedMsg),
+                                          icon: const Icon(Icons.delete_outline_rounded),
+                                        ),
+                                      if (_canPinMessage(selectedMsg))
+                                        IconButton(
+                                          tooltip: 'Pin',
+                                          onPressed: () => _pinSelected(selectedMsg),
+                                          icon: const Icon(Icons.push_pin_outlined),
+                                        ),
+                                      const SizedBox(width: 4),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    );
+                  },
                 ),
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(end: 12),
-                  child: Glass(
-                    padding: const EdgeInsets.all(6),
-                    child: IconButton(
-                      tooltip: _recordingPermissionDenied
-                          ? 'Microphone permission required'
-                          : (_isRecording ? 'Recording…' : 'Record voice'),
-                      onPressed:
-                          (_sending || _isVoiceSending || _isRecording) ? null : _startRecording,
-                      icon: Icon(Icons.mic, color: theme.colorScheme.primary),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
+              ),
+              if (_isRecording) _buildRecordingBar(context),
+              ValueListenableBuilder<String?>(
+                valueListenable: _selectedMessageId,
+                builder: (context, selectedId, _) {
+                  final selecting = (selectedId ?? '').trim().isNotEmpty;
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: ChatInputBar(
+                          controller: _textCtrl,
+                          isSending: _sending,
+                          codeMode: _codeMode,
+                          enabled: !_isRecording && !selecting,
+                          onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
+                          onPickImage: _pickAndSendImage,
+                          onSend: _sendText,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 12),
+                        child: Glass(
+                          padding: const EdgeInsets.all(6),
+                          child: IconButton(
+                            tooltip: _recordingPermissionDenied
+                                ? 'Microphone permission required'
+                                : (_isRecording ? 'Recording…' : 'Record voice'),
+                            onPressed: (_sending || _isVoiceSending || _isRecording || selecting)
+                                ? null
+                                : _startRecording,
+                            icon: Icon(Icons.mic, color: theme.colorScheme.primary),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

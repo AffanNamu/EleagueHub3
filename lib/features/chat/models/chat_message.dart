@@ -23,9 +23,21 @@ class ChatMessage {
   /// Stable ordering field (ms since epoch). Used for ordering queries.
   final int createdAtMs;
 
-  // Optional (added without breaking existing structure)
+  /// Optional (added without breaking existing structure)
+  /// League messages store leagueId, global messages store ''.
   final String leagueId;
+
+  /// Optional stable timestamp (ms) used by existing code.
   final int timestamp;
+
+  // ===== Moderation / pinning (NEW) =====
+  final bool pinned;
+  final Timestamp? pinnedAt;
+  final String pinnedBy;
+
+  final bool deleted;
+  final Timestamp? deletedAt;
+  final String deletedBy;
 
   const ChatMessage({
     required this.messageId,
@@ -40,27 +52,71 @@ class ChatMessage {
     required this.createdAtMs,
     required this.leagueId,
     required this.timestamp,
+    required this.pinned,
+    required this.pinnedAt,
+    required this.pinnedBy,
+    required this.deleted,
+    required this.deletedAt,
+    required this.deletedBy,
   });
+
+  bool get hasText => text.trim().isNotEmpty;
+
+  String get displaySenderName =>
+      senderName.trim().isEmpty ? 'Player' : senderName.trim();
+
+  String pinnedPreview() {
+    if (deleted) return 'This message was deleted';
+    switch (type) {
+      case ChatMessageType.image:
+        return hasText ? text.trim() : 'Photo';
+      case ChatMessageType.voice:
+        return hasText ? text.trim() : 'Voice message';
+      case ChatMessageType.code:
+        return hasText ? text.trim() : 'Code';
+      case ChatMessageType.text:
+      default:
+        return hasText ? text.trim() : 'Message';
+    }
+  }
 
   factory ChatMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
+
+    Timestamp? _ts(dynamic v) => v is Timestamp ? v : null;
+
+    int _int(dynamic v) {
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      return 0;
+    }
+
+    bool _bool(dynamic v) {
+      if (v is bool) return v;
+      return false;
+    }
+
+    String _str(dynamic v) => (v is String ? v : '').trim();
+
     return ChatMessage(
-      messageId: (data['messageId'] as String? ?? doc.id).trim(),
-      senderId: (data['senderId'] as String? ?? '').trim(),
-      senderName: (data['senderName'] as String? ?? '').trim(),
-      senderPhoto: (data['senderPhoto'] as String? ?? '').trim(),
-      text: (data['text'] as String? ?? '').trim(),
-      imageUrl: (data['imageUrl'] as String? ?? '').trim(),
-      voiceUrl: (data['voiceUrl'] as String? ?? '').trim(),
-      type: (data['type'] as String? ?? ChatMessageType.text).trim(),
-      createdAt: data['createdAt'] is Timestamp ? data['createdAt'] as Timestamp : null,
-      createdAtMs: (data['createdAtMs'] is int)
-          ? (data['createdAtMs'] as int)
-          : ((data['createdAtMs'] is num) ? (data['createdAtMs'] as num).toInt() : 0),
-      leagueId: (data['leagueId'] as String? ?? '').trim(),
-      timestamp: (data['timestamp'] is int)
-          ? (data['timestamp'] as int)
-          : ((data['timestamp'] is num) ? (data['timestamp'] as num).toInt() : 0),
+      messageId: _str(data['messageId']).isNotEmpty ? _str(data['messageId']) : doc.id,
+      senderId: _str(data['senderId']),
+      senderName: _str(data['senderName']),
+      senderPhoto: _str(data['senderPhoto']),
+      text: _str(data['text']),
+      imageUrl: _str(data['imageUrl']),
+      voiceUrl: _str(data['voiceUrl']),
+      type: _str(data['type']).isNotEmpty ? _str(data['type']) : ChatMessageType.text,
+      createdAt: _ts(data['createdAt']),
+      createdAtMs: _int(data['createdAtMs']),
+      leagueId: _str(data['leagueId']),
+      timestamp: _int(data['timestamp']),
+      pinned: _bool(data['pinned']),
+      pinnedAt: _ts(data['pinnedAt']),
+      pinnedBy: _str(data['pinnedBy']),
+      deleted: _bool(data['deleted']),
+      deletedAt: _ts(data['deletedAt']),
+      deletedBy: _str(data['deletedBy']),
     );
   }
 }

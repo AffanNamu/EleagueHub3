@@ -31,6 +31,17 @@ class ChatRepository {
     return _firestore.collection('globalChatRequests').doc(uid);
   }
 
+  DocumentReference<Map<String, dynamic>> get _appAdminsDoc =>
+      _firestore.collection('app').doc('admins');
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> appAdminsDocStream() {
+    return _appAdminsDoc.snapshots();
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> appAdminsDocOnce() {
+    return _appAdminsDoc.get();
+  }
+
   // ===== Streams =====
 
   Stream<List<ChatMessage>> leagueChatStream(String leagueId, {int limit = 100}) {
@@ -47,6 +58,31 @@ class ChatRepository {
         .limit(limit)
         .snapshots()
         .map((snap) => snap.docs.map(ChatMessage.fromDoc).toList());
+  }
+
+  // Latest pinned message (single-doc realtime listener)
+  Stream<ChatMessage?> leaguePinnedMessageStream(String leagueId) {
+    return _leagueChatCol(leagueId)
+        .where('pinned', isEqualTo: true)
+        .orderBy('pinnedAt', descending: true)
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      return ChatMessage.fromDoc(snap.docs.first);
+    });
+  }
+
+  Stream<ChatMessage?> globalPinnedMessageStream() {
+    return _globalChatCol
+        .where('pinned', isEqualTo: true)
+        .orderBy('pinnedAt', descending: true)
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      return ChatMessage.fromDoc(snap.docs.first);
+    });
   }
 
   // ===== Cloudinary upload =====
@@ -153,12 +189,22 @@ class ChatRepository {
         'imageUrl': imageUrl.trim(),
         'voiceUrl': voiceUrl.trim(),
         'type': type.trim().isEmpty ? ChatMessageType.text : type.trim(),
-        // Required fields (added without breaking existing structure)
+
+        // Required fields (existing)
         'leagueId': leagueId.trim(),
         'timestamp': nowMs,
-        // Existing ordering/timestamp fields
+
+        // Ordering/timestamp fields (existing)
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
+
+        // ===== NEW: pin + moderation defaults (required by new features) =====
+        'pinned': false,
+        'pinnedAt': null,
+        'pinnedBy': '',
+        'deleted': false,
+        'deletedAt': null,
+        'deletedBy': '',
       },
       SetOptions(merge: false),
     );
@@ -188,16 +234,128 @@ class ChatRepository {
         'text': text.trim(),
         'imageUrl': imageUrl.trim(),
         'voiceUrl': voiceUrl.trim(),
-        'type': type.trim().isEmpty ? ChatMessageType.text : type.trim(),
+        'type': type.trim().isNotEmpty ? type.trim() : ChatMessageType.text,
+
+        // Keep field parity with league messages (rules + model safety).
+        'leagueId': '',
         'timestamp': nowMs,
+
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
+
+        // ===== NEW: pin + moderation defaults =====
+        'pinned': false,
+        'pinnedAt': null,
+        'pinnedBy': '',
+        'deleted': false,
+        'deletedAt': null,
+        'deletedBy': '',
       },
       SetOptions(merge: false),
     );
   }
 
-  // ===== Delete message (moderation) =====
+  // ===== Pinning (single latest pinned) =====
+
+  Future<void> pinLeagueMessage({
+    required String leagueId,
+    required String messageId,
+    required String pinnedBy,
+  }) async {
+    final col = _leagueChatCol(leagueId);
+    final targetRef = col.doc(messageId);
+
+    await _firestore.runTransaction((tx) async {
+      final pinnedSnap = await tx.get(
+        col.where('pinned', isEqualTo: true).orderBy('pinnedAt', descending: true).limit(1),
+      );
+
+      if (pinnedSnap.docs.isNotEmpty) {
+        final prev = pinnedSnap.docs.first;
+        if (prev.id != messageId) {
+          tx.update(prev.reference, <String, dynamic>{
+            'pinned': false,
+            'pinnedAt': null,
+            'pinnedBy': '',
+          });
+        }
+      }
+
+      tx.update(targetRef, <String, dynamic>{
+        'pinned': true,
+        'pinnedAt': FieldValue.serverTimestamp(),
+        'pinnedBy': pinnedBy.trim(),
+      });
+    });
+  }
+
+  Future<void> pinGlobalMessage({
+    required String messageId,
+    required String pinnedBy,
+  }) async {
+    final col = _globalChatCol;
+    final targetRef = col.doc(messageId);
+
+    await _firestore.runTransaction((tx) async {
+      final pinnedSnap = await tx.get(
+        col.where('pinned', isEqualTo: true).orderBy('pinnedAt', descending: true).limit(1),
+      );
+
+      if (pinnedSnap.docs.isNotEmpty) {
+        final prev = pinnedSnap.docs.first;
+        if (prev.id != messageId) {
+          tx.update(prev.reference, <String, dynamic>{
+            'pinned': false,
+            'pinnedAt': null,
+            'pinnedBy': '',
+          });
+        }
+      }
+
+      tx.update(targetRef, <String, dynamic>{
+        'pinned': true,
+        'pinnedAt': FieldValue.serverTimestamp(),
+        'pinnedBy': pinnedBy.trim(),
+      });
+    });
+  }
+
+  // ===== Moderation delete (soft delete) =====
+
+  Future<void> softDeleteLeagueMessage({
+    required String leagueId,
+    required String messageId,
+    required String deletedBy,
+  }) async {
+    await _leagueChatCol(leagueId).doc(messageId).update(<String, dynamic>{
+      'deleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedBy': deletedBy.trim(),
+
+      // Ensure pinned bar never shows a deleted message.
+      'pinned': false,
+      'pinnedAt': null,
+      'pinnedBy': '',
+    });
+  }
+
+  Future<void> softDeleteGlobalMessage({
+    required String messageId,
+    required String deletedBy,
+  }) async {
+    await _globalChatCol.doc(messageId).update(<String, dynamic>{
+      'deleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedBy': deletedBy.trim(),
+
+      // Ensure pinned bar never shows a deleted message.
+      'pinned': false,
+      'pinnedAt': null,
+      'pinnedBy': '',
+    });
+  }
+
+  // ===== Legacy hard delete (kept for compatibility, not used by new UI) =====
 
   Future<void> deleteGlobalMessage(String messageId) async {
     await _globalChatCol.doc(messageId).delete();

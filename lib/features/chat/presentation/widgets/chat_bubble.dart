@@ -9,8 +9,9 @@ class ChatBubble extends StatelessWidget {
     super.key,
     required this.message,
     required this.isMe,
-    this.canDelete = false,
-    this.onDelete,
+    this.selected = false,
+    this.onTap,
+    this.onLongPress,
     this.onPlayVoice,
     this.isVoicePlaying = false,
     this.voiceProgress = 0.0, // 0..1
@@ -20,8 +21,11 @@ class ChatBubble extends StatelessWidget {
 
   final ChatMessage message;
   final bool isMe;
-  final bool canDelete;
-  final VoidCallback? onDelete;
+
+  // WhatsApp-style selection mode visuals/gestures
+  final bool selected;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   // Voice playback (controlled by parent screen to avoid multiple players)
   final VoidCallback? onPlayVoice;
@@ -37,127 +41,132 @@ class ChatBubble extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final bg = isMe ? cs.primary.withOpacity(0.20) : cs.onSurface.withOpacity(0.06);
-    final border = isMe ? cs.primary.withOpacity(0.30) : cs.onSurface.withOpacity(0.12);
+    final baseBg = isMe ? cs.primary.withOpacity(0.20) : cs.onSurface.withOpacity(0.06);
+    final baseBorder = isMe ? cs.primary.withOpacity(0.30) : cs.onSurface.withOpacity(0.12);
+
+    final bg = selected ? cs.primary.withOpacity(0.18) : baseBg;
+    final border = selected ? cs.primary.withOpacity(0.65) : baseBorder;
 
     final maxWidth = MediaQuery.of(context).size.width * 0.78;
 
     final time = message.createdAt?.toDate();
     final timeStr = time == null ? '' : DateFormat('HH:mm').format(time);
 
-    final senderName =
-        message.senderName.trim().isEmpty ? 'Player' : message.senderName.trim();
+    final senderName = message.displaySenderName;
     final senderPhoto = message.senderPhoto.trim();
 
     Widget content;
-    switch (message.type) {
-      case ChatMessageType.image:
-        content = _ImageBubble(
-          url: message.imageUrl,
-          caption: _hasText ? message.text : null,
-          maxWidth: maxWidth,
-        );
-        break;
-      case ChatMessageType.code:
-        content = _CodeBubble(code: message.text, maxWidth: maxWidth);
-        break;
-      case ChatMessageType.voice:
-        content = _VoiceBubble(
-          maxWidth: maxWidth,
-          caption: _hasText ? message.text : null,
-          onPlayPause: onPlayVoice,
-          isPlaying: isVoicePlaying,
-          progress: voiceProgress,
-          positionLabel: voicePositionLabel,
-          durationLabel: voiceDurationLabel,
-        );
-        break;
-      case ChatMessageType.text:
-      default:
-        content = _TextBubble(text: message.text, maxWidth: maxWidth);
-        break;
+    if (message.deleted) {
+      content = Text(
+        'This message was deleted',
+        style: TextStyle(
+          color: cs.onSurface.withOpacity(0.70),
+          fontWeight: FontWeight.w800,
+          fontStyle: FontStyle.italic,
+          height: 1.35,
+          fontSize: 13,
+        ),
+      );
+    } else {
+      switch (message.type) {
+        case ChatMessageType.image:
+          content = _ImageBubble(
+            url: message.imageUrl,
+            caption: _hasText ? message.text : null,
+            maxWidth: maxWidth,
+          );
+          break;
+        case ChatMessageType.code:
+          content = _CodeBubble(code: message.text, maxWidth: maxWidth);
+          break;
+        case ChatMessageType.voice:
+          content = _VoiceBubble(
+            maxWidth: maxWidth,
+            caption: _hasText ? message.text : null,
+            onPlayPause: onPlayVoice,
+            isPlaying: isVoicePlaying,
+            progress: voiceProgress,
+            positionLabel: voicePositionLabel,
+            durationLabel: voiceDurationLabel,
+          );
+          break;
+        case ChatMessageType.text:
+        default:
+          content = _TextBubble(text: message.text, maxWidth: maxWidth);
+          break;
+      }
     }
 
     return Align(
-      alignment:
-          isMe ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+      alignment: isMe ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!isMe) ...[
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            margin: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!isMe) ...[
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (senderPhoto.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: CircleAvatar(
+                            radius: 10,
+                            backgroundColor: cs.onSurface.withOpacity(0.08),
+                            backgroundImage: NetworkImage(senderPhoto),
+                            onBackgroundImageError: (_, __) {},
+                          ),
+                        ),
+                      Flexible(
+                        child: Text(
+                          senderName,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.70),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 11,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                content,
+                const SizedBox(height: 6),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (senderPhoto.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: CircleAvatar(
-                          radius: 10,
-                          backgroundColor: cs.onSurface.withOpacity(0.08),
-                          backgroundImage: NetworkImage(senderPhoto),
-                          onBackgroundImageError: (_, __) {},
-                        ),
-                      ),
-                    Flexible(
-                      child: Text(
-                        senderName,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.70),
-                          fontWeight: FontWeight.w900,
-                          fontSize: 11,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                    Text(
+                      timeStr,
+                      style: TextStyle(
+                        color: cs.onSurface.withOpacity(0.45),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
+                    if (isMe) ...[
+                      const SizedBox(width: 6),
+                      Icon(Icons.done_all, size: 14, color: cs.primary.withOpacity(0.65)),
+                    ],
                   ],
                 ),
-                const SizedBox(height: 6),
               ],
-              content,
-              const SizedBox(height: 6),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    timeStr,
-                    style: TextStyle(
-                      color: cs.onSurface.withOpacity(0.45),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (isMe) ...[
-                    const SizedBox(width: 6),
-                    Icon(Icons.done_all, size: 14, color: cs.primary.withOpacity(0.65)),
-                  ],
-                  if (canDelete && onDelete != null) ...[
-                    const Spacer(),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(8),
-                      onTap: onDelete,
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.delete_outline_rounded,
-                          size: 16,
-                          color: cs.error.withOpacity(0.70),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -326,8 +335,7 @@ class _CodeBubble extends StatelessWidget {
               icon: Icon(Icons.copy, size: 16, color: cs.primary),
               label: Text(
                 'Copy',
-                style: TextStyle(
-                    color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
+                style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
               ),
             ),
           ),
@@ -383,8 +391,10 @@ class _ImageBubble extends StatelessWidget {
                   url,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Center(
-                    child: Icon(Icons.broken_image_outlined,
-                        color: cs.onSurface.withOpacity(0.55)),
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      color: cs.onSurface.withOpacity(0.55),
+                    ),
                   ),
                   loadingBuilder: (context, child, ev) {
                     if (ev == null) return child;
@@ -392,8 +402,10 @@ class _ImageBubble extends StatelessWidget {
                       child: SizedBox(
                         width: 18,
                         height: 18,
-                        child:
-                            CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: cs.primary,
+                        ),
                       ),
                     );
                   },

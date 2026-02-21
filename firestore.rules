@@ -30,8 +30,6 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/leagues/$(leagueId));
     }
 
-    // Organizer/owner by league doc fields (source of truth).
-    // Checks organizerUid, ownerUid, organizerUserId, ownerId.
     function isOwner(leagueId) {
       let ld = leagueDoc(leagueId);
       return signedIn()
@@ -52,7 +50,6 @@ service cloud.firestore {
         );
     }
 
-    // Direct owner check for league doc update/delete (no extra get needed).
     function isOwnerDirect() {
       return signedIn()
         && resource != null
@@ -72,35 +69,26 @@ service cloud.firestore {
         );
     }
 
-    // Check organizer role via membership subcollection doc (no league doc get).
-    // Used as a fallback when the league doc fields may be missing/stale.
     function isOrganizerByMembership(leagueId) {
       return signedIn()
         && exists(/databases/$(database)/documents/leagues/$(leagueId)/memberships/$(request.auth.uid))
         && get(/databases/$(database)/documents/leagues/$(leagueId)/memberships/$(request.auth.uid)).data.role == 0;
     }
 
-    // League member check (no get) for chat and quick access.
     function isLeagueMemberNoGet(leagueId) {
       return signedIn()
         && exists(/databases/$(database)/documents/leagues/$(leagueId)/memberships/$(request.auth.uid));
     }
 
-    // Roles (standardized)
     function isOrganizerRole(role) { return (role is int) && role == 0; }
-    function isMemberRole(role) { return (role is int) && role == 1; }
+    function isMemberRole(role)    { return (role is int) && role == 1; }
 
-    // Organizer permission for league management.
-    // Checks league doc fields first, falls back to membership role.
     function canManageLeague(leagueId) {
       return isSuperAdmin()
         || isOwner(leagueId)
         || isOrganizerByMembership(leagueId);
     }
 
-    // Read permission for league-linked subcollections (rewards, etc).
-    // Mirrors the /leagues/{leagueId} get rule conditions.
-    // UPDATED: super admin can read any league-linked content for monitoring/fulfillment.
     function canReadLeague(leagueId) {
       let ld = leagueDoc(leagueId);
       return isSuperAdmin()
@@ -124,86 +112,12 @@ service cloud.firestore {
         );
     }
 
-    // ===== Rewards validation helpers =====
-
-    function validRewardType(t) {
-      return (t is string) && (t in ['cash', 'physical', 'digital', 'trophy', 'other']);
-    }
-
-    function validRewardCommon() {
-      return (request.resource.data.position is int)
-        && (request.resource.data.position >= 1)
-        && (request.resource.data.position <= 1000)
-        && (request.resource.data.rewardName is string)
-        && (request.resource.data.rewardName.size() >= 1)
-        && (request.resource.data.rewardName.size() <= 120)
-        && (request.resource.data.rewardType is string)
-        && validRewardType(request.resource.data.rewardType)
-        && (request.resource.data.description is string)
-        && (request.resource.data.description.size() <= 6000)
-        && (request.resource.data.imageUrl is string)
-        && (request.resource.data.imageUrl.size() <= 2000);
-    }
-
-    function validRewardCreate(rewardId) {
-      return signedIn()
-        && request.resource.data.keys().hasOnly([
-          'position',
-          'rewardName',
-          'rewardType',
-          'description',
-          'imageUrl',
-          'createdAt',
-          'createdBy'
-        ])
-        && validRewardCommon()
-        && (request.resource.data.createdBy is string)
-        && (request.resource.data.createdBy == request.auth.uid)
-        && (request.resource.data.createdAt is timestamp);
-    }
-
-    function validRewardUpdate(rewardId) {
-      // On update, enforce no schema drift and keep createdAt/createdBy stable if present.
-      return signedIn()
-        && request.resource.data.keys().hasOnly([
-          'position',
-          'rewardName',
-          'rewardType',
-          'description',
-          'imageUrl',
-          'createdAt',
-          'createdBy'
-        ])
-        && validRewardCommon()
-        && (
-          // createdBy stability
-          !('createdBy' in resource.data)
-          || (request.resource.data.createdBy == resource.data.createdBy)
-        )
-        && (
-          // createdAt stability
-          !('createdAt' in resource.data)
-          || (request.resource.data.createdAt == resource.data.createdAt)
-        )
-        && (
-          // If createdBy exists (new or existing), it must be the writer uid
-          !('createdBy' in request.resource.data)
-          || (
-            (request.resource.data.createdBy is string)
-            && (request.resource.data.createdBy == request.auth.uid)
-          )
-        )
-        && (
-          // If createdAt exists, it must be a timestamp
-          !('createdAt' in request.resource.data)
-          || (request.resource.data.createdAt is timestamp)
-        );
-    }
-
-    // ===== Chat validation helpers =====
+    // =========================================================================
+    // CHAT — validation helpers (UPDATED: pin + soft delete)
+    // =========================================================================
 
     function validChatType(t) {
-      return (t is string) && (t == 'text' || t == 'image' || t == 'code');
+      return (t is string) && (t == 'text' || t == 'image' || t == 'code' || t == 'voice');
     }
 
     function isReasonableMs(ms) {
@@ -215,16 +129,15 @@ service cloud.firestore {
     function validChatMessageCreate(messageId) {
       return signedIn()
         && (request.resource.data.keys().hasOnly([
-          'messageId',
-          'senderId',
-          'senderName',
-          'senderPhoto',
-          'text',
-          'imageUrl',
-          'type',
-          'createdAt',
-          'createdAtMs'
-        ]))
+              'messageId', 'senderId', 'senderName', 'senderPhoto',
+              'text', 'imageUrl', 'voiceUrl', 'type',
+              'leagueId', 'timestamp',
+              'createdAt', 'createdAtMs',
+
+              // NEW:
+              'pinned', 'pinnedAt', 'pinnedBy',
+              'deleted', 'deletedAt', 'deletedBy'
+            ]))
         && (request.resource.data.messageId is string)
         && (request.resource.data.messageId == messageId)
         && (request.resource.data.senderId is string)
@@ -239,20 +152,114 @@ service cloud.firestore {
         && (request.resource.data.text.size() <= 4000)
         && (request.resource.data.imageUrl is string)
         && (request.resource.data.imageUrl.size() <= 2000)
+        && (request.resource.data.voiceUrl is string)
+        && (request.resource.data.voiceUrl.size() <= 2000)
+        && (request.resource.data.leagueId is string)
+        && (request.resource.data.leagueId.size() <= 200)
+        && isReasonableMs(request.resource.data.timestamp)
         && (request.resource.data.createdAt == request.time)
         && isReasonableMs(request.resource.data.createdAtMs)
+
+        // NEW: required defaults on create
+        && (request.resource.data.pinned is bool) && (request.resource.data.pinned == false)
+        && (request.resource.data.pinnedAt == null)
+        && (request.resource.data.pinnedBy is string) && (request.resource.data.pinnedBy == '')
+        && (request.resource.data.deleted is bool) && (request.resource.data.deleted == false)
+        && (request.resource.data.deletedAt == null)
+        && (request.resource.data.deletedBy is string) && (request.resource.data.deletedBy == '')
+
+        // content constraints
         && (
           (request.resource.data.type == 'text'
             && request.resource.data.text.size() > 0
-            && request.resource.data.imageUrl == '')
+            && request.resource.data.imageUrl == ''
+            && request.resource.data.voiceUrl == '')
           ||
           (request.resource.data.type == 'code'
             && request.resource.data.text.size() > 0
-            && request.resource.data.imageUrl == '')
+            && request.resource.data.imageUrl == ''
+            && request.resource.data.voiceUrl == '')
           ||
           (request.resource.data.type == 'image'
-            && request.resource.data.imageUrl.size() > 10)
+            && request.resource.data.imageUrl.size() > 10
+            && request.resource.data.voiceUrl == '')
+          ||
+          (request.resource.data.type == 'voice'
+            && request.resource.data.voiceUrl.size() > 10
+            && request.resource.data.imageUrl == '')
         );
+    }
+
+    // Pin update: only pinned fields can change.
+    function isChatPinUpdate() {
+      return signedIn()
+        && !(('deleted' in resource.data) && (resource.data.deleted is bool) && (resource.data.deleted == true))
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'pinned', 'pinnedAt', 'pinnedBy'
+        ]);
+    }
+
+    function validChatPinUpdate() {
+      return isChatPinUpdate()
+        && (request.resource.data.pinned is bool)
+        && (request.resource.data.pinnedBy is string)
+        && (
+          (
+            request.resource.data.pinned == true
+            && (request.resource.data.pinnedBy == request.auth.uid)
+            && (request.resource.data.pinnedAt == request.time)
+          )
+          ||
+          (
+            request.resource.data.pinned == false
+            && (request.resource.data.pinnedBy == '')
+            && (request.resource.data.pinnedAt == null)
+          )
+        );
+    }
+
+    // Soft delete update: deleted fields must be set, and we force-unpin.
+    function isChatSoftDeleteUpdate() {
+      return signedIn()
+        && !(('deleted' in resource.data) && (resource.data.deleted is bool) && (resource.data.deleted == true))
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'deleted', 'deletedAt', 'deletedBy',
+          'pinned', 'pinnedAt', 'pinnedBy'
+        ]);
+    }
+
+    function validChatSoftDeleteUpdate() {
+      return isChatSoftDeleteUpdate()
+        && (request.resource.data.deleted is bool)
+        && (request.resource.data.deleted == true)
+        && (request.resource.data.deletedBy is string)
+        && (request.resource.data.deletedBy == request.auth.uid)
+        && (request.resource.data.deletedAt == request.time)
+
+        // Force-unpin in the same write.
+        && (request.resource.data.pinned is bool)
+        && (request.resource.data.pinned == false)
+        && (request.resource.data.pinnedBy is string)
+        && (request.resource.data.pinnedBy == '')
+        && (request.resource.data.pinnedAt == null);
+    }
+
+    // Global chat admin configuration (from /app/admins)
+    function isGlobalChatAdmin() {
+      let ad = adminsDoc();
+      return signedIn()
+        && ad.exists()
+        && (ad.data.globalChatAdmins is list)
+        && (request.auth.uid in ad.data.globalChatAdmins);
+    }
+
+    // Optional: allow sender pinning in global chat, controlled by /app/admins.allowGlobalSenderPin
+    function allowGlobalSenderPin() {
+      let ad = adminsDoc();
+      return ad.exists()
+        && ('allowGlobalSenderPin' in ad.data)
+        && (ad.data.allowGlobalSenderPin is bool)
+        && (ad.data.allowGlobalSenderPin == true);
     }
 
     function isGlobalChatApproved() {
@@ -265,49 +272,41 @@ service cloud.firestore {
       return signedIn() && (isSuperAdmin() || isGlobalChatApproved());
     }
 
-    function validQuickMsg(s) {
-      return (s is string)
-        && (s.size() > 0)
-        && (s.size() <= 15)
-        && !s.matches('.*(https?://|www\\.|@|\\.com|\\.net|\\.org).*');
+    function canPinGlobalMessage() {
+      return isSuperAdmin()
+        || isGlobalChatAdmin()
+        || (allowGlobalSenderPin()
+            && ('senderId' in resource.data)
+            && (resource.data.senderId is string)
+            && (resource.data.senderId == request.auth.uid));
     }
 
-    function validQuickMessages(list) {
-      return (list is list)
-        && (list.size() <= 15)
-        && (list.size() < 1  || validQuickMsg(list[0]))
-        && (list.size() < 2  || validQuickMsg(list[1]))
-        && (list.size() < 3  || validQuickMsg(list[2]))
-        && (list.size() < 4  || validQuickMsg(list[3]))
-        && (list.size() < 5  || validQuickMsg(list[4]))
-        && (list.size() < 6  || validQuickMsg(list[5]))
-        && (list.size() < 7  || validQuickMsg(list[6]))
-        && (list.size() < 8  || validQuickMsg(list[7]))
-        && (list.size() < 9  || validQuickMsg(list[8]))
-        && (list.size() < 10 || validQuickMsg(list[9]))
-        && (list.size() < 11 || validQuickMsg(list[10]))
-        && (list.size() < 12 || validQuickMsg(list[11]))
-        && (list.size() < 13 || validQuickMsg(list[12]))
-        && (list.size() < 14 || validQuickMsg(list[13]))
-        && (list.size() < 15 || validQuickMsg(list[14]));
+    function canDeleteGlobalMessage() {
+      // Super admin can delete any.
+      // Admin list can delete any (configurable by list contents).
+      // Sender can delete own.
+      return isSuperAdmin()
+        || isGlobalChatAdmin()
+        || (('senderId' in resource.data)
+            && (resource.data.senderId is string)
+            && (resource.data.senderId == request.auth.uid));
     }
 
-    function callRoomDoc(callId) {
-      return get(/databases/$(database)/documents/call_rooms/$(callId));
+    function canPinLeagueMessage(leagueId) {
+      // League: organizer/admin only (using existing canManageLeague).
+      return canManageLeague(leagueId);
     }
 
-    function isCallParticipant(callId) {
-      let cd = callRoomDoc(callId);
-      return signedIn()
-        && cd.exists()
-        && (
-          (('hostUserId' in cd.data) && (cd.data.hostUserId is string) && (cd.data.hostUserId == request.auth.uid))
-          || (('createdBy' in cd.data) && (cd.data.createdBy is string) && (cd.data.createdBy == request.auth.uid))
-          || (('participantIds' in cd.data) && (cd.data.participantIds is list) && (request.auth.uid in cd.data.participantIds))
-        );
+    function canDeleteLeagueMessage(leagueId) {
+      return canManageLeague(leagueId)
+        || (('senderId' in resource.data)
+            && (resource.data.senderId is string)
+            && (resource.data.senderId == request.auth.uid));
     }
 
-    // ===== GLOBAL CHAT REQUESTS =====
+    // =========================================================================
+    // GLOBAL CHAT REQUESTS
+    // =========================================================================
     match /globalChatRequests/{requestId} {
       allow get: if signedIn() && (request.auth.uid == requestId || isSuperAdmin());
       allow list: if isSuperAdmin();
@@ -337,17 +336,27 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ===== GLOBAL PUBLIC CHATROOM =====
+    // =========================================================================
+    // GLOBAL PUBLIC CHATROOM (UPDATED: pin + soft delete via update)
+    // =========================================================================
     match /globalChatroom/{messageId} {
       allow get, list: if canAccessGlobalChat();
+      allow create: if canAccessGlobalChat() && validChatMessageCreate(messageId);
 
-      allow create: if canAccessGlobalChat()
-        && validChatMessageCreate(messageId);
+      // Allow pin + soft delete updates with strict field-level validation.
+      allow update: if canAccessGlobalChat()
+        && (
+          (validChatPinUpdate() && canPinGlobalMessage())
+          || (validChatSoftDeleteUpdate() && canDeleteGlobalMessage())
+        );
 
-      allow update: if false;
+      // Keep legacy hard delete for super admin (older app versions), but UI now uses soft delete.
       allow delete: if isSuperAdmin();
     }
 
+    // =========================================================================
+    // USERS
+    // =========================================================================
     match /users/{userId} {
       allow read: if signedIn();
 
@@ -355,17 +364,13 @@ service cloud.firestore {
         && request.auth.uid == userId
         && request.resource.data.userId == userId
         && request.resource.data.keys().hasAll([
-          'userId',
-          'teamName',
-          'authProvider',
-          'createdAt',
-          'updatedAt'
-        ])
+             'userId', 'teamName', 'authProvider', 'createdAt', 'updatedAt'
+           ])
         && (
           !('shareId' in request.resource.data)
           || (
             (request.resource.data.shareId is string)
-            && request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$')
+            && (request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$'))
           )
         );
 
@@ -374,15 +379,13 @@ service cloud.firestore {
         && request.resource.data.userId == userId
         && (
           request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'teamName',
-            'updatedAt'
+            'teamName', 'updatedAt'
           ])
           ||
           (
             resource.data.shareId == null
             && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'shareId',
-              'updatedAt'
+              'shareId', 'updatedAt'
             ])
             && (request.resource.data.shareId is string)
             && request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$')
@@ -390,31 +393,29 @@ service cloud.firestore {
           ||
           (
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'quickMessagesCustom',
-              'updatedAt'
+              'quickMessagesCustom', 'updatedAt'
             ])
-            && validQuickMessages(request.resource.data.quickMessagesCustom)
+            && (request.resource.data.quickMessagesCustom is list)
           )
           ||
           (
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'isPremium',
-              'updatedAt'
-            ])
-            && (request.resource.data.isPremium is bool)
-          )
-          ||
-          (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'photoUrl',
-              'profileImageUrl',
-              'teamImageUrl',
-              'updatedAt'
+              'photoUrl', 'profileImageUrl', 'teamImageUrl', 'updatedAt'
             ])
             && (!('photoUrl' in request.resource.data) || (request.resource.data.photoUrl is string))
             && (!('profileImageUrl' in request.resource.data) || (request.resource.data.profileImageUrl is string))
             && (!('teamImageUrl' in request.resource.data) || (request.resource.data.teamImageUrl is string))
             && (request.resource.data.updatedAt is int)
+          )
+          ||
+          (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'isPremium', 'premiumExpiresAtMs', 'updatedAt'
+            ])
+            && (request.resource.data.isPremium is bool)
+            && (request.resource.data.isPremium == true)
+            && (request.resource.data.premiumExpiresAtMs is int)
+            && (request.resource.data.premiumExpiresAtMs > request.time.toMillis())
           )
         );
 
@@ -437,9 +438,11 @@ service cloud.firestore {
       }
     }
 
+    // =========================================================================
+    // LEAGUES
+    // =========================================================================
     match /leagues/{leagueId} {
 
-      // UPDATED: super admin can read any league document.
       allow get: if isSuperAdmin()
         || (
           signedIn()
@@ -479,44 +482,9 @@ service cloud.firestore {
 
       allow delete: if isOwnerDirect();
 
-      // ===== Rewards (NEW) =====
-      // leagues/{leagueId}/rewards/{rewardId}
-      // Everyone who can read the league can read rewards.
-      // Only organizer/owner can create/update/delete rewards.
-      match /rewards/{rewardId} {
-        allow get, list: if canReadLeague(leagueId);
-
-        allow create: if canManageLeague(leagueId) && validRewardCreate(rewardId);
-        allow update: if canManageLeague(leagueId) && validRewardUpdate(rewardId);
-        allow delete: if canManageLeague(leagueId);
-      }
-
-      // Teams: organizer (by league doc fields OR by membership role 0) can write.
-      match /teams/{teamId} {
-        allow read: if signedIn();
-        allow write: if canManageLeague(leagueId);
-      }
-
-      // Matches: organizer can write.
-      match /matches/{matchId} {
-        allow read: if signedIn();
-        allow write: if canManageLeague(leagueId);
-      }
-
-      // Knockout: organizer can write.
-      match /knockout/{matchId} {
-        allow read: if signedIn();
-        allow write: if canManageLeague(leagueId);
-      }
-
-      // Membership documents:
-      // - Organizer can manage all membership docs.
-      // - Participant can manage ONLY their own membership doc with restricted fields.
       match /memberships/{membershipId} {
         allow read: if signedIn();
 
-        // Organizer can create any membership doc.
-        // Participant can create their own membership doc (joining).
         allow create: if canManageLeague(leagueId)
           || (
             signedIn()
@@ -529,8 +497,6 @@ service cloud.firestore {
             && (isMemberRole(request.resource.data.role) || isOrganizerRole(request.resource.data.role))
           );
 
-        // Organizer can update any membership doc.
-        // Participant can update their own membership doc but only selected fields.
         allow update: if canManageLeague(leagueId)
           || (
             signedIn()
@@ -538,276 +504,48 @@ service cloud.firestore {
             && (resource.data.userId == request.auth.uid)
             && (resource.data.leagueId == leagueId)
             && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'teamId',
-              'updatedAtMs',
-              'version'
-            ])
+                 'teamId', 'updatedAtMs', 'version'
+               ])
             && (request.resource.data.userId == request.auth.uid)
             && (request.resource.data.leagueId == leagueId)
             && (request.resource.data.role == resource.data.role)
           );
 
-        // Organizer can delete any membership doc.
         allow delete: if canManageLeague(leagueId);
       }
 
-      match /announcements/{annId} {
-        allow read: if signedIn();
-        allow write: if canManageLeague(leagueId);
-      }
-
+      // =========================================================================
+      // LEAGUE CHATROOM (UPDATED: pin + soft delete via update)
+      // =========================================================================
       match /chatroom/{messageId} {
         allow get, list: if isLeagueMemberNoGet(leagueId);
 
         allow create: if isLeagueMemberNoGet(leagueId)
-          && validChatMessageCreate(messageId);
-
-        allow update: if false;
-        allow delete: if canManageLeague(leagueId);
-      }
-
-      match /space/{docId} {
-        allow read: if signedIn();
-
-        allow create: if signedIn()
-          && (
-            canManageLeague(leagueId)
-            || (
-              ('hostUserId' in request.resource.data)
-              && (request.resource.data.hostUserId is string)
-              && (request.resource.data.hostUserId == request.auth.uid)
-            )
-          );
-
-        allow update: if signedIn()
-          && (
-            canManageLeague(leagueId)
-            || (
-              resource != null
-              && ('hostUserId' in resource.data)
-              && (resource.data.hostUserId is string)
-              && (resource.data.hostUserId == request.auth.uid)
-            )
-            || (
-              ('hostUserId' in request.resource.data)
-              && (request.resource.data.hostUserId is string)
-              && (request.resource.data.hostUserId == request.auth.uid)
-            )
-          );
-
-        allow delete: if canManageLeague(leagueId);
-
-        match /reactions/{reactionId} {
-          allow read: if signedIn();
-          allow create: if signedIn();
-          allow update, delete: if false;
-        }
-
-        match /requests/{uid} {
-          allow read: if signedIn();
-          allow create: if signedIn() && request.auth.uid == uid;
-          allow update: if signedIn() && (canManageLeague(leagueId) || (request.auth.uid == uid));
-          allow delete: if signedIn() && (canManageLeague(leagueId) || (request.auth.uid == uid));
-        }
-
-        match /speakers/{uid} {
-          allow read: if signedIn();
-          allow create, update, delete: if signedIn()
-            && (
-              canManageLeague(leagueId)
-              || (
-                exists(/databases/$(database)/documents/leagues/$(leagueId)/space/$(docId))
-                && ('hostUserId' in get(/databases/$(database)/documents/leagues/$(leagueId)/space/$(docId)).data)
-                && (get(/databases/$(database)/documents/leagues/$(leagueId)/space/$(docId)).data.hostUserId is string)
-                && (get(/databases/$(database)/documents/leagues/$(leagueId)/space/$(docId)).data.hostUserId == request.auth.uid)
-              )
-            );
-        }
-      }
-
-      match /couponConfig/{docId} {
-        allow read: if signedIn();
-
-        allow create: if signedIn()
-          && (request.resource.data.organizerUserId is string)
-          && (request.resource.data.organizerUserId == request.auth.uid)
-          && (request.resource.data.leagueId is string)
+          && validChatMessageCreate(messageId)
           && (request.resource.data.leagueId == leagueId);
 
-        allow update: if signedIn()
+        // Allow pin + soft delete updates with strict field-level validation.
+        allow update: if isLeagueMemberNoGet(leagueId)
           && (
-            (
-              (resource.data.organizerUserId is string)
-              && (resource.data.organizerUserId == request.auth.uid)
-            )
-            ||
-            (
-              request.resource.data.diff(resource.data).changedKeys().hasOnly([
-                'qtyRemaining',
-                'updatedAtMs'
-              ])
-              && (request.resource.data.qtyRemaining is int)
-              && (request.resource.data.qtyRemaining == (resource.data.qtyRemaining - 1))
-              && (request.resource.data.qtyRemaining >= 0)
-            )
+            (validChatPinUpdate() && canPinLeagueMessage(leagueId))
+            || (validChatSoftDeleteUpdate() && canDeleteLeagueMessage(leagueId))
           );
 
-        allow delete: if false;
-      }
-
-      match /couponCodes/{codeId} {
-        allow read: if signedIn();
-
-        allow create: if signedIn()
-          && (request.resource.data.organizerUserId is string)
-          && (request.resource.data.organizerUserId == request.auth.uid)
-          && (request.resource.data.leagueId is string)
-          && (request.resource.data.leagueId == leagueId);
-
-        allow update: if signedIn()
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'usedBy',
-            'usedAtMs',
-            'updatedAtMs'
-          ])
-          && (resource.data.usedBy is string) && (resource.data.usedBy == '')
-          && (request.resource.data.usedBy is string) && (request.resource.data.usedBy == request.auth.uid);
-
-        allow delete: if false;
-      }
-
-      match /couponRedemptions/{uid} {
-        allow read: if signedIn();
-
-        allow create: if signedIn()
-          && uid == request.auth.uid
-          && (request.resource.data.userId is string)
-          && (request.resource.data.userId == request.auth.uid);
-
-        allow update: if signedIn()
-          && uid == request.auth.uid
-          && (resource.data.userId is string)
-          && (resource.data.userId == request.auth.uid);
-
-        allow delete: if false;
-      }
-
-      match /coupons/{couponId} {
-        allow read, write: if false;
+        // Keep legacy hard delete (older versions), but UI now uses soft delete.
+        allow delete: if canManageLeague(leagueId)
+          || (signedIn()
+              && (resource.data.senderId is string)
+              && (resource.data.senderId == request.auth.uid));
       }
     }
 
-    match /league_spaces/{spaceId} {
-      allow read: if signedIn();
-      allow create: if signedIn();
-      allow update, delete: if signedIn();
-    }
-
-    match /call_rooms/{callId} {
-      allow get: if signedIn()
-        && resource != null
-        && (
-          (('hostUserId' in resource.data) && (resource.data.hostUserId is string) && (resource.data.hostUserId == request.auth.uid))
-          || (('createdBy' in resource.data) && (resource.data.createdBy is string) && (resource.data.createdBy == request.auth.uid))
-          || (('participantIds' in resource.data) && (resource.data.participantIds is list) && (request.auth.uid in resource.data.participantIds))
-        );
-
-      allow list: if signedIn();
-
-      allow create: if signedIn()
-        && (
-          (
-            ('createdBy' in request.resource.data)
-            && (request.resource.data.createdBy is string)
-            && (request.resource.data.createdBy == request.auth.uid)
-          )
-          || (
-            ('hostUserId' in request.resource.data)
-            && (request.resource.data.hostUserId is string)
-            && (request.resource.data.hostUserId == request.auth.uid)
-          )
-        );
-
-      allow update: if signedIn()
-        && resource != null
-        && (
-          (('hostUserId' in resource.data) && (resource.data.hostUserId is string) && (resource.data.hostUserId == request.auth.uid))
-          || (('createdBy' in resource.data) && (resource.data.createdBy is string) && (resource.data.createdBy == request.auth.uid))
-          || (('participantIds' in resource.data) && (resource.data.participantIds is list) && (request.auth.uid in resource.data.participantIds))
-          || (
-            ('participantIds' in request.resource.data)
-            && (request.resource.data.participantIds is list)
-            && (request.auth.uid in request.resource.data.participantIds)
-          )
-        );
-
-      allow delete: if signedIn()
-        && resource != null
-        && (
-          (('hostUserId' in resource.data) && (resource.data.hostUserId is string) && (resource.data.hostUserId == request.auth.uid))
-          || (('createdBy' in resource.data) && (resource.data.createdBy is string) && (resource.data.createdBy == request.auth.uid))
-        );
-
-      match /quick_messages/{msgId} {
-        allow read: if isCallParticipant(callId);
-
-        allow create: if signedIn()
-          && (request.resource.data.senderId is string)
-          && (request.resource.data.senderId == request.auth.uid)
-          && isCallParticipant(callId);
-
-        allow update, delete: if false;
-      }
-    }
-
-    match /marketplace_products/{productId} {
-      allow get, list: if signedIn();
-
-      allow create: if signedIn()
-        && request.auth.uid == 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'
-        && (request.resource.data.createdBy is string)
-        && (request.resource.data.createdBy == request.auth.uid)
-        && request.resource.data.keys().hasAll([
-          'productId',
-          'name',
-          'price',
-          'description',
-          'imageUrl',
-          'affiliateUrl',
-          'category',
-          'sellerName',
-          'createdAt',
-          'createdBy'
-        ])
-        && (request.resource.data.productId is string)
-        && (request.resource.data.productId == productId)
-        && (request.resource.data.name is string)
-        && (request.resource.data.price is string)
-        && (request.resource.data.description is string)
-        && (request.resource.data.imageUrl is string)
-        && (request.resource.data.affiliateUrl is string)
-        && (request.resource.data.category is string)
-        && (request.resource.data.sellerName is string)
-        && (request.resource.data.createdAt is timestamp);
-
-      allow update, delete: if false;
-    }
-
+    // =========================================================================
+    // APP CONFIG
+    // =========================================================================
     match /app/{docId} {
       allow get, list: if (docId == 'pricing') || (docId == 'admins' && signedIn());
-      allow create, update: if ((docId == 'pricing' || docId == 'admins') && isPricingAdmin());
+      allow create, update: if (docId == 'pricing' || docId == 'admins') && isPricingAdmin();
       allow delete: if false;
-    }
-
-    match /analytics_events/{eventId} {
-      allow create: if signedIn()
-        && (request.resource.data.eventName is string)
-        && (request.resource.data.createdAtMs is int)
-        && (request.resource.data.userId is string)
-        && (request.resource.data.userId == request.auth.uid);
-
-      allow get, list: if isPricingAdmin();
-      allow update, delete: if false;
     }
   }
 }
