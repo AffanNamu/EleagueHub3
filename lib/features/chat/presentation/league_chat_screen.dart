@@ -105,7 +105,10 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _resolveLeaguePermissions() async {
     try {
-      final snap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
+      final snap = await FirebaseFirestore.instance
+          .collection('leagues')
+          .doc(widget.leagueId)
+          .get();
       final data = snap.data() ?? <String, dynamic>{};
 
       bool isOwnerOrOrganizer = false;
@@ -381,8 +384,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
       if (!mounted) return;
       setState(() {
-        _isRecording = false,
-        _recordingPath = null,
+        // FIX: semicolons, not commas (Dart syntax)
+        _isRecording = false;
+        _recordingPath = null;
       });
     } catch (e) {
       _toastErr(e);
