@@ -273,7 +273,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       if (!mounted) return;
       if (userImages.isEmpty) return;
 
-      // Primary source: user images. Overwrite (safe) because requirement says profile image == everywhere.
       setState(() {
         _teamImageUrls = {..._teamImageUrls, ...userImages};
       });
@@ -290,7 +289,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       final val = v.trim();
       if (key.isEmpty || val.isEmpty) return;
 
-      // Do NOT override existing non-empty URL (base has priority).
       if ((out[key] ?? '').trim().isNotEmpty) return;
 
       out[key] = val;
@@ -299,7 +297,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Future<void> _loadTeamImagesBestEffortRemoteFromTeamsCollection() async {
-    // Secondary source only. Never override user profile images already present.
     try {
       final snap = await _firestore
           .collection('leagues')
@@ -346,9 +343,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
       final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
-
       final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
-
       final allMatches = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
       final format = league?.format ?? LeagueFormat.classic;
@@ -621,6 +616,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   String _fallbackSenderPhoto(User user) => (user.photoURL ?? '').trim();
 
+  /// REQUIRED CHANGE:
+  /// Share message should contain ONLY the team names in the format:
+  ///   Barcelona vs Madrid
+  /// and for multiple selections, one per line.
   String _shareFixturesMessage(List<FixtureMatch> matches) {
     final l10n = context.l10n;
 
@@ -633,27 +632,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       return a.id.compareTo(b.id);
     });
 
-    final headerGroup = (_format == LeagueFormat.uclGroup && _selectedGroup != null && _selectedGroup!.trim().isNotEmpty)
-        ? ' • ${_groupDisplayName(l10n, _selectedGroup!.trim())}'
-        : '';
-
     final lines = <String>[];
     for (final m in sorted) {
-      final homeName = _teamNames[m.homeTeamId] ?? l10n.tr('fixtures_tbd');
-      final awayName = _teamNames[m.awayTeamId] ?? l10n.tr('fixtures_tbd');
-
-      final groupLabel = (m.groupId ?? '').trim();
-      final groupSuffix = (_format == LeagueFormat.uclGroup && groupLabel.isNotEmpty) ? ' • $groupLabel' : '';
-
-      final scoreSuffix = (m.homeScore != null && m.awayScore != null) ? ' (${m.homeScore}-${m.awayScore})' : '';
-
-      final deepLink = '/leagues/${widget.leagueId}/matches/${m.id}';
-
-      lines.add('• R${m.roundNumber}$groupSuffix: $homeName vs $awayName$scoreSuffix\n  $deepLink');
+      final homeName = (_teamNames[m.homeTeamId] ?? l10n.tr('fixtures_tbd')).trim();
+      final awayName = (_teamNames[m.awayTeamId] ?? l10n.tr('fixtures_tbd')).trim();
+      lines.add('$homeName vs $awayName');
     }
 
-    final title = 'Selected fixtures • Round $_selectedRound$headerGroup';
-    return '$title\n\n${lines.join('\n\n')}';
+    // Keep it clean: just the fixtures list.
+    return lines.join('\n');
   }
 
   Future<void> _shareSelectedFixturesToLeagueChat() async {
