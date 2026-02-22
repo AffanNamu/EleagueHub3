@@ -21,6 +21,7 @@ import '../../features/leagues/models/league_format.dart';
 import '../../features/leagues/presentation/add_teams_screen.dart';
 import '../../features/leagues/presentation/admin_knockout_score_mgmt_screen.dart';
 import '../../features/leagues/presentation/admin_score_mgmt_screen.dart';
+import '../../features/leagues/presentation/coupon_screen.dart';
 import '../../features/leagues/presentation/fixtures_screen.dart';
 import '../../features/leagues/presentation/knockout_bracket_screen.dart';
 import '../../features/leagues/presentation/league_access_guard.dart';
@@ -434,12 +435,25 @@ final appRouter = GoRouter(
                 return AddTeamsScreen(leagueId: leagueId, format: format);
               },
             ),
+
+            // ── League Detail (HARD PROTECTED) ────────────────────────────
             GoRoute(
               path: ':id',
-              builder: (context, state) => LeagueDetailScreen(
-                leagueId: state.pathParameters['id']!,
-              ),
+              builder: (context, state) {
+                final leagueId = state.pathParameters['id']!;
+                return LeagueAccessGuard(
+                  leagueId: leagueId,
+                  child: LeagueDetailScreen(leagueId: leagueId),
+                );
+              },
               routes: [
+                GoRoute(
+                  path: 'coupon',
+                  builder: (context, state) {
+                    final leagueId = state.pathParameters['id']!;
+                    return CouponScreen(leagueId: leagueId);
+                  },
+                ),
                 GoRoute(
                   path: 'standings',
                   builder: (context, state) => LeagueAccessGuard(
@@ -451,21 +465,29 @@ final appRouter = GoRouter(
                 ),
                 GoRoute(
                   path: 'knockout',
-                  builder: (context, state) => KnockoutBracketScreen(
+                  builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
+                    child: KnockoutBracketScreen(
+                      leagueId: state.pathParameters['id']!,
+                    ),
                   ),
                 ),
                 GoRoute(
                   path: 'knockout-admin',
-                  builder: (context, state) =>
-                      AdminKnockoutScoreMgmtScreen(
+                  builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
+                    child: AdminKnockoutScoreMgmtScreen(
+                      leagueId: state.pathParameters['id']!,
+                    ),
                   ),
                 ),
                 GoRoute(
                   path: 'space',
-                  builder: (context, state) => LeagueSpaceRoomScreen(
+                  builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
+                    child: LeagueSpaceRoomScreen(
+                      leagueId: state.pathParameters['id']!,
+                    ),
                   ),
                 ),
                 GoRoute(
@@ -479,6 +501,8 @@ final appRouter = GoRouter(
                 ),
               ],
             ),
+
+            // ── Additional League Routes (protected) ──────────────────────
             GoRoute(
               path: ':leagueId/fixtures',
               builder: (context, state) => LeagueAccessGuard(
@@ -499,8 +523,11 @@ final appRouter = GoRouter(
             ),
             GoRoute(
               path: ':leagueId/admin',
-              builder: (context, state) => LeagueAdminScreen(
+              builder: (context, state) => LeagueAccessGuard(
                 leagueId: state.pathParameters['leagueId']!,
+                child: LeagueAdminScreen(
+                  leagueId: state.pathParameters['leagueId']!,
+                ),
               ),
             ),
             GoRoute(
