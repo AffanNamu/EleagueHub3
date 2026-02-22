@@ -21,7 +21,6 @@ import '../../features/leagues/models/league_format.dart';
 import '../../features/leagues/presentation/add_teams_screen.dart';
 import '../../features/leagues/presentation/admin_knockout_score_mgmt_screen.dart';
 import '../../features/leagues/presentation/admin_score_mgmt_screen.dart';
-import '../../features/leagues/presentation/coupon_screen.dart';
 import '../../features/leagues/presentation/fixtures_screen.dart';
 import '../../features/leagues/presentation/knockout_bracket_screen.dart';
 import '../../features/leagues/presentation/league_access_guard.dart';
@@ -436,24 +435,13 @@ final appRouter = GoRouter(
               },
             ),
 
-            // ── League Detail (HARD PROTECTED) ────────────────────────────
+            // League details is PUBLIC (everyone can view preview).
             GoRoute(
               path: ':id',
-              builder: (context, state) {
-                final leagueId = state.pathParameters['id']!;
-                return LeagueAccessGuard(
-                  leagueId: leagueId,
-                  child: LeagueDetailScreen(leagueId: leagueId),
-                );
-              },
+              builder: (context, state) => LeagueDetailScreen(
+                leagueId: state.pathParameters['id']!,
+              ),
               routes: [
-                GoRoute(
-                  path: 'coupon',
-                  builder: (context, state) {
-                    final leagueId = state.pathParameters['id']!;
-                    return CouponScreen(leagueId: leagueId);
-                  },
-                ),
                 GoRoute(
                   path: 'standings',
                   builder: (context, state) => LeagueAccessGuard(
@@ -463,6 +451,8 @@ final appRouter = GoRouter(
                     ),
                   ),
                 ),
+
+                // FIX: these were previously UNGUARDED -> security bug (manual deep link bypass)
                 GoRoute(
                   path: 'knockout',
                   builder: (context, state) => LeagueAccessGuard(
@@ -490,6 +480,7 @@ final appRouter = GoRouter(
                     ),
                   ),
                 ),
+
                 GoRoute(
                   path: 'chat',
                   builder: (context, state) => LeagueAccessGuard(
@@ -502,7 +493,6 @@ final appRouter = GoRouter(
               ],
             ),
 
-            // ── Additional League Routes (protected) ──────────────────────
             GoRoute(
               path: ':leagueId/fixtures',
               builder: (context, state) => LeagueAccessGuard(
@@ -523,11 +513,8 @@ final appRouter = GoRouter(
             ),
             GoRoute(
               path: ':leagueId/admin',
-              builder: (context, state) => LeagueAccessGuard(
+              builder: (context, state) => LeagueAdminScreen(
                 leagueId: state.pathParameters['leagueId']!,
-                child: LeagueAdminScreen(
-                  leagueId: state.pathParameters['leagueId']!,
-                ),
               ),
             ),
             GoRoute(

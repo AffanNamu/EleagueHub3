@@ -291,21 +291,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final space = await _loadSpaceCurrent(widget.leagueId);
 
-    // ── FIXED: Also check memberIds array from the league doc ──
-    // Some users are in memberIds but don't have a memberships subcollection doc
-    // (e.g. viewers, or legacy joins). We need to know if user is in memberIds
-    // so we can show the chat button even when membership == null.
-    final leagueDoc = await _firestore
-        .collection('leagues')
-        .doc(widget.leagueId)
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 10));
-    final leagueData = leagueDoc.data() ?? <String, dynamic>{};
-    final memberIds = (leagueData['memberIds'] is List)
-        ? List<String>.from((leagueData['memberIds'] as List).map((e) => e.toString()))
-        : <String>[];
-    final isInMemberIds = memberIds.contains(authUid);
-
     return {
       'league': league,
       'fixtures': fixtures,
@@ -317,7 +302,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       'knockouts': knockouts,
       'announcements': announcements,
       'space': space,
-      'isInMemberIds': isInMemberIds,
     };
   }
 
@@ -564,7 +548,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
                 final announcements = snapshot.data!['announcements'] as List<LeagueAnnouncement>;
                 final space = snapshot.data!['space'] as Map<String, dynamic>?;
-                final isInMemberIds = snapshot.data!['isInMemberIds'] as bool;
 
                 final sorted = _sortedSchedule(fixtures);
                 final rounds = _allRounds(sorted);
@@ -602,7 +585,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 // isInMemberIds: is in the league's memberIds array
                 // isOwner: is the organizer
                 // Any of these means user is a league participant → can chat
-                final canChat = isOwner || membership != null || isInMemberIds;
+                final canChat = true; // Always show; route is guarded so unauthorized users will see the access gate.
 
                 final spaceLive = space?['isLive'] == true;
 
