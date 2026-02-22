@@ -12,33 +12,33 @@ import 'league_charges_payment_service.dart';
 import 'league_charges_store.dart';
 
 @immutable
-final class LeagueAccessUiState {
+final class LeagueAccessState {
   final bool checking;
   final bool busy;
   final LeagueAccessDecision? decision;
   final String? errorMessage;
 
-  const LeagueAccessUiState({
+  const LeagueAccessState({
     required this.checking,
     required this.busy,
     required this.decision,
     required this.errorMessage,
   });
 
-  factory LeagueAccessUiState.initial({LeagueAccessDecision? cached}) => LeagueAccessUiState(
+  factory LeagueAccessState.initial({LeagueAccessDecision? cached}) => LeagueAccessState(
         checking: cached == null,
         busy: false,
         decision: cached,
         errorMessage: null,
       );
 
-  LeagueAccessUiState copyWith({
+  LeagueAccessState copyWith({
     bool? checking,
     bool? busy,
     LeagueAccessDecision? decision,
     String? errorMessage,
   }) {
-    return LeagueAccessUiState(
+    return LeagueAccessState(
       checking: checking ?? this.checking,
       busy: busy ?? this.busy,
       decision: decision ?? this.decision,
@@ -47,21 +47,19 @@ final class LeagueAccessUiState {
   }
 }
 
-final leagueAccessServiceProvider = Provider<LeagueAccessService>((ref) {
-  return LeagueAccessService.instance;
-});
+final leagueAccessServiceProvider = Provider<LeagueAccessService>((ref) => LeagueAccessService.instance);
 
 final leagueAccessControllerProvider =
-    StateNotifierProviderFamily.autoDispose<LeagueAccessController, LeagueAccessUiState, String>((ref, leagueId) {
+    StateNotifierProviderFamily.autoDispose<LeagueAccessController, LeagueAccessState, String>((ref, leagueId) {
   return LeagueAccessController(ref: ref, leagueId: leagueId);
 });
 
-class LeagueAccessController extends StateNotifier<LeagueAccessUiState> {
+class LeagueAccessController extends StateNotifier<LeagueAccessState> {
   LeagueAccessController({
     required Ref ref,
     required this.leagueId,
   })  : _ref = ref,
-        super(LeagueAccessUiState.initial(cached: LeagueAccessService.instance.peekCachedDecision(leagueId: leagueId))) {
+        super(LeagueAccessState.initial(cached: LeagueAccessService.instance.peekCachedDecision(leagueId: leagueId))) {
     unawaited(_init());
   }
 
@@ -74,25 +72,18 @@ class LeagueAccessController extends StateNotifier<LeagueAccessUiState> {
   String _uid() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
   Future<void> _init() async {
-    // Owner fast-path from Firestore local cache (prevents owners seeing any loader in most cases).
-    await _tryOwnerCacheFastPath();
-
-    // Start reactive listeners (best-effort).
-    _startReactiveWatches();
-
-    // Server-verified check (security).
-    await check(force: false, silentIfAlreadyAllowed: true);
-  }
-
-  Future<void> _tryOwnerCacheFastPath() async {
+    // Owner fast-path (Firestore cache): avoids owners seeing any loader in normal flows.
     try {
-      final d = await _ref.read(leagueAccessServiceProvider).tryOwnerDecisionFromCache(leagueId: leagueId);
+      final d = await _ref.read(leagueAccessServiceProvider).tryOwnerAllowFast(leagueId: leagueId);
       if (d != null && d.allowed) {
         state = state.copyWith(checking: false, decision: d, errorMessage: null);
       }
     } catch (_) {
       // ignore
     }
+
+    _startReactiveWatches();
+    await check(force: false, silentIfAlreadyAllowed: true);
   }
 
   void _startReactiveWatches() {
@@ -130,9 +121,9 @@ class LeagueAccessController extends StateNotifier<LeagueAccessUiState> {
     }
 
     final currentAllowed = state.decision?.allowed == true;
-    final shouldShowChecking = !(silentIfAlreadyAllowed && currentAllowed);
+    final showChecking = !(silentIfAlreadyAllowed && currentAllowed);
 
-    if (shouldShowChecking) {
+    if (showChecking) {
       state = state.copyWith(checking: true, errorMessage: null);
     }
 
@@ -140,9 +131,8 @@ class LeagueAccessController extends StateNotifier<LeagueAccessUiState> {
       final d = await _ref.read(leagueAccessServiceProvider).checkAccess(leagueId: leagueId, force: force);
       state = state.copyWith(checking: false, decision: d, errorMessage: null);
 
-      // If allowed, ensure deterministic membership best-effort (for chat rules).
       if (d.allowed) {
-        unawaited(_ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(uid: uid, leagueId: leagueId));
+        unawaited(_ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(leagueId: leagueId, uid: uid));
       }
 
       return d;
@@ -167,12 +157,12 @@ class LeagueAccessController extends StateNotifier<LeagueAccessUiState> {
       // If already paid, refresh decision.
       final alreadyPaid = await LeagueChargesStore.online().hasPaidCharges(userId: uid, leagueId: leagueId);
       if (alreadyPaid) {
-        await _ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(uid: uid, leagueId: leagueId);
+        await _ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(leagueId: leagueId, uid: uid);
         await check(force: true, silentIfAlreadyAllowed: true);
         return;
       }
 
-      final leagueName = state.decision?.leagueName ?? _ref.read(leagueAccessServiceProvider).peekMeta(leagueId)?.name ?? 'this league';
+      final leagueName = state.decision?.leagueName ?? 'this league';
 
       final pay = _ref.read(leagueChargesPaymentServiceProvider);
       final result = await pay.payLeagueCharges(
@@ -197,7 +187,7 @@ class LeagueAccessController extends StateNotifier<LeagueAccessUiState> {
 
       await LeagueChargesStore.online().storeReceipt(receipt);
 
-      await _ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(uid: uid, leagueId: leagueId);
+      await _ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(leagueId: leagueId, uid: uid);
       await check(force: true, silentIfAlreadyAllowed: true);
     } catch (e) {
       final msg = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
@@ -217,14 +207,14 @@ class LeagueAccessController extends StateNotifier<LeagueAccessUiState> {
     }
 
     final code = rawCode.trim().toUpperCase();
-    if (code.length < 6) {
+    if (code.isEmpty || code.length < 6) {
       state = state.copyWith(errorMessage: 'Enter a valid coupon code.');
       return;
     }
 
     state = state.copyWith(busy: true, errorMessage: null);
     try {
-      final leagueName = state.decision?.leagueName ?? _ref.read(leagueAccessServiceProvider).peekMeta(leagueId)?.name ?? 'this league';
+      final leagueName = state.decision?.leagueName ?? 'this league';
 
       final res = await CouponCodesService().redeemWithCode(
         context: context,
@@ -239,7 +229,7 @@ class LeagueAccessController extends StateNotifier<LeagueAccessUiState> {
         return;
       }
 
-      await _ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(uid: uid, leagueId: leagueId);
+      await _ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(leagueId: leagueId, uid: uid);
       await check(force: true, silentIfAlreadyAllowed: true);
     } catch (e) {
       final msg = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));

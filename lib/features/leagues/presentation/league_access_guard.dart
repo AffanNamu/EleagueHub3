@@ -25,17 +25,18 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   Timer? _loaderDelay;
   bool _showLoader = false;
 
+  final TextEditingController _couponCtrl = TextEditingController();
+
   @override
   void initState() {
     super.initState();
 
-    // Delay loader to prevent flicker (and owners seeing any "checking" UI).
-    _loaderDelay = Timer(const Duration(milliseconds: 240), () {
+    // Delay loader to avoid flicker + prevent owners seeing any intermediate screen in most flows.
+    _loaderDelay = Timer(const Duration(milliseconds: 280), () {
       if (!mounted) return;
       setState(() => _showLoader = true);
     });
 
-    // Trigger check in background; controller will use cache and fast owner path.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(ref.read(leagueAccessControllerProvider(widget.leagueId).notifier).check(
             force: false,
@@ -47,6 +48,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   @override
   void dispose() {
     _loaderDelay?.cancel();
+    _couponCtrl.dispose();
     super.dispose();
   }
 
@@ -68,12 +70,12 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     final st = ref.watch(leagueAccessControllerProvider(widget.leagueId));
     final decision = st.decision;
 
-    if (decision?.allowed == true) {
-      return widget.child;
-    }
+    if (decision?.allowed == true) return widget.child;
 
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+
+    final showLoader = st.checking && _showLoader;
 
     final loader = Scaffold(
       body: Center(
@@ -96,8 +98,8 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                     child: Text(
                       'Verifying access…',
                       style: TextStyle(
-                        color: cs.onSurface.withOpacity(0.70),
-                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface.withOpacity(0.72),
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
@@ -110,18 +112,18 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     );
 
     final leagueName = decision?.leagueName ?? 'this league';
-    final message = (st.errorMessage?.trim().isNotEmpty == true)
-        ? st.errorMessage!.trim()
-        : (decision?.denyMessage?.trim().isNotEmpty == true)
-            ? decision!.denyMessage!.trim()
-            : 'You don’t have access to $leagueName yet.';
+    final isClassic = decision?.isClassicLeague == true;
+
+    final err = (st.errorMessage ?? '').trim();
+    final deny = (decision?.denyMessage ?? '').trim();
+    final message = err.isNotEmpty ? err : (deny.isNotEmpty ? deny : 'You don’t have access yet.');
 
     final gate = Scaffold(
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
+            constraints: const BoxConstraints(maxWidth: 580),
             child: Glass(
               borderRadius: 26,
               padding: const EdgeInsets.all(22),
@@ -146,8 +148,11 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    'Access Restricted',
-                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -0.3),
+                    'Access Required',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.3,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
@@ -161,6 +166,30 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 18),
+
+                  if (isClassic) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: cs.primary.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: cs.primary.withOpacity(0.18)),
+                      ),
+                      child: Text(
+                        'Classic league: participants enter free. Viewers can still unlock access by paying or using a coupon.',
+                        style: TextStyle(
+                          color: cs.onSurface.withOpacity(0.70),
+                          fontWeight: FontWeight.w800,
+                          height: 1.35,
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(14),
@@ -173,7 +202,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'Unlock access',
+                          'Unlock $leagueName',
                           style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
                         ),
                         const SizedBox(height: 12),
@@ -188,21 +217,70 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                                   }
                                 },
                           icon: const Icon(Icons.payments_outlined),
-                          label: Text(st.busy ? 'Processing…' : 'Pay league entry fee', style: const TextStyle(fontWeight: FontWeight.w900)),
+                          label: Text(
+                            st.busy ? 'Processing…' : 'Pay league entry fee',
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
+                        Text(
+                          'Or redeem a coupon',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: cs.onSurface.withOpacity(0.70),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _couponCtrl,
+                          enabled: !st.busy,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.confirmation_number_outlined),
+                            hintText: 'Enter coupon code',
+                            filled: true,
+                            fillColor: cs.onSurface.withOpacity(0.06),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide(color: cs.onSurface.withOpacity(0.12)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide(color: cs.onSurface.withOpacity(0.12)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide(color: cs.primary.withOpacity(0.60)),
+                            ),
+                          ),
+                          onSubmitted: (_) async {
+                            await ref.read(leagueAccessControllerProvider(widget.leagueId).notifier).redeemCouponCode(context, _couponCtrl.text);
+                            final after = ref.read(leagueAccessControllerProvider(widget.leagueId));
+                            if (after.decision?.allowed == true) {
+                              _couponCtrl.clear();
+                              _toast('Coupon redeemed. Access unlocked.');
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 10),
                         OutlinedButton.icon(
                           onPressed: st.busy
                               ? null
-                              : () {
-                                  context.push('/leagues/${widget.leagueId}/coupon');
+                              : () async {
+                                  await ref.read(leagueAccessControllerProvider(widget.leagueId).notifier).redeemCouponCode(context, _couponCtrl.text);
+                                  final after = ref.read(leagueAccessControllerProvider(widget.leagueId));
+                                  if (after.decision?.allowed == true) {
+                                    _couponCtrl.clear();
+                                    _toast('Coupon redeemed. Access unlocked.');
+                                  }
                                 },
-                          icon: const Icon(Icons.confirmation_number_outlined),
-                          label: const Text('Use coupon code', style: TextStyle(fontWeight: FontWeight.w900)),
+                          icon: const Icon(Icons.verified_outlined),
+                          label: const Text('Apply coupon', style: TextStyle(fontWeight: FontWeight.w900)),
                         ),
                       ],
                     ),
                   ),
+
                   const SizedBox(height: 14),
                   Row(
                     children: [
@@ -235,16 +313,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'If you just paid or redeemed a coupon, tap Retry.',
-                    style: TextStyle(
-                      color: cs.onSurface.withOpacity(0.45),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
                 ],
               ),
             ),
@@ -252,8 +320,6 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
         ),
       ),
     );
-
-    final showLoader = st.checking && _showLoader;
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 180),
