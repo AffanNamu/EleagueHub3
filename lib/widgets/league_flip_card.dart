@@ -1,6 +1,6 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -59,8 +59,7 @@ class LeagueFlipCard extends StatefulWidget {
   State<LeagueFlipCard> createState() => _LeagueFlipCardState();
 }
 
-class _LeagueFlipCardState extends State<LeagueFlipCard>
-    with SingleTickerProviderStateMixin {
+class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProviderStateMixin {
   static const double _outerRadius = 28;
 
   final RewardFirestoreService _rewardsService = RewardFirestoreService();
@@ -70,8 +69,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
   bool _showBack = false;
 
-  final Map<String, Future<String?>> _topRewardFutureCache =
-      <String, Future<String?>>{};
+  final Map<String, Future<String?>> _topRewardFutureCache = <String, Future<String?>>{};
 
   @override
   void initState() {
@@ -104,6 +102,27 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
     return const <String, dynamic>{};
   }
 
+  static bool _boolFromAny(dynamic v, {bool fallback = false}) {
+    if (v == null) return fallback;
+    if (v is bool) return v;
+    if (v is int) return v == 1;
+    if (v is num) return v.toInt() == 1;
+    if (v is String) {
+      final s = v.trim().toLowerCase();
+      if (s == 'true' || s == '1' || s == 'yes') return true;
+      if (s == 'false' || s == '0' || s == 'no') return false;
+    }
+    return fallback;
+  }
+
+  static int _intFromAny(dynamic v, {int fallback = 0}) {
+    if (v == null) return fallback;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim()) ?? fallback;
+    return fallback;
+  }
+
   String _readString(
     dynamic obj,
     List<String> keys, {
@@ -117,15 +136,58 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
     return fallback;
   }
 
+  bool _isSwissLikeLeague() {
+    final map = _extractMap(widget.league);
+
+    final fmt = map['format'];
+    if (fmt != null) {
+      final idx = _intFromAny(fmt, fallback: -999);
+      // Common enum ordering in this codebase: classic=0, uclGroup=1, uclSwiss=2
+      if (idx == 2) return true;
+    }
+
+    final name = _readString(
+      widget.league,
+      const ['formatName', 'leagueFormat', 'format'],
+      fallback: '',
+    ).trim().toLowerCase();
+
+    // Covers display names like "Swiss", and your UI label "Series"
+    if (name.contains('swiss') || name.contains('series')) return true;
+
+    return false;
+  }
+
+  bool _homeAwayEnabled() {
+    // Swiss league explicitly does not support home/away legs in this app.
+    if (_isSwissLikeLeague()) return false;
+
+    final map = _extractMap(widget.league);
+
+    // Root field (authoritative)
+    if (map.containsKey('homeAwayEnabled') || map.containsKey('homeAndAwayEnabled')) {
+      return _boolFromAny(map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'], fallback: false);
+    }
+
+    // Backward compat: infer from settings.doubleRoundRobin
+    final settings = map['settings'];
+    if (settings is Map) {
+      final s = settings.map((k, v) => MapEntry(k.toString(), v));
+      if (s.containsKey('doubleRoundRobin')) {
+        return _boolFromAny(s['doubleRoundRobin'], fallback: false);
+      }
+    }
+
+    return false;
+  }
+
   String _deriveLeagueId() {
     final explicit = (widget.leagueId ?? '').trim();
     if (explicit.isNotEmpty) return explicit;
 
     final league = widget.league;
     final map = _extractMap(league);
-    final id = (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '')
-        .toString()
-        .trim();
+    final id = (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '').toString().trim();
     if (id.isNotEmpty) return id;
 
     try {
@@ -174,8 +236,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
   String _subtitle() {
     final legacy = (widget.subtitle ?? '').trim();
     if (legacy.isNotEmpty) return legacy;
-    return _readString(widget.league, const ['subtitle', 'region'],
-        fallback: '');
+    return _readString(widget.league, const ['subtitle', 'region'], fallback: '');
   }
 
   String _qrPayload() {
@@ -226,9 +287,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final height = (constraints.hasBoundedHeight && constraints.maxHeight > 0)
-            ? constraints.maxHeight
-            : 220.0;
+        final height = (constraints.hasBoundedHeight && constraints.maxHeight > 0) ? constraints.maxHeight : 220.0;
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -259,9 +318,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
                 // Which face should be painted (keeps QR build cheap: only built when needed).
                 final isBackVisible = t >= 0.5;
-                final face = isBackVisible
-                    ? _backFace(context, t)
-                    : _frontFace(context, leagueId, t);
+                final face = isBackVisible ? _backFace(context, t) : _frontFace(context, leagueId, t);
 
                 final shadowOpacity = 0.10 + (0.20 * lift);
 
@@ -289,9 +346,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                         child: Transform(
                           alignment: Alignment.center,
                           // Prevent mirrored content on the back side.
-                          transform: isBackVisible
-                              ? (Matrix4.identity()..rotateX(math.pi))
-                              : Matrix4.identity(),
+                          transform: isBackVisible ? (Matrix4.identity()..rotateX(math.pi)) : Matrix4.identity(),
                           child: Glass(
                             borderRadius: _outerRadius,
                             padding: EdgeInsets.zero,
@@ -321,12 +376,11 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
     final distribution = _distribution();
     final subtitle = _subtitle();
 
-    final bool wantsRewardsUi =
-        (widget.showRewardsBadge || widget.showRewardsPreview) &&
-            leagueId.trim().isNotEmpty;
+    final bool wantsRewardsUi = (widget.showRewardsBadge || widget.showRewardsPreview) && leagueId.trim().isNotEmpty;
 
-    final Future<String?>? topRewardFuture =
-        wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
+    final Future<String?>? topRewardFuture = wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
+
+    final bool showHomeAway = _homeAwayEnabled();
 
     // Holographic sheen moves slightly only while flipping.
     final sheenPos = -1.35 + (2.70 * t);
@@ -487,6 +541,14 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                   ),
                 ),
 
+              if (showHomeAway) ...[
+                const SizedBox(height: 10),
+                _SoftStatusPill(
+                  icon: Icons.swap_horiz_rounded,
+                  label: 'Home & Away matches enabled',
+                ),
+              ],
+
               if (subtitle.isNotEmpty) ...[
                 const SizedBox(height: 7),
                 Text(
@@ -512,7 +574,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       if (snap.connectionState != ConnectionState.waiting) {
                         return const SizedBox.shrink();
                       }
-                      return _SoftStatusPill(
+                      return const _SoftStatusPill(
                         icon: Icons.auto_awesome_rounded,
                         label: 'Checking rewards...',
                       );
@@ -524,8 +586,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       switchOutCurve: Curves.easeOutCubic,
                       child: Container(
                         key: ValueKey<String>('topReward:$name'),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(999),
                           gradient: LinearGradient(
@@ -543,8 +604,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.card_giftcard_outlined,
-                                size: 16, color: cs.primary),
+                            Icon(Icons.card_giftcard_outlined, size: 16, color: cs.primary),
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
@@ -784,9 +844,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w900,
                           letterSpacing: 2.0,
-                          color: code.isEmpty
-                              ? cs.onSurface.withValues(alpha: 0.35)
-                              : cs.onSurface.withValues(alpha: 0.92),
+                          color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.35) : cs.onSurface.withValues(alpha: 0.92),
                         ),
                       ),
                     ),
@@ -824,9 +882,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                 Icon(
                                   Icons.copy_rounded,
                                   size: 18,
-                                  color: code.isEmpty
-                                      ? cs.onSurface.withValues(alpha: 0.45)
-                                      : Colors.white,
+                                  color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.45) : Colors.white,
                                 ),
                                 const SizedBox(width: 10),
                                 Text(
@@ -834,9 +890,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                   style: theme.textTheme.labelLarge?.copyWith(
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: 0.8,
-                                    color: code.isEmpty
-                                        ? cs.onSurface.withValues(alpha: 0.45)
-                                        : Colors.white,
+                                    color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.45) : Colors.white,
                                   ),
                                 ),
                               ],
@@ -849,9 +903,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     const SizedBox(height: 10),
 
                     Text(
-                      code.isEmpty
-                          ? 'No invite code available for this league.'
-                          : 'Share this code with friends or let them scan the QR.',
+                      code.isEmpty ? 'No invite code available for this league.' : 'Share this code with friends or let them scan the QR.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: cs.onSurface.withValues(alpha: 0.68),
                         fontWeight: FontWeight.w700,
@@ -862,7 +914,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     const Spacer(),
 
                     // Subtle hint (keeps back clean).
-                    _SoftStatusPill(
+                    const _SoftStatusPill(
                       icon: Icons.rocket_launch_rounded,
                       label: 'Fast join (QR) • Easy share (code)',
                     ),
@@ -1089,8 +1141,7 @@ class _NanoGridPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) =>
-      oldDelegate.color != color;
+  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) => oldDelegate.color != color;
 }
 
 class _LeagueCardThumb extends StatelessWidget {
@@ -1121,8 +1172,7 @@ class _LeagueCardThumb extends StatelessWidget {
     return Image.network(
       s,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) =>
-          const Center(child: Icon(Icons.broken_image, color: Colors.white)),
+      errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image, color: Colors.white)),
     );
   }
 }

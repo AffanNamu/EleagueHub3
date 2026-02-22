@@ -134,11 +134,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     used.removeWhere((e) => e.isEmpty);
 
     final usesExtended = used.any(
-      (g) =>
-          g == 'Group E' ||
-          g == 'Group F' ||
-          g == 'Group G' ||
-          g == 'Group H',
+      (g) => g == 'Group E' || g == 'Group F' || g == 'Group G' || g == 'Group H',
     );
     if (usesExtended) return _groupsAll;
 
@@ -168,9 +164,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   // ---------------------------------------------------------------------------
 
   Color _baseSnackBg(ThemeData theme) {
-    return theme.brightness == Brightness.dark
-        ? const Color(0xFF101522)
-        : const Color(0xFF0F172A);
+    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
   }
 
   void _snack(String msg, {Color? bg, Color? fg}) {
@@ -188,8 +182,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         backgroundColor: resolvedBg,
         content: Text(
           msg,
-          style:
-              TextStyle(color: resolvedFg, fontWeight: FontWeight.w600),
+          style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600),
         ),
         duration: const Duration(seconds: 3),
       ),
@@ -249,9 +242,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       // Only auto-add regular members (not organizers).
       final memberUserIds = allMemberships
           .where(
-            (m) =>
-                m.leagueId == widget.leagueId &&
-                m.role == LeagueRole.member, // skip organizer role
+            (m) => m.leagueId == widget.leagueId && m.role == LeagueRole.member, // skip organizer role
           )
           .map((m) => m.userId.trim())
           .where((id) => id.isNotEmpty)
@@ -259,14 +250,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           .toList();
 
       final existingIds = teams.map((t) => t.id).toSet();
-      final tempIds = _tempTeams
-          .map((t) => (t['userId'] ?? '').trim())
-          .where((id) => id.isNotEmpty)
-          .toSet();
+      final tempIds = _tempTeams.map((t) => (t['userId'] ?? '').trim()).where((id) => id.isNotEmpty).toSet();
 
       final autoTemp = <Map<String, String>>[];
-      final defaultGroup =
-          _isGroupLeague ? _selectedGroup : _leaguePoolGroup;
+      final defaultGroup = _isGroupLeague ? _selectedGroup : _leaguePoolGroup;
 
       for (final uid in memberUserIds) {
         if (existingIds.contains(uid)) continue;
@@ -307,8 +294,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         if (_isGroupLeague) {
           final active = _activeGroups;
           if (!active.contains(_selectedGroup)) {
-            _selectedGroup =
-                active.isNotEmpty ? active.first : 'Group A';
+            _selectedGroup = active.isNotEmpty ? active.first : 'Group A';
           }
         }
       });
@@ -316,8 +302,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _loadErrorMessage =
-            UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+        _loadErrorMessage = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
       });
       _snackErr(_loadErrorMessage!);
     }
@@ -419,12 +404,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       return;
     }
 
-    final alreadyInPreview =
-        _tempTeams.any((t) => (t['userId'] ?? '') == resolved.userId);
+    final alreadyInPreview = _tempTeams.any((t) => (t['userId'] ?? '') == resolved.userId);
     if (alreadyInPreview) return;
 
-    final alreadySaved =
-        _existingTeams.any((t) => t.id == resolved.userId);
+    final alreadySaved = _existingTeams.any((t) => t.id == resolved.userId);
     if (alreadySaved) {
       _snackWarn(l10n.tr('add_teams_user_already_added'));
       return;
@@ -433,13 +416,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final String groupToUse;
     if (_isGroupLeague) {
       final active = _activeGroups;
-      final desired =
-          (groupOverride != null && groupOverride.trim().isNotEmpty)
-              ? groupOverride.trim()
-              : _selectedGroup;
-      groupToUse = active.contains(desired)
-          ? desired
-          : (active.isNotEmpty ? active.first : 'Group A');
+      final desired = (groupOverride != null && groupOverride.trim().isNotEmpty) ? groupOverride.trim() : _selectedGroup;
+      groupToUse = active.contains(desired) ? desired : (active.isNotEmpty ? active.first : 'Group A');
     } else {
       groupToUse = _leaguePoolGroup;
     }
@@ -454,12 +432,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         'teamImageUrl': '',
       });
 
-      if (_isGroupLeague &&
-          (groupOverride == null || groupOverride.trim().isEmpty)) {
+      if (_isGroupLeague && (groupOverride == null || groupOverride.trim().isEmpty)) {
         final active = _activeGroups;
         if (active.isNotEmpty) {
-          final next =
-              (active.indexOf(_selectedGroup) + 1) % active.length;
+          final next = (active.indexOf(_selectedGroup) + 1) % active.length;
           _selectedGroup = active[next];
         }
       }
@@ -476,8 +452,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       isGroupLeague: _isGroupLeague,
       allowedGroups: _activeGroups,
       resolveProfile: (userIdOrShareId) async {
-        final r =
-            await _resolveTeamFromUserIdOrShareId(userIdOrShareId);
+        final r = await _resolveTeamFromUserIdOrShareId(userIdOrShareId);
         if (r == null) return null;
         return ResolvedRosterProfile(
           userId: r.userId,
@@ -578,8 +553,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             ),
             content: StatefulBuilder(
               builder: (ctx, setModalState) {
-                final resolvedShare =
-                    (resolved == null) ? '' : _shareId(resolved!.userId);
+                final resolvedShare = (resolved == null) ? '' : _shareId(resolved!.userId);
 
                 return SizedBox(
                   width: 520,
@@ -608,8 +582,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   tooltip: l10n.tr(
                                     'add_teams_lookup_tooltip',
                                   ),
-                                  onPressed: () =>
-                                      resolveNow(setModalState),
+                                  onPressed: () => resolveNow(setModalState),
                                   icon: Icon(Icons.search, color: primary),
                                 ),
                         ),
@@ -689,8 +662,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     Text(
                                       '${l10n.tr('add_teams_will_be_placed_in_prefix')}${_groupDisplayName(l10n, _selectedGroup)}',
                                       style: TextStyle(
-                                        color:
-                                            onSurface.withOpacity(0.72),
+                                        color: onSurface.withOpacity(0.72),
                                         fontSize: 12,
                                       ),
                                     ),
@@ -827,17 +799,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         if (!mounted) return;
         setModalState(() {
           validating = false;
-          error =
-              '${l10n.tr('add_teams_validation_failed_prefix')} ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}';
+          error = '${l10n.tr('add_teams_validation_failed_prefix')} ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}';
         });
       }
     }
 
     Future<void> addValidAndClose(BuildContext ctx) async {
-      final valid = rows
-          .where((r) => r.status == _BulkStatus.ok && r.resolved != null)
-          .map((r) => r.resolved!)
-          .toList();
+      final valid = rows.where((r) => r.status == _BulkStatus.ok && r.resolved != null).map((r) => r.resolved!).toList();
       if (valid.isEmpty) return;
 
       for (final r in valid) {
@@ -859,17 +827,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
         final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
-        final inputBg = theme.brightness == Brightness.dark
-            ? Colors.black.withOpacity(0.20)
-            : Colors.black.withOpacity(0.04);
-        final inputStroke = theme.brightness == Brightness.dark
-            ? Colors.white.withOpacity(0.18)
-            : onSurface.withOpacity(0.14);
+        final inputBg = theme.brightness == Brightness.dark ? Colors.black.withOpacity(0.20) : Colors.black.withOpacity(0.04);
+        final inputStroke = theme.brightness == Brightness.dark ? Colors.white.withOpacity(0.18) : onSurface.withOpacity(0.14);
 
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.only(bottom: bottomInset)
-                .add(const EdgeInsets.all(12)),
+            padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 720),
@@ -877,12 +840,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                   borderRadius: 28,
                   child: StatefulBuilder(
                     builder: (ctx, setModalState) {
-                      final okCount = rows
-                          .where((r) => r.status == _BulkStatus.ok)
-                          .length;
-                      final notFoundCount = rows
-                          .where((r) => r.status == _BulkStatus.notFound)
-                          .length;
+                      final okCount = rows.where((r) => r.status == _BulkStatus.ok).length;
+                      final notFoundCount = rows.where((r) => r.status == _BulkStatus.notFound).length;
 
                       return Padding(
                         padding: const EdgeInsets.all(14),
@@ -916,10 +875,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color: inputBg,
-                                    borderRadius:
-                                        BorderRadius.circular(18),
-                                    border:
-                                        Border.all(color: inputStroke),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(color: inputStroke),
                                   ),
                                   child: TextField(
                                     controller: controller,
@@ -929,16 +886,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       fontWeight: FontWeight.w600,
                                     ),
                                     decoration: InputDecoration(
-                                      hintText:
-                                          l10n.tr('add_teams_paste_hint'),
+                                      hintText: l10n.tr('add_teams_paste_hint'),
                                       hintStyle: TextStyle(
-                                        color:
-                                            onSurface.withOpacity(0.45),
+                                        color: onSurface.withOpacity(0.45),
                                         fontSize: 12,
                                       ),
                                       border: InputBorder.none,
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
+                                      contentPadding: const EdgeInsets.symmetric(
                                         horizontal: 14,
                                         vertical: 12,
                                       ),
@@ -969,8 +923,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       l10n.tr('add_teams_clear'),
                                     ),
                                     style: OutlinedButton.styleFrom(
-                                      foregroundColor:
-                                          onSurface.withOpacity(0.80),
+                                      foregroundColor: onSurface.withOpacity(0.80),
                                       side: BorderSide(
                                         color: onSurface.withOpacity(0.18),
                                       ),
@@ -980,16 +933,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: FilledButton.icon(
-                                    onPressed: validating
-                                        ? null
-                                        : () =>
-                                            validateNow(setModalState),
+                                    onPressed: validating ? null : () => validateNow(setModalState),
                                     icon: validating
                                         ? const SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child:
-                                                CircularProgressIndicator(
+                                            child: CircularProgressIndicator(
                                               strokeWidth: 2,
                                               color: Colors.white,
                                             ),
@@ -1007,14 +956,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               Row(
                                 children: [
                                   _MiniChip(
-                                    label:
-                                        '${l10n.tr('add_teams_bulk_ok_prefix')}$okCount',
+                                    label: '${l10n.tr('add_teams_bulk_ok_prefix')}$okCount',
                                     color: primary.withOpacity(0.18),
                                   ),
                                   const SizedBox(width: 8),
                                   _MiniChip(
-                                    label:
-                                        '${l10n.tr('add_teams_bulk_not_found_prefix')}$notFoundCount',
+                                    label: '${l10n.tr('add_teams_bulk_not_found_prefix')}$notFoundCount',
                                     color: cs.error.withOpacity(0.14),
                                   ),
                                   const Spacer(),
@@ -1035,16 +982,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 child: ListView.separated(
                                   shrinkWrap: true,
                                   itemCount: rows.length,
-                                  separatorBuilder: (_, __) =>
-                                      const SizedBox(height: 6),
+                                  separatorBuilder: (_, __) => const SizedBox(height: 6),
                                   itemBuilder: (context, index) {
                                     final r = rows[index];
-                                    final isOk = r.status ==
-                                            _BulkStatus.ok &&
-                                        r.resolved != null;
-                                    final resolvedShort = isOk
-                                        ? _shareId(r.resolved!.userId)
-                                        : '';
+                                    final isOk = r.status == _BulkStatus.ok && r.resolved != null;
+                                    final resolvedShort = isOk ? _shareId(r.resolved!.userId) : '';
 
                                     return Glass(
                                       borderRadius: 16,
@@ -1057,58 +999,38 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                           children: [
                                             CircleAvatar(
                                               radius: 14,
-                                              backgroundColor: isOk
-                                                  ? primary.withOpacity(
-                                                      0.18,
-                                                    )
-                                                  : onSurface.withOpacity(
-                                                      0.08,
-                                                    ),
+                                              backgroundColor: isOk ? primary.withOpacity(0.18) : onSurface.withOpacity(0.08),
                                               child: Icon(
-                                                isOk
-                                                    ? Icons.check
-                                                    : Icons.close,
+                                                isOk ? Icons.check : Icons.close,
                                                 size: 16,
-                                                color: isOk
-                                                    ? primary
-                                                    : onSurface.withOpacity(
-                                                        0.55,
-                                                      ),
+                                                color: isOk ? primary : onSurface.withOpacity(0.55),
                                               ),
                                             ),
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment
-                                                        .start,
+                                                crossAxisAlignment: CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
                                                     r.input,
                                                     style: TextStyle(
                                                       color: onSurface,
-                                                      fontWeight:
-                                                          FontWeight.w700,
+                                                      fontWeight: FontWeight.w700,
                                                     ),
-                                                    overflow: TextOverflow
-                                                        .ellipsis,
+                                                    overflow: TextOverflow.ellipsis,
                                                   ),
                                                   const SizedBox(height: 2),
                                                   Text(
                                                     isOk
                                                         ? '${r.resolved!.teamName} • $resolvedShort'
-                                                        : l10n.tr(
-                                                            'add_teams_no_profile_found_short',
-                                                          ),
+                                                        : l10n.tr('add_teams_no_profile_found_short'),
                                                     style: TextStyle(
-                                                      color: onSurface
-                                                          .withOpacity(
+                                                      color: onSurface.withOpacity(
                                                         isOk ? 0.72 : 0.45,
                                                       ),
                                                       fontSize: 11,
                                                     ),
-                                                    overflow: TextOverflow
-                                                        .ellipsis,
+                                                    overflow: TextOverflow.ellipsis,
                                                   ),
                                                 ],
                                               ),
@@ -1137,8 +1059,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               children: [
                                 Expanded(
                                   child: TextButton(
-                                    onPressed: () =>
-                                        Navigator.of(ctx).pop(),
+                                    onPressed: () => Navigator.of(ctx).pop(),
                                     child: Text(
                                       l10n.tr('profile_close_tooltip'),
                                     ),
@@ -1147,16 +1068,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: FilledButton.icon(
-                                    onPressed: validating
-                                        ? null
-                                        : () => addValidAndClose(ctx),
+                                    onPressed: validating ? null : () => addValidAndClose(ctx),
                                     icon: const Icon(
                                       Icons.playlist_add_check,
                                     ),
                                     label: Text(
-                                      rows.isEmpty
-                                          ? l10n.tr('add_teams_add_valid')
-                                          : '${l10n.tr('add_teams_add_valid')} ($okCount)',
+                                      rows.isEmpty ? l10n.tr('add_teams_add_valid') : '${l10n.tr('add_teams_add_valid')} ($okCount)',
                                     ),
                                   ),
                                 ),
@@ -1184,9 +1101,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     if (totalTeams != 16 && totalTeams != 32) return false;
 
     final expectedGroups = totalTeams ~/ 4;
-    final allowedGroups = (expectedGroups == 4)
-        ? _groupsAll.take(4).toSet()
-        : _groupsAll.take(8).toSet();
+    final allowedGroups = (expectedGroups == 4) ? _groupsAll.take(4).toSet() : _groupsAll.take(8).toSet();
 
     final counts = <String, int>{};
     for (final t in teams) {
@@ -1319,17 +1234,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         return;
       }
 
-      final existingFixtures =
-          await _localRepo.getMatches(widget.leagueId);
+      final existingFixtures = await _localRepo.getMatches(widget.leagueId);
 
-      if (widget.format == LeagueFormat.uclSwiss &&
-          existingFixtures.isNotEmpty) {
+      if (widget.format == LeagueFormat.uclSwiss && existingFixtures.isNotEmpty) {
         _snackErr(l10n.tr('add_teams_swiss_fixtures_already_exist'));
         return;
       }
 
-      if (existingFixtures.isNotEmpty &&
-          widget.format != LeagueFormat.uclSwiss) {
+      if (existingFixtures.isNotEmpty && widget.format != LeagueFormat.uclSwiss) {
         final ok = await showDialog<bool>(
               context: context,
               barrierDismissible: true,
@@ -1366,7 +1278,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         if (!ok) return;
       }
 
-      final doubleRR = _league?.settings.doubleRoundRobin ?? true;
+      // Prefer new league.root `homeAwayEnabled` (authoritative).
+      // Backward compatibility: League.fromRemoteMap infers it from settings.doubleRoundRobin
+      // when the root field is missing.
+      final supportsHomeAway = widget.format == LeagueFormat.classic || widget.format == LeagueFormat.uclGroup;
+      final doubleRR = supportsHomeAway ? (_league?.homeAwayEnabled ?? (_league?.settings.doubleRoundRobin ?? true)) : false;
+
       final swissRounds = _league?.settings.swissRounds ?? 8;
 
       List<dynamic> generated = [];
@@ -1438,8 +1355,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final onSurface = cs.onSurface;
     final primary = cs.primary;
 
-    final uid =
-        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
       return GlassScaffold(
         appBar: AppBar(
@@ -1514,8 +1430,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints:
-                BoxConstraints(maxWidth: showTwoPane ? 980 : 620),
+            constraints: BoxConstraints(maxWidth: showTwoPane ? 980 : 620),
             child: _isLoading
                 ? Center(child: CircularProgressIndicator(color: primary))
                 : (_loadErrorMessage != null
@@ -1528,8 +1443,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               borderRadius: 24,
                               padding: const EdgeInsets.all(14),
                               child: Row(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Container(
                                     width: 40,
@@ -1546,16 +1460,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           l10n.tr(
                                             'add_teams_header_title',
                                           ),
-                                          style: theme
-                                              .textTheme.titleMedium
-                                              ?.copyWith(
+                                          style: theme.textTheme.titleMedium?.copyWith(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w800,
                                           ),
@@ -1563,11 +1474,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                         const SizedBox(height: 4),
                                         Text(
                                           _unlockHint(l10n),
-                                          style: theme
-                                              .textTheme.bodySmall
-                                              ?.copyWith(
-                                            color: onSurface
-                                                .withOpacity(0.70),
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: onSurface.withOpacity(0.70),
                                             fontSize: 11,
                                           ),
                                         ),
@@ -1730,8 +1638,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             child: Row(
               children: [
                 _MiniChip(
-                  label:
-                      '${l10n.tr('add_teams_saved_prefix')}$existingCount',
+                  label: '${l10n.tr('add_teams_saved_prefix')}$existingCount',
                   color: onSurface.withOpacity(0.08),
                 ),
                 const SizedBox(width: 8),
@@ -1842,6 +1749,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
+          const SizedBox(height: 0),
           const SizedBox(width: 12),
           Expanded(
             child: SingleChildScrollView(
@@ -1862,12 +1770,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       selectedColor: primary.withOpacity(0.18),
                       backgroundColor: onSurface.withOpacity(0.06),
                       labelStyle: TextStyle(
-                        color: selected
-                            ? primary
-                            : onSurface.withOpacity(0.72),
-                        fontWeight: selected
-                            ? FontWeight.w800
-                            : FontWeight.w600,
+                        color: selected ? primary : onSurface.withOpacity(0.72),
+                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                       ),
                       onSelected: _busy
                           ? null
@@ -1928,8 +1832,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             child: Row(
               children: [
                 _MiniChip(
-                  label:
-                      '${l10n.tr('add_teams_saved_prefix')}$existingCount',
+                  label: '${l10n.tr('add_teams_saved_prefix')}$existingCount',
                   color: onSurface.withOpacity(0.08),
                 ),
                 const SizedBox(width: 8),
@@ -1983,9 +1886,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           label: label,
                           imageUrl: team.teamImageUrl,
                           isNew: false,
-                          onTap: _busy
-                              ? null
-                              : () => _editExistingTeam(i),
+                          onTap: _busy ? null : () => _editExistingTeam(i),
                           onRemove: null,
                         );
                       } else {
@@ -2005,9 +1906,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           label: label,
                           imageUrl: (team['teamImageUrl'] ?? '').trim(),
                           isNew: true,
-                          onTap: _busy
-                              ? null
-                              : () => _editTempTeam(idx),
+                          onTap: _busy ? null : () => _editTempTeam(idx),
                           onRemove: _busy
                               ? null
                               : () {
@@ -2046,9 +1945,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: (_busy || !_requiredCountReached)
-                        ? null
-                        : _generateFixturesOnly,
+                    onPressed: (_busy || !_requiredCountReached) ? null : _generateFixturesOnly,
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(color: primary),
                       foregroundColor: primary,
@@ -2137,18 +2034,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           if (uploading) return;
                           setModalState(() => uploading = true);
                           try {
-                            final url =
-                                await _teamMedia.pickAndUploadOnly(
+                            final url = await _teamMedia.pickAndUploadOnly(
                               leagueId: widget.leagueId,
-                              teamId:
-                                  uid.isEmpty ? 'temp_$idx' : uid,
+                              teamId: uid.isEmpty ? 'temp_$idx' : uid,
                             );
                             if (url == null || url.trim().isEmpty) {
                               return;
                             }
-                            setModalState(
-                              () => imageUrl = url.trim(),
-                            );
+                            setModalState(() => imageUrl = url.trim());
                           } catch (e) {
                             _snackErr(
                               UserFriendlyError.toMessage(
@@ -2167,20 +2060,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         }
 
                         // Ensure selected group is valid within activeGroups.
-                        final effectiveGroup =
-                            activeGroups.contains(selectedGroup)
-                                ? selectedGroup
-                                : (activeGroups.isNotEmpty
-                                    ? activeGroups.first
-                                    : 'Group A');
+                        final effectiveGroup = activeGroups.contains(selectedGroup)
+                            ? selectedGroup
+                            : (activeGroups.isNotEmpty ? activeGroups.first : 'Group A');
 
                         return Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               l10n.tr('add_teams_team_details_title'),
-                              style: theme.textTheme.titleMedium
-                                  ?.copyWith(
+                              style: theme.textTheme.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -2192,8 +2081,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         (temp['teamName'] ?? '').trim(),
@@ -2221,8 +2109,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             const SizedBox(height: 10),
                             if (_isGroupLeague) ...[
                               Align(
-                                alignment:
-                                    AlignmentDirectional.centerStart,
+                                alignment: AlignmentDirectional.centerStart,
                                 child: Text(
                                   l10n.tr('add_teams_group_label'),
                                   style: TextStyle(
@@ -2241,9 +2128,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     fontWeight: FontWeight.w800,
                                   ),
                                   isExpanded: true,
-                                  // FIX: only show activeGroups, not all
-                                  // groups. Prevents placing teams in groups
-                                  // outside the current tournament structure.
+                                  // FIX: only show activeGroups, not all groups.
                                   items: activeGroups
                                       .map(
                                         (g) => DropdownMenuItem(
@@ -2256,9 +2141,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       .toList(),
                                   onChanged: (v) {
                                     if (v == null) return;
-                                    setModalState(
-                                      () => selectedGroup = v,
-                                    );
+                                    setModalState(() => selectedGroup = v);
                                   },
                                 ),
                               ),
@@ -2268,14 +2151,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               children: [
                                 Expanded(
                                   child: OutlinedButton.icon(
-                                    onPressed:
-                                        uploading ? null : doUpload,
+                                    onPressed: uploading ? null : doUpload,
                                     icon: uploading
                                         ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child:
-                                                CircularProgressIndicator(
+                                            child: CircularProgressIndicator(
                                               strokeWidth: 2,
                                               color: primary,
                                             ),
@@ -2286,25 +2167,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     ),
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: primary,
-                                      side:
-                                          BorderSide(color: primary),
+                                      side: BorderSide(color: primary),
                                     ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: OutlinedButton.icon(
-                                    onPressed:
-                                        uploading ? null : doClear,
+                                    onPressed: uploading ? null : doClear,
                                     icon: const Icon(Icons.clear),
-                                    label:
-                                        Text(l10n.tr('common_clear')),
+                                    label: Text(l10n.tr('common_clear')),
                                     style: OutlinedButton.styleFrom(
-                                      foregroundColor:
-                                          onSurface.withOpacity(0.80),
+                                      foregroundColor: onSurface.withOpacity(0.80),
                                       side: BorderSide(
-                                        color:
-                                            onSurface.withOpacity(0.18),
+                                        color: onSurface.withOpacity(0.18),
                                       ),
                                     ),
                                   ),
@@ -2316,8 +2192,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               children: [
                                 Expanded(
                                   child: TextButton(
-                                    onPressed: () =>
-                                        Navigator.of(ctx).pop(),
+                                    onPressed: () => Navigator.of(ctx).pop(),
                                     child: Text(
                                       l10n.tr('profile_close_tooltip'),
                                     ),
@@ -2331,8 +2206,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                         _tempTeams[idx] = {
                                           ..._tempTeams[idx],
                                           'group': selectedGroup,
-                                          'teamImageUrl':
-                                              imageUrl.trim(),
+                                          'teamImageUrl': imageUrl.trim(),
                                         };
                                       });
                                       Navigator.of(ctx).pop();
@@ -2360,9 +2234,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   // ---------------------------------------------------------------------------
   // Edit existing team sheet
-  //
-  // FIX: removing an existing team now persists the deletion to Firestore
-  // via _saveTeamsOnly so it does not reappear on next load.
   // ---------------------------------------------------------------------------
 
   void _editExistingTeam(int index) {
@@ -2372,9 +2243,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     String selectedGroup = team.groupId ?? _selectedGroup;
 
     final activeGroups = _activeGroups;
-    if (_isGroupLeague &&
-        activeGroups.isNotEmpty &&
-        !activeGroups.contains(selectedGroup)) {
+    if (_isGroupLeague && activeGroups.isNotEmpty && !activeGroups.contains(selectedGroup)) {
       selectedGroup = activeGroups.first;
     }
 
@@ -2414,8 +2283,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           setModalState(() => uploading = true);
 
                           try {
-                            final url = await _teamMedia
-                                .pickUploadAndSaveTeamImage(
+                            final url = await _teamMedia.pickUploadAndSaveTeamImage(
                               leagueId: widget.leagueId,
                               teamId: team.id,
                               teamName: team.name,
@@ -2426,11 +2294,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             }
 
                             setState(() {
-                              _existingTeams[index] =
-                                  _existingTeams[index].copyWith(
+                              _existingTeams[index] = _existingTeams[index].copyWith(
                                 teamImageUrl: url.trim(),
-                                updatedAtMs: DateTime.now()
-                                    .millisecondsSinceEpoch,
+                                updatedAtMs: DateTime.now().millisecondsSinceEpoch,
                               );
                             });
 
@@ -2460,11 +2326,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             );
 
                             setState(() {
-                              _existingTeams[index] =
-                                  _existingTeams[index].copyWith(
+                              _existingTeams[index] = _existingTeams[index].copyWith(
                                 teamImageUrl: '',
-                                updatedAtMs: DateTime.now()
-                                    .millisecondsSinceEpoch,
+                                updatedAtMs: DateTime.now().millisecondsSinceEpoch,
                               );
                             });
 
@@ -2488,8 +2352,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           children: [
                             Text(
                               l10n.tr('add_teams_team_details_title'),
-                              style: theme.textTheme.titleMedium
-                                  ?.copyWith(
+                              style: theme.textTheme.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -2501,8 +2364,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         team.name,
@@ -2529,8 +2391,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             ),
                             const SizedBox(height: 10),
                             Align(
-                              alignment:
-                                  AlignmentDirectional.centerStart,
+                              alignment: AlignmentDirectional.centerStart,
                               child: Text(
                                 '${l10n.tr('add_teams_uid_internal_label')} ${team.id}',
                                 style: TextStyle(
@@ -2542,8 +2403,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             if (_isGroupLeague) ...[
                               const SizedBox(height: 10),
                               Align(
-                                alignment:
-                                    AlignmentDirectional.centerStart,
+                                alignment: AlignmentDirectional.centerStart,
                                 child: Text(
                                   l10n.tr('add_teams_group_label'),
                                   style: TextStyle(
@@ -2555,12 +2415,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               ),
                               DropdownButtonHideUnderline(
                                 child: DropdownButton<String>(
-                                  value: activeGroups
-                                          .contains(selectedGroup)
+                                  value: activeGroups.contains(selectedGroup)
                                       ? selectedGroup
-                                      : (activeGroups.isNotEmpty
-                                          ? activeGroups.first
-                                          : 'Group A'),
+                                      : (activeGroups.isNotEmpty ? activeGroups.first : 'Group A'),
                                   dropdownColor: cs.surface,
                                   style: TextStyle(
                                     color: primary,
@@ -2580,9 +2437,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       .toList(),
                                   onChanged: (v) {
                                     if (v == null) return;
-                                    setModalState(
-                                      () => selectedGroup = v,
-                                    );
+                                    setModalState(() => selectedGroup = v);
                                   },
                                 ),
                               ),
@@ -2592,14 +2447,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               children: [
                                 Expanded(
                                   child: OutlinedButton.icon(
-                                    onPressed:
-                                        uploading ? null : doUpload,
+                                    onPressed: uploading ? null : doUpload,
                                     icon: uploading
                                         ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child:
-                                                CircularProgressIndicator(
+                                            child: CircularProgressIndicator(
                                               strokeWidth: 2,
                                               color: primary,
                                             ),
@@ -2610,25 +2463,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     ),
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: primary,
-                                      side:
-                                          BorderSide(color: primary),
+                                      side: BorderSide(color: primary),
                                     ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: OutlinedButton.icon(
-                                    onPressed:
-                                        uploading ? null : doClear,
+                                    onPressed: uploading ? null : doClear,
                                     icon: const Icon(Icons.clear),
-                                    label:
-                                        Text(l10n.tr('common_clear')),
+                                    label: Text(l10n.tr('common_clear')),
                                     style: OutlinedButton.styleFrom(
-                                      foregroundColor:
-                                          onSurface.withOpacity(0.80),
+                                      foregroundColor: onSurface.withOpacity(0.80),
                                       side: BorderSide(
-                                        color:
-                                            onSurface.withOpacity(0.18),
+                                        color: onSurface.withOpacity(0.18),
                                       ),
                                     ),
                                   ),
@@ -2640,8 +2488,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               children: [
                                 Expanded(
                                   child: TextButton(
-                                    onPressed: () =>
-                                        Navigator.of(ctx).pop(),
+                                    onPressed: () => Navigator.of(ctx).pop(),
                                     child: Text(
                                       l10n.tr('profile_close_tooltip'),
                                     ),
@@ -2652,13 +2499,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   child: FilledButton(
                                     onPressed: () {
                                       setState(() {
-                                        _existingTeams[index] =
-                                            team.copyWith(
-                                          groupId: _isGroupLeague
-                                              ? selectedGroup
-                                              : null,
-                                          updatedAtMs: DateTime.now()
-                                              .millisecondsSinceEpoch,
+                                        _existingTeams[index] = team.copyWith(
+                                          groupId: _isGroupLeague ? selectedGroup : null,
+                                          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
                                         );
                                       });
                                       Navigator.of(ctx).pop();
@@ -2675,8 +2518,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               alignment: AlignmentDirectional.centerEnd,
                               child: TextButton.icon(
                                 onPressed: () async {
-                                  // FIX: persist the removal to Firestore
-                                  // so the team does not reappear on reload.
+                                  // Persist removal to Firestore so the team does not reappear on reload.
                                   Navigator.of(ctx).pop();
                                   setState(() {
                                     _existingTeams.removeAt(index);
@@ -2731,15 +2573,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final onSurface = cs.onSurface;
     final primary = cs.primary;
 
-    final numberColor =
-        isNew ? primary : onSurface.withOpacity(0.70);
+    final numberColor = isNew ? primary : onSurface.withOpacity(0.70);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Glass(
         borderRadius: 18,
-        padding:
-            const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: onTap,
@@ -2752,9 +2592,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               children: [
                 CircleAvatar(
                   radius: 14,
-                  backgroundColor: isNew
-                      ? primary.withOpacity(0.18)
-                      : onSurface.withOpacity(0.08),
+                  backgroundColor: isNew ? primary.withOpacity(0.18) : onSurface.withOpacity(0.08),
                   child: Text(
                     '${index + 1}',
                     style: TextStyle(
@@ -2901,8 +2739,7 @@ class _TeamThumb extends StatelessWidget {
     final u = url.trim();
     if (u.isEmpty) return u;
 
-    final isCloudinary = u.contains('res.cloudinary.com') &&
-        u.contains('/image/upload/');
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -2912,15 +2749,13 @@ class _TeamThumb extends StatelessWidget {
     final prefix = u.substring(0, idx + marker.length);
     final suffix = u.substring(idx + marker.length);
 
-    final transforms =
-        'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
+    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
 
     final parts = suffix.split('/');
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') &&
-        int.tryParse(first.substring(1)) != null;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) {
@@ -2939,9 +2774,7 @@ class _TeamThumb extends StatelessWidget {
 
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
-    final d = has
-        ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64)
-        : '';
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
 
     return Container(
       width: size,

@@ -62,6 +62,10 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   LeaguePrivacy _privacy = LeaguePrivacy.private;
 
+  // NEW: Home & away matches toggle (Classic + Group only)
+  // Saved on league root as `homeAwayEnabled` (default false)
+  bool _homeAwayEnabled = false;
+
   LeagueCreationPaymentResult? _payment;
 
   bool _submitting = false;
@@ -101,6 +105,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         return LeagueFormat.classic;
     }
   }
+
+  bool get _supportsHomeAwayMatches => _format == LeagueFormat.classic || _format == LeagueFormat.uclGroup;
 
   bool get _creationRequiresPayment {
     return _format == LeagueFormat.uclGroup || _format == LeagueFormat.uclSwiss;
@@ -188,6 +194,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         _selectedMaxTeams = 36;
       } else {
         _selectedMaxTeams = 20;
+      }
+
+      // Home/Away only applies to Classic + Group
+      if (!_supportsHomeAwayMatches) {
+        _homeAwayEnabled = false;
       }
     });
   }
@@ -634,6 +645,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
           ),
           _summaryRow(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
+          if (_supportsHomeAwayMatches)
+            _summaryRow(
+              Icons.swap_horiz,
+              'Home/Away',
+              _homeAwayEnabled ? 'Enabled' : 'Disabled',
+              valueColor: _homeAwayEnabled ? cs.primary : cs.onSurface.withOpacity(0.75),
+            ),
           _summaryRow(
             _creationRequiresPayment ? (_paymentCompleted ? Icons.verified : Icons.lock_outline) : Icons.verified,
             l10n.tr('league_create_summary_creation_fee_label'),
@@ -1247,6 +1265,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
         ),
         _confirmRow(Icons.groups, l10n.tr('league_create_confirm_max_teams_label'), '$_maxTeams'),
+        if (_supportsHomeAwayMatches)
+          _confirmRow(
+            Icons.swap_horiz,
+            'Home & away matches',
+            _homeAwayEnabled ? 'Enabled' : 'Disabled',
+            valueColor: _homeAwayEnabled ? cs.primary : cs.onSurface.withOpacity(0.75),
+          ),
         if (_couponsEnabled)
           _confirmRow(
             Icons.confirmation_number_outlined,
@@ -1263,6 +1288,42 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           valueColor: _creationRequiresPayment ? (_paymentCompleted ? cs.primary : _premiumAmber) : cs.primary,
         ),
         const SizedBox(height: 12),
+        if (_supportsHomeAwayMatches) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: cs.onSurface.withOpacity(0.04),
+              border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+            ),
+            child: CheckboxListTile.adaptive(
+              value: _homeAwayEnabled,
+              onChanged: _submitting
+                  ? null
+                  : (v) {
+                      setState(() => _homeAwayEnabled = v ?? false);
+                    },
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              activeColor: cs.primary,
+              checkColor: Colors.white,
+              title: Text(
+                'Home and Away Matches',
+                style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text(
+                _homeAwayEnabled ? 'Each team plays twice (home + away).' : 'Each team plays once.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurface.withOpacity(0.65),
+                  fontSize: 12,
+                  height: 1.25,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
@@ -1631,8 +1692,15 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         }
       }
 
+      final effectiveHomeAwayEnabled = _supportsHomeAwayMatches ? _homeAwayEnabled : false;
+
       final now = DateTime.now().millisecondsSinceEpoch;
-      final settings = LeagueSettings.defaultsFor(_format).copyWith(lastPulledAtMs: 0);
+
+      final baseDefaults = LeagueSettings.defaultsFor(_format);
+      final settings = baseDefaults.copyWith(
+        doubleRoundRobin: _supportsHomeAwayMatches ? effectiveHomeAwayEnabled : baseDefaults.doubleRoundRobin,
+        lastPulledAtMs: 0,
+      );
 
       final couponsEnabled = _couponsEnabled;
       final discountPercent = _discountPercent.clamp(0, 100);
@@ -1650,6 +1718,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         couponsEnabled: couponsEnabled,
         couponDiscountPercent: discountPercent,
         couponCount: couponCount,
+        homeAwayEnabled: effectiveHomeAwayEnabled,
         format: _format,
         privacy: _privacy,
         region: 'Global',

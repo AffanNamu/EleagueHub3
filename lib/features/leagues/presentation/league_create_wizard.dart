@@ -54,7 +54,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   LeagueFormat _format = LeagueFormat.classic;
   LeaguePrivacy _privacy = LeaguePrivacy.private;
 
-  bool _doubleRoundRobin = true;
+  // Existing flag used by settings/fixture generation
+  bool _doubleRoundRobin = false;
+
+  // NEW: Saved at league doc root as `homeAwayEnabled` (default false)
+  bool _homeAwayEnabled = false;
 
   // NEW: Rewards toggle (wizard-level intent)
   bool _containsRewards = false;
@@ -72,6 +76,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     super.initState();
     _draftLeagueId = _uuid.v4();
   }
+
+  bool get _supportsHomeAwayMatches => _format == LeagueFormat.classic || _format == LeagueFormat.uclGroup;
 
   int get _maxTeams {
     switch (_format) {
@@ -583,6 +589,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
           ),
           row(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
+          if (_supportsHomeAwayMatches)
+            row(
+              Icons.swap_horiz,
+              'Home/Away',
+              _homeAwayEnabled ? 'Enabled' : 'Disabled',
+              color: _homeAwayEnabled ? cs.primary : cs.onSurface.withOpacity(0.75),
+            ),
           row(
             Icons.card_giftcard_outlined,
             'Rewards',
@@ -771,6 +784,12 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 setState(() {
                   _format = fmt;
                   if (!_creationRequiresPayment) _payment = null;
+
+                  // Home/Away is only applicable to classic + group.
+                  if (!_supportsHomeAwayMatches) {
+                    _homeAwayEnabled = false;
+                    _doubleRoundRobin = false;
+                  }
                 });
               },
       );
@@ -879,26 +898,39 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   ),
                 ),
               ),
-              Divider(color: cs.onSurface.withOpacity(0.12)),
-              SwitchListTile.adaptive(
-                value: _doubleRoundRobin,
-                onChanged: _submitting ? null : (v) => setState(() => _doubleRoundRobin = v),
-                activeColor: cs.primary,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  'Double round robin',
-                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
-                ),
-                subtitle: Text(
-                  'Each team plays twice (home/away).',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.65),
-                    fontSize: 12,
-                    height: 1.25,
-                    fontWeight: FontWeight.w600,
+              if (_supportsHomeAwayMatches) ...[
+                Divider(color: cs.onSurface.withOpacity(0.12)),
+                CheckboxListTile.adaptive(
+                  value: _homeAwayEnabled,
+                  onChanged: _submitting
+                      ? null
+                      : (v) {
+                          final enabled = v ?? false;
+                          setState(() {
+                            _homeAwayEnabled = enabled;
+                            // Keep existing flag in sync (used by LeagueSettings/fixtures)
+                            _doubleRoundRobin = enabled;
+                          });
+                        },
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  activeColor: cs.primary,
+                  checkColor: Colors.white,
+                  title: Text(
+                    'Home and Away Matches',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
+                  ),
+                  subtitle: Text(
+                    _homeAwayEnabled ? 'Each team plays twice (home + away).' : 'Each team plays once.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.65),
+                      fontSize: 12,
+                      height: 1.25,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
+              ],
               Divider(color: cs.onSurface.withOpacity(0.12)),
               SwitchListTile.adaptive(
                 value: _containsRewards,
@@ -935,7 +967,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     final canCreate = _name.text.trim().isNotEmpty && (!_creationRequiresPayment || _paymentCompleted);
 
-    final paymentTitle = _paymentCompleted ? l10n.tr('league_create_payment_completed_title') : l10n.tr('league_create_payment_required_title');
+    final paymentTitle =
+        _paymentCompleted ? l10n.tr('league_create_payment_completed_title') : l10n.tr('league_create_payment_required_title');
     final paymentSubtitle = _paymentCompleted
         ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}'
         : l10n.tr('league_create_payment_required_subtitle');
@@ -955,8 +988,19 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           subtitle: '${_format.displayName} • $_maxTeams teams • ${_privacy == LeaguePrivacy.private ? 'Private' : 'Public'}',
         ),
         const SizedBox(height: 10),
-        _confirmRow(Icons.card_giftcard_outlined, 'Rewards', _containsRewards ? 'Yes' : 'No',
-            valueColor: _containsRewards ? cs.primary : cs.onSurface.withOpacity(0.75)),
+        if (_supportsHomeAwayMatches)
+          _confirmRow(
+            Icons.swap_horiz,
+            'Home & away matches',
+            _homeAwayEnabled ? 'Enabled' : 'Disabled',
+            valueColor: _homeAwayEnabled ? cs.primary : cs.onSurface.withOpacity(0.75),
+          ),
+        _confirmRow(
+          Icons.card_giftcard_outlined,
+          'Rewards',
+          _containsRewards ? 'Yes' : 'No',
+          valueColor: _containsRewards ? cs.primary : cs.onSurface.withOpacity(0.75),
+        ),
         if (_couponsEnabled)
           _confirmRow(
             Icons.confirmation_number_outlined,
@@ -1189,10 +1233,16 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       final leagueId = _draftLeagueId;
       final now = DateTime.now().millisecondsSinceEpoch;
 
+      // Ensure Home/Away is only active for formats that support it
+      final effectiveHomeAwayEnabled = _supportsHomeAwayMatches ? _homeAwayEnabled : false;
+
       final settings = LeagueSettings.defaultsFor(_format).copyWith(
-        doubleRoundRobin: _doubleRoundRobin,
+        doubleRoundRobin: effectiveHomeAwayEnabled,
         lastPulledAtMs: 0,
       );
+
+      // Keep existing flag aligned for any downstream usage inside this widget
+      _doubleRoundRobin = effectiveHomeAwayEnabled;
 
       final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
       final discountPercent = (couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0).clamp(0, 100);
@@ -1211,6 +1261,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         couponsEnabled: couponsEnabled,
         couponDiscountPercent: discountPercent,
         couponCount: safeCouponCount,
+        homeAwayEnabled: effectiveHomeAwayEnabled,
         format: _format,
         privacy: _privacy,
         region: l10n.tr('common_region_global'),

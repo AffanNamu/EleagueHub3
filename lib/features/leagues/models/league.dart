@@ -37,6 +37,12 @@ class League {
   /// 0 means not specified / not purchased.
   final int couponCount;
 
+  /// NEW: Whether this league uses home & away matches (each team plays twice).
+  ///
+  /// Stored at the root of the league document as `homeAwayEnabled`.
+  /// Backward compatible: if missing, defaults to false (with best-effort inference from settings).
+  final bool homeAwayEnabled;
+
   final LeagueFormat format;
   final LeaguePrivacy privacy;
   final String region;
@@ -74,6 +80,7 @@ class League {
     this.couponsEnabled = false,
     this.couponDiscountPercent = 0,
     this.couponCount = 0,
+    this.homeAwayEnabled = false,
     required this.format,
     required this.privacy,
     required this.region,
@@ -124,6 +131,9 @@ class League {
         'couponsEnabled': couponsEnabled,
         'couponDiscountPercent': couponDiscountPercent,
         'couponCount': couponCount,
+
+        // NEW: Home/Away matches toggle
+        'homeAwayEnabled': homeAwayEnabled,
 
         'format': format.index,
         'isPrivate': isPrivate, // bool (not 0/1)
@@ -235,6 +245,15 @@ class League {
 
     final isPrivate = _boolFromAny(map['isPrivate'], fallback: false);
 
+    final settingsMap = (map['settings'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final settings = LeagueSettings.fromMap(settingsMap);
+
+    final bool homeAwayEnabled = (map.containsKey('homeAwayEnabled') || map.containsKey('homeAndAwayEnabled'))
+        ? _boolFromAny(map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'], fallback: false)
+        : (settingsMap.containsKey('doubleRoundRobin')
+            ? _boolFromAny(settingsMap['doubleRoundRobin'], fallback: false)
+            : false);
+
     return League(
       id: id,
       name: name,
@@ -245,6 +264,7 @@ class League {
       couponsEnabled: couponsEnabled,
       couponDiscountPercent: couponDiscountPercent,
       couponCount: safeCouponCount,
+      homeAwayEnabled: homeAwayEnabled,
       format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
       privacy: isPrivate ? LeaguePrivacy.private : LeaguePrivacy.public,
       region: map['region'] as String? ?? 'Global',
@@ -254,9 +274,7 @@ class League {
       organizerUserId: organizerUserId,
       code: map['code'] as String? ?? '',
       qrPayloadOverride: map['qrPayload'] as String? ?? '',
-      settings: LeagueSettings.fromMap(
-        (map['settings'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{},
-      ),
+      settings: settings,
       updatedAtMs: (map['updatedAtMs'] as num?)?.toInt() ?? 0,
       version: (map['version'] as num?)?.toInt() ?? 1,
     );
@@ -272,6 +290,7 @@ class League {
     bool? couponsEnabled,
     int? couponDiscountPercent,
     int? couponCount,
+    bool? homeAwayEnabled,
     LeagueFormat? format,
     LeaguePrivacy? privacy,
     String? region,
@@ -295,6 +314,7 @@ class League {
       couponsEnabled: couponsEnabled ?? this.couponsEnabled,
       couponDiscountPercent: couponDiscountPercent ?? this.couponDiscountPercent,
       couponCount: couponCount ?? this.couponCount,
+      homeAwayEnabled: homeAwayEnabled ?? this.homeAwayEnabled,
       format: format ?? this.format,
       privacy: privacy ?? this.privacy,
       region: region ?? this.region,
