@@ -4,13 +4,22 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../config/supabase_config.dart';
+
 class SupabaseEdgeNotificationsService {
   SupabaseEdgeNotificationsService._();
 
   static final SupabaseEdgeNotificationsService instance = SupabaseEdgeNotificationsService._();
 
-  static const String _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  static const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+  static const String _supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: SupabaseConfig.url,
+  );
+
+  static const String _supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue: SupabaseConfig.anonKey,
+  );
 
   Uri? _edgeUri(String fnName) {
     final base = _supabaseUrl.trim();
@@ -36,7 +45,7 @@ class SupabaseEdgeNotificationsService {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final token = (await user.getIdToken())?.trim() ?? '';
+    final token = (await user.getIdToken()).trim();
     if (token.isEmpty) return;
 
     try {
