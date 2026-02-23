@@ -28,6 +28,21 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+
+    // Force ALL Kotlin plugins (including legacy kotlin-android) to the same version.
+    resolutionStrategy {
+        eachPlugin {
+            def id = requested.id.id
+            if (id == "org.jetbrains.kotlin.android" ||
+                id == "org.jetbrains.kotlin.jvm" ||
+                id == "org.jetbrains.kotlin.multiplatform" ||
+                id == "kotlin-android" ||
+                id == "kotlin" ||
+                id.startsWith("org.jetbrains.kotlin.")) {
+                useVersion("2.1.0")
+            }
+        }
+    }
 }
 
 plugins {
@@ -36,7 +51,7 @@ plugins {
     // Bumped AGP to support newer compileSdk values (like 35)
     id "com.android.application" version "8.3.2" apply false
 
-    // Kotlin must match firebase-auth Kotlin metadata (2.1.x)
+    // Kotlin must match deps metadata (2.1.x)
     id "org.jetbrains.kotlin.android" version "2.1.0" apply false
 
     // Firebase/Google plugins (versions must be declared here)

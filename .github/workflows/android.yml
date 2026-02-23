@@ -49,12 +49,12 @@ jobs:
         run: flutter pub get
 
       - name: Build APK
-        run: |
-          flutter build apk --release --no-tree-shake-icons \
-            --dart-define=CLOUDINARY_CLOUD_NAME=${{ env.CLOUDINARY_CLOUD_NAME }} \
-            --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=${{ env.CLOUDINARY_UNSIGNED_UPLOAD_PRESET }} \
-            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
-            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+        run: >
+          flutter build apk --release --no-tree-shake-icons
+          --dart-define=CLOUDINARY_CLOUD_NAME="${{ env.CLOUDINARY_CLOUD_NAME }}"
+          --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET="${{ env.CLOUDINARY_UNSIGNED_UPLOAD_PRESET }}"
+          --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
+          --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
 
       - name: Show build outputs
         run: |
