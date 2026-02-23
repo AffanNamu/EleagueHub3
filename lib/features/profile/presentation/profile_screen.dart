@@ -31,6 +31,7 @@ import '../../legal/terms_of_service_screen.dart';
 import '../../leagues/data/services/reward_firestore_service.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
+import '../../admin/pricing_quick_editor_sheet.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -1077,6 +1078,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     if (isPricingAdmin) Divider(color: onSurface.withOpacity(0.08), height: 1),
                   ],
                   if (isPricingAdmin) ...[
+                    _AdminRow(
+                      icon: Icons.price_change_rounded,
+                      title: 'Pricing (Quick Editor)',
+                      onTap: () => showPricingQuickEditorSheet(context),
+                    ),
+                    Divider(color: onSurface.withOpacity(0.08), height: 1),
                     _AdminRow(
                       icon: Icons.admin_panel_settings_rounded,
                       title: 'Pricing Admin',

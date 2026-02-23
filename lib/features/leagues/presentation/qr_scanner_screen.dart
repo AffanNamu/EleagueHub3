@@ -52,15 +52,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   /// Firebase Auth UID (required by Firestore rules for memberships/coupons).
   String _authUid = '';
 
-  /// Access unlock state for paid formats or classic-full viewer unlock.
-  bool _chargesPaid = false;
+  /// True when user has unlocked access (receipt or coupon).
+  bool _unlocked = false;
 
   LeagueJoinMode? _joinedMode;
 
-  /// True when user attempted participant join but league was full and they were joined as viewer.
+  /// True when user tried to join as participant but got joined as viewer (league was full).
   bool _downgradedToViewerBecauseFull = false;
 
-  /// Friendly message, e.g. "league full joined viewer", or "already registered"
+  /// Friendly join message.
   String? _joinNotice;
 
   bool _permissionChecked = false;
@@ -259,18 +259,16 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   }
 
   bool _requiresPaidLeagueCharges(League league) {
-    // Paid leagues in your product: UCL Group + Swiss.
     return league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
   }
 
   bool _isClassicFullViewerUnlockScenario(League league) {
-    // Your requirement: classic leagues are free for participants; if FULL and user is forced to viewer,
-    // show pay/coupon options to unlock as viewer.
     return league.format == LeagueFormat.classic && _downgradedToViewerBecauseFull && _joinedMode == LeagueJoinMode.viewer;
   }
 
   bool _requiresUnlockForThisJoin(League league) {
-    // Owner bypass handled elsewhere.
+    // Paid formats always require unlock (owner bypass handled separately).
+    // Classic full viewer: allow viewer to unlock via pay/coupon.
     return _requiresPaidLeagueCharges(league) || _isClassicFullViewerUnlockScenario(league);
   }
 
@@ -296,15 +294,39 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
     if (!doc.exists) return false;
 
-    // Backward + forward compatible:
-    // - old UI wrote: { paid: true, ... }
-    // - new receipt store writes: { receiptId, provider, paidAtMs, ... } (no 'paid' flag)
     final data = doc.data() ?? <String, dynamic>{};
     final paidFlag = data['paid'] == true;
     final receiptId = (data['receiptId'] ?? '').toString().trim();
     final paidAtMs = (data['paidAtMs'] is num) ? (data['paidAtMs'] as num).toInt() : 0;
 
     return paidFlag || receiptId.isNotEmpty || paidAtMs > 0;
+  }
+
+  Future<bool> _hasPaidCouponRemote({
+    required String userId,
+    required String leagueId,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty) return false;
+
+    final snap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .collection('couponRedemptions')
+        .doc(uid)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 10));
+
+    if (!snap.exists) return false;
+
+    final data = snap.data() ?? <String, dynamic>{};
+    final status = (data['status'] ?? '').toString().trim().toLowerCase();
+    final paidAtMs = (data['paidAtMs'] is num) ? (data['paidAtMs'] as num).toInt() : 0;
+
+    if (status == 'paid') return true;
+    if (status.isEmpty && paidAtMs > 0) return true;
+
+    return false;
   }
 
   String _normalizeCoupon(String raw) {
@@ -373,7 +395,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
               ),
             );
 
-            // Ensure deterministic membership for chat rules (role=member).
             await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
               leagueId: league.id,
               uid: authUid,
@@ -510,10 +531,13 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                               width: double.infinity,
                               child: FilledButton.icon(
                                 onPressed: busy ? null : () => doPay(setSheet),
-                                icon: const Icon(Icons.payments_outlined),
-                                label: busy
+                                icon: busy
                                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Text('Pay to unlock', style: TextStyle(fontWeight: FontWeight.w900)),
+                                    : const Icon(Icons.payments_outlined),
+                                label: Text(
+                                  busy ? 'Processing…' : 'Pay to unlock',
+                                  style: const TextStyle(fontWeight: FontWeight.w900),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 14),
@@ -642,6 +666,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       _error = null;
       _joinNotice = null;
       _downgradedToViewerBecauseFull = false;
+      _unlocked = false;
+      _joinedMode = null;
     });
 
     final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
@@ -711,17 +737,18 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         notice = l10n.tr('qr_scanner_notice_joined_viewer_only');
       }
 
-      final paid = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
+      final paidReceipt = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
+      final paidCoupon = paidReceipt ? false : await _hasPaidCouponRemote(userId: authUid, leagueId: league.id);
 
       if (!mounted) return;
 
       setState(() {
         _joinedLeague = league;
         _joining = false;
-        _chargesPaid = paid;
         _joinedMode = effectiveMode;
         _downgradedToViewerBecauseFull = downgradedDueToFull;
         _joinNotice = notice;
+        _unlocked = paidReceipt || paidCoupon;
       });
 
       await _maybeOfferUnlockAfterJoin(
@@ -749,17 +776,19 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
 
     if (_isCreator(joinedLeague, authUid: authUid)) return;
 
-    final shouldOfferUnlock = _requiresUnlockForThisJoin(joinedLeague);
-    if (!shouldOfferUnlock) return;
+    final shouldOffer = _requiresUnlockForThisJoin(joinedLeague);
+    if (!shouldOffer) return;
+
+    if (_unlocked) return;
 
     final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: joinedLeague.id);
-    if (alreadyPaid) {
+    final alreadyCoupon = alreadyPaid ? false : await _hasPaidCouponRemote(userId: authUid, leagueId: joinedLeague.id);
+    if (alreadyPaid || alreadyCoupon) {
       if (!mounted) return;
-      setState(() => _chargesPaid = true);
+      setState(() => _unlocked = true);
       return;
     }
 
-    // Present a friendly prompt, then show pay/coupon options.
     final shouldUnlock = await showDialog<bool>(
       context: context,
       builder: (ctx) {
@@ -800,47 +829,28 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     required League league,
     required String authUid,
   }) async {
-    final l10n = context.l10n;
-
-    final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
-    if (alreadyPaid) {
-      if (!mounted) return;
-      setState(() => _chargesPaid = true);
-      return;
-    }
-
     setState(() {
       _joining = true;
       _error = null;
     });
 
     try {
-      final unlocked = await _showUnlockSheet(
-        context: context,
-        league: league,
-        authUid: authUid,
-      );
-
+      final ok = await _showUnlockSheet(context: context, league: league, authUid: authUid);
       if (!mounted) return;
 
-      if (!unlocked) {
+      if (!ok) {
         setState(() => _joining = false);
         return;
       }
 
-      // Re-check after unlock and update UI state.
-      final paidNow = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
+      // Verify
+      final paidReceipt = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
+      final paidCoupon = paidReceipt ? false : await _hasPaidCouponRemote(userId: authUid, leagueId: league.id);
+
       setState(() {
         _joining = false;
-        _chargesPaid = paidNow || true;
+        _unlocked = paidReceipt || paidCoupon || true;
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.tr('league_access_charges_paid_success')),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -990,7 +1000,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       _joining = false;
       _joinedLeague = null;
       _joinedMode = null;
-      _chargesPaid = false;
+      _unlocked = false;
       _downgradedToViewerBecauseFull = false;
       _joinNotice = null;
     });
@@ -1009,15 +1019,12 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       final isWide = screenWidth > 600;
 
       final isCreator = _isCreator(league, authUid: _authUid);
-
-      final showUnlock = !isCreator && !_chargesPaid && _requiresUnlockForThisJoin(league);
+      final showUnlock = !isCreator && !_unlocked && _requiresUnlockForThisJoin(league);
 
       final mode = _joinedMode;
       final joinedLine = (mode == LeagueJoinMode.viewer)
           ? l10n.tr('qr_scanner_joined_line_viewer')
           : l10n.tr('qr_scanner_joined_line_participant');
-
-      final noticeColor = cs.tertiary;
 
       return GlassScaffold(
         appBar: AppBar(
@@ -1078,7 +1085,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                               _joinNotice!,
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: noticeColor,
+                                color: cs.tertiary,
                                 fontWeight: FontWeight.w900,
                                 height: 1.35,
                               ),
@@ -1151,7 +1158,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       );
     }
 
-    // Scanner view: we keep a dark background for camera UX, but all accents follow theme.
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -1231,9 +1237,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
-                painter: _ScannerOverlayPainter(
-                  accent: cs.primary,
-                ),
+                painter: _ScannerOverlayPainter(accent: cs.primary),
               ),
             ),
           ),
@@ -1337,10 +1341,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                       Text(
                                         _error!,
                                         textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: cs.error,
-                                          fontWeight: FontWeight.w900,
-                                        ),
+                                        style: TextStyle(color: cs.error, fontWeight: FontWeight.w900),
                                       ),
                                     ],
                                   ],
@@ -1368,10 +1369,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                       Text(
                                         _error!,
                                         textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: cs.error,
-                                          fontWeight: FontWeight.w900,
-                                        ),
+                                        style: TextStyle(color: cs.error, fontWeight: FontWeight.w900),
                                       ),
                                     ],
                                     const SizedBox(height: 12),
@@ -1403,10 +1401,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                       children: [
                                         IconButton(
                                           tooltip: _torchOn ? l10n.tr('qr_scanner_torch_off_tooltip') : l10n.tr('qr_scanner_torch_on_tooltip'),
-                                          icon: Icon(
-                                            _torchOn ? Icons.flash_on : Icons.flash_off,
-                                            color: cs.onSurface,
-                                          ),
+                                          icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off, color: cs.onSurface),
                                           onPressed: !_cameraPermissionGranted || _joining
                                               ? null
                                               : () async {
