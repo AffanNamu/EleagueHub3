@@ -36,8 +36,8 @@ plugins {
     // Bumped AGP to support newer compileSdk values (like 35)
     id "com.android.application" version "8.3.2" apply false
 
-    // Kotlin compatible with modern AGP/Flutter
-    id "org.jetbrains.kotlin.android" version "1.9.22" apply false
+    // Kotlin must match firebase-auth Kotlin metadata (2.1.x)
+    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
 
     // Firebase/Google plugins (versions must be declared here)
     id "com.google.gms.google-services" version "4.4.1" apply false
