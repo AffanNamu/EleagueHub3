@@ -1,37 +1,41 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/glass_search_bar.dart';
 import '../../leagues/data/leagues_repository_local.dart' show LeagueJoinMode;
 import '../../leagues/domain/models/global_public_league.dart';
+import '../../leagues/logic/coupon_codes_service.dart';
 import '../../leagues/logic/global_public_league_join_service.dart';
 import '../../leagues/logic/global_public_leagues_providers.dart';
+import '../../leagues/logic/league_access_service.dart';
+import '../../leagues/logic/league_charges_payment_service.dart';
+import '../../leagues/logic/league_charges_store.dart';
+import '../../leagues/models/league_format.dart';
 import '../../leagues/utils/current_user.dart';
 
 /// Safely read organizerName from a GlobalPublicLeague or its league.
 /// Falls back to 'Organizer' if the field doesn't exist on either object.
 String _safeOrganizerName(GlobalPublicLeague item) {
-  // Try item.organizerName first (GlobalPublicLeague may have it)
   try {
     final dyn = item as dynamic;
     final v = (dyn.organizerName as String?) ?? '';
     if (v.trim().isNotEmpty) return v.trim();
   } catch (_) {}
-  // Try item.league.organizerName
   try {
     final dyn = item.league as dynamic;
     final v = (dyn.organizerName as String?) ?? '';
     if (v.trim().isNotEmpty) return v.trim();
   } catch (_) {}
-  // Fallback
   return 'Organizer';
 }
 
@@ -42,14 +46,23 @@ class GlobalLiveLeaguesScreen extends ConsumerStatefulWidget {
   ConsumerState<GlobalLiveLeaguesScreen> createState() => _GlobalLiveLeaguesScreenState();
 }
 
-class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScreen>
-    with TickerProviderStateMixin {
+class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScreen> with TickerProviderStateMixin {
   String? _joiningLeagueId;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   late final AnimationController _headerController;
   late final Animation<double> _headerFade;
   late final Animation<Offset> _headerSlide;
+
+  String _authUidOrEmpty() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+    );
+  }
 
   @override
   void initState() {
@@ -82,9 +95,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
       final name = item.league.name.toLowerCase();
       final region = item.league.region.toLowerCase();
       final season = item.league.season.toLowerCase();
-      return name.contains(_searchQuery) ||
-          region.contains(_searchQuery) ||
-          season.contains(_searchQuery);
+      return name.contains(_searchQuery) || region.contains(_searchQuery) || season.contains(_searchQuery);
     }).toList();
   }
 
@@ -97,20 +108,348 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
   Color _statusColor(GlobalPublicLeague item, ColorScheme cs) {
     if (item.isFinished) return cs.onSurface.withOpacity(0.55);
     if (item.isFullComputed) return cs.error;
-    return const Color(0xFF00E676);
+    return cs.secondary; // theme-aligned "OPEN"
+  }
+
+  bool _requiresUnlock(GlobalPublicLeague item, LeagueJoinMode mode) {
+    final fmt = item.league.format;
+
+    // Paid formats require unlock (viewer/participant).
+    final paidLeague = fmt == LeagueFormat.uclGroup || fmt == LeagueFormat.uclSwiss;
+
+    // Classic full means user joins as viewer (your requirement):
+    // show pay/coupon options for viewer unlock.
+    final classicFullViewer = fmt == LeagueFormat.classic && item.isFullComputed && mode == LeagueJoinMode.viewer;
+
+    return paidLeague || classicFullViewer;
+  }
+
+  Future<bool> _ensureUnlockedOrShowSheet(GlobalPublicLeague item, LeagueJoinMode mode) async {
+    final authUid = _authUidOrEmpty();
+    if (authUid.isEmpty) {
+      _snack('Please sign in and try again.');
+      return false;
+    }
+
+    if (!_requiresUnlock(item, mode)) return true;
+
+    try {
+      final decision = await LeagueAccessService.instance.checkAccess(leagueId: item.league.id, force: false);
+      if (decision.allowed) return true;
+    } catch (e) {
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      // Still allow showing the unlock UI even if the check failed.
+    }
+
+    final ok = await _showUnlockSheet(item);
+    if (!ok) return false;
+
+    // Verify again after unlock attempt (defensive).
+    try {
+      final decision2 = await LeagueAccessService.instance.checkAccess(leagueId: item.league.id, force: true);
+      return decision2.allowed;
+    } catch (e) {
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      return false;
+    }
+  }
+
+  String _normalizeCoupon(String raw) {
+    return raw
+        .trim()
+        .toUpperCase()
+        .replaceAll(' ', '')
+        .replaceAll('-', '')
+        .replaceAll(RegExp(r'[^A-Z0-9_%]'), '');
+  }
+
+  Future<bool> _showUnlockSheet(GlobalPublicLeague item) async {
+    final authUid = _authUidOrEmpty();
+    if (authUid.isEmpty) return false;
+
+    final ctrl = TextEditingController();
+    bool unlocked = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final on = cs.onSurface;
+        final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+
+        bool busy = false;
+        String? error;
+
+        Future<void> doPay(StateSetter setSheetState) async {
+          if (busy) return;
+          setSheetState(() {
+            busy = true;
+            error = null;
+          });
+
+          try {
+            final pay = ref.read(leagueChargesPaymentServiceProvider);
+
+            final res = await pay.payLeagueCharges(
+              context: ctx,
+              userId: authUid,
+              leagueId: item.league.id,
+              leagueName: item.league.name,
+            );
+
+            if (!res.success) {
+              setSheetState(() {
+                busy = false;
+                error = res.errorMessage?.trim().isNotEmpty == true ? res.errorMessage : 'Payment not successful.';
+              });
+              return;
+            }
+
+            // Canonical receipt storage used by guard/service.
+            await LeagueChargesStore.online().storeReceipt(
+              LeagueChargesReceipt(
+                leagueId: item.league.id,
+                userId: authUid,
+                receiptId: res.receiptId ?? 'FLW-UNKNOWN',
+                provider: res.provider,
+                paidAtMs: res.paidAtMs,
+              ),
+            );
+
+            // Ensure deterministic membership for league chat rules.
+            await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+              leagueId: item.league.id,
+              uid: authUid,
+            );
+
+            unlocked = true;
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          } catch (e) {
+            setSheetState(() {
+              busy = false;
+              error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+            });
+          }
+        }
+
+        Future<void> doCoupon(StateSetter setSheetState) async {
+          if (busy) return;
+          final code = _normalizeCoupon(ctrl.text);
+          if (code.length < 6) {
+            setSheetState(() => error = 'Enter a valid coupon code.');
+            return;
+          }
+
+          setSheetState(() {
+            busy = true;
+            error = null;
+          });
+
+          try {
+            final res = await CouponCodesService().redeemWithCode(
+              context: ctx,
+              leagueId: item.league.id,
+              leagueName: item.league.name,
+              userId: authUid,
+              code: code,
+            );
+
+            if (!res.success) {
+              setSheetState(() {
+                busy = false;
+                error = res.errorMessage?.trim().isNotEmpty == true ? res.errorMessage : 'Coupon redemption failed.';
+              });
+              return;
+            }
+
+            await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+              leagueId: item.league.id,
+              uid: authUid,
+            );
+
+            unlocked = true;
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          } catch (e) {
+            setSheetState(() {
+              busy = false;
+              error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+            });
+          }
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Glass(
+                  borderRadius: 28,
+                  child: StatefulBuilder(
+                    builder: (ctx, setSheetState) {
+                      return Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 4,
+                              margin: const EdgeInsets.only(bottom: 14),
+                              decoration: BoxDecoration(
+                                color: on.withOpacity(0.25),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    cs.primary.withOpacity(0.30),
+                                    cs.primary.withOpacity(0.10),
+                                  ],
+                                ),
+                              ),
+                              child: Icon(Icons.lock_outline_rounded, color: cs.primary, size: 28),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Unlock access',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              item.league.name,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: on.withOpacity(0.65),
+                                fontWeight: FontWeight.w700,
+                                height: 1.3,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: busy ? null : () => doPay(setSheetState),
+                                icon: const Icon(Icons.payments_outlined),
+                                label: busy
+                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Text('Pay to unlock', style: TextStyle(fontWeight: FontWeight.w900)),
+                              ),
+                            ),
+
+                            const SizedBox(height: 14),
+                            Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                'Or redeem a coupon',
+                                style: TextStyle(
+                                  color: on.withOpacity(0.75),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: ctrl,
+                              enabled: !busy,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.confirmation_number_outlined),
+                                hintText: 'Enter coupon code',
+                                filled: true,
+                                fillColor: on.withOpacity(0.06),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(color: on.withOpacity(0.12)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(color: on.withOpacity(0.12)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(color: cs.primary.withOpacity(0.55)),
+                                ),
+                              ),
+                              onSubmitted: (_) => doCoupon(setSheetState),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: busy ? null : () => doCoupon(setSheetState),
+                                icon: const Icon(Icons.verified_outlined),
+                                label: const Text('Apply coupon', style: TextStyle(fontWeight: FontWeight.w900)),
+                              ),
+                            ),
+
+                            if ((error ?? '').trim().isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: cs.error.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: cs.error.withOpacity(0.25)),
+                                ),
+                                child: Text(
+                                  error!.trim(),
+                                  style: TextStyle(color: cs.error, fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ],
+
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton(
+                                onPressed: busy ? null : () => Navigator.of(ctx).pop(),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: on.withOpacity(0.70),
+                                ),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    ctrl.dispose();
+    return unlocked;
   }
 
   Future<void> _showJoinModeSheet(GlobalPublicLeague item) async {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final on = cs.onSurface;
 
     if (item.isFinished) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('This league is finished.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('This league is finished.');
       return;
     }
 
@@ -120,6 +459,10 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
       isScrollControlled: true,
       builder: (ctx) {
         final mq = MediaQuery.of(ctx);
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final on = cs.onSurface;
+
         return SafeArea(
           child: Padding(
             padding: EdgeInsets.only(bottom: mq.viewInsets.bottom).add(const EdgeInsets.all(12)),
@@ -138,7 +481,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                           height: 4,
                           margin: const EdgeInsets.only(bottom: 14),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.25),
+                            color: on.withOpacity(0.25),
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -151,8 +494,8 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                               colors: [
-                                cs.primary.withOpacity(0.3),
-                                cs.primary.withOpacity(0.1),
+                                cs.primary.withOpacity(0.30),
+                                cs.primary.withOpacity(0.10),
                               ],
                             ),
                           ),
@@ -171,7 +514,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                           item.league.name,
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.white.withOpacity(0.60),
+                            color: on.withOpacity(0.60),
                             fontWeight: FontWeight.w700,
                             height: 1.3,
                           ),
@@ -180,9 +523,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                         _JoinModeTile(
                           icon: Icons.sports_soccer,
                           title: 'Join as Participant',
-                          subtitle: item.isFullComputed
-                              ? 'League is currently full. You can still join as a viewer.'
-                              : 'Counts towards league capacity and lets you participate.',
+                          subtitle: item.isFullComputed ? 'League is currently full. You can still join as a viewer.' : 'Counts towards league capacity and lets you participate.',
                           badge: item.isFullComputed ? 'FULL' : null,
                           badgeColor: item.isFullComputed ? cs.error : cs.primary,
                           onTap: () => Navigator.of(ctx).pop(LeagueJoinMode.participant),
@@ -200,7 +541,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                           child: TextButton(
                             onPressed: () => Navigator.of(ctx).pop(null),
                             style: TextButton.styleFrom(
-                              foregroundColor: Colors.white.withOpacity(0.6),
+                              foregroundColor: on.withOpacity(0.65),
                             ),
                             child: const Text('Cancel'),
                           ),
@@ -217,6 +558,11 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
     );
 
     if (!mounted || selected == null) return;
+
+    // If unlock is required (paid league OR classic full viewer), show pay/coupon options first.
+    final ok = await _ensureUnlockedOrShowSheet(item, selected);
+    if (!ok) return;
+
     await _join(item, selected);
   }
 
@@ -238,22 +584,12 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
       if (!mounted) return;
 
       if (result.status == GlobalPublicLeagueJoinStatus.finished) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('This league is finished.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _snack('This league is finished.');
         return;
       }
 
       if (result.status == GlobalPublicLeagueJoinStatus.privateLeague) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('This league is private.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _snack('This league is private.');
         return;
       }
 
@@ -262,11 +598,12 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
           final joinViewer = await showDialog<bool>(
             context: context,
             builder: (ctx) {
+              final theme = Theme.of(ctx);
+              final cs = theme.colorScheme;
               return AlertDialog(
-                backgroundColor: Theme.of(ctx).colorScheme.surface,
+                backgroundColor: cs.surface,
                 title: const Text('League is full'),
-                content: const Text(
-                    'No participant slots left. Do you want to join as a viewer instead?'),
+                content: const Text('No participant slots left. Do you want to join as a viewer instead?'),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(ctx).pop(false),
@@ -282,15 +619,14 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
           );
 
           if (joinViewer == true) {
+            // If classic full viewer or paid league, the join sheet already did unlock.
+            // But if this full-status happened in a race, enforce unlock now.
+            final ok = await _ensureUnlockedOrShowSheet(item, LeagueJoinMode.viewer);
+            if (!ok) return;
             await _join(item, LeagueJoinMode.viewer);
           }
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('League is full.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          _snack('League is full.');
         }
         return;
       }
@@ -301,12 +637,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Join failed: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _snack('Join failed: ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}');
     } finally {
       if (mounted) setState(() => _joiningLeagueId = null);
     }
@@ -317,6 +648,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
     final asyncLeagues = ref.watch(globalPublicLeaguesStreamProvider);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final on = cs.onSurface;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -327,7 +659,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
           icon: Glass(
             padding: const EdgeInsets.all(8),
             borderRadius: 12,
-            child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white.withOpacity(0.9)),
+            child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: on.withOpacity(0.90)),
           ),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
@@ -386,7 +718,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                     data: (items) => Text(
                                       '${items.length} active league${items.length == 1 ? '' : 's'}',
                                       style: TextStyle(
-                                        color: Colors.white.withOpacity(0.55),
+                                        color: on.withOpacity(0.55),
                                         fontWeight: FontWeight.w600,
                                         fontSize: 13,
                                       ),
@@ -394,7 +726,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                     loading: () => Text(
                                       'Loading...',
                                       style: TextStyle(
-                                        color: Colors.white.withOpacity(0.45),
+                                        color: on.withOpacity(0.45),
                                         fontWeight: FontWeight.w600,
                                         fontSize: 13,
                                       ),
@@ -402,7 +734,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                     error: (_, __) => Text(
                                       'Error loading',
                                       style: TextStyle(
-                                        color: cs.error.withOpacity(0.8),
+                                        color: cs.error.withOpacity(0.85),
                                         fontWeight: FontWeight.w600,
                                         fontSize: 13,
                                       ),
@@ -436,7 +768,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                           Text(
                             'Discovering leagues...',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.5),
+                              color: on.withOpacity(0.55),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -472,7 +804,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                               '$e',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.55),
+                                color: on.withOpacity(0.55),
                                 fontWeight: FontWeight.w600,
                                 fontSize: 12,
                               ),
@@ -502,7 +834,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                       begin: Alignment.topLeft,
                                       end: Alignment.bottomRight,
                                       colors: [
-                                        cs.primary.withOpacity(0.3),
+                                        cs.primary.withOpacity(0.30),
                                         cs.primary.withOpacity(0.08),
                                       ],
                                     ),
@@ -522,7 +854,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                   'Discover public leagues from the\nglobal community.',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.50),
+                                    color: on.withOpacity(0.55),
                                     fontWeight: FontWeight.w600,
                                     height: 1.4,
                                   ),
@@ -542,12 +874,12 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.search_off_rounded, color: Colors.white.withOpacity(0.4), size: 40),
+                                Icon(Icons.search_off_rounded, color: on.withOpacity(0.40), size: 40),
                                 const SizedBox(height: 12),
                                 Text(
                                   'No leagues match your search',
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.6),
+                                    color: on.withOpacity(0.60),
                                     fontWeight: FontWeight.w700,
                                     fontSize: 15,
                                   ),
@@ -601,8 +933,7 @@ class _AnimatedLeagueCard extends StatefulWidget {
   State<_AnimatedLeagueCard> createState() => _AnimatedLeagueCardState();
 }
 
-class _AnimatedLeagueCardState extends State<_AnimatedLeagueCard>
-    with SingleTickerProviderStateMixin {
+class _AnimatedLeagueCardState extends State<_AnimatedLeagueCard> with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _fade;
   late final Animation<Offset> _slide;
@@ -615,8 +946,9 @@ class _AnimatedLeagueCardState extends State<_AnimatedLeagueCard>
       duration: const Duration(milliseconds: 500),
     );
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
-    _slide = Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _slide = Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
+    );
 
     Future.delayed(Duration(milliseconds: math.min(widget.index * 80, 400)), () {
       if (mounted) _ctrl.forward();
@@ -639,7 +971,7 @@ class _AnimatedLeagueCardState extends State<_AnimatedLeagueCard>
 }
 
 // ─────────────────────────────────────────────
-// Premium League Card using Glass
+// League Card using Glass
 // ─────────────────────────────────────────────
 class _LeagueCard extends StatefulWidget {
   const _LeagueCard({
@@ -693,27 +1025,16 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final on = cs.onSurface;
+
     final item = widget.item;
     final joining = widget.joining;
 
-    final subtitleParts = <String>[
-      item.league.format.displayName,
-      item.league.season,
-      item.league.region,
-    ];
-    if (item.league.viewerCapacity > 0) {
-      subtitleParts.add('${item.league.viewerCapacity} Viewers');
-    }
-
-    final participantText = item.registeredCount == null
-        ? '${item.league.maxTeams}'
-        : '${item.registeredCount}/${item.league.maxTeams}';
-
     final desc = item.league.description.trim();
-
     final isLive = !item.isFinished && !item.isFullComputed;
-
     final organizerDisplay = _safeOrganizerName(item);
+
+    final participantText = item.registeredCount == null ? '${item.league.maxTeams}' : '${item.registeredCount}/${item.league.maxTeams}';
 
     return AnimatedBuilder(
       listenable: _scale,
@@ -760,7 +1081,7 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
                             Icon(
                               Icons.auto_awesome_rounded,
                               size: 13,
-                              color: Colors.amber.withOpacity(0.8),
+                              color: cs.tertiary.withOpacity(0.85),
                             ),
                             const SizedBox(width: 4),
                             Expanded(
@@ -769,7 +1090,7 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.55),
+                                  color: on.withOpacity(0.60),
                                   fontWeight: FontWeight.w700,
                                   fontSize: 12,
                                 ),
@@ -823,7 +1144,7 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.45),
+                    color: on.withOpacity(0.55),
                     fontWeight: FontWeight.w600,
                     fontSize: 12,
                     height: 1.35,
@@ -952,22 +1273,24 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final on = cs.onSurface;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+        color: on.withOpacity(0.06),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: on.withOpacity(0.10)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13, color: Colors.white.withOpacity(0.5)),
+          Icon(icon, size: 13, color: on.withOpacity(0.55)),
           const SizedBox(width: 5),
           Text(
             label,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.65),
+              color: on.withOpacity(0.70),
               fontSize: 11,
               fontWeight: FontWeight.w700,
             ),
@@ -979,7 +1302,7 @@ class _InfoChip extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Premium Join Button
+// Join Button
 // ─────────────────────────────────────────────
 class _PremiumJoinButton extends StatelessWidget {
   const _PremiumJoinButton({
@@ -994,6 +1317,8 @@ class _PremiumJoinButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final on = cs.onSurface;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1012,11 +1337,9 @@ class _PremiumJoinButton extends StatelessWidget {
                       cs.primary.withOpacity(0.75),
                     ],
                   ),
-            color: disabled ? Colors.white.withOpacity(0.08) : null,
+            color: disabled ? on.withOpacity(0.08) : null,
             border: Border.all(
-              color: disabled
-                  ? Colors.white.withOpacity(0.08)
-                  : cs.primary.withOpacity(0.40),
+              color: disabled ? on.withOpacity(0.10) : cs.primary.withOpacity(0.40),
             ),
           ),
           child: Center(
@@ -1032,17 +1355,13 @@ class _PremiumJoinButton extends StatelessWidget {
                       Icon(
                         Icons.login_rounded,
                         size: 18,
-                        color: disabled
-                            ? Colors.white.withOpacity(0.3)
-                            : Colors.white,
+                        color: disabled ? on.withOpacity(0.35) : cs.onPrimary,
                       ),
                       const SizedBox(width: 8),
                       Text(
                         'Join League',
                         style: TextStyle(
-                          color: disabled
-                              ? Colors.white.withOpacity(0.3)
-                              : Colors.white,
+                          color: disabled ? on.withOpacity(0.35) : cs.onPrimary,
                           fontWeight: FontWeight.w800,
                           fontSize: 14,
                           letterSpacing: 0.3,
@@ -1145,12 +1464,12 @@ class _LeagueThumb extends StatelessWidget {
                   width: 20,
                   height: 20,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.92),
+                    color: cs.surface.withOpacity(0.92),
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withOpacity(0.30)),
+                    border: Border.all(color: cs.onSurface.withOpacity(0.20)),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
+                        color: Colors.black.withOpacity(0.20),
                         blurRadius: 4,
                       ),
                     ],
@@ -1194,6 +1513,7 @@ class _JoinModeTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final on = cs.onSurface;
 
     return InkWell(
       onTap: onTap,
@@ -1201,9 +1521,9 @@ class _JoinModeTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: on.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.10)),
+          border: Border.all(color: on.withOpacity(0.10)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1239,8 +1559,7 @@ class _JoinModeTile extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: (badgeColor ?? cs.primary).withOpacity(0.12),
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                                color: (badgeColor ?? cs.primary).withOpacity(0.30)),
+                            border: Border.all(color: (badgeColor ?? cs.primary).withOpacity(0.30)),
                           ),
                           child: Text(
                             badge!,
@@ -1259,7 +1578,7 @@ class _JoinModeTile extends StatelessWidget {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.50),
+                      color: on.withOpacity(0.60),
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                       height: 1.3,
@@ -1276,7 +1595,7 @@ class _JoinModeTile extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// AnimatedBuilder alias
+// AnimatedBuilder alias (kept because this file uses listenable: instead of animation:)
 // ─────────────────────────────────────────────
 class AnimatedBuilder extends AnimatedWidget {
   const AnimatedBuilder({

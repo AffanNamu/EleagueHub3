@@ -3,7 +3,10 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:eleaguehub3/core/errors/user_friendly_error.dart';
+import 'package:eleaguehub3/features/leagues/logic/coupon_codes_service.dart';
+import 'package:eleaguehub3/features/leagues/logic/league_access_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
+import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,8 +36,6 @@ class QRScannerScreen extends ConsumerStatefulWidget {
 }
 
 class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsBindingObserver {
-  static const Color _premiumAmber = Color(0xFFF59E0B);
-
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool _isScanned = false;
@@ -51,12 +52,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
   /// Firebase Auth UID (required by Firestore rules for memberships/coupons).
   String _authUid = '';
 
+  /// Access unlock state for paid formats or classic-full viewer unlock.
   bool _chargesPaid = false;
 
   LeagueJoinMode? _joinedMode;
 
-  /// Used to show a friendly message, e.g. when league is full and user is downgraded to viewer,
-  /// or when the user was already added by admin.
+  /// True when user attempted participant join but league was full and they were joined as viewer.
+  bool _downgradedToViewerBecauseFull = false;
+
+  /// Friendly message, e.g. "league full joined viewer", or "already registered"
   String? _joinNotice;
 
   bool _permissionChecked = false;
@@ -96,7 +100,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     if (_joinedLeague != null) return;
 
     if (state == AppLifecycleState.resumed) {
-      // Re-check permission when user returns from system settings
       // ignore: discarded_futures
       _ensureCameraPermission(startScannerIfGranted: true);
     } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
@@ -255,8 +258,20 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     );
   }
 
-  bool _requiresCharges(League league) {
+  bool _requiresPaidLeagueCharges(League league) {
+    // Paid leagues in your product: UCL Group + Swiss.
     return league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+  }
+
+  bool _isClassicFullViewerUnlockScenario(League league) {
+    // Your requirement: classic leagues are free for participants; if FULL and user is forced to viewer,
+    // show pay/coupon options to unlock as viewer.
+    return league.format == LeagueFormat.classic && _downgradedToViewerBecauseFull && _joinedMode == LeagueJoinMode.viewer;
+  }
+
+  bool _requiresUnlockForThisJoin(League league) {
+    // Owner bypass handled elsewhere.
+    return _requiresPaidLeagueCharges(league) || _isClassicFullViewerUnlockScenario(league);
   }
 
   bool _isCreator(League league, {required String authUid}) {
@@ -277,37 +292,318 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         .collection('leagueCharges')
         .doc(leagueId)
         .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 8));
+        .timeout(const Duration(seconds: 10));
 
     if (!doc.exists) return false;
+
+    // Backward + forward compatible:
+    // - old UI wrote: { paid: true, ... }
+    // - new receipt store writes: { receiptId, provider, paidAtMs, ... } (no 'paid' flag)
     final data = doc.data() ?? <String, dynamic>{};
-    return data['paid'] == true;
+    final paidFlag = data['paid'] == true;
+    final receiptId = (data['receiptId'] ?? '').toString().trim();
+    final paidAtMs = (data['paidAtMs'] is num) ? (data['paidAtMs'] as num).toInt() : 0;
+
+    return paidFlag || receiptId.isNotEmpty || paidAtMs > 0;
   }
 
-  Future<void> _storePaidChargesRemote({
-    required String userId,
-    required String leagueId,
-    required Map<String, dynamic> payload,
-  }) async {
-    final uid = userId.trim();
-    if (uid.isEmpty) return;
+  String _normalizeCoupon(String raw) {
+    return raw
+        .trim()
+        .toUpperCase()
+        .replaceAll(' ', '')
+        .replaceAll('-', '')
+        .replaceAll(RegExp(r'[^A-Z0-9_%]'), '');
+  }
 
-    await _firestore
-        .collection('users')
-        .doc(uid)
-        .collection('leagueCharges')
-        .doc(leagueId)
-        .set(
-          {
-            'paid': true,
-            'leagueId': leagueId,
-            'userId': uid,
-            'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-            ...payload,
-          },
-          SetOptions(merge: true),
-        )
-        .timeout(const Duration(seconds: 12));
+  Future<bool> _showUnlockSheet({
+    required BuildContext context,
+    required League league,
+    required String authUid,
+  }) async {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final on = cs.onSurface;
+
+    final ctrl = TextEditingController();
+    bool unlocked = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+
+        bool busy = false;
+        String? error;
+
+        Future<void> doPay(StateSetter setSheet) async {
+          if (busy) return;
+          setSheet(() {
+            busy = true;
+            error = null;
+          });
+
+          try {
+            final paymentService = ref.read(leagueChargesPaymentServiceProvider);
+
+            final result = await paymentService.payLeagueCharges(
+              context: ctx,
+              userId: authUid,
+              leagueId: league.id,
+              leagueName: league.name,
+            );
+
+            if (!result.success) {
+              setSheet(() {
+                busy = false;
+                error = result.errorMessage?.trim().isNotEmpty == true ? result.errorMessage : 'Payment not successful.';
+              });
+              return;
+            }
+
+            await LeagueChargesStore.online().storeReceipt(
+              LeagueChargesReceipt(
+                leagueId: league.id,
+                userId: authUid,
+                receiptId: result.receiptId ?? 'FLW-UNKNOWN',
+                provider: result.provider,
+                paidAtMs: result.paidAtMs,
+              ),
+            );
+
+            // Ensure deterministic membership for chat rules (role=member).
+            await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+              leagueId: league.id,
+              uid: authUid,
+            );
+
+            unlocked = true;
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          } catch (e) {
+            setSheet(() {
+              busy = false;
+              error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+            });
+          }
+        }
+
+        Future<void> doCoupon(StateSetter setSheet) async {
+          if (busy) return;
+
+          final code = _normalizeCoupon(ctrl.text);
+          if (code.length < 6) {
+            setSheet(() => error = 'Enter a valid coupon code.');
+            return;
+          }
+
+          setSheet(() {
+            busy = true;
+            error = null;
+          });
+
+          try {
+            final res = await CouponCodesService().redeemWithCode(
+              context: ctx,
+              leagueId: league.id,
+              leagueName: league.name,
+              userId: authUid,
+              code: code,
+            );
+
+            if (!res.success) {
+              setSheet(() {
+                busy = false;
+                error = res.errorMessage?.trim().isNotEmpty == true ? res.errorMessage : 'Coupon redemption failed.';
+              });
+              return;
+            }
+
+            await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+              leagueId: league.id,
+              uid: authUid,
+            );
+
+            unlocked = true;
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          } catch (e) {
+            setSheet(() {
+              busy = false;
+              error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+            });
+          }
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Glass(
+                  borderRadius: 28,
+                  child: StatefulBuilder(
+                    builder: (ctx, setSheet) {
+                      return Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 4,
+                              margin: const EdgeInsets.only(bottom: 14),
+                              decoration: BoxDecoration(
+                                color: on.withOpacity(0.25),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    cs.primary.withOpacity(0.30),
+                                    cs.primary.withOpacity(0.10),
+                                  ],
+                                ),
+                              ),
+                              child: Icon(Icons.lock_outline_rounded, color: cs.primary, size: 28),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Unlock access',
+                              style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 18,
+                                  ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              league.name,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: on.withOpacity(0.65),
+                                fontWeight: FontWeight.w700,
+                                height: 1.3,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            if (_isClassicFullViewerUnlockScenario(league))
+                              Text(
+                                'Classic league is full. You can unlock access as a viewer using payment or a coupon.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: on.withOpacity(0.60),
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.35,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: busy ? null : () => doPay(setSheet),
+                                icon: const Icon(Icons.payments_outlined),
+                                label: busy
+                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Text('Pay to unlock', style: TextStyle(fontWeight: FontWeight.w900)),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                'Or redeem a coupon',
+                                style: TextStyle(
+                                  color: on.withOpacity(0.75),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: ctrl,
+                              enabled: !busy,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.confirmation_number_outlined),
+                                hintText: 'Enter coupon code',
+                                filled: true,
+                                fillColor: on.withOpacity(0.06),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(color: on.withOpacity(0.12)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(color: on.withOpacity(0.12)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(color: cs.primary.withOpacity(0.55)),
+                                ),
+                              ),
+                              onSubmitted: (_) => doCoupon(setSheet),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: busy ? null : () => doCoupon(setSheet),
+                                icon: const Icon(Icons.verified_outlined),
+                                label: const Text('Apply coupon', style: TextStyle(fontWeight: FontWeight.w900)),
+                              ),
+                            ),
+                            if ((error ?? '').trim().isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: cs.error.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: cs.error.withOpacity(0.25)),
+                                ),
+                                child: Text(
+                                  error!.trim(),
+                                  style: TextStyle(color: cs.error, fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton(
+                                onPressed: busy ? null : () => Navigator.of(ctx).pop(),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: on.withOpacity(0.70),
+                                ),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    ctrl.dispose();
+    return unlocked;
   }
 
   Future<void> _handleScan(String payload) async {
@@ -345,6 +641,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       _joining = true;
       _error = null;
       _joinNotice = null;
+      _downgradedToViewerBecauseFull = false;
     });
 
     final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
@@ -370,7 +667,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
             userId: authUid,
             mode: selectedMode,
             placeholderBuilder: (generatedLeagueId) {
-              // Online-only: placeholder is ignored by repo, but keep signature.
               final now = DateTime.now().millisecondsSinceEpoch;
               return League(
                 id: generatedLeagueId,
@@ -396,6 +692,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
           await repo.getMembership(leagueId: league.id, userId: authUid).timeout(const Duration(seconds: 15));
       final effectiveMode = (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
 
+      final downgradedDueToFull = selectedMode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer;
+
       String? notice;
       final bool adminAlreadyAdded = membership != null && (membership.teamId?.trim().isNotEmpty == true);
 
@@ -407,7 +705,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         notice = (selectedMode == LeagueJoinMode.viewer)
             ? l10n.tr('qr_scanner_notice_viewer_but_already_registered_participant')
             : l10n.tr('qr_scanner_notice_already_registered');
-      } else if (selectedMode == LeagueJoinMode.participant && effectiveMode == LeagueJoinMode.viewer) {
+      } else if (downgradedDueToFull) {
         notice = l10n.tr('qr_scanner_notice_league_full_joined_viewer_only');
       } else if (selectedMode == LeagueJoinMode.viewer) {
         notice = l10n.tr('qr_scanner_notice_joined_viewer_only');
@@ -422,10 +720,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
         _joining = false;
         _chargesPaid = paid;
         _joinedMode = effectiveMode;
+        _downgradedToViewerBecauseFull = downgradedDueToFull;
         _joinNotice = notice;
       });
 
-      await _maybePromptChargesAfterJoin(
+      await _maybeOfferUnlockAfterJoin(
         context,
         joinedLeague: league,
         authUid: authUid,
@@ -441,15 +740,17 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     }
   }
 
-  Future<void> _maybePromptChargesAfterJoin(
+  Future<void> _maybeOfferUnlockAfterJoin(
     BuildContext context, {
     required League joinedLeague,
     required String authUid,
   }) async {
     final l10n = context.l10n;
 
-    if (!_requiresCharges(joinedLeague)) return;
     if (_isCreator(joinedLeague, authUid: authUid)) return;
+
+    final shouldOfferUnlock = _requiresUnlockForThisJoin(joinedLeague);
+    if (!shouldOfferUnlock) return;
 
     final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: joinedLeague.id);
     if (alreadyPaid) {
@@ -458,7 +759,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       return;
     }
 
-    final shouldPay = await showDialog<bool>(
+    // Present a friendly prompt, then show pay/coupon options.
+    final shouldUnlock = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         final dialogTheme = Theme.of(ctx);
@@ -488,7 +790,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       },
     );
 
-    if (shouldPay != true) return;
+    if (shouldUnlock != true) return;
 
     await _unlockNow(context, league: joinedLeague, authUid: authUid);
   }
@@ -513,41 +815,24 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
     });
 
     try {
-      final paymentService = ref.read(leagueChargesPaymentServiceProvider);
-
-      final result = await paymentService
-          .payLeagueCharges(
-            context: context,
-            userId: authUid,
-            leagueId: league.id,
-            leagueName: league.name,
-          )
-          .timeout(const Duration(seconds: 60));
-
-      if (!mounted) return;
-
-      if (!result.success) {
-        setState(() {
-          _joining = false;
-          _error = result.errorMessage ?? l10n.tr('qr_scanner_payment_failed');
-        });
-        return;
-      }
-
-      await _storePaidChargesRemote(
-        userId: authUid,
-        leagueId: league.id,
-        payload: <String, dynamic>{
-          'receiptId': result.receiptId ?? '',
-          'provider': result.provider,
-          'paidAtMs': result.paidAtMs,
-        },
+      final unlocked = await _showUnlockSheet(
+        context: context,
+        league: league,
+        authUid: authUid,
       );
 
       if (!mounted) return;
+
+      if (!unlocked) {
+        setState(() => _joining = false);
+        return;
+      }
+
+      // Re-check after unlock and update UI state.
+      final paidNow = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
       setState(() {
         _joining = false;
-        _chargesPaid = true;
+        _chargesPaid = paidNow || true;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -596,7 +881,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
           final l10n = ctx.l10n;
           final theme = Theme.of(ctx);
           final cs = theme.colorScheme;
-
           final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
           return SafeArea(
@@ -704,6 +988,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       _error = null;
       _isScanned = false;
       _joining = false;
+      _joinedLeague = null;
+      _joinedMode = null;
+      _chargesPaid = false;
+      _downgradedToViewerBecauseFull = false;
+      _joinNotice = null;
     });
     await _ensureCameraPermission(startScannerIfGranted: true);
   }
@@ -719,14 +1008,16 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       final screenWidth = MediaQuery.of(context).size.width;
       final isWide = screenWidth > 600;
 
-      final requiresCharges = _requiresCharges(league);
       final isCreator = _isCreator(league, authUid: _authUid);
-      final showUnlock = requiresCharges && !isCreator && !_chargesPaid;
+
+      final showUnlock = !isCreator && !_chargesPaid && _requiresUnlockForThisJoin(league);
 
       final mode = _joinedMode;
       final joinedLine = (mode == LeagueJoinMode.viewer)
           ? l10n.tr('qr_scanner_joined_line_viewer')
           : l10n.tr('qr_scanner_joined_line_participant');
+
+      final noticeColor = cs.tertiary;
 
       return GlassScaffold(
         appBar: AppBar(
@@ -787,7 +1078,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                               _joinNotice!,
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: _premiumAmber,
+                                color: noticeColor,
                                 fontWeight: FontWeight.w900,
                                 height: 1.35,
                               ),
@@ -795,7 +1086,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                           ],
                           const SizedBox(height: 10),
                           Text(
-                            showUnlock ? l10n.tr('qr_scanner_requires_charges_message') : l10n.tr('qr_scanner_can_open_league_message'),
+                            showUnlock
+                                ? l10n.tr('qr_scanner_requires_charges_message')
+                                : l10n.tr('qr_scanner_can_open_league_message'),
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: cs.onSurface.withOpacity(0.72),
@@ -858,6 +1151,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
       );
     }
 
+    // Scanner view: we keep a dark background for camera UX, but all accents follow theme.
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -951,7 +1245,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                   child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white, size: 26),
+                        icon: Icon(Icons.close, color: cs.onSurface, size: 26),
                         onPressed: () => context.pop(),
                       ),
                       const Spacer(),
@@ -1111,7 +1405,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                           tooltip: _torchOn ? l10n.tr('qr_scanner_torch_off_tooltip') : l10n.tr('qr_scanner_torch_on_tooltip'),
                                           icon: Icon(
                                             _torchOn ? Icons.flash_on : Icons.flash_off,
-                                            color: Colors.white,
+                                            color: cs.onSurface,
                                           ),
                                           onPressed: !_cameraPermissionGranted || _joining
                                               ? null
@@ -1123,7 +1417,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with WidgetsB
                                         const SizedBox(width: 8),
                                         IconButton(
                                           tooltip: l10n.tr('qr_scanner_switch_camera_tooltip'),
-                                          icon: const Icon(Icons.cameraswitch, color: Colors.white),
+                                          icon: Icon(Icons.cameraswitch, color: cs.onSurface),
                                           onPressed: !_cameraPermissionGranted || _joining
                                               ? null
                                               : () async {

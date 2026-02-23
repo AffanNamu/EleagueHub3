@@ -6,6 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:eleaguehub3/core/errors/user_friendly_error.dart';
 import 'package:eleaguehub3/core/locale/app_localizations.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
+import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
+import 'package:eleaguehub3/features/leagues/logic/league_access_service.dart';
+import 'package:eleaguehub3/features/leagues/logic/coupon_codes_service.dart';
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
 import 'package:eleaguehub3/features/leagues/models/league.dart';
 import 'package:eleaguehub3/features/leagues/models/league_settings.dart';
@@ -95,40 +98,71 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
       final Map<String, int> counts = {};
       final Map<String, bool> viewerIsParticipant = {};
-      final Map<String, bool> viewerPaid = {};
+      final Map<String, bool> viewerUnlocked = {};
 
       await Future.wait(
         leagues.map((league) async {
           final teams = await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
           final orphanMembersCount = memberships
-              .where((m) =>
-                  m.leagueId == league.id && m.role == LeagueRole.member && m.teamId == null)
+              .where((m) => m.leagueId == league.id && m.role == LeagueRole.member && m.teamId == null)
               .length;
-          counts[league.id] = teams.length + orphanMembersCount;
 
-          viewerIsParticipant[league.id] = memberships.any(
+          final registered = teams.length + orphanMembersCount;
+          counts[league.id] = registered;
+
+          final isParticipant = memberships.any(
             (m) =>
                 m.leagueId == league.id &&
                 m.userId == effectiveUserId &&
                 (m.role == LeagueRole.member || m.role == LeagueRole.organizer),
           );
+          viewerIsParticipant[league.id] = isParticipant;
 
-          final requiresCharges =
-              league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+          final isOwner = _isOwnerForViewer(league, effectiveUserId);
 
-          if (!requiresCharges) {
-            viewerPaid[league.id] = true;
-          } else {
-            final isOwner = _isOwnerForViewer(league, effectiveUserId);
-            if (isOwner) {
-              viewerPaid[league.id] = true;
-            } else {
-              viewerPaid[league.id] = await _hasPaidChargesRemote(
-                userId: effectiveUserId,
-                leagueId: league.id,
-              ).timeout(const Duration(seconds: 10));
-            }
+          final requiresPaidLeague = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+
+          final isClassic = league.format == LeagueFormat.classic;
+          final isFull = registered >= league.maxTeams;
+
+          // Your rule:
+          // - Classic: participants free
+          // - Classic and FULL: viewer-only users can unlock by pay/coupon to join as viewer
+          final classicFullViewerRequiresUnlock = isClassic && isFull && !isOwner && !isParticipant;
+
+          // Owner always unlocked in UI.
+          if (isOwner) {
+            viewerUnlocked[league.id] = true;
+            return;
           }
+
+          // Classic participant free
+          if (isClassic && isParticipant) {
+            viewerUnlocked[league.id] = true;
+            return;
+          }
+
+          // If league doesn't require payment AND it's not a classic-full viewer scenario,
+          // keep it "unlocked" for UI (detail screen is public anyway).
+          if (!requiresPaidLeague && !classicFullViewerRequiresUnlock) {
+            viewerUnlocked[league.id] = true;
+            return;
+          }
+
+          // Otherwise: require payment/coupon unlock.
+          final paidReceipt = await _hasPaidChargesRemote(
+            userId: effectiveUserId,
+            leagueId: league.id,
+          ).timeout(const Duration(seconds: 12));
+
+          final paidCoupon = paidReceipt
+              ? false
+              : await _hasPaidCouponRemote(
+                  userId: effectiveUserId,
+                  leagueId: league.id,
+                ).timeout(const Duration(seconds: 12));
+
+          viewerUnlocked[league.id] = paidReceipt || paidCoupon;
         }),
       );
 
@@ -136,7 +170,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       setState(() {
         _leagues = leagues;
         _participantCounts = counts;
-        _viewerChargesPaid = viewerPaid;
+        _viewerChargesPaid = viewerUnlocked;
         _viewerIsParticipantByLeagueId = viewerIsParticipant;
         _effectiveUserId = effectiveUserId;
         _isLoading = false;
@@ -188,15 +222,57 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   }) async {
     final uid = userId.trim();
     if (uid.isEmpty) return false;
+
     final doc = await _firestore
         .collection('users')
         .doc(uid)
         .collection('leagueCharges')
         .doc(leagueId)
         .get(const GetOptions(source: Source.server));
+
     if (!doc.exists) return false;
+
+    // Backward + forward compatible:
+    // - old UI wrote: { paid: true, ... }
+    // - new receipt store writes: { receiptId, provider, paidAtMs, ... } (no 'paid' flag)
     final data = doc.data() ?? <String, dynamic>{};
-    return data['paid'] == true;
+
+    final paidFlag = data['paid'] == true;
+    final receiptId = (data['receiptId'] ?? '').toString().trim();
+    final paidAtMs = (data['paidAtMs'] is num) ? (data['paidAtMs'] as num).toInt() : 0;
+
+    return paidFlag || receiptId.isNotEmpty || paidAtMs > 0;
+  }
+
+
+  Future<bool> _hasPaidCouponRemote({
+    required String userId,
+    required String leagueId,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty) return false;
+
+    final snap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .collection('couponRedemptions')
+        .doc(uid)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 10));
+
+    if (!snap.exists) return false;
+
+    final data = snap.data() ?? <String, dynamic>{};
+    final status = (data['status'] ?? '').toString().trim().toLowerCase();
+    final paidAtMs = (data['paidAtMs'] is num) ? (data['paidAtMs'] as num).toInt() : 0;
+
+    // SECURITY: pending is NOT access.
+    if (status == 'paid') return true;
+
+    // Legacy tolerance: if older docs don't have status but have paidAtMs.
+    if (status.isEmpty && paidAtMs > 0) return true;
+
+    return false;
   }
 
   Future<void> _storePaidChargesRemote({
@@ -226,102 +302,336 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<void> _payChargesForLeague(BuildContext context, League league) async {
     final l10n = context.l10n;
+
     if (_payingLeagueId == league.id) return;
+
     final authUid = _authUidOrEmpty();
     if (authUid.isEmpty) {
       _snack('Please sign in and try again.');
       return;
     }
 
-    final requiresCharges =
-        league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
-    if (!requiresCharges) return;
+    final registered = _participantCounts[league.id] ?? 0;
+    final isFull = registered >= league.maxTeams;
 
-    if (_isOwnerForViewer(league, authUid)) {
+    final isOwner = _isOwnerForViewer(league, authUid);
+    final viewerIsParticipant = _viewerIsParticipantByLeagueId[league.id] ?? false;
+
+    final requiresPaidLeague = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+    final isClassic = league.format == LeagueFormat.classic;
+
+    final classicFullViewerRequiresUnlock = isClassic && isFull && !isOwner && !viewerIsParticipant;
+
+    // Only show unlock options when relevant.
+    if (!requiresPaidLeague && !classicFullViewerRequiresUnlock) return;
+
+    // Owner never pays
+    if (isOwner) {
       _snack(l10n.tr('leagues_creator_unlocked'));
       return;
     }
 
+    // If already unlocked, reflect state and stop.
     final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
-    if (alreadyPaid) {
+    final alreadyCoupon = alreadyPaid ? false : await _hasPaidCouponRemote(userId: authUid, leagueId: league.id);
+
+    if (alreadyPaid || alreadyCoupon) {
+      if (!mounted) return;
       setState(() => _viewerChargesPaid[league.id] = true);
       return;
     }
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final dialogCs = Theme.of(ctx).colorScheme;
-        return AlertDialog(
-          backgroundColor: dialogCs.surface,
-          title: Text(
-            l10n.tr('leagues_unlock_dialog_title'),
-            style: TextStyle(color: dialogCs.onSurface, fontWeight: FontWeight.w900),
-          ),
-          content: Text(
-            '${l10n.tr('leagues_unlock_dialog_content_prefix')}\n\n${league.name}',
-            style: TextStyle(
-              color: dialogCs.onSurface.withOpacity(0.72),
-              height: 1.35,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(l10n.tr('common_cancel')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(l10n.tr('common_pay')),
-            ),
-          ],
+    final couponCtrl = TextEditingController();
+    bool busy = false;
+    String? error;
+
+    Future<void> unlockByPay(StateSetter setModalState) async {
+      if (busy) return;
+      setModalState(() {
+        busy = true;
+        error = null;
+      });
+      setState(() => _payingLeagueId = league.id);
+
+      try {
+        final paymentService = ref.read(leagueChargesPaymentServiceProvider);
+        final result = await paymentService.payLeagueCharges(
+          context: context,
+          userId: authUid,
+          leagueId: league.id,
+          leagueName: league.name,
         );
-      },
-    );
 
-    if (confirm != true) return;
-    setState(() => _payingLeagueId = league.id);
+        if (!mounted) return;
 
-    try {
-      final paymentService = ref.read(leagueChargesPaymentServiceProvider);
-      final result = await paymentService.payLeagueCharges(
-        context: context,
-        userId: authUid,
-        leagueId: league.id,
-        leagueName: league.name,
-      );
+        if (!result.success) {
+          setModalState(() {
+            busy = false;
+            error = result.errorMessage?.trim().isNotEmpty == true
+                ? result.errorMessage
+                : l10n.tr('leagues_payment_failed');
+          });
+          setState(() => _payingLeagueId = null);
+          return;
+        }
 
-      if (!mounted) return;
-      if (!result.success) {
+        // Store receipt in the canonical location used by your access system:
+        // users/{uid}/leagueCharges/{leagueId}
+        await LeagueChargesStore.online().storeReceipt(
+          LeagueChargesReceipt(
+            leagueId: league.id,
+            userId: authUid,
+            receiptId: result.receiptId ?? 'FLW-UNKNOWN',
+            provider: result.provider,
+            paidAtMs: result.paidAtMs,
+          ),
+        );
+
+        // Ensure deterministic membership for chat rules (role MUST be member, not organizer).
+        await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+          leagueId: league.id,
+          uid: authUid,
+        );
+
+        if (!mounted) return;
+        setState(() {
+          _payingLeagueId = null;
+          _viewerChargesPaid[league.id] = true;
+        });
+
+        Navigator.of(context).pop(); // close sheet
+        _snack(l10n.tr('leagues_unlocked_success'));
+      } catch (e) {
+        if (!mounted) return;
+        setModalState(() {
+          busy = false;
+          error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+        });
         setState(() => _payingLeagueId = null);
-        _snack(result.errorMessage?.trim().isNotEmpty == true
-            ? result.errorMessage!
-            : l10n.tr('leagues_payment_failed'));
+      }
+    }
+
+    String _normalizeCoupon(String raw) {
+      return raw
+          .trim()
+          .toUpperCase()
+          .replaceAll(' ', '')
+          .replaceAll('-', '')
+          .replaceAll(RegExp(r'[^A-Z0-9_%]'), '');
+    }
+
+    Future<void> unlockByCoupon(StateSetter setModalState) async {
+      if (busy) return;
+
+      final code = _normalizeCoupon(couponCtrl.text);
+      if (code.length < 6) {
+        setModalState(() => error = 'Enter a valid coupon code.');
         return;
       }
 
-      await _storePaidChargesRemote(
-        userId: authUid,
-        leagueId: league.id,
-        payload: <String, dynamic>{
-          'receiptId': result.receiptId ?? '',
-          'provider': result.provider,
-          'paidAtMs': result.paidAtMs,
-        },
-      );
+      setModalState(() {
+        busy = true;
+        error = null;
+      });
+      setState(() => _payingLeagueId = league.id);
+
+      try {
+        final res = await CouponCodesService().redeemWithCode(
+          context: context,
+          leagueId: league.id,
+          leagueName: league.name,
+          userId: authUid,
+          code: code,
+        );
+
+        if (!mounted) return;
+
+        if (!res.success) {
+          setModalState(() {
+            busy = false;
+            error = res.errorMessage?.trim().isNotEmpty == true ? res.errorMessage : 'Coupon redemption failed.';
+          });
+          setState(() => _payingLeagueId = null);
+          return;
+        }
+
+        await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+          leagueId: league.id,
+          uid: authUid,
+        );
+      } catch (e) {
+        // Fallback: older versions of LeagueAccessService may not have the helper name above.
+        // We'll just ignore membership creation here if it doesn't exist.
+      }
+
+      try {
+        await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+          leagueId: league.id,
+          uid: authUid,
+        );
+      } catch (_) {}
 
       if (!mounted) return;
       setState(() {
         _payingLeagueId = null;
         _viewerChargesPaid[league.id] = true;
       });
-      _snack(l10n.tr('leagues_unlocked_success'));
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _payingLeagueId = null);
-      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+
+      Navigator.of(context).pop();
+      _snack('Coupon redeemed. Access unlocked.');
     }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetCtx) {
+        final theme = Theme.of(sheetCtx);
+        final cs = theme.colorScheme;
+        final bottomInset = MediaQuery.of(sheetCtx).viewInsets.bottom;
+
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Glass(
+                  borderRadius: 28,
+                  child: StatefulBuilder(
+                    builder: (ctx, setModalState) {
+                      return Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 4,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.25),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            Text(
+                              'Unlock access',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              league.name,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.55),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (classicFullViewerRequiresUnlock) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                'This classic league is full. You can unlock access as a viewer by paying or using a coupon.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.50),
+                                  fontSize: 12,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+
+                            // PAY
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: busy ? null : () => unlockByPay(setModalState),
+                                icon: const Icon(Icons.payments_outlined),
+                                label: busy
+                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Text('Pay to unlock', style: TextStyle(fontWeight: FontWeight.w900)),
+                              ),
+                            ),
+
+                            const SizedBox(height: 14),
+
+                            // COUPON
+                            Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                'Or use a coupon',
+                                style: TextStyle(
+                                  color: cs.onSurface.withOpacity(0.75),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: couponCtrl,
+                              enabled: !busy,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: const InputDecoration(
+                                prefixIcon: Icon(Icons.confirmation_number_outlined),
+                                hintText: 'Enter coupon code',
+                              ),
+                              onSubmitted: (_) => unlockByCoupon(setModalState),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: busy ? null : () => unlockByCoupon(setModalState),
+                                icon: const Icon(Icons.verified_outlined),
+                                label: const Text('Apply coupon', style: TextStyle(fontWeight: FontWeight.w900)),
+                              ),
+                            ),
+
+                            if ((error ?? '').trim().isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: cs.error.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: cs.error.withOpacity(0.25)),
+                                ),
+                                child: Text(
+                                  error!.trim(),
+                                  style: TextStyle(color: cs.error, fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ],
+
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton(
+                                onPressed: busy ? null : () => Navigator.of(ctx).pop(),
+                                child: Text(l10n.tr('common_cancel')),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    couponCtrl.dispose();
+    if (mounted) setState(() => _payingLeagueId = null);
   }
 
   @override
@@ -512,13 +822,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         final bool viewerIsParticipant = _viewerIsParticipantByLeagueId[league.id] ?? false;
         final bool viewerIsViewerOnly = !isOwner && !viewerIsParticipant;
 
-        final requiresCharges =
-            league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
-        final paid = _viewerChargesPaid[league.id] ?? false;
-        final showLockedBadge = requiresCharges && !isOwner && !paid;
-
         final registered = _participantCounts[league.id] ?? 0;
         final isFull = registered >= league.maxTeams;
+
+        final requiresPaidLeague =
+            league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+
+        final isClassic = league.format == LeagueFormat.classic;
+
+        // Classic full => viewer-only users can unlock as viewers (pay/coupon).
+        final classicFullViewerRequiresUnlock = isClassic && isFull && !isOwner && !viewerIsParticipant;
+
+        // For paid leagues, owner bypass only (participants still need to unlock).
+        final requiresUnlock = (requiresPaidLeague && !isOwner) || classicFullViewerRequiresUnlock;
+
+        final unlocked = _viewerChargesPaid[league.id] ?? false;
+        final showLockedBadge = requiresUnlock && !unlocked;
 
         final latestAnn = _latestAnnouncements[league.id];
 
