@@ -36,8 +36,7 @@ class SupabaseEdgeNotificationsService {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final idToken = await user.getIdToken();
-    final token = idToken.trim();
+    final token = (await user.getIdToken())?.trim() ?? '';
     if (token.isEmpty) return;
 
     try {
