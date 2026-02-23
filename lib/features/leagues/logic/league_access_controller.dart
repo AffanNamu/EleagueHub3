@@ -12,7 +12,7 @@ import 'league_charges_payment_service.dart';
 import 'league_charges_store.dart';
 
 @immutable
-final class LeagueAccessState {
+class LeagueAccessState {
   final bool checking;
   final bool busy;
   final LeagueAccessDecision? decision;
@@ -49,8 +49,10 @@ final class LeagueAccessState {
 
 final leagueAccessServiceProvider = Provider<LeagueAccessService>((ref) => LeagueAccessService.instance);
 
+/// ✅ Compatible across Riverpod versions that support:
+/// StateNotifierProvider.autoDispose.family (commonly Riverpod v1+).
 final leagueAccessControllerProvider =
-    StateNotifierProviderFamily.autoDispose<LeagueAccessController, LeagueAccessState, String>((ref, leagueId) {
+    StateNotifierProvider.autoDispose.family<LeagueAccessController, LeagueAccessState, String>((ref, leagueId) {
   return LeagueAccessController(ref: ref, leagueId: leagueId);
 });
 
@@ -72,7 +74,7 @@ class LeagueAccessController extends StateNotifier<LeagueAccessState> {
   String _uid() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
   Future<void> _init() async {
-    // Owner fast-path (Firestore cache): avoids owners seeing any loader in normal flows.
+    // Owner fast-path (Firestore cache) to reduce/avoid any loader for owners.
     try {
       final d = await _ref.read(leagueAccessServiceProvider).tryOwnerAllowFast(leagueId: leagueId);
       if (d != null && d.allowed) {
@@ -83,6 +85,8 @@ class LeagueAccessController extends StateNotifier<LeagueAccessState> {
     }
 
     _startReactiveWatches();
+
+    // Server-verified check (security).
     await check(force: false, silentIfAlreadyAllowed: true);
   }
 
@@ -132,7 +136,10 @@ class LeagueAccessController extends StateNotifier<LeagueAccessState> {
       state = state.copyWith(checking: false, decision: d, errorMessage: null);
 
       if (d.allowed) {
-        unawaited(_ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(leagueId: leagueId, uid: uid));
+        unawaited(_ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(
+              leagueId: leagueId,
+              uid: uid,
+            ));
       }
 
       return d;
@@ -154,7 +161,6 @@ class LeagueAccessController extends StateNotifier<LeagueAccessState> {
 
     state = state.copyWith(busy: true, errorMessage: null);
     try {
-      // If already paid, refresh decision.
       final alreadyPaid = await LeagueChargesStore.online().hasPaidCharges(userId: uid, leagueId: leagueId);
       if (alreadyPaid) {
         await _ref.read(leagueAccessServiceProvider).ensureDeterministicMembershipBestEffort(leagueId: leagueId, uid: uid);
