@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +9,7 @@ import '../locale/app_localizations.dart';
 import '../locale/locale_controller.dart';
 import '../routing/app_router.dart';
 import '../services/connectivity_service.dart';
+import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
 import '../widgets/offline_banner.dart';
@@ -49,6 +52,9 @@ class EleagueHubApp extends ConsumerWidget {
               children: [
                 PermissionWrapper(child: child ?? const SizedBox.shrink()),
 
+                // Notification tap -> route navigation
+                const _NotificationTapRouter(),
+
                 // ONLINE-ONLY: show a simple offline indicator, but do not enable local fallback.
                 ValueListenableBuilder<bool>(
                   valueListenable: ConnectivityService.instance.isConnected,
@@ -63,6 +69,45 @@ class EleagueHubApp extends ConsumerWidget {
       },
     );
   }
+}
+
+class _NotificationTapRouter extends StatefulWidget {
+  const _NotificationTapRouter();
+
+  @override
+  State<_NotificationTapRouter> createState() => _NotificationTapRouterState();
+}
+
+class _NotificationTapRouterState extends State<_NotificationTapRouter> {
+  StreamSubscription<String>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Ensure plugin is initialized once.
+    // ignore: discarded_futures
+    NotificationService().init();
+
+    _sub = NotificationService().onNotificationTap.listen((route) {
+      final r = route.trim();
+      if (r.isEmpty) return;
+      if (!r.startsWith('/')) return;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        appRouter.go(r);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class PermissionWrapper extends StatefulWidget {

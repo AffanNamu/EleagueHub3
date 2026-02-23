@@ -6,13 +6,16 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
+import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -60,6 +63,10 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   bool _leagueOwnerOrOrganizer = false;
   bool _leaguePermsResolved = false;
 
+  // ===== League name (for push title) =====
+  String _leagueName = 'League';
+  bool _leagueNameResolved = false;
+
   // ===== Voice recording =====
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
@@ -80,6 +87,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   Duration _dur = Duration.zero;
   bool _playing = false;
 
+  // ===== Space banner identity cache =====
+  final Map<String, _CachedIdentity> _identityCache = <String, _CachedIdentity>{};
+  final Set<String> _identityLoading = <String>{};
+
+  // ===== Space banner async action state =====
+  bool _spaceActionBusy = false;
+
   User get _user => FirebaseAuth.instance.currentUser!;
 
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
@@ -95,20 +109,50 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   bool get _canModerateLeague =>
       _isSuperAdmin || _isOrganizerFromParam || (_leaguePermsResolved && _leagueOwnerOrOrganizer);
 
+  DocumentReference<Map<String, dynamic>> get _spaceDoc => FirebaseFirestore.instance
+      .collection('leagues')
+      .doc(widget.leagueId)
+      .collection('space')
+      .doc('current');
+
+  CollectionReference<Map<String, dynamic>> get _spaceSpeakersCol => _spaceDoc.collection('speakers');
+
   @override
   void initState() {
     super.initState();
     _resolveIdentity();
     _resolveLeaguePermissions();
+    _resolveLeagueName();
     _wirePlayer();
+
+    // Push notifications: subscribe to this league topic, and suppress foreground banners while inside this chat.
+    // ignore: discarded_futures
+    PushMessagingService.instance.subscribeToLeagueTopic(widget.leagueId);
+    PushMessagingService.instance.setActiveLeagueChat(widget.leagueId);
+  }
+
+  Future<void> _resolveLeagueName() async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
+      final data = doc.data() ?? <String, dynamic>{};
+      final name = (data['name'] ?? data['leagueName'] ?? '').toString().trim();
+      if (!mounted) return;
+      setState(() {
+        _leagueName = name.isNotEmpty ? name : 'League';
+        _leagueNameResolved = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _leagueName = 'League';
+        _leagueNameResolved = true;
+      });
+    }
   }
 
   Future<void> _resolveLeaguePermissions() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('leagues')
-          .doc(widget.leagueId)
-          .get();
+      final snap = await FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get();
       final data = snap.data() ?? <String, dynamic>{};
 
       bool isOwnerOrOrganizer = false;
@@ -229,6 +273,464 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     return _canModerateLeague;
   }
 
+  // ===== Push notify via Supabase Edge (FCM) =====
+
+  String _previewForOutgoing({
+    required String type,
+    required String text,
+    required String imageUrl,
+    required String voiceUrl,
+  }) {
+    final t = type.trim();
+    if (t == ChatMessageType.voice || voiceUrl.trim().isNotEmpty) return 'Voice message';
+    if (t == ChatMessageType.image || imageUrl.trim().isNotEmpty) return 'Photo';
+    if (t == ChatMessageType.code) return 'Code snippet';
+    final msg = text.trim();
+    if (msg.isEmpty) return 'New message';
+    return msg.length > 140 ? '${msg.substring(0, 140)}…' : msg;
+  }
+
+  String _newMessageId() => FirebaseFirestore.instance.collection('_ids').doc().id;
+
+  Future<void> _notifyPush({
+    required String messageId,
+    required String preview,
+  }) async {
+    await SupabaseEdgeNotificationsService.instance.notifyLeagueChatMessage(
+      leagueId: widget.leagueId,
+      leagueName: _leagueNameResolved ? _leagueName : 'League',
+      messageId: messageId,
+      senderId: _user.uid.trim(),
+      senderName: _senderName().trim(),
+      preview: preview.trim(),
+    );
+  }
+
+  // ===== Space banner helpers =====
+
+  String _shortUid(String uid) {
+    final s = uid.trim();
+    if (s.length <= 10) return s;
+    return '${s.substring(0, 6)}…${s.substring(s.length - 4)}';
+  }
+
+  void _ensureIdentityLoadedForUid(String uid) {
+    final id = uid.trim();
+    if (id.isEmpty) return;
+    if (_identityCache.containsKey(id)) return;
+    if (_identityLoading.contains(id)) return;
+    _identityLoading.add(id);
+
+    () async {
+      try {
+        final r = await _repo.resolveSenderIdentity(
+          uid: id,
+          fallbackName: _shortUid(id),
+          fallbackPhoto: '',
+        );
+        if (!mounted) return;
+        setState(() {
+          _identityCache[id] = _CachedIdentity(name: (r.name).trim(), photo: (r.photo).trim());
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _identityCache[id] = _CachedIdentity(name: _shortUid(id), photo: '');
+        });
+      } finally {
+        _identityLoading.remove(id);
+      }
+    }();
+  }
+
+  String _displayNameForUid(String uid) {
+    final cached = _identityCache[uid.trim()];
+    final n = (cached?.name ?? '').trim();
+    if (n.isNotEmpty) return n;
+    return _shortUid(uid);
+  }
+
+  bool _spaceIsLiveFrom(Map<String, dynamic> data) {
+    final v = data['isLive'];
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    if (v is String) return v.trim().toLowerCase() == 'true';
+    return false;
+  }
+
+  String _spaceTitleFrom(Map<String, dynamic> data) {
+    final t = (data['title'] ?? data['name'] ?? data['spaceName'] ?? '').toString().trim();
+    return t.isNotEmpty ? t : 'League Space';
+  }
+
+  String _spaceHostUidFrom(Map<String, dynamic> data) {
+    return (data['hostUserId'] ?? data['hostUid'] ?? data['hostId'] ?? '').toString().trim();
+  }
+
+  int? _spaceParticipantsFrom(Map<String, dynamic> data) {
+    final keys = <String>[
+      'participants',
+      'participantsCount',
+      'participantCount',
+      'numParticipants',
+      'listeners',
+      'listenersCount',
+      'listenerCount',
+      'memberCount',
+    ];
+    for (final k in keys) {
+      final v = data[k];
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) {
+        final parsed = int.tryParse(v.trim());
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _openSpaceRoom() async {
+    if (!mounted) return;
+    context.push('/leagues/${widget.leagueId}/space');
+  }
+
+  Future<void> _startSpaceFromBanner({required String title}) async {
+    if (_spaceActionBusy) return;
+    if (!_canModerateLeague) {
+      _toast('You do not have permission to start a space.', error: true);
+      return;
+    }
+
+    setState(() => _spaceActionBusy = true);
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      await _spaceDoc
+          .set(
+        {
+          'leagueId': widget.leagueId,
+          'hostUserId': _user.uid.trim(),
+          'title': title.trim().isNotEmpty ? title.trim() : 'League Space',
+          'isLive': true,
+          'startedAtMs': now,
+          'updatedAtMs': now,
+        },
+        SetOptions(merge: true),
+      )
+          .timeout(const Duration(seconds: 15));
+
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      _toastErr(e);
+    } finally {
+      if (!mounted) return;
+      setState(() => _spaceActionBusy = false);
+    }
+  }
+
+  Future<void> _endSpaceFromBanner() async {
+    if (_spaceActionBusy) return;
+    if (!_canModerateLeague) {
+      _toast('You do not have permission to end a space.', error: true);
+      return;
+    }
+
+    setState(() => _spaceActionBusy = true);
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      await _spaceDoc
+          .set(
+        {
+          'isLive': false,
+          'endedAtMs': now,
+          'updatedAtMs': now,
+        },
+        SetOptions(merge: true),
+      )
+          .timeout(const Duration(seconds: 15));
+
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      _toastErr(e);
+    } finally {
+      if (!mounted) return;
+      setState(() => _spaceActionBusy = false);
+    }
+  }
+
+  Widget _buildSpaceBanner(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _spaceDoc.snapshots(includeMetadataChanges: true),
+      builder: (context, snap) {
+        final exists = snap.data?.exists == true;
+        final data = snap.data?.data() ?? <String, dynamic>{};
+
+        final isLive = exists ? _spaceIsLiveFrom(data) : false;
+        final title = exists ? _spaceTitleFrom(data) : 'League Space';
+        final hostUid = exists ? _spaceHostUidFrom(data) : '';
+        final isHost = hostUid.isNotEmpty && hostUid == _user.uid.trim();
+
+        if (hostUid.isNotEmpty) _ensureIdentityLoadedForUid(hostUid);
+
+        final hostName = hostUid.isNotEmpty ? _displayNameForUid(hostUid) : 'Host';
+
+        final showStart = !isLive && _canModerateLeague;
+        final showJoin = isLive && !isHost;
+        final showHostControls = isLive && isHost;
+
+        final cardKey = ValueKey<String>(
+          'space_${exists ? 'exists' : 'none'}_${isLive ? 'live' : 'off'}_${isHost ? 'host' : 'member'}',
+        );
+
+        Widget content = Glass(
+          key: cardKey,
+          borderRadius: 20,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.white.withOpacity(0.06),
+                    border: Border.all(
+                      color: (isLive ? cs.primary : Colors.white.withOpacity(0.18)).withOpacity(0.45),
+                    ),
+                  ),
+                  child: Icon(
+                    isLive ? Icons.graphic_eq_rounded : Icons.spatial_audio_off_rounded,
+                    color: isLive ? cs.primary : Colors.white.withOpacity(0.55),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _SpaceLivePill(isLive: isLive),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Host: $hostName',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface.withOpacity(0.62),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          _SpaceParticipantsLabel(
+                            isLive: isLive,
+                            explicitCount: exists ? _spaceParticipantsFrom(data) : null,
+                            speakersCol: _spaceSpeakersCol,
+                            hostUid: hostUid,
+                          ),
+                        ],
+                      ),
+                      if (showHostControls) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: _spaceActionBusy ? null : _openSpaceRoom,
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  height: 36,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    color: cs.primary.withOpacity(0.12),
+                                    border: Border.all(color: cs.primary.withOpacity(0.24)),
+                                  ),
+                                  child: Text(
+                                    'Open',
+                                    style: TextStyle(
+                                      color: cs.primary,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                              stream: hostUid.trim().isEmpty
+                                  ? const Stream.empty()
+                                  : _spaceSpeakersCol.doc(hostUid.trim()).snapshots(includeMetadataChanges: true),
+                              builder: (context, speakerSnap) {
+                                final muted = speakerSnap.data?.data()?['muted'] == true;
+                                final label = muted ? 'Mic off' : 'Mic on';
+                                final icon = muted ? Icons.mic_off_rounded : Icons.mic_rounded;
+                                final color = muted ? cs.error : cs.primary;
+
+                                return Container(
+                                  height: 36,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    color: color.withOpacity(0.10),
+                                    border: Border.all(color: color.withOpacity(0.20)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(icon, size: 16, color: color),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        label,
+                                        style: TextStyle(
+                                          color: color,
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(width: 10),
+                            InkWell(
+                              onTap: _spaceActionBusy ? null : _endSpaceFromBanner,
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                height: 36,
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: cs.error.withOpacity(0.10),
+                                  border: Border.all(color: cs.error.withOpacity(0.22)),
+                                ),
+                                child: Center(
+                                  child: _spaceActionBusy
+                                      ? SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.error),
+                                        )
+                                      : Text(
+                                          'Leave',
+                                          style: TextStyle(
+                                            color: cs.error,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                if (showJoin)
+                  FilledButton(
+                    onPressed: _spaceActionBusy ? null : _openSpaceRoom,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: cs.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                    ),
+                    child: const Text('Join'),
+                  )
+                else if (showStart)
+                  FilledButton(
+                    onPressed: _spaceActionBusy ? null : () => _startSpaceFromBanner(title: title),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: cs.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                    ),
+                    child: _spaceActionBusy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('Start'),
+                  )
+                else
+                  OutlinedButton(
+                    onPressed: isLive ? (_spaceActionBusy ? null : _openSpaceRoom) : null,
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: Colors.white.withOpacity(0.20)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                      foregroundColor: theme.colorScheme.onSurface.withOpacity(0.7),
+                    ),
+                    child: Text(isLive ? 'Open' : 'Not live'),
+                  ),
+              ],
+            ),
+          ),
+        );
+
+        if (isLive) {
+          content = InkWell(
+            onTap: _spaceActionBusy ? null : _openSpaceRoom,
+            borderRadius: BorderRadius.circular(20),
+            child: content,
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: content,
+          ),
+        );
+      },
+    );
+  }
+
   // ===== Send =====
 
   Future<void> _sendText() async {
@@ -238,6 +740,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     if (raw.isEmpty) return;
 
     final reply = _replyTo.value;
+    final messageId = _newMessageId();
 
     setState(() => _sending = true);
     try {
@@ -245,6 +748,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
       await _repo.sendLeagueMessage(
         leagueId: widget.leagueId,
+        messageIdOverride: messageId,
         senderId: _user.uid,
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
@@ -255,6 +759,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         replyToText: reply?.replyPreview() ?? '',
         replyToType: reply?.type ?? '',
       );
+
+      // Push notify (Supabase -> FCM)
+      final preview = _previewForOutgoing(type: ChatMessageType.text, text: raw, imageUrl: '', voiceUrl: '');
+      // ignore: discarded_futures
+      _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
       _replyTo.value = null;
@@ -270,6 +779,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     if (_sending || _isSelecting) return;
 
     final reply = _replyTo.value;
+    final messageId = _newMessageId();
 
     setState(() => _sending = true);
     try {
@@ -292,19 +802,26 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         file: file,
       );
 
+      final caption = _textCtrl.text.trim();
+
       await _repo.sendLeagueMessage(
         leagueId: widget.leagueId,
+        messageIdOverride: messageId,
         senderId: _user.uid,
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
         type: ChatMessageType.image,
-        text: _textCtrl.text.trim(),
+        text: caption,
         imageUrl: url,
         replyToMessageId: reply?.messageId ?? '',
         replyToSenderName: reply?.displaySenderName ?? '',
         replyToText: reply?.replyPreview() ?? '',
         replyToType: reply?.type ?? '',
       );
+
+      final preview = _previewForOutgoing(type: ChatMessageType.image, text: caption, imageUrl: url, voiceUrl: '');
+      // ignore: discarded_futures
+      _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
       _replyTo.value = null;
@@ -384,7 +901,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
       if (!mounted) return;
       setState(() {
-        // FIX: semicolons, not commas (Dart syntax)
         _isRecording = false;
         _recordingPath = null;
       });
@@ -400,6 +916,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     if (path.isEmpty) return;
 
     final reply = _replyTo.value;
+    final messageId = _newMessageId();
 
     setState(() => _isVoiceSending = true);
     try {
@@ -425,19 +942,26 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         ),
       );
 
+      final caption = _textCtrl.text.trim();
+
       await _repo.sendLeagueMessage(
         leagueId: widget.leagueId,
+        messageIdOverride: messageId,
         senderId: _user.uid,
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
         type: ChatMessageType.voice,
-        text: _textCtrl.text.trim(), // optional caption
+        text: caption, // optional caption
         voiceUrl: voiceUrl,
         replyToMessageId: reply?.messageId ?? '',
         replyToSenderName: reply?.displaySenderName ?? '',
         replyToText: reply?.replyPreview() ?? '',
         replyToType: reply?.type ?? '',
       );
+
+      final preview = _previewForOutgoing(type: ChatMessageType.voice, text: caption, imageUrl: '', voiceUrl: voiceUrl);
+      // ignore: discarded_futures
+      _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
       _replyTo.value = null;
@@ -709,6 +1233,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   @override
   void dispose() {
+    PushMessagingService.instance.setActiveLeagueChat(null);
     _recordingTicker?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();
@@ -742,6 +1267,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
           appBar: _buildAppBar(),
           body: Column(
             children: [
+              _buildSpaceBanner(context),
               StreamBuilder<ChatMessage?>(
                 stream: _repo.leaguePinnedMessageStream(widget.leagueId),
                 builder: (context, snap) {
@@ -833,22 +1359,15 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                                 selected: selectedId == m.messageId,
                                 onLongPress: () {
                                   HapticFeedback.mediumImpact();
-                                  _replyTo.value = null; // selection cancels reply
+                                  _replyTo.value = null;
                                   _selectedMessageId.value = m.messageId;
                                 },
                                 onTap: () {
                                   if (!selecting) return;
-                                  _selectedMessageId.value =
-                                      (selectedId == m.messageId) ? null : m.messageId;
+                                  _selectedMessageId.value = (selectedId == m.messageId) ? null : m.messageId;
                                 },
-                                onSwipeReply: selecting
-                                    ? null
-                                    : () {
-                                        _replyTo.value = m;
-                                      },
-                                onPlayVoice: (m.type == ChatMessageType.voice && !selecting)
-                                    ? () => _toggleVoice(m)
-                                    : null,
+                                onSwipeReply: selecting ? null : () => _replyTo.value = m,
+                                onPlayVoice: (m.type == ChatMessageType.voice && !selecting) ? () => _toggleVoice(m) : null,
                                 isVoicePlaying: _isPlayingFor(m.messageId),
                                 voiceProgress: _progressFor(m.messageId),
                                 voicePositionLabel: _posLabelFor(m.messageId),
@@ -869,38 +1388,19 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                   final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
                   final reply = _replyTo.value;
 
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: ChatInputBar(
-                          controller: _textCtrl,
-                          isSending: _sending,
-                          codeMode: _codeMode,
-                          enabled: !_isRecording && !selecting,
-                          onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
-                          onPickImage: _pickAndSendImage,
-                          onSend: _sendText,
-                          replySenderName: reply?.displaySenderName,
-                          replyPreview: reply?.replyPreview(),
-                          onCancelReply: () => _replyTo.value = null,
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsetsDirectional.only(end: 12),
-                        child: Glass(
-                          padding: const EdgeInsets.all(6),
-                          child: IconButton(
-                            tooltip: _recordingPermissionDenied
-                                ? 'Microphone permission required'
-                                : (_isRecording ? 'Recording…' : 'Record voice'),
-                            onPressed: (_sending || _isVoiceSending || _isRecording || selecting)
-                                ? null
-                                : _startRecording,
-                            icon: Icon(Icons.mic, color: theme.colorScheme.primary),
-                          ),
-                        ),
-                      ),
-                    ],
+                  return ChatInputBar(
+                    controller: _textCtrl,
+                    isSending: _sending,
+                    codeMode: _codeMode,
+                    onToggleCodeMode: () => setState(() => _codeMode = !_codeMode), // UI removed
+                    enabled: !_isRecording && !selecting,
+                    onPickImage: _pickAndSendImage,
+                    onSend: _sendText,
+                    onRecordVoice: (_sending || _isVoiceSending || _isRecording || selecting) ? null : _startRecording,
+                    voiceTooltip: _recordingPermissionDenied ? 'Microphone permission required' : 'Record voice',
+                    replySenderName: reply?.displaySenderName,
+                    replyPreview: reply?.replyPreview(),
+                    onCancelReply: () => _replyTo.value = null,
                   );
                 },
               ),
@@ -908,6 +1408,160 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CachedIdentity {
+  final String name;
+  final String photo;
+  const _CachedIdentity({required this.name, required this.photo});
+}
+
+class _SpaceLivePill extends StatelessWidget {
+  const _SpaceLivePill({required this.isLive});
+  final bool isLive;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final color = isLive ? cs.error : Colors.white.withOpacity(0.55);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: color.withOpacity(0.10),
+        border: Border.all(color: color.withOpacity(0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isLive) ...[
+            const _PulseDot(),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            isLive ? 'LIVE' : 'OFF',
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PulseDot extends StatefulWidget {
+  const _PulseDot();
+
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<_PulseDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = _c.value;
+        final opacity = 0.55 + (t * 0.45);
+        final size = 6.0 + (t * 2.0);
+        return Opacity(
+          opacity: opacity,
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: cs.error,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SpaceParticipantsLabel extends StatelessWidget {
+  const _SpaceParticipantsLabel({
+    required this.isLive,
+    required this.explicitCount,
+    required this.speakersCol,
+    required this.hostUid,
+  });
+
+  final bool isLive;
+  final int? explicitCount;
+  final CollectionReference<Map<String, dynamic>> speakersCol;
+  final String hostUid;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (!isLive) {
+      return Text(
+        '0 participants',
+        style: TextStyle(
+          color: theme.colorScheme.onSurface.withOpacity(0.55),
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+      );
+    }
+
+    if (explicitCount != null) {
+      final n = explicitCount!;
+      return Text(
+        '$n participants',
+        style: TextStyle(
+          color: theme.colorScheme.onSurface.withOpacity(0.62),
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: speakersCol.snapshots(includeMetadataChanges: true),
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? const [];
+
+        final host = hostUid.trim();
+        final hostInSpeakers = host.isNotEmpty && docs.any((d) => d.id.trim() == host);
+        final total = docs.length + (host.isNotEmpty && !hostInSpeakers ? 1 : 0);
+
+        return Text(
+          '$total participants',
+          style: TextStyle(
+            color: theme.colorScheme.onSurface.withOpacity(0.62),
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+          ),
+        );
+      },
     );
   }
 }

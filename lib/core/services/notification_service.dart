@@ -1,31 +1,112 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
   NotificationService._internal();
 
-  static final NotificationService _instance =
-      NotificationService._internal();
+  static final NotificationService _instance = NotificationService._internal();
 
   factory NotificationService() => _instance;
 
-  final FlutterLocalNotificationsPlugin _plugin =
-      FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
+
+  final StreamController<String> _tapStream = StreamController<String>.broadcast();
+  Stream<String> get onNotificationTap => _tapStream.stream;
+
+  static const String _chatChannelId = 'league_chat_channel';
+  static const String _annChannelId = 'league_announcements_channel';
+  static const String _testChannelId = 'test_channel_id';
 
   Future<void> init() async {
     if (_initialized) return;
 
-    const androidInit = AndroidInitializationSettings(
-      '@mipmap/ic_launcher',
-    );
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    const initSettings = InitializationSettings(
-      android: androidInit,
-    );
+    const initSettings = InitializationSettings(android: androidInit);
 
-    await _plugin.initialize(initSettings);
+    // Version-compatible initialize() tap handling (older plugin uses onSelectNotification,
+    // newer uses onDidReceiveNotificationResponse).
+    final dyn = _plugin as dynamic;
+    bool ok = false;
+
+    try {
+      await dyn.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: (NotificationResponse resp) {
+          final payload = (resp.payload ?? '').trim();
+          if (payload.isNotEmpty) _tapStream.add(payload);
+        },
+      );
+      ok = true;
+    } catch (_) {}
+
+    if (!ok) {
+      try {
+        await dyn.initialize(
+          initSettings,
+          onSelectNotification: (String? payload) {
+            final p = (payload ?? '').trim();
+            if (p.isNotEmpty) _tapStream.add(p);
+          },
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('NotificationService init failed: $e');
+        }
+      }
+    }
+
+    // Android channels (best-effort)
+    final android = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (android != null) {
+      try {
+        await android.requestNotificationsPermission();
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _chatChannelId,
+            'League Chat',
+            description: 'Messages from league chatrooms',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _annChannelId,
+            'League Announcements',
+            description: 'Announcements from league admins',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _testChannelId,
+            'Test Notifications',
+            description: 'Channel for test notifications',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+    }
+
     _initialized = true;
+  }
+
+  int _stableIdFromString(String s) {
+    final h = s.hashCode;
+    return h < 0 ? -h : h;
   }
 
   /// Simple test notification to verify that notifications are working.
@@ -35,16 +116,14 @@ class NotificationService {
     }
 
     const androidDetails = AndroidNotificationDetails(
-      'test_channel_id',
+      _testChannelId,
       'Test Notifications',
       channelDescription: 'Channel for test notifications',
       importance: Importance.high,
       priority: Priority.high,
     );
 
-    const details = NotificationDetails(
-      android: androidDetails,
-    );
+    const details = NotificationDetails(android: androidDetails);
 
     await _plugin.show(
       0,
@@ -59,22 +138,21 @@ class NotificationService {
     required String leagueName,
     required String title,
     required String message,
+    String? payloadRoute,
   }) async {
     if (!_initialized) {
       await init();
     }
 
     const androidDetails = AndroidNotificationDetails(
-      'league_announcements_channel',
+      _annChannelId,
       'League Announcements',
       channelDescription: 'Announcements from league admins',
       importance: Importance.high,
       priority: Priority.high,
     );
 
-    const details = NotificationDetails(
-      android: androidDetails,
-    );
+    const details = NotificationDetails(android: androidDetails);
 
     final notifTitle = '$leagueName: $title';
 
@@ -83,6 +161,52 @@ class NotificationService {
       notifTitle,
       message,
       details,
+      payload: (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+    );
+  }
+
+  /// Foreground/local notification for a league chat message (WhatsApp-style top banner).
+  Future<void> showLeagueChatMessageNotification({
+    required String leagueId,
+    required String leagueName,
+    required String senderName,
+    required String messagePreview,
+    String? messageId,
+    String? payloadRoute,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+
+    final title = leagueName.trim().isEmpty ? 'League Chat' : leagueName.trim();
+    final bodySender = senderName.trim().isEmpty ? 'Someone' : senderName.trim();
+    final bodyMsg = messagePreview.trim().isEmpty ? 'New message' : messagePreview.trim();
+    final body = '$bodySender: $bodyMsg';
+
+    final androidDetails = AndroidNotificationDetails(
+      _chatChannelId,
+      'League Chat',
+      channelDescription: 'Messages from league chatrooms',
+      importance: Importance.max,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.message,
+      ticker: 'New message',
+      styleInformation: BigTextStyleInformation(body),
+      groupKey: 'league_chat_${leagueId.trim()}',
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    final id = _stableIdFromString(
+      messageId?.trim().isNotEmpty == true ? messageId!.trim() : '${leagueId}_${DateTime.now().millisecondsSinceEpoch}',
+    );
+
+    await _plugin.show(
+      id,
+      title,
+      body,
+      details,
+      payload: (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
     );
   }
 }

@@ -24,15 +24,13 @@ class ChatRepository {
     return _firestore.collection('leagues').doc(leagueId).collection('chatroom');
   }
 
-  CollectionReference<Map<String, dynamic>> get _globalChatCol =>
-      _firestore.collection('globalChatroom');
+  CollectionReference<Map<String, dynamic>> get _globalChatCol => _firestore.collection('globalChatroom');
 
   DocumentReference<Map<String, dynamic>> globalChatRequestDoc(String uid) {
     return _firestore.collection('globalChatRequests').doc(uid);
   }
 
-  DocumentReference<Map<String, dynamic>> get _appAdminsDoc =>
-      _firestore.collection('app').doc('admins');
+  DocumentReference<Map<String, dynamic>> get _appAdminsDoc => _firestore.collection('app').doc('admins');
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> appAdminsDocStream() {
     return _appAdminsDoc.snapshots();
@@ -118,8 +116,7 @@ class ChatRepository {
         return (name: fallbackName, photo: fallbackPhoto);
       }
 
-      final resolvedName =
-          profile.teamName.trim().isNotEmpty ? profile.teamName.trim() : fallbackName;
+      final resolvedName = profile.teamName.trim().isNotEmpty ? profile.teamName.trim() : fallbackName;
 
       String resolvedPhoto = fallbackPhoto;
       try {
@@ -157,6 +154,9 @@ class ChatRepository {
     String imageUrl = '',
     String voiceUrl = '',
 
+    /// Optional: provide a messageId to keep client-side correlation (e.g., push notifications).
+    String messageIdOverride = '',
+
     // Reply payload (optional)
     String replyToMessageId = '',
     String replyToSenderName = '',
@@ -164,7 +164,9 @@ class ChatRepository {
     String replyToType = '',
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final doc = _leagueChatCol(leagueId).doc();
+
+    final col = _leagueChatCol(leagueId);
+    final doc = messageIdOverride.trim().isNotEmpty ? col.doc(messageIdOverride.trim()) : col.doc();
 
     final safeName = senderName.trim().isEmpty ? 'Player' : senderName.trim();
     final safePhoto = senderPhoto.trim();
@@ -179,10 +181,8 @@ class ChatRepository {
         'imageUrl': imageUrl.trim(),
         'voiceUrl': voiceUrl.trim(),
         'type': type.trim().isEmpty ? ChatMessageType.text : type.trim(),
-
         'leagueId': leagueId.trim(),
         'timestamp': nowMs,
-
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
 
@@ -235,9 +235,7 @@ class ChatRepository {
         'imageUrl': imageUrl.trim(),
         'voiceUrl': voiceUrl.trim(),
         'type': type.trim().isNotEmpty ? type.trim() : ChatMessageType.text,
-
         'timestamp': nowMs,
-
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
 
@@ -269,11 +267,7 @@ class ChatRepository {
     final col = _leagueChatCol(leagueId);
     final targetRef = col.doc(messageId);
 
-    final prevPinnedSnap = await col
-        .where('pinned', isEqualTo: true)
-        .orderBy('pinnedAt', descending: true)
-        .limit(1)
-        .get();
+    final prevPinnedSnap = await col.where('pinned', isEqualTo: true).orderBy('pinnedAt', descending: true).limit(1).get();
 
     final prevRef = prevPinnedSnap.docs.isEmpty ? null : prevPinnedSnap.docs.first.reference;
 
@@ -313,11 +307,7 @@ class ChatRepository {
       return;
     }
 
-    final prevPinnedSnap = await col
-        .where('pinned', isEqualTo: true)
-        .orderBy('pinnedAt', descending: true)
-        .limit(1)
-        .get();
+    final prevPinnedSnap = await col.where('pinned', isEqualTo: true).orderBy('pinnedAt', descending: true).limit(1).get();
 
     final prevRef = prevPinnedSnap.docs.isEmpty ? null : prevPinnedSnap.docs.first.reference;
 
@@ -351,7 +341,6 @@ class ChatRepository {
       'deleted': true,
       'deletedAt': FieldValue.serverTimestamp(),
       'deletedBy': deletedBy.trim(),
-
       'pinned': false,
       'pinnedAt': null,
       'pinnedBy': '',
@@ -366,7 +355,6 @@ class ChatRepository {
       'deleted': true,
       'deletedAt': FieldValue.serverTimestamp(),
       'deletedBy': deletedBy.trim(),
-
       'pinned': false,
       'pinnedAt': null,
       'pinnedBy': '',
