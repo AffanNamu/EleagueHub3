@@ -219,7 +219,7 @@ final class LeagueAccessService {
               'leagueId': leagueId,
               'userId': uid,
               'teamId': null, // viewer-safe
-              'role': 0,
+              'role': 1,
               'updatedAtMs': now,
               'version': 1,
             },
