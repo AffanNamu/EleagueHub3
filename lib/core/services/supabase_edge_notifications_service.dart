@@ -45,7 +45,8 @@ class SupabaseEdgeNotificationsService {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final token = (await user.getIdToken()).trim();
+    // Some firebase_auth builds expose nullable ID token type; keep this string-safe.
+    final token = (await user.getIdToken()).toString().trim();
     if (token.isEmpty) return;
 
     try {
