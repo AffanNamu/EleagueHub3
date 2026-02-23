@@ -487,244 +487,197 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
         final showStart = !isLive && _canModerateLeague;
         final showJoin = isLive && !isHost;
-        final showHostControls = isLive && isHost;
 
         final cardKey = ValueKey<String>(
           'space_${exists ? 'exists' : 'none'}_${isLive ? 'live' : 'off'}_${isHost ? 'host' : 'member'}',
         );
 
-        Widget content = Glass(
+        final actionLabel = showJoin
+            ? 'Join'
+            : (showStart ? 'Start' : (isLive ? 'Open' : 'Off'));
+
+        final actionEnabled = !_spaceActionBusy && (showJoin || showStart || isLive);
+
+        final actionColor = showStart || showJoin || isLive
+            ? cs.primary
+            : theme.colorScheme.onSurface.withOpacity(0.35);
+
+        final actionBg = actionColor.withOpacity(0.14);
+
+        final banner = Glass(
           key: cardKey,
-          borderRadius: 20,
+          borderRadius: 18,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: Colors.white.withOpacity(0.06),
-                    border: Border.all(
-                      color: (isLive ? cs.primary : Colors.white.withOpacity(0.18)).withOpacity(0.45),
-                    ),
-                  ),
-                  child: Icon(
-                    isLive ? Icons.graphic_eq_rounded : Icons.spatial_audio_off_rounded,
-                    color: isLive ? cs.primary : Colors.white.withOpacity(0.55),
-                    size: 22,
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.06),
+                  border: Border.all(
+                    color: (isLive ? cs.primary : Colors.white.withOpacity(0.22)).withOpacity(0.45),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.2,
-                              ),
+                child: Icon(
+                  isLive ? Icons.graphic_eq_rounded : Icons.spatial_audio_off_rounded,
+                  color: isLive ? cs.primary : Colors.white.withOpacity(0.55),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.2,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          _SpaceLivePill(isLive: isLive),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
+                        ),
+                        const SizedBox(width: 8),
+                        _SpaceLivePill(isLive: isLive),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Host: $hostName',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface.withOpacity(0.62),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _SpaceParticipantsLabel(
+                          isLive: isLive,
+                          explicitCount: exists ? _spaceParticipantsFrom(data) : null,
+                          speakersCol: _spaceSpeakersCol,
+                          hostUid: hostUid,
+                        ),
+                      ],
+                    ),
+                    if (isHost && isLive) ...[
+                      const SizedBox(height: 8),
                       Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              'Host: $hostName',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                            stream: hostUid.trim().isEmpty
+                                ? const Stream.empty()
+                                : _spaceSpeakersCol.doc(hostUid.trim()).snapshots(includeMetadataChanges: true),
+                            builder: (context, speakerSnap) {
+                              final muted = speakerSnap.data?.data()?['muted'] == true;
+                              final label = muted ? 'Mic off' : 'Mic on';
+                              final icon = muted ? Icons.mic_off_rounded : Icons.mic_rounded;
+                              final color = muted ? cs.error : cs.primary;
+
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: color.withOpacity(0.10),
+                                  border: Border.all(color: color.withOpacity(0.20)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(icon, size: 14, color: color),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      label,
+                                      style: TextStyle(
+                                        color: color,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 10),
+                          TextButton(
+                            onPressed: _spaceActionBusy ? null : _endSpaceFromBanner,
+                            style: TextButton.styleFrom(
+                              foregroundColor: cs.error,
+                              textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                            ),
+                            child: const Text('End'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: !actionEnabled
+                      ? null
+                      : () async {
+                          if (showStart) {
+                            await _startSpaceFromBanner(title: title);
+                            return;
+                          }
+                          await _openSpaceRoom();
+                        },
+                  borderRadius: BorderRadius.circular(999),
+                  child: Ink(
+                    height: 36,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: actionBg,
+                      border: Border.all(color: actionColor.withOpacity(0.22)),
+                    ),
+                    child: Center(
+                      child: _spaceActionBusy
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: actionColor),
+                            )
+                          : Text(
+                              actionLabel,
                               style: TextStyle(
-                                color: theme.colorScheme.onSurface.withOpacity(0.62),
-                                fontWeight: FontWeight.w700,
+                                color: actionColor,
+                                fontWeight: FontWeight.w900,
                                 fontSize: 12,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          _SpaceParticipantsLabel(
-                            isLive: isLive,
-                            explicitCount: exists ? _spaceParticipantsFrom(data) : null,
-                            speakersCol: _spaceSpeakersCol,
-                            hostUid: hostUid,
-                          ),
-                        ],
-                      ),
-                      if (showHostControls) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: _spaceActionBusy ? null : _openSpaceRoom,
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  height: 36,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    color: cs.primary.withOpacity(0.12),
-                                    border: Border.all(color: cs.primary.withOpacity(0.24)),
-                                  ),
-                                  child: Text(
-                                    'Open',
-                                    style: TextStyle(
-                                      color: cs.primary,
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                              stream: hostUid.trim().isEmpty
-                                  ? const Stream.empty()
-                                  : _spaceSpeakersCol.doc(hostUid.trim()).snapshots(includeMetadataChanges: true),
-                              builder: (context, speakerSnap) {
-                                final muted = speakerSnap.data?.data()?['muted'] == true;
-                                final label = muted ? 'Mic off' : 'Mic on';
-                                final icon = muted ? Icons.mic_off_rounded : Icons.mic_rounded;
-                                final color = muted ? cs.error : cs.primary;
-
-                                return Container(
-                                  height: 36,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    color: color.withOpacity(0.10),
-                                    border: Border.all(color: color.withOpacity(0.20)),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(icon, size: 16, color: color),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        label,
-                                        style: TextStyle(
-                                          color: color,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                            const SizedBox(width: 10),
-                            InkWell(
-                              onTap: _spaceActionBusy ? null : _endSpaceFromBanner,
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                height: 36,
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  color: cs.error.withOpacity(0.10),
-                                  border: Border.all(color: cs.error.withOpacity(0.22)),
-                                ),
-                                child: Center(
-                                  child: _spaceActionBusy
-                                      ? SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.error),
-                                        )
-                                      : Text(
-                                          'Leave',
-                                          style: TextStyle(
-                                            color: cs.error,
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                if (showJoin)
-                  FilledButton(
-                    onPressed: _spaceActionBusy ? null : _openSpaceRoom,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: cs.primary,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
-                    ),
-                    child: const Text('Join'),
-                  )
-                else if (showStart)
-                  FilledButton(
-                    onPressed: _spaceActionBusy ? null : () => _startSpaceFromBanner(title: title),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: cs.primary,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
-                    ),
-                    child: _spaceActionBusy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Text('Start'),
-                  )
-                else
-                  OutlinedButton(
-                    onPressed: isLive ? (_spaceActionBusy ? null : _openSpaceRoom) : null,
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: Colors.white.withOpacity(0.20)),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
-                      foregroundColor: theme.colorScheme.onSurface.withOpacity(0.7),
-                    ),
-                    child: Text(isLive ? 'Open' : 'Not live'),
-                  ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
 
-        if (isLive) {
-          content = InkWell(
-            onTap: _spaceActionBusy ? null : _openSpaceRoom,
-            borderRadius: BorderRadius.circular(20),
-            child: content,
-          );
-        }
-
         return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
+            duration: const Duration(milliseconds: 200),
             switchInCurve: Curves.easeOutCubic,
             switchOutCurve: Curves.easeInCubic,
-            child: content,
+            child: banner,
           ),
         );
       },
@@ -760,7 +713,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         replyToType: reply?.type ?? '',
       );
 
-      // Push notify (Supabase -> FCM)
       final preview = _previewForOutgoing(type: ChatMessageType.text, text: raw, imageUrl: '', voiceUrl: '');
       // ignore: discarded_futures
       _notifyPush(messageId: messageId, preview: preview);
@@ -1251,6 +1203,10 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // If GlassScaffold extends body behind AppBar (common in glass UIs),
+    // this pushes content below the AppBar so the banner never overlaps system icons/appbar.
+    const double topBodyOffset = kToolbarHeight;
+
     return Container(
       decoration: BoxDecoration(
         gradient: AppTheme.backgroundGradient(theme.brightness),
@@ -1265,146 +1221,153 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         },
         child: GlassScaffold(
           appBar: _buildAppBar(),
-          body: Column(
-            children: [
-              _buildSpaceBanner(context),
-              StreamBuilder<ChatMessage?>(
-                stream: _repo.leaguePinnedMessageStream(widget.leagueId),
-                builder: (context, snap) {
-                  final pinned = snap.data;
-                  if (pinned == null) return const SizedBox.shrink();
-                  return PinnedMessageBar(
-                    message: pinned,
-                    onTap: () => _scrollToMessage(pinned.messageId),
-                  );
-                },
-              ),
-              Expanded(
-                child: StreamBuilder<List<ChatMessage>>(
-                  stream: _repo.leagueChatStream(widget.leagueId),
-                  builder: (context, snap) {
-                    if (snap.hasError) {
-                      final msg = UserFriendlyError.toMessage(
-                        snap.error is Object ? snap.error! : Exception('unknown'),
+          body: SafeArea(
+            top: true,
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.only(top: topBodyOffset),
+              child: Column(
+                children: [
+                  _buildSpaceBanner(context),
+                  StreamBuilder<ChatMessage?>(
+                    stream: _repo.leaguePinnedMessageStream(widget.leagueId),
+                    builder: (context, snap) {
+                      final pinned = snap.data;
+                      if (pinned == null) return const SizedBox.shrink();
+                      return PinnedMessageBar(
+                        message: pinned,
+                        onTap: () => _scrollToMessage(pinned.messageId),
                       );
+                    },
+                  ),
+                  Expanded(
+                    child: StreamBuilder<List<ChatMessage>>(
+                      stream: _repo.leagueChatStream(widget.leagueId),
+                      builder: (context, snap) {
+                        if (snap.hasError) {
+                          final msg = UserFriendlyError.toMessage(
+                            snap.error is Object ? snap.error! : Exception('unknown'),
+                          );
 
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Glass(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.lock_outline, color: theme.colorScheme.primary, size: 34),
-                                const SizedBox(height: 10),
-                                Text(
-                                  msg,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: theme.colorScheme.onSurface.withOpacity(0.75),
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Glass(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.lock_outline, color: theme.colorScheme.primary, size: 34),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      msg,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: theme.colorScheme.onSurface.withOpacity(0.75),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    FilledButton(
+                                      onPressed: () => Navigator.of(context).maybePop(),
+                                      child: const Text('Back'),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 10),
-                                FilledButton(
-                                  onPressed: () => Navigator.of(context).maybePop(),
-                                  child: const Text('Back'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
-                    final msgs = snap.data ?? const <ChatMessage>[];
-                    if (msgs.isEmpty) {
-                      return Center(
-                        child: Text(
-                          'No messages yet',
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface.withOpacity(0.55),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      );
-                    }
-
-                    _msgById = {for (final m in msgs) m.messageId: m};
-
-                    final ids = msgs.map((e) => e.messageId).toSet();
-                    _messageKeys.removeWhere((k, _) => !ids.contains(k));
-
-                    return ListView.builder(
-                      controller: _scrollCtrl,
-                      reverse: true,
-                      padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
-                      itemCount: msgs.length,
-                      itemBuilder: (_, i) {
-                        final m = msgs[i];
-                        final isMe = m.senderId.trim() == _user.uid.trim();
-                        final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
-
-                        return ValueListenableBuilder<String?>(
-                          valueListenable: _selectedMessageId,
-                          builder: (context, selectedId, _) {
-                            final selecting = (selectedId ?? '').trim().isNotEmpty;
-
-                            return KeyedSubtree(
-                              key: key,
-                              child: ChatBubble(
-                                message: m,
-                                isMe: isMe,
-                                selected: selectedId == m.messageId,
-                                onLongPress: () {
-                                  HapticFeedback.mediumImpact();
-                                  _replyTo.value = null;
-                                  _selectedMessageId.value = m.messageId;
-                                },
-                                onTap: () {
-                                  if (!selecting) return;
-                                  _selectedMessageId.value = (selectedId == m.messageId) ? null : m.messageId;
-                                },
-                                onSwipeReply: selecting ? null : () => _replyTo.value = m,
-                                onPlayVoice: (m.type == ChatMessageType.voice && !selecting) ? () => _toggleVoice(m) : null,
-                                isVoicePlaying: _isPlayingFor(m.messageId),
-                                voiceProgress: _progressFor(m.messageId),
-                                voicePositionLabel: _posLabelFor(m.messageId),
-                                voiceDurationLabel: _durLabelFor(m.messageId),
                               ),
+                            ),
+                          );
+                        }
+
+                        final msgs = snap.data ?? const <ChatMessage>[];
+                        if (msgs.isEmpty) {
+                          return Center(
+                            child: Text(
+                              'No messages yet',
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface.withOpacity(0.55),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          );
+                        }
+
+                        _msgById = {for (final m in msgs) m.messageId: m};
+
+                        final ids = msgs.map((e) => e.messageId).toSet();
+                        _messageKeys.removeWhere((k, _) => !ids.contains(k));
+
+                        return ListView.builder(
+                          controller: _scrollCtrl,
+                          reverse: true,
+                          padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
+                          itemCount: msgs.length,
+                          itemBuilder: (_, i) {
+                            final m = msgs[i];
+                            final isMe = m.senderId.trim() == _user.uid.trim();
+                            final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
+
+                            return ValueListenableBuilder<String?>(
+                              valueListenable: _selectedMessageId,
+                              builder: (context, selectedId, _) {
+                                final selecting = (selectedId ?? '').trim().isNotEmpty;
+
+                                return KeyedSubtree(
+                                  key: key,
+                                  child: ChatBubble(
+                                    message: m,
+                                    isMe: isMe,
+                                    selected: selectedId == m.messageId,
+                                    onLongPress: () {
+                                      HapticFeedback.mediumImpact();
+                                      _replyTo.value = null;
+                                      _selectedMessageId.value = m.messageId;
+                                    },
+                                    onTap: () {
+                                      if (!selecting) return;
+                                      _selectedMessageId.value = (selectedId == m.messageId) ? null : m.messageId;
+                                    },
+                                    onSwipeReply: selecting ? null : () => _replyTo.value = m,
+                                    onPlayVoice: (m.type == ChatMessageType.voice && !selecting) ? () => _toggleVoice(m) : null,
+                                    isVoicePlaying: _isPlayingFor(m.messageId),
+                                    voiceProgress: _progressFor(m.messageId),
+                                    voicePositionLabel: _posLabelFor(m.messageId),
+                                    voiceDurationLabel: _durLabelFor(m.messageId),
+                                  ),
+                                );
+                              },
                             );
                           },
                         );
                       },
-                    );
-                  },
-                ),
-              ),
-              if (_isRecording) _buildRecordingBar(context),
-              AnimatedBuilder(
-                animation: Listenable.merge([_selectedMessageId, _replyTo]),
-                builder: (context, _) {
-                  final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
-                  final reply = _replyTo.value;
+                    ),
+                  ),
+                  if (_isRecording) _buildRecordingBar(context),
+                  AnimatedBuilder(
+                    animation: Listenable.merge([_selectedMessageId, _replyTo]),
+                    builder: (context, _) {
+                      final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
+                      final reply = _replyTo.value;
 
-                  return ChatInputBar(
-                    controller: _textCtrl,
-                    isSending: _sending,
-                    codeMode: _codeMode,
-                    onToggleCodeMode: () => setState(() => _codeMode = !_codeMode), // UI removed
-                    enabled: !_isRecording && !selecting,
-                    onPickImage: _pickAndSendImage,
-                    onSend: _sendText,
-                    onRecordVoice: (_sending || _isVoiceSending || _isRecording || selecting) ? null : _startRecording,
-                    voiceTooltip: _recordingPermissionDenied ? 'Microphone permission required' : 'Record voice',
-                    replySenderName: reply?.displaySenderName,
-                    replyPreview: reply?.replyPreview(),
-                    onCancelReply: () => _replyTo.value = null,
-                  );
-                },
+                      return ChatInputBar(
+                        controller: _textCtrl,
+                        isSending: _sending,
+                        codeMode: _codeMode,
+                        onToggleCodeMode: () => setState(() => _codeMode = !_codeMode), // UI removed
+                        enabled: !_isRecording && !selecting,
+                        onPickImage: _pickAndSendImage,
+                        onSend: _sendText,
+                        onRecordVoice: (_sending || _isVoiceSending || _isRecording || selecting) ? null : _startRecording,
+                        voiceTooltip: _recordingPermissionDenied ? 'Microphone permission required' : 'Record voice',
+                        replySenderName: reply?.displaySenderName,
+                        replyPreview: reply?.replyPreview(),
+                        onCancelReply: () => _replyTo.value = null,
+                      );
+                    },
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
