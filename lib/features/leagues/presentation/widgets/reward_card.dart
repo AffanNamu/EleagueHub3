@@ -2,7 +2,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../../../../core/color_compat.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../data/models/reward_model.dart';
 
@@ -18,6 +17,11 @@ class RewardCard extends StatelessWidget {
   final VoidCallback? onTap;
   final Widget? trailing;
 
+  static const Color _premiumAmber = Color(0xFFF59E0B);
+  static const Color _premiumViolet = Color(0xFF8B5CF6);
+  static const Color _premiumSky = Color(0xFF38BDF8);
+  static const Color _premiumTeal = Color(0xFF2DD4BF);
+
   static String positionLabel(int position) {
     if (position == 1) return '1st';
     if (position == 2) return '2nd';
@@ -25,26 +29,43 @@ class RewardCard extends StatelessWidget {
     return '${position}th';
   }
 
-  Color _badgeColor(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+  Color _badgeColor() {
     switch (reward.position) {
       case 1:
-        return const Color(0xFFFFD54F);
+        return _premiumAmber;
       case 2:
         return const Color(0xFFB0BEC5);
       case 3:
         return const Color(0xFFBCAAA4);
       default:
-        return cs.primary.withValues(alpha: 0.85);
+        return _premiumSky;
+    }
+  }
+
+  Color _typeChipColor() {
+    final t = reward.rewardType.trim().toLowerCase();
+    switch (t) {
+      case 'cash':
+        return _premiumAmber;
+      case 'trophy':
+        return _premiumViolet;
+      case 'digital':
+        return _premiumSky;
+      case 'physical':
+        return _premiumTeal;
+      default:
+        return const Color(0xFF94A3B8);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final cardChild = Stack(
       children: <Widget>[
+        // Background layer
         Positioned.fill(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(18),
@@ -53,9 +74,9 @@ class RewardCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: <Color>[
-                          cs.primary.withValues(alpha: 0.18),
-                          cs.secondary.withValues(alpha: 0.12),
-                          Colors.black.withValues(alpha: 0.08),
+                          cs.primary.withOpacity(0.12),
+                          cs.secondary.withOpacity(0.08),
+                          cs.onSurface.withOpacity(0.04),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -74,9 +95,9 @@ class RewardCard extends StatelessWidget {
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: <Color>[
-                                  cs.primary.withValues(alpha: 0.18),
-                                  cs.secondary.withValues(alpha: 0.12),
-                                  Colors.black.withValues(alpha: 0.08),
+                                  cs.primary.withOpacity(0.12),
+                                  cs.secondary.withOpacity(0.08),
+                                  cs.onSurface.withOpacity(0.04),
                                 ],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
@@ -85,12 +106,13 @@ class RewardCard extends StatelessWidget {
                           );
                         },
                       ),
+                      // Dark overlay for readability
                       Container(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: <Color>[
-                              Colors.black.withValues(alpha: 0.15),
-                              Colors.black.withValues(alpha: 0.45),
+                              Colors.black.withOpacity(0.15),
+                              Colors.black.withOpacity(0.50),
                             ],
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
@@ -101,6 +123,7 @@ class RewardCard extends StatelessWidget {
                   ),
           ),
         ),
+        // Glass overlay
         Positioned.fill(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(18),
@@ -110,11 +133,13 @@ class RewardCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.12), width: 1),
+                    color: cs.onSurface.withOpacity(0.12),
+                    width: 1,
+                  ),
                   gradient: LinearGradient(
                     colors: <Color>[
-                      Colors.white.withValues(alpha: 0.10),
-                      Colors.white.withValues(alpha: 0.04),
+                      cs.onSurface.withOpacity(0.08),
+                      cs.onSurface.withOpacity(0.03),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -124,6 +149,7 @@ class RewardCard extends StatelessWidget {
             ),
           ),
         ),
+        // Content
         Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
@@ -139,18 +165,23 @@ class RewardCard extends StatelessWidget {
             ],
           ),
         ),
+        // Position badge
         Positioned(
           left: 12,
           top: 12,
           child: _PositionBadge(
             label: positionLabel(reward.position),
-            color: _badgeColor(context),
+            color: _badgeColor(),
           ),
         ),
+        // Type chip
         Positioned(
           right: 12,
           top: 12,
-          child: _TypeChip(type: reward.rewardType),
+          child: _TypeChip(
+            type: reward.rewardType,
+            color: _typeChipColor(),
+          ),
         ),
       ],
     );
@@ -192,7 +223,8 @@ class _TitleAndDescription extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,10 +233,10 @@ class _TitleAndDescription extends StatelessWidget {
           reward.rewardName,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w900,
             letterSpacing: 0.2,
-            color: Colors.white,
+            color: cs.onSurface,
             height: 1.1,
           ),
         ),
@@ -215,8 +247,9 @@ class _TitleAndDescription extends StatelessWidget {
               : reward.description.trim(),
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
-          style: textTheme.bodyMedium?.copyWith(
-            color: Colors.white.withValues(alpha: 0.85),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: cs.onSurface.withOpacity(0.72),
+            fontWeight: FontWeight.w600,
             height: 1.25,
           ),
         ),
@@ -236,27 +269,26 @@ class _PositionBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(999),
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.22)),
         boxShadow: <BoxShadow>[
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-                color: Colors.black.withValues(alpha: 0.85),
-                letterSpacing: 0.1,
-              ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontWeight: FontWeight.w900,
+          color: color,
+          fontSize: 11,
         ),
       ),
     );
@@ -264,8 +296,13 @@ class _PositionBadge extends StatelessWidget {
 }
 
 class _TypeChip extends StatelessWidget {
-  const _TypeChip({required this.type});
+  const _TypeChip({
+    required this.type,
+    required this.color,
+  });
+
   final String type;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -273,20 +310,19 @@ class _TypeChip extends StatelessWidget {
         type.trim().isEmpty ? 'other' : type.trim().toLowerCase();
     final display = label[0].toUpperCase() + label.substring(1);
 
-    return DecoratedBox(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.22)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Text(
-          display,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: Colors.white.withValues(alpha: 0.92),
-              ),
+      child: Text(
+        display,
+        style: TextStyle(
+          fontWeight: FontWeight.w900,
+          color: color,
+          fontSize: 11,
         ),
       ),
     );
