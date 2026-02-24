@@ -26,8 +26,8 @@ dependencies:
   firebase_crashlytics: ^4.1.0
   firebase_storage: ^12.3.7
 
-  # Deep links (Android now; iOS later)
-  uni_links: ^0.5.1
+  # Deep links (AGP 8+ compatible). Replaces uni_links which fails release manifest processing.
+  app_links: ^6.4.0
 
   # UI-only preferences (allowed minimal persistence)
   shared_preferences: ^2.2.3

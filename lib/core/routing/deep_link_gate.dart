@@ -1,14 +1,14 @@
 import 'dart:async';
 
+import 'package:app_links/app_links.dart';
 import 'package:flutter/widgets.dart';
-import 'package:uni_links/uni_links.dart';
 
 import 'app_router.dart';
 import 'auth_action_link.dart';
 
 /// Listens for incoming deep links and navigates the app.
 ///
-/// Current supported link:
+/// Supported link:
 /// - eleaguehub://auth?mode=resetPassword&oobCode=...
 /// - eleaguehub://auth?mode=verifyEmail&oobCode=...
 class DeepLinkGate extends StatefulWidget {
@@ -20,7 +20,8 @@ class DeepLinkGate extends StatefulWidget {
 }
 
 class _DeepLinkGateState extends State<DeepLinkGate> {
-  StreamSubscription? _sub;
+  final AppLinks _appLinks = AppLinks();
+  StreamSubscription<Uri>? _sub;
 
   @override
   void initState() {
@@ -30,8 +31,7 @@ class _DeepLinkGateState extends State<DeepLinkGate> {
     unawaited(_handleInitialUri());
 
     // Warm links
-    _sub = uriLinkStream.listen((uri) {
-      if (uri == null) return;
+    _sub = _appLinks.uriLinkStream.listen((uri) {
       _handleUri(uri);
     }, onError: (_) {
       // Ignore: do not crash on malformed links.
@@ -40,7 +40,7 @@ class _DeepLinkGateState extends State<DeepLinkGate> {
 
   Future<void> _handleInitialUri() async {
     try {
-      final uri = await getInitialUri();
+      final uri = await _appLinks.getInitialAppLink();
       if (uri == null) return;
       _handleUri(uri);
     } catch (_) {
