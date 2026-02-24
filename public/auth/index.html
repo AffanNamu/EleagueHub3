@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Continue in app…</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 24px; line-height: 1.4; }
+      .card { max-width: 720px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px; }
+      .muted { color: #6b7280; }
+      a.button { display: inline-block; padding: 10px 14px; border-radius: 10px; background: #111827; color: white; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>Opening the app…</h2>
+      <p class="muted">If nothing happens, tap the button below.</p>
+      <p><a id="openBtn" class="button" href="#">Open app</a></p>
+      <p class="muted" id="debug"></p>
+    </div>
+
+    <script>
+      (function () {
+        const p = new URLSearchParams(location.search);
+
+        // Firebase auth action links can arrive in different shapes.
+        // We need `mode` and `oobCode` to route inside the app.
+        const mode = p.get('mode');
+        const oobCode = p.get('oobCode');
+
+        if (!mode || !oobCode) {
+          document.getElementById('debug').textContent =
+            'Missing parameters. Expected: mode and oobCode.';
+          return;
+        }
+
+        // Custom scheme handled by the Android app.
+        const target =
+          'eleaguehub://auth?mode=' +
+          encodeURIComponent(mode) +
+          '&oobCode=' +
+          encodeURIComponent(oobCode);
+
+        const btn = document.getElementById('openBtn');
+        btn.href = target;
+
+        // Auto-attempt open.
+        window.location.replace(target);
+        document.getElementById('debug').textContent = 'Redirecting…';
+      })();
+    </script>
+  </body>
+</html>

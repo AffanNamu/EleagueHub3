@@ -10,8 +10,11 @@ import '../../features/admin/pricing_admin_screen.dart';
 import '../../features/admin/pricing_admins_screen.dart';
 import '../../features/auth/data/user_profile_repository.dart';
 import '../../features/auth/presentation/bootstrap_screen.dart';
+import '../../features/auth/presentation/forgot_password_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/onboarding_screen.dart';
+import '../../features/auth/presentation/reset_password_screen.dart';
+import '../../features/auth/presentation/verify_email_screen.dart';
 import '../../features/call/presentation/call_room_screen.dart';
 import '../../features/chat/presentation/global_chat_admin_requests_screen.dart';
 import '../../features/chat/presentation/global_chat_screen.dart';
@@ -32,7 +35,6 @@ import '../../features/leagues/presentation/league_space_room_screen.dart';
 import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/leagues/presentation/match_detail_screen.dart';
-import '../../features/leagues/presentation/premium_access_guard.dart';
 import '../../features/leagues/presentation/qr_scanner_screen.dart';
 import '../../features/live/presentation/global_live_leagues_screen.dart';
 import '../../features/live/presentation/join_match_screen.dart';
@@ -63,6 +65,13 @@ class AuthRouterRefresh extends ChangeNotifier {
         return;
       }
 
+      // Gate profile checks behind email verification for password accounts.
+      if (needsEmailVerification) {
+        _setProfileState(_ProfileState.unknown);
+        notifyListeners();
+        return;
+      }
+
       _checkProfileFor(_user!.uid);
     });
 
@@ -74,6 +83,8 @@ class AuthRouterRefresh extends ChangeNotifier {
 
       final uid = _user?.uid;
       if (uid == null) return;
+
+      if (needsEmailVerification) return;
 
       if (_profileState == _ProfileState.unknown) {
         // ignore: discarded_futures
@@ -96,20 +107,55 @@ class AuthRouterRefresh extends ChangeNotifier {
 
   bool get isSignedIn => _user != null;
 
+  bool get needsEmailVerification {
+    final u = _user;
+    if (u == null) return false;
+    if (u.isAnonymous) return false;
+
+    final providerIds = u.providerData.map((p) => p.providerId).toSet();
+    final isPassword = providerIds.contains('password');
+    if (!isPassword) return false;
+
+    return !u.emailVerified;
+  }
+
   bool get isCheckingProfile =>
       isSignedIn &&
-      (_profileState == _ProfileState.unknown ||
-          _profileState == _ProfileState.checking);
+      !needsEmailVerification &&
+      (_profileState == _ProfileState.unknown || _profileState == _ProfileState.checking);
 
-  bool get needsOnboarding =>
-      isSignedIn && _profileState == _ProfileState.missing;
+  bool get needsOnboarding => isSignedIn && !needsEmailVerification && _profileState == _ProfileState.missing;
 
-  bool get hasProfile =>
-      isSignedIn && _profileState == _ProfileState.exists;
+  bool get hasProfile => isSignedIn && !needsEmailVerification && _profileState == _ProfileState.exists;
+
+  /// Forces a user reload so router can pick up `emailVerified` changes.
+  Future<void> refreshAuthUser() async {
+    final u = FirebaseAuth.instance.currentUser;
+    if (u == null) return;
+
+    try {
+      await u.reload().timeout(const Duration(seconds: 12));
+    } catch (_) {
+      // ignore: reload failures; UI can retry
+    }
+
+    _user = FirebaseAuth.instance.currentUser;
+    notifyListeners();
+
+    final uid = _user?.uid;
+    if (uid == null) return;
+    if (needsEmailVerification) return;
+
+    if (_profileState == _ProfileState.unknown) {
+      // ignore: discarded_futures
+      _checkProfileFor(uid);
+    }
+  }
 
   Future<void> refreshProfileStatus() async {
     final uid = _user?.uid;
     if (uid == null) return;
+    if (needsEmailVerification) return;
     await _checkProfileFor(uid);
   }
 
@@ -148,22 +194,16 @@ class AuthRouterRefresh extends ChangeNotifier {
     _setProfileState(_ProfileState.checking);
 
     try {
-      final exists = await _profiles
-          .profileExists(uid)
-          .timeout(const Duration(seconds: 12));
+      final exists = await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
       _retryAttempt = 0;
-      _setProfileState(
-          exists ? _ProfileState.exists : _ProfileState.missing);
+      _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
       return;
     } catch (e) {
-      final fallback = (prev == _ProfileState.exists)
-          ? _ProfileState.exists
-          : _ProfileState.unknown;
+      final fallback = (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
       _setProfileState(fallback);
 
       if (kDebugMode) {
-        debugPrint(
-            'AuthRouterRefresh: profile check failed for uid=$uid → $e');
+        debugPrint('AuthRouterRefresh: profile check failed for uid=$uid → $e');
       }
 
       if (_isNetworkError(e is Object ? e : Exception('unknown'))) return;
@@ -176,6 +216,7 @@ class AuthRouterRefresh extends ChangeNotifier {
       _retryTimer = Timer(delay, () {
         if (_user?.uid != uid) return;
         if (!ConnectivityService.instance.isConnected.value) return;
+        if (needsEmailVerification) return;
         // ignore: discarded_futures
         _checkProfileFor(uid);
       });
@@ -209,6 +250,10 @@ final appRouter = GoRouter(
     final loc = state.matchedLocation;
 
     final inLogin = loc == '/login';
+    final inForgot = loc == '/forgot-password';
+    final inReset = loc == '/reset-password';
+    final inVerifyEmail = loc == '/verify-email';
+
     final inOnboarding = loc == '/onboarding';
     final inBootstrap = loc == '/bootstrap';
     final inPricingAdmin = loc == '/admin/pricing';
@@ -216,9 +261,16 @@ final appRouter = GoRouter(
     final inMarketplaceAdminUpload = loc == '/admin/marketplace-upload';
     final inGlobalChatRequestsAdmin = loc == '/admin/global-chat-requests';
 
+    // Signed out: allow login + forgot/reset + verify (so deep-link verification can still be handled).
     if (!authRouterRefresh.isSignedIn) {
-      if (inLogin) return null;
+      if (inLogin || inForgot || inReset || inVerifyEmail) return null;
       return '/login';
+    }
+
+    // Signed in but needs email verification: gate everything except verify screen.
+    if (authRouterRefresh.needsEmailVerification) {
+      if (inVerifyEmail) return null;
+      return '/verify-email';
     }
 
     if (authRouterRefresh.isCheckingProfile) {
@@ -253,7 +305,7 @@ final appRouter = GoRouter(
     }
 
     if (authRouterRefresh.hasProfile) {
-      if (inLogin || inOnboarding || inBootstrap) return '/';
+      if (inLogin || inOnboarding || inBootstrap || inVerifyEmail) return '/';
       return null;
     }
 
@@ -267,6 +319,29 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/login',
       builder: (context, state) => const LoginScreen(),
+    ),
+    GoRoute(
+      path: '/forgot-password',
+      builder: (context, state) => const ForgotPasswordScreen(),
+    ),
+    GoRoute(
+      path: '/reset-password',
+      builder: (context, state) {
+        final qp = state.uri.queryParameters;
+        return ResetPasswordScreen(
+          emailHint: qp['email'],
+          initialCode: qp['oobCode'],
+        );
+      },
+    ),
+    GoRoute(
+      path: '/verify-email',
+      builder: (context, state) {
+        final qp = state.uri.queryParameters;
+        return VerifyEmailScreen(
+          initialCode: qp['oobCode'],
+        );
+      },
     ),
     GoRoute(
       path: '/onboarding',
@@ -398,8 +473,7 @@ final appRouter = GoRouter(
                         leagueName = map['leagueName'] as String;
                       }
                     }
-                    return LeagueCreationPaymentScreen(
-                        leagueName: leagueName);
+                    return LeagueCreationPaymentScreen(leagueName: leagueName);
                   },
                 ),
               ],
@@ -425,12 +499,9 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'add-teams',
               builder: (context, state) {
-                final extra =
-                    state.extra as Map<String, dynamic>? ?? {};
-                final leagueId =
-                    extra['leagueId'] as String? ?? 'mock-id';
-                final format =
-                    extra['format'] as LeagueFormat? ?? LeagueFormat.classic;
+                final extra = state.extra as Map<String, dynamic>? ?? {};
+                final leagueId = extra['leagueId'] as String? ?? 'mock-id';
+                final format = extra['format'] as LeagueFormat? ?? LeagueFormat.classic;
                 return AddTeamsScreen(leagueId: leagueId, format: format);
               },
             ),
@@ -451,8 +522,6 @@ final appRouter = GoRouter(
                     ),
                   ),
                 ),
-
-                // FIX: these were previously UNGUARDED -> security bug (manual deep link bypass)
                 GoRoute(
                   path: 'knockout',
                   builder: (context, state) => LeagueAccessGuard(
@@ -480,7 +549,6 @@ final appRouter = GoRouter(
                     ),
                   ),
                 ),
-
                 GoRoute(
                   path: 'chat',
                   builder: (context, state) => LeagueAccessGuard(
@@ -534,6 +602,4 @@ final appRouter = GoRouter(
   ],
 );
 
-/// Fix: avoid typo-driven analyzer breaks if you later refactor these booleans.
-bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
-    r.needsOnboarding;
+bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) => r.needsOnboarding;

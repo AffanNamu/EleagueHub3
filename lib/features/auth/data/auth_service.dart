@@ -18,6 +18,27 @@ class AuthService {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  /// Action links (verification + password reset) will redirect to:
+  /// https://<projectId>.web.app/auth?mode=...&oobCode=...
+  ///
+  /// That page (Firebase Hosting) immediately redirects to:
+  /// eleaguehub://auth?mode=...&oobCode=...
+  ///
+  /// This stays on Firebase free tier and requires no paid email provider.
+  ActionCodeSettings _actionCodeSettings() {
+    final projectId = _auth.app.options.projectId;
+    final continueUrl = Uri.https('$projectId.web.app', '/auth').toString();
+
+    return ActionCodeSettings(
+      url: continueUrl,
+
+      // Key detail:
+      // This encourages Firebase to pass the action code to our continue URL so the app can handle it.
+      // (instead of always showing the web UI).
+      handleCodeInApp: true,
+    );
+  }
+
   String _friendlyAuthMessage(FirebaseAuthException e) {
     switch (e.code) {
       case 'network-request-failed':
@@ -38,8 +59,18 @@ class AuthService {
         return 'Too many attempts. Please wait a moment and try again.';
       case 'operation-not-allowed':
         return 'This sign-in method is not available right now.';
+
+      // Action code flows (verification / reset password)
+      case 'expired-action-code':
+        return 'That code has expired. Please request a new email and try again.';
+      case 'invalid-action-code':
+        return 'That code is invalid. Please double-check and try again.';
+      case 'user-token-expired':
+        return 'Your session has expired. Please sign in again.';
+      case 'requires-recent-login':
+        return 'For security, please sign in again and retry.';
       default:
-        return "We couldn't sign you in. Please try again.";
+        return "We couldn't complete that request. Please try again.";
     }
   }
 
@@ -63,6 +94,18 @@ class AuthService {
     }
 
     throw const UserFriendlyException('Something went wrong. Please try again.');
+  }
+
+  User? get currentUser => _auth.currentUser;
+
+  Future<void> reloadCurrentUser() async {
+    try {
+      final u = _auth.currentUser;
+      if (u == null) return;
+      await u.reload().timeout(const Duration(seconds: 15));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   /// Used when the app supports "no explicit login" flows.
@@ -107,14 +150,91 @@ class AuthService {
     }
   }
 
+  /// Registers a password-based account and triggers Firebase's built-in
+  /// email verification flow (free tier / no custom SMTP needed).
   Future<UserCredential> registerWithEmailPassword({
     required String email,
     required String password,
   }) async {
     try {
-      return await _auth
+      final cred = await _auth
           .createUserWithEmailAndPassword(email: email.trim(), password: password)
           .timeout(const Duration(seconds: 25));
+
+      try {
+        final user = cred.user;
+        if (user != null) {
+          await user.sendEmailVerification(_actionCodeSettings()).timeout(const Duration(seconds: 20));
+        }
+      } on FirebaseAuthException catch (e) {
+        throw UserFriendlyException(_friendlyAuthMessage(e));
+      }
+
+      return cred;
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Forgot password (Firebase built-in email) + in-app code/link entry
+  // ────────────────────────────────────────────────────────────────────────────
+
+  Future<void> sendPasswordResetEmail({required String email}) async {
+    try {
+      await _auth
+          .sendPasswordResetEmail(
+            email: email.trim(),
+            actionCodeSettings: _actionCodeSettings(),
+          )
+          .timeout(const Duration(seconds: 25));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Validates a password reset action code and returns the email address.
+  Future<String> verifyPasswordResetCode({required String code}) async {
+    try {
+      return await _auth.verifyPasswordResetCode(code).timeout(const Duration(seconds: 25));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Confirms the reset using the Firebase-issued action code (oobCode) and the new password.
+  Future<void> confirmPasswordReset({
+    required String code,
+    required String newPassword,
+  }) async {
+    try {
+      await _auth.confirmPasswordReset(code: code, newPassword: newPassword).timeout(
+            const Duration(seconds: 25),
+          );
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Email verification (Firebase built-in email) + in-app code/link entry
+  // ────────────────────────────────────────────────────────────────────────────
+
+  Future<void> sendEmailVerification() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) throw const UserFriendlyException('You are signed out. Please sign in again.');
+      await user.sendEmailVerification(_actionCodeSettings()).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Applies the verification action code from Firebase's verification email.
+  Future<void> applyEmailVerificationCode({required String code}) async {
+    try {
+      await _auth.applyActionCode(code).timeout(const Duration(seconds: 25));
+      await reloadCurrentUser();
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }

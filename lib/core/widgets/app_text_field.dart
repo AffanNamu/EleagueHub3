@@ -10,8 +10,13 @@ class AppTextField extends StatelessWidget {
     this.hint,
     this.keyboardType,
     this.obscureText = false,
+    this.prefixIcon,
     this.suffixIcon,
     this.onChanged,
+    this.enabled = true,
+    this.textInputAction,
+    this.autofillHints,
+    this.onSubmitted,
   });
 
   final TextEditingController controller;
@@ -19,8 +24,13 @@ class AppTextField extends StatelessWidget {
   final String? hint;
   final TextInputType? keyboardType;
   final bool obscureText;
+  final Widget? prefixIcon;
   final Widget? suffixIcon;
   final ValueChanged<String>? onChanged;
+  final bool enabled;
+  final TextInputAction? textInputAction;
+  final Iterable<String>? autofillHints;
+  final ValueChanged<String>? onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -32,15 +42,20 @@ class AppTextField extends StatelessWidget {
       borderRadius: 16,
       child: TextField(
         controller: controller,
+        enabled: enabled,
         keyboardType: keyboardType,
         obscureText: obscureText,
         onChanged: onChanged,
+        textInputAction: textInputAction,
+        autofillHints: autofillHints,
+        onSubmitted: onSubmitted,
         style: theme.textTheme.bodyMedium?.copyWith(
           color: colorScheme.onSurface,
         ),
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
+          prefixIcon: prefixIcon,
           suffixIcon: suffixIcon,
           border: InputBorder.none,
           floatingLabelBehavior: FloatingLabelBehavior.auto,

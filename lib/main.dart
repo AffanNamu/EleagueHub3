@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/app/app.dart';
 import 'core/persistence/prefs_service.dart';
 import 'core/platform/overlay_bridge.dart';
+import 'core/routing/deep_link_gate.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_messaging_service.dart';
@@ -74,7 +75,9 @@ Future<void> main() async {
         overrides: [
           prefsServiceProvider.overrideWithValue(prefs),
         ],
-        child: const EleagueHubApp(),
+        child: DeepLinkGate(
+          child: const EleagueHubApp(),
+        ),
       ),
     );
   }, (error, stack) {

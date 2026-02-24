@@ -1,13 +1,14 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/auth_service.dart';
+import '../data/auth_validators.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -25,6 +26,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   bool _isRegister = false;
   bool _submitting = false;
+
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
 
   @override
   void dispose() {
@@ -55,29 +59,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return res ?? false;
   }
 
-  Future<void> _afterAuth(UserCredential cred) async {
-    final user = cred.user;
+  void _showError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+  }
+
+  Future<void> _afterAuth() async {
+    final user = _authService.currentUser;
     if (user == null) return;
 
+    // Backward compatible: keep writing uid to prefs if other parts of app expect it.
     final prefs = ref.read(prefsServiceProvider);
     await prefs.setCurrentUserId(user.uid);
 
     if (!mounted) return;
 
-    // Using go() here is intentional: user should not be able to go back to login after signing in.
+    // Router redirect will enforce onboarding + email verification gating.
     context.go('/');
   }
 
   Future<void> _signInGoogle() async {
     setState(() => _submitting = true);
     try {
-      final cred = await _authService.signInWithGoogle();
-      await _afterAuth(cred);
+      await _authService.signInWithGoogle();
+      await _afterAuth();
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      _showError(e);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -89,27 +96,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final email = _email.text.trim();
     final pass = _password.text;
 
-    if (email.isEmpty || pass.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.errorEmailPasswordRequired)),
-      );
+    final emailErr = AuthValidators.validateEmail(email);
+    if (emailErr != null) {
+      _showError(emailErr);
+      return;
+    }
+    if (pass.isEmpty) {
+      _showError(l10n.errorEmailPasswordRequired);
       return;
     }
 
     setState(() => _submitting = true);
     try {
-      final cred = await _authService.signInWithEmailPassword(email: email, password: pass);
-      await _afterAuth(cred);
-    } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? e.code)),
-      );
+      await _authService.signInWithEmailPassword(email: email, password: pass);
+      await _afterAuth();
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      _showError(e);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -122,39 +124,30 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final pass = _password.text;
     final confirm = _confirm.text;
 
-    if (email.isEmpty || pass.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.errorEmailPasswordRequired)),
-      );
+    final emailErr = AuthValidators.validateEmail(email);
+    if (emailErr != null) {
+      _showError(emailErr);
       return;
     }
+
+    final passErr = AuthValidators.validatePassword(pass);
+    if (passErr != null) {
+      _showError(passErr);
+      return;
+    }
+
     if (pass != confirm) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.errorPasswordsDoNotMatch)),
-      );
-      return;
-    }
-    if (pass.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.errorPasswordMinLength)),
-      );
+      _showError(l10n.errorPasswordsDoNotMatch);
       return;
     }
 
     setState(() => _submitting = true);
     try {
-      final cred = await _authService.registerWithEmailPassword(email: email, password: pass);
-      await _afterAuth(cred);
-    } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? e.code)),
-      );
+      await _authService.registerWithEmailPassword(email: email, password: pass);
+      // After registration, router will force /verify-email for password accounts until verified.
+      await _afterAuth();
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      _showError(e);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -167,11 +160,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     final dividerColor = theme.colorScheme.onSurface.withOpacity(0.14);
     final orTextColor = theme.colorScheme.onSurface.withOpacity(0.60);
-
-    final fieldStyle = theme.textTheme.bodyLarge?.copyWith(
-      fontWeight: FontWeight.w600,
-      color: theme.colorScheme.onSurface,
-    );
 
     return WillPopScope(
       onWillPop: _confirmExitApp,
@@ -233,41 +221,63 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      TextField(
+                      AppTextField(
                         controller: _email,
                         keyboardType: TextInputType.emailAddress,
-                        style: fieldStyle,
-                        cursorColor: theme.colorScheme.primary,
-                        decoration: InputDecoration(
-                          labelText: l10n.authLoginEmailLabel,
-                          prefixIcon: const Icon(Icons.email_outlined),
-                        ),
+                        label: l10n.authLoginEmailLabel,
+                        hint: 'name@example.com',
+                        enabled: !_submitting,
+                        prefixIcon: const Icon(Icons.email_outlined),
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.email],
                       ),
                       const SizedBox(height: 10),
-                      TextField(
+                      AppTextField(
                         controller: _password,
-                        obscureText: true,
-                        style: fieldStyle,
-                        cursorColor: theme.colorScheme.primary,
-                        decoration: InputDecoration(
-                          labelText: l10n.authLoginPasswordLabel,
-                          prefixIcon: const Icon(Icons.lock_outline),
+                        obscureText: _obscurePassword,
+                        label: l10n.authLoginPasswordLabel,
+                        enabled: !_submitting,
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        textInputAction: _isRegister ? TextInputAction.next : TextInputAction.done,
+                        autofillHints: const [AutofillHints.password],
+                        suffixIcon: IconButton(
+                          tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                          onPressed: _submitting ? null : () => setState(() => _obscurePassword = !_obscurePassword),
+                          icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
                         ),
+                        onSubmitted: (_) => _isRegister ? null : _signInEmail(),
                       ),
                       if (_isRegister) ...[
                         const SizedBox(height: 10),
-                        TextField(
+                        AppTextField(
                           controller: _confirm,
-                          obscureText: true,
-                          style: fieldStyle,
-                          cursorColor: theme.colorScheme.primary,
-                          decoration: InputDecoration(
-                            labelText: l10n.authLoginConfirmPasswordLabel,
-                            prefixIcon: const Icon(Icons.lock_reset),
+                          obscureText: _obscureConfirm,
+                          label: l10n.authLoginConfirmPasswordLabel,
+                          enabled: !_submitting,
+                          prefixIcon: const Icon(Icons.lock_reset),
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.newPassword],
+                          suffixIcon: IconButton(
+                            tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
+                            onPressed: _submitting ? null : () => setState(() => _obscureConfirm = !_obscureConfirm),
+                            icon: Icon(_obscureConfirm ? Icons.visibility_outlined : Icons.visibility_off_outlined),
                           ),
+                          onSubmitted: (_) => _registerEmail(),
                         ),
                       ],
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
+                      if (!_isRegister)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _submitting ? null : () => context.go('/forgot-password'),
+                            child: Text(
+                              'Forgot password?',
+                              style: TextStyle(color: theme.colorScheme.primary),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 4),
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
