@@ -23,8 +23,9 @@
       (function () {
         const p = new URLSearchParams(location.search);
 
-        // Firebase auth action links can arrive in different shapes.
-        // We need `mode` and `oobCode` to route inside the app.
+        // Firebase action links must include:
+        // - mode=verifyEmail | resetPassword
+        // - oobCode=<one-time-code>
         const mode = p.get('mode');
         const oobCode = p.get('oobCode');
 
@@ -34,9 +35,10 @@
           return;
         }
 
-        // Custom scheme handled by the Android app.
+        // Custom scheme handled by Android intent-filter:
+        // esportlyic://auth?mode=...&oobCode=...
         const target =
-          'eleaguehub://auth?mode=' +
+          'esportlyic://auth?mode=' +
           encodeURIComponent(mode) +
           '&oobCode=' +
           encodeURIComponent(oobCode);

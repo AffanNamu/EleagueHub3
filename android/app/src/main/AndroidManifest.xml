@@ -71,7 +71,8 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="eleaguehub" android:host="auth" />
+                <!-- IMPORTANT: scheme must match the redirect page (public/auth/index.html) -->
+                <data android:scheme="esportlyic" android:host="auth" />
             </intent-filter>
 
         </activity>
