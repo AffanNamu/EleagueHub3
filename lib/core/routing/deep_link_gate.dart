@@ -9,8 +9,8 @@ import 'auth_action_link.dart';
 /// Listens for incoming deep links and navigates the app.
 ///
 /// Supported link:
-/// - eleaguehub://auth?mode=resetPassword&oobCode=...
-/// - eleaguehub://auth?mode=verifyEmail&oobCode=...
+/// - esportlyic://auth?mode=resetPassword&oobCode=...
+/// - esportlyic://auth?mode=verifyEmail&oobCode=...
 class DeepLinkGate extends StatefulWidget {
   const DeepLinkGate({super.key, required this.child});
   final Widget child;
@@ -40,7 +40,8 @@ class _DeepLinkGateState extends State<DeepLinkGate> {
 
   Future<void> _handleInitialUri() async {
     try {
-      final uri = await _appLinks.getInitialAppLink();
+      // app_links 6.x API
+      final uri = await _appLinks.getInitialLink();
       if (uri == null) return;
       _handleUri(uri);
     } catch (_) {
