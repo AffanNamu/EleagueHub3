@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:eleaguehub3/core/errors/user_friendly_error.dart';
@@ -820,7 +818,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
         final isClassic = league.format == LeagueFormat.classic;
 
-        final classicFullViewerRequiresUnlock = isClassic && isFull && !isOwner && !viewerIsParticipant;
+        final classicFullViewerRequiresUnlock =
+            isClassic && isFull && !isOwner && !viewerIsParticipant;
 
         final requiresUnlock = (requiresPaidLeague && !isOwner) || classicFullViewerRequiresUnlock;
 
@@ -845,6 +844,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               leagueCode: league.code.isNotEmpty ? league.code : league.id.substring(0, 8),
               distribution: "${l10n.tr(league.format.l10nKey)} • ${league.season}",
               subtitle: subtitle,
+              imageUrl: league.leagueImageUrl,
+              isLocked: showLockedBadge,
+              onPay: showLockedBadge ? () => _payChargesForLeague(context, league) : null,
+              isOwner: isOwner,
+              isViewer: viewerIsViewerOnly,
+              isFull: isFull,
               onDoubleTap: () => context.push('/leagues/${league.id}'),
               qrWidget: QrImageView(
                 data: league.qrPayload,
@@ -860,50 +865,43 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 ),
               ),
             ),
-            PositionedDirectional(
-              bottom: 14,
-              start: 14,
-              child: _LeagueImageThumb(imageUrl: league.leagueImageUrl),
-            ),
-            if (isOwner)
+
+            if (isFull)
               PositionedDirectional(
                 top: 12,
-                end: 12,
+                start: 12,
                 child: _CardBadge(
-                  label: l10n.tr('leagues_badge_owner'),
-                  icon: Icons.admin_panel_settings_rounded,
-                  color: cs.primary,
-                  bg: cs.primary.withOpacity(0.18),
-                  border: cs.primary.withOpacity(0.45),
+                  label: l10n.tr('leagues_badge_full'),
+                  icon: Icons.block_rounded,
+                  color: cs.error,
+                  bg: cs.error.withOpacity(0.14),
+                  border: cs.error.withOpacity(0.40),
                 ),
               ),
-            if (viewerIsViewerOnly)
-              PositionedDirectional(
-                top: 12,
-                end: 12,
-                child: _CardBadge(
-                  label: l10n.tr('leagues_badge_viewer'),
-                  icon: Icons.visibility_rounded,
-                  color: Colors.white.withOpacity(0.65),
-                  bg: Colors.white.withOpacity(0.08),
-                  border: Colors.white.withOpacity(0.15),
-                ),
-              ),
+
             PositionedDirectional(
               top: 12,
-              start: 12,
+              end: 12,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  if (isFull)
+                  if (isOwner)
                     _CardBadge(
-                      label: l10n.tr('leagues_badge_full'),
-                      icon: Icons.block_rounded,
-                      color: cs.error,
-                      bg: cs.error.withOpacity(0.14),
-                      border: cs.error.withOpacity(0.40),
+                      label: l10n.tr('leagues_badge_owner'),
+                      icon: Icons.admin_panel_settings_rounded,
+                      color: cs.primary,
+                      bg: cs.primary.withOpacity(0.18),
+                      border: cs.primary.withOpacity(0.45),
                     ),
-                  if (isFull && showLockedBadge) const SizedBox(height: 6),
+                  if (!isOwner && viewerIsViewerOnly)
+                    _CardBadge(
+                      label: l10n.tr('leagues_badge_viewer'),
+                      icon: Icons.visibility_rounded,
+                      color: Colors.white.withOpacity(0.65),
+                      bg: Colors.white.withOpacity(0.08),
+                      border: Colors.white.withOpacity(0.15),
+                    ),
+                  if ((isOwner || viewerIsViewerOnly) && showLockedBadge) const SizedBox(height: 6),
                   if (showLockedBadge)
                     _CardBadge(
                       label: l10n.tr('leagues_badge_locked'),
@@ -915,6 +913,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 ],
               ),
             ),
+
             if (showLockedBadge)
               PositionedDirectional(
                 bottom: 14,
@@ -1583,130 +1582,6 @@ class _ModeChip extends StatelessWidget {
   }
 }
 
-class _LeagueImageThumb extends StatelessWidget {
-  const _LeagueImageThumb({required this.imageUrl});
-
-  static const double _size = 44;
-  static const int _cachePx = 96;
-
-  final String? imageUrl;
-
-  Uint8List? _tryDecodeDataUri(String raw) {
-    final s = raw.trim();
-    if (!s.startsWith('data:image')) return null;
-    final idx = s.indexOf('base64,');
-    if (idx < 0) return null;
-    final b64 = s.substring(idx + 'base64,'.length);
-    try {
-      return base64Decode(b64);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  bool _looksLikeHttpUrl(String s) {
-    final u = s.trim().toLowerCase();
-    return u.startsWith('https://') || u.startsWith('http://');
-  }
-
-  String _cloudinaryOptimizedUrl(String url, {int? width, int? height}) {
-    final u = url.trim();
-    if (u.isEmpty || u.startsWith('data:image')) return u;
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
-    if (!isCloudinary) return u;
-    final marker = '/image/upload/';
-    final idx = u.indexOf(marker);
-    if (idx < 0) return u;
-
-    final prefix = u.substring(0, idx + marker.length);
-    final suffix = u.substring(idx + marker.length);
-
-    final transforms = <String>[
-      'f_auto',
-      'q_auto',
-      if (width != null && width > 0) 'w_$width',
-      if (height != null && height > 0) 'h_$height',
-      'c_fill',
-      'g_auto',
-    ].join(',');
-
-    final parts = suffix.split('/');
-    if (parts.isEmpty) return '$prefix$transforms/$suffix';
-
-    final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
-
-    if (!isVersionOnly) {
-      if (first.contains('f_auto') || first.contains('q_auto')) return u;
-      parts[0] = 'f_auto,q_auto,$first';
-      return prefix + parts.join('/');
-    }
-
-    return '$prefix$transforms/$suffix';
-  }
-
-  Widget _placeholder(ColorScheme cs) {
-    return Center(
-      child: Icon(Icons.emoji_events_rounded, color: cs.primary, size: 20),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final raw = (imageUrl ?? '').trim();
-
-    final bytes = raw.isEmpty ? null : _tryDecodeDataUri(raw);
-
-    final Widget inner = switch (bytes) {
-      Uint8List() => Image.memory(
-          bytes,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-          width: double.infinity,
-          height: double.infinity,
-          filterQuality: FilterQuality.low,
-        ),
-      _ when raw.isNotEmpty && _looksLikeHttpUrl(raw) => Image.network(
-          _cloudinaryOptimizedUrl(raw, width: _cachePx, height: _cachePx),
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-          width: double.infinity,
-          height: double.infinity,
-          filterQuality: FilterQuality.low,
-          cacheWidth: _cachePx,
-          cacheHeight: _cachePx,
-          errorBuilder: (context, error, stackTrace) => _placeholder(cs),
-          frameBuilder: (context, child, frame, wasSyncLoaded) {
-            if (frame == null && !wasSyncLoaded) return _placeholder(cs);
-            return child;
-          },
-        ),
-      _ => _placeholder(cs),
-    };
-
-    return Container(
-      width: _size,
-      height: _size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            cs.primary.withOpacity(0.20),
-            cs.primary.withOpacity(0.06),
-          ],
-        ),
-        border: Border.all(color: cs.primary.withOpacity(0.20)),
-      ),
-      child: ClipOval(
-        child: SizedBox.expand(child: inner),
-      ),
-    );
-  }
-}
-
 class _CardBadge extends StatelessWidget {
   const _CardBadge({
     required this.label,
@@ -1750,3 +1625,5 @@ class _CardBadge extends StatelessWidget {
     );
   }
 }
+
+bool auth_routerRefreshNeedsOnboardingFix(Object _) => false;
