@@ -26,6 +26,13 @@ class GlobalPublicLeagueJoinResult {
 
 /// Join service for PUBLIC leagues.
 ///
+/// BUSINESS CRITICAL RULES:
+/// - Participant count is derived ONLY from participants collection:
+///     leagues/{leagueId}/memberships/*
+/// - Viewers MUST NOT be counted as participants.
+/// - Joining must be blocked completely if league is full:
+///     participantsCount >= maxTeams  => FAIL (participant + viewer)
+///
 /// IMPORTANT (rules):
 /// - All authorization is via FirebaseAuth UID (`request.auth.uid`).
 /// - `memberIds` MUST contain ONLY Firebase UIDs and MUST include `request.auth.uid`.
@@ -39,6 +46,42 @@ class GlobalPublicLeagueJoinService {
 
   final FirebaseFirestore _firestore;
   final LocalLeaguesRepository _localRepo;
+
+  String _requireAuthUid() {
+    final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (uid.isEmpty) {
+      throw StateError('Not signed in (FirebaseAuth.currentUser == null).');
+    }
+    return uid;
+  }
+
+  int _safeInt(dynamic v, {required int fallback}) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim()) ?? fallback;
+    return fallback;
+  }
+
+  bool _safeBool(dynamic v) {
+    if (v is bool) return v;
+    if (v is num) return v.toInt() == 1;
+    if (v is String) {
+      final s = v.trim().toLowerCase();
+      return s == 'true' || s == '1' || s == 'yes';
+    }
+    return false;
+  }
+
+  Future<int> _countParticipantsTx(Transaction tx, DocumentReference<Map<String, dynamic>> leagueRef) async {
+    final qs = await tx.get(leagueRef.collection('memberships'));
+    var count = 0;
+    for (final d in qs.docs) {
+      final data = d.data();
+      final uid = (data['userId'] as String?)?.trim() ?? '';
+      if (uid.isNotEmpty) count++;
+    }
+    return count;
+  }
 
   Future<GlobalPublicLeagueJoinResult> joinPublicLeague({
     required GlobalPublicLeague league,
@@ -55,16 +98,12 @@ class GlobalPublicLeagueJoinService {
       throw StateError('League Join ID is missing.');
     }
 
-    // RULES AUTHORITY
-    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-    if (authUid.isEmpty) {
-      throw StateError('Not signed in (FirebaseAuth.currentUser == null).');
-    }
+    final authUid = _requireAuthUid();
 
     final leagueRef = _firestore.collection('leagues').doc(leagueId);
 
-    // Deterministic membership doc id by auth uid
-    final membershipsRef = leagueRef.collection('memberships').doc(authUid);
+    // Deterministic participant membership doc id by auth uid
+    final membershipRef = leagueRef.collection('memberships').doc(authUid);
 
     final wallNow = DateTime.now().millisecondsSinceEpoch;
 
@@ -73,60 +112,20 @@ class GlobalPublicLeagueJoinService {
       final data = (snap.data() ?? <String, dynamic>{});
 
       // Ensure updatedAtMs strictly increases to satisfy rules that use ">"
-      final prevUpdatedAtMs = (data['updatedAtMs'] as num?)?.toInt() ?? 0;
+      final prevUpdatedAtMs = _safeInt(data['updatedAtMs'], fallback: 0);
       final now = (wallNow > prevUpdatedAtMs) ? wallNow : (prevUpdatedAtMs + 1);
 
-      final isPrivate = data['isPrivate'] == 1 || data['isPrivate'] == true;
+      final isPrivate = _safeBool(data['isPrivate']);
       if (isPrivate) return GlobalPublicLeagueJoinStatus.privateLeague;
 
-      final isFinished = data['isFinished'] == true || data['isFinished'] == 1;
+      final isFinished = _safeBool(data['isFinished']);
       if (isFinished) return GlobalPublicLeagueJoinStatus.finished;
 
-      final memberIdsRaw = data['memberIds'];
-      final memberIds = (memberIdsRaw is List)
-          ? memberIdsRaw.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty).toSet()
-          : <String>{};
+      final maxTeams = _safeInt(data['maxTeams'], fallback: league.league.maxTeams);
+      final safeMaxTeams = (maxTeams > 0) ? maxTeams : league.league.maxTeams;
 
-      // Idempotent: already has access
-      if (memberIds.contains(authUid)) {
-        return GlobalPublicLeagueJoinStatus.alreadyJoined;
-      }
-
-      // VIEWER JOIN: do not touch counts, do not create membership doc
-      if (mode == LeagueJoinMode.viewer) {
-        tx.set(
-          leagueRef,
-          <String, dynamic>{
-            // RULES: append ONLY self (auth uid)
-            'memberIds': FieldValue.arrayUnion([authUid]),
-            'updatedAtMs': now,
-          },
-          SetOptions(merge: true),
-        );
-        return GlobalPublicLeagueJoinStatus.joined;
-      }
-
-      // PARTICIPANT JOIN
-      final maxTeams = (data['maxTeams'] as num?)?.toInt() ?? league.league.maxTeams;
-      final isFullStored = data['isFull'] == true || data['isFull'] == 1;
-
-      // CRITICAL: derive registeredCount from remote doc (rules expect +1)
-      final registeredCount = (data['registeredCount'] as num?)?.toInt() ?? 0;
-
-      if (isFullStored || registeredCount >= maxTeams) {
-        tx.set(
-          leagueRef,
-          <String, dynamic>{
-            'isFull': true,
-            'updatedAtMs': now,
-          },
-          SetOptions(merge: true),
-        );
-        return GlobalPublicLeagueJoinStatus.full;
-      }
-
-      // If membership exists, treat as already joined but ensure access is granted
-      final membershipSnap = await tx.get(membershipsRef);
+      // If membership exists, user is already a PARTICIPANT (idempotent).
+      final membershipSnap = await tx.get(membershipRef);
       if (membershipSnap.exists) {
         tx.set(
           leagueRef,
@@ -139,12 +138,55 @@ class GlobalPublicLeagueJoinService {
         return GlobalPublicLeagueJoinStatus.alreadyJoined;
       }
 
-      final nextCount = registeredCount + 1;
-      final nextIsFull = nextCount >= maxTeams;
+      // Canonical participants count from participants collection ONLY.
+      final participantsCount = await _countParticipantsTx(tx, leagueRef);
 
-      // Membership doc must use auth uid for both id and userId (rules-friendly)
+      // BLOCK ALL joins if full (participant + viewer).
+      if (participantsCount >= safeMaxTeams) {
+        tx.set(
+          leagueRef,
+          <String, dynamic>{
+            'isFull': true,
+            'updatedAtMs': now,
+          },
+          SetOptions(merge: true),
+        );
+        return GlobalPublicLeagueJoinStatus.full;
+      }
+
+      // VIEWER JOIN:
+      // - MUST NOT create membership
+      // - MUST NOT change participant count
+      if (mode == LeagueJoinMode.viewer) {
+        tx.set(
+          leagueRef,
+          <String, dynamic>{
+            'memberIds': FieldValue.arrayUnion([authUid]),
+            'updatedAtMs': now,
+          },
+          SetOptions(merge: true),
+        );
+        return GlobalPublicLeagueJoinStatus.joined;
+      }
+
+      // PARTICIPANT JOIN:
+      final nextCount = participantsCount + 1;
+
+      // Overflow protection (hard stop).
+      if (nextCount > safeMaxTeams) {
+        tx.set(
+          leagueRef,
+          <String, dynamic>{
+            'isFull': true,
+            'updatedAtMs': now,
+          },
+          SetOptions(merge: true),
+        );
+        return GlobalPublicLeagueJoinStatus.full;
+      }
+
       tx.set(
-        membershipsRef,
+        membershipRef,
         <String, dynamic>{
           'id': authUid,
           'leagueId': leagueId,
@@ -157,12 +199,10 @@ class GlobalPublicLeagueJoinService {
         SetOptions(merge: true),
       );
 
-      // League update must append ONLY auth uid
+      // Access list update (not used for participant counting).
       tx.set(
         leagueRef,
         <String, dynamic>{
-          'registeredCount': nextCount,
-          'isFull': nextIsFull,
           'memberIds': FieldValue.arrayUnion([authUid]),
           'updatedAtMs': now,
         },

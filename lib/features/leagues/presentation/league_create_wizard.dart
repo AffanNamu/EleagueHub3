@@ -382,7 +382,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           if (league.hasCoupons) ...[
                             const SizedBox(height: 10),
                             Text(
-                              'Coupons are configured for this league. If you don’t see them yet, try again in a moment.',
+                              'Coupons are configured for this league. If you don't see them yet, try again in a moment.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: cs.onSurface.withOpacity(0.65),
@@ -839,7 +839,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _leagueImageUrl,
-          label: 'League Image URL (optional)',
+          label: 'League Image',
           uploading: _uploadingLeagueImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.leagueImage),
           onClear: () => setState(() => _leagueImageUrl.text = ''),
@@ -847,7 +847,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _sponsorImageUrl,
-          label: 'Sponsor Image URL (optional)',
+          label: 'Sponsor Image',
           uploading: _uploadingSponsorImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
           onClear: () => setState(() => _sponsorImageUrl.text = ''),
@@ -1322,6 +1322,12 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 }
 
+/// Redesigned _OptionalImageField:
+/// - NO TextField displaying the URL — the Cloudinary link is NEVER visible.
+/// - Shows a thumbnail preview if an image is set (from URL or base64 data URI).
+/// - Shows a human-readable status label ("Image uploaded" / "No image selected").
+/// - Upload and Clear buttons remain fully functional.
+/// - The TextEditingController still holds the URL internally for backend submission.
 class _OptionalImageField extends StatelessWidget {
   const _OptionalImageField({
     required this.controller,
@@ -1352,82 +1358,124 @@ class _OptionalImageField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final url = controller.text.trim();
-    final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
+    final hasImage = url.isNotEmpty;
+    final bytes = hasImage ? _tryDecodeDataUri(url) : null;
 
+    // Thumbnail preview
     final preview = Container(
       width: 44,
       height: 44,
       decoration: BoxDecoration(
         color: cs.onSurface.withOpacity(0.06),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(
+          color: hasImage ? cs.primary.withOpacity(0.40) : cs.onSurface.withOpacity(0.14),
+        ),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: bytes != null
             ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
-            : (url.isNotEmpty
+            : (hasImage
                 ? Image.network(
                     url,
                     fit: BoxFit.cover,
+                    gaplessPlayback: true,
                     errorBuilder: (_, __, ___) => Icon(
-                      Icons.emoji_events_outlined,
-                      color: cs.onSurface.withOpacity(0.55),
+                      Icons.broken_image_outlined,
+                      color: cs.onSurface.withOpacity(0.45),
+                      size: 20,
                     ),
                   )
-                : Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55))),
+                : Icon(
+                    Icons.image_outlined,
+                    color: cs.onSurface.withOpacity(0.40),
+                    size: 20,
+                  )),
       ),
     );
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        preview,
-        const SizedBox(width: 10),
-        Expanded(
-          child: TextField(
-            controller: controller,
-            keyboardType: TextInputType.url,
-            style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600),
-            decoration: InputDecoration(
-              labelText: label,
-              prefixIcon: const Icon(Icons.link),
+    // Status text — NEVER shows the URL
+    final statusText = hasImage ? 'Image uploaded ✓' : 'No image selected';
+    final statusColor = hasImage ? cs.primary : cs.onSurface.withOpacity(0.55);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: cs.onSurface.withOpacity(0.03),
+        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          preview,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  statusText,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: statusColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: uploading
-                  ? Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                    )
-                  : IconButton(
-                      tooltip: 'Upload',
-                      onPressed: onUpload,
-                      icon: const Icon(Icons.cloud_upload_outlined),
+          const SizedBox(width: 8),
+          // Upload button
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: uploading
+                ? Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                  )
+                : IconButton(
+                    tooltip: 'Upload image',
+                    onPressed: onUpload,
+                    icon: Icon(
+                      Icons.cloud_upload_outlined,
+                      color: cs.primary,
                     ),
-            ),
+                  ),
+          ),
+          // Clear button — only shown when an image is set
+          if (hasImage)
             SizedBox(
               width: 40,
               height: 40,
               child: IconButton(
-                tooltip: 'Clear',
+                tooltip: 'Remove image',
                 onPressed: onClear,
-                icon: const Icon(Icons.clear),
+                icon: Icon(
+                  Icons.close,
+                  color: cs.error.withOpacity(0.80),
+                  size: 20,
+                ),
               ),
             ),
-          ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

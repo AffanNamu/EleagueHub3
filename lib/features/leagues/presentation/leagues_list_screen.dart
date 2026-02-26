@@ -74,6 +74,29 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     );
   }
 
+  DocumentReference<Map<String, dynamic>> _leagueRef(String leagueId) =>
+      _firestore.collection('leagues').doc(leagueId);
+
+  CollectionReference<Map<String, dynamic>> _membershipsCol(String leagueId) =>
+      _leagueRef(leagueId).collection('memberships');
+
+  /// Canonical participant count:
+  /// - COUNT MUST BE BASED ONLY ON participants collection (memberships).
+  /// - Viewers (memberIds) are NOT counted.
+  Future<int> _countParticipantsRemote(String leagueId) async {
+    final snap = await _membershipsCol(leagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    var count = 0;
+    for (final d in snap.docs) {
+      final data = d.data();
+      final uid = (data['userId'] as String?)?.trim() ?? '';
+      if (uid.isNotEmpty) count++;
+    }
+    return count;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -102,12 +125,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
       await Future.wait(
         leagues.map((league) async {
-          final teams = await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
-          final orphanMembersCount = memberships
-              .where((m) => m.leagueId == league.id && m.role == LeagueRole.member && m.teamId == null)
-              .length;
-
-          final registered = teams.length + orphanMembersCount;
+          // FIX: participants count is derived ONLY from memberships collection.
+          final registered = await _countParticipantsRemote(league.id);
           counts[league.id] = registered;
 
           final isParticipant = memberships.any(
@@ -243,7 +262,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
     return paidFlag || receiptId.isNotEmpty || paidAtMs > 0;
   }
-
 
   Future<bool> _hasPaidCouponRemote({
     required String userId,
