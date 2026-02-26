@@ -85,6 +85,12 @@
             android:foregroundServiceType="mediaProjection|camera|microphone" />
 
         <service
+            android:name="com.eleaguehub.app.OverlayVoiceForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="microphone" />
+
+        <service
             android:name="com.eleaguehub.app.LiveOverlayBubbleService"
             android:exported="false"
             android:stopWithTask="false" />

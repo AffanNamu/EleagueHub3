@@ -28,7 +28,10 @@ android {
 
     defaultConfig {
         applicationId "com.eleaguehub.app"
-        minSdkVersion 23
+
+        // Required: Android 7.0 (API 24) and up
+        minSdkVersion 24
+
         targetSdkVersion 35
         versionCode 7
         versionName "1.0.6"

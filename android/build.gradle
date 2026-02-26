@@ -19,7 +19,8 @@ subprojects { project ->
     if (project.path != ':app' && !project.hasProperty('flutter') && project.extensions.findByName('flutter') == null) {
         project.ext.set('flutter', [
             compileSdkVersion: 35,
-            minSdkVersion: 23,
+            // Required: Android 7.0 (API 24) and up
+            minSdkVersion: 24,
             targetSdkVersion: 35,
         ])
     }

@@ -143,7 +143,14 @@ class MainActivity : FlutterActivity() {
                         val intent = Intent(this, LiveOverlayBubbleService::class.java).apply {
                             action = LiveOverlayBubbleService.ACTION_SHOW
                         }
-                        startService(intent)
+
+                        // Android 8+ background execution: prefer startForegroundService for stability.
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            ContextCompat.startForegroundService(this, intent)
+                        } else {
+                            startService(intent)
+                        }
+
                         result.success(null)
                     } catch (e: Throwable) {
                         result.error("OVERLAY_START_FAILED", e.toString(), null)
@@ -230,7 +237,14 @@ class MainActivity : FlutterActivity() {
                         val intent = Intent(this, LiveOverlayBubbleService::class.java).apply {
                             action = LiveOverlayBubbleService.ACTION_SHOW
                         }
-                        startService(intent)
+
+                        // Android 8+ background execution: prefer startForegroundService for stability.
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            ContextCompat.startForegroundService(this, intent)
+                        } else {
+                            startService(intent)
+                        }
+
                         result.success(null)
                     } catch (e: Throwable) {
                         result.error("GLOBAL_OVERLAY_START_FAILED", e.toString(), null)

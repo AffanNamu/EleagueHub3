@@ -1,5 +1,9 @@
 package com.eleaguehub.app
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -23,6 +27,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
@@ -45,6 +50,12 @@ class LiveOverlayBubbleService : Service() {
         private const val OVERLAY_PREFS = "overlay_prefs"
         private const val KEY_QUICK_MESSAGES_JSON = "quick_messages_json"
         private const val KEY_MIC_MUTED = "mic_muted"
+
+        // Foreground service (Android 8+) to avoid background service start restrictions
+        // and improve overlay stability across OEMs.
+        private const val FGS_CHANNEL_ID = "overlay_bubble"
+        private const val FGS_CHANNEL_NAME = "Overlay"
+        private const val FGS_NOTIF_ID = 5151
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -62,6 +73,8 @@ class LiveOverlayBubbleService : Service() {
     private var stackView: LinearLayout? = null
     private var micView: ImageView? = null
 
+    private var foregroundStarted: Boolean = false
+
     private val configReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != Intent.ACTION_CONFIGURATION_CHANGED) return
@@ -74,8 +87,15 @@ class LiveOverlayBubbleService : Service() {
         positionStore = OverlayPositionStore(this)
         touchSlop = ViewConfiguration.get(this).scaledTouchSlop.coerceAtLeast(8)
 
+        // Android 13+ requires explicit exported-ness when dynamically registering receivers.
         try {
-            registerReceiver(configReceiver, IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED))
+            val filter = IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED)
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(configReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(configReceiver, filter)
+            }
         } catch (_: Throwable) {
         }
     }
@@ -84,20 +104,101 @@ class LiveOverlayBubbleService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_SHOW -> showOverlay()
+            ACTION_SHOW -> {
+                // Must be foreground on Android 8+ when started via startForegroundService()
+                ensureForegroundIfNeeded()
+                showOverlay()
+            }
+
             ACTION_REFRESH -> refreshOverlayUi()
+
             ACTION_HIDE -> {
                 hideOverlay()
+                stopForegroundCompat()
                 stopSelf()
             }
         }
         return START_STICKY
     }
 
+    private fun ensureForegroundIfNeeded() {
+        if (foregroundStarted) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        try {
+            createFgsChannelIfNeeded()
+            val n = buildFgsNotification()
+            startForeground(FGS_NOTIF_ID, n)
+            foregroundStarted = true
+        } catch (_: Throwable) {
+            // If we cannot become foreground (rare OEM/permission edge cases),
+            // stop to avoid "Service did not call startForeground()" crash when started as FGS.
+            try {
+                stopSelf()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun buildFgsNotification(): Notification {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val contentIntent = if (launchIntent != null) {
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            PendingIntent.getActivity(this, 0, launchIntent, flags)
+        } else null
+
+        val hideIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, LiveOverlayBubbleService::class.java).apply { action = ACTION_HIDE },
+            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        )
+
+        val b = NotificationCompat.Builder(this, FGS_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Overlay active")
+            .setContentText("Tap to return to eSportly")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .addAction(NotificationCompat.Action(0, "Hide", hideIntent))
+
+        if (contentIntent != null) b.setContentIntent(contentIntent)
+        return b.build()
+    }
+
+    private fun createFgsChannelIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel(FGS_CHANNEL_ID) != null) return
+
+        val ch = NotificationChannel(FGS_CHANNEL_ID, FGS_CHANNEL_NAME, NotificationManager.IMPORTANCE_MIN)
+        ch.description = "Keeps the overlay running reliably"
+        nm.createNotificationChannel(ch)
+    }
+
+    private fun stopForegroundCompat() {
+        if (!foregroundStarted) return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (_: Throwable) {
+        } finally {
+            foregroundStarted = false
+        }
+    }
+
     private fun showOverlay() {
         if (rootView != null) return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            stopForegroundCompat()
             stopSelf()
             return
         }
@@ -225,6 +326,7 @@ class LiveOverlayBubbleService : Service() {
             panelView = null
             stackView = null
             micView = null
+            stopForegroundCompat()
             stopSelf()
         }
     }
@@ -294,6 +396,7 @@ class LiveOverlayBubbleService : Service() {
                         isAllCaps = false
                         setOnClickListener {
                             hideOverlay()
+                            stopForegroundCompat()
                             stopSelf()
                         }
                     }
@@ -573,6 +676,7 @@ class LiveOverlayBubbleService : Service() {
         } catch (_: Throwable) {
         }
         hideOverlay()
+        stopForegroundCompat()
         super.onDestroy()
     }
 }
