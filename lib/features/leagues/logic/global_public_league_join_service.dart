@@ -27,11 +27,17 @@ class GlobalPublicLeagueJoinResult {
 /// Join service for PUBLIC leagues.
 ///
 /// BUSINESS CRITICAL RULES:
-/// - Participant count is derived ONLY from participants collection:
-///     leagues/{leagueId}/memberships/*
+/// - Participant capacity MUST NOT be exceeded.
 /// - Viewers MUST NOT be counted as participants.
-/// - Joining must be blocked completely if league is full:
-///     participantsCount >= maxTeams  => FAIL (participant + viewer)
+/// - Joining must be blocked completely if league is full.
+/// - Participant counting is derived from participants collection (memberships).
+///
+/// IMPLEMENTATION NOTE (cloud_firestore Transaction API limitation):
+/// - This SDK version Transaction.get() does not support collection/query reads.
+/// - To keep joins atomic and safe under concurrency, we maintain a league-side
+///   counter `participantsCount` that is incremented ONLY when a membership doc
+///   is created (participant). Viewers never create memberships, so they never
+///   affect `participantsCount`.
 ///
 /// IMPORTANT (rules):
 /// - All authorization is via FirebaseAuth UID (`request.auth.uid`).
@@ -72,17 +78,6 @@ class GlobalPublicLeagueJoinService {
     return false;
   }
 
-  Future<int> _countParticipantsTx(Transaction tx, DocumentReference<Map<String, dynamic>> leagueRef) async {
-    final qs = await tx.get(leagueRef.collection('memberships'));
-    var count = 0;
-    for (final d in qs.docs) {
-      final data = d.data();
-      final uid = (data['userId'] as String?)?.trim() ?? '';
-      if (uid.isNotEmpty) count++;
-    }
-    return count;
-  }
-
   Future<GlobalPublicLeagueJoinResult> joinPublicLeague({
     required GlobalPublicLeague league,
     required String userId, // legacy/display only; cloud writes use auth uid
@@ -102,7 +97,7 @@ class GlobalPublicLeagueJoinService {
 
     final leagueRef = _firestore.collection('leagues').doc(leagueId);
 
-    // Deterministic participant membership doc id by auth uid
+    // Deterministic membership doc id by auth uid
     final membershipRef = leagueRef.collection('memberships').doc(authUid);
 
     final wallNow = DateTime.now().millisecondsSinceEpoch;
@@ -138,8 +133,9 @@ class GlobalPublicLeagueJoinService {
         return GlobalPublicLeagueJoinStatus.alreadyJoined;
       }
 
-      // Canonical participants count from participants collection ONLY.
-      final participantsCount = await _countParticipantsTx(tx, leagueRef);
+      // Canonical participants count (atomic cache):
+      // This field MUST only be incremented when a membership doc is created.
+      final participantsCount = _safeInt(data['participantsCount'], fallback: _safeInt(data['registeredCount'], fallback: 0));
 
       // BLOCK ALL joins if full (participant + viewer).
       if (participantsCount >= safeMaxTeams) {
@@ -147,6 +143,8 @@ class GlobalPublicLeagueJoinService {
           leagueRef,
           <String, dynamic>{
             'isFull': true,
+            // defensive: keep cache aligned
+            'participantsCount': participantsCount,
             'updatedAtMs': now,
           },
           SetOptions(merge: true),
@@ -156,7 +154,7 @@ class GlobalPublicLeagueJoinService {
 
       // VIEWER JOIN:
       // - MUST NOT create membership
-      // - MUST NOT change participant count
+      // - MUST NOT change participantsCount
       if (mode == LeagueJoinMode.viewer) {
         tx.set(
           leagueRef,
@@ -178,6 +176,7 @@ class GlobalPublicLeagueJoinService {
           leagueRef,
           <String, dynamic>{
             'isFull': true,
+            'participantsCount': participantsCount,
             'updatedAtMs': now,
           },
           SetOptions(merge: true),
@@ -199,10 +198,16 @@ class GlobalPublicLeagueJoinService {
         SetOptions(merge: true),
       );
 
-      // Access list update (not used for participant counting).
+      // League update:
+      // - participantsCount increments ONLY here (participant join)
+      // - viewers never touch it
+      // - keep registeredCount in sync for older UI (best-effort)
       tx.set(
         leagueRef,
         <String, dynamic>{
+          'participantsCount': nextCount,
+          'registeredCount': nextCount,
+          'isFull': nextCount >= safeMaxTeams,
           'memberIds': FieldValue.arrayUnion([authUid]),
           'updatedAtMs': now,
         },
