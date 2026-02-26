@@ -3,6 +3,7 @@ name: Android CI
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -47,6 +48,29 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      # ===============================
+      # NEW STEPS FOR LAUNCHER ICONS
+      # ===============================
+
+      - name: Clean old launcher icons
+        run: |
+          rm -rf android/app/src/main/res/mipmap-*
+          rm -f android/app/src/main/res/drawable/ic_launcher*
+          rm -rf android/app/src/main/res/drawable-anydpi*
+          find android/app/src/main/res/ -type f -name "*launcher*" -delete
+
+      - name: Download new launcher icon
+        run: |
+          mkdir -p assets
+          curl -L -o assets/icon.png "https://drive.google.com/uc?export=download&id=1tsB5ZVBNWke_wlrCuKiOiXMrGSPEqZZd"
+
+      - name: Generate launcher icons
+        run: flutter pub run flutter_launcher_icons
+
+      # ===============================
+      # CONTINUE BUILD
+      # ===============================
 
       - name: Build APK
         run: |
