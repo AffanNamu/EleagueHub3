@@ -80,9 +80,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   CollectionReference<Map<String, dynamic>> _membershipsCol(String leagueId) =>
       _leagueRef(leagueId).collection('memberships');
 
-  /// Canonical participant count:
-  /// - COUNT MUST BE BASED ONLY ON participants collection (memberships).
-  /// - Viewers (memberIds) are NOT counted.
   Future<int> _countParticipantsRemote(String leagueId) async {
     final snap = await _membershipsCol(leagueId)
         .get(const GetOptions(source: Source.server))
@@ -125,7 +122,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
       await Future.wait(
         leagues.map((league) async {
-          // FIX: participants count is derived ONLY from memberships collection.
           final registered = await _countParticipantsRemote(league.id);
           counts[league.id] = registered;
 
@@ -139,36 +135,30 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
           final isOwner = _isOwnerForViewer(league, effectiveUserId);
 
-          final requiresPaidLeague = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+          final requiresPaidLeague =
+              league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
 
           final isClassic = league.format == LeagueFormat.classic;
           final isFull = registered >= league.maxTeams;
 
-          // Your rule:
-          // - Classic: participants free
-          // - Classic and FULL: viewer-only users can unlock by pay/coupon to join as viewer
-          final classicFullViewerRequiresUnlock = isClassic && isFull && !isOwner && !isParticipant;
+          final classicFullViewerRequiresUnlock =
+              isClassic && isFull && !isOwner && !isParticipant;
 
-          // Owner always unlocked in UI.
           if (isOwner) {
             viewerUnlocked[league.id] = true;
             return;
           }
 
-          // Classic participant free
           if (isClassic && isParticipant) {
             viewerUnlocked[league.id] = true;
             return;
           }
 
-          // If league doesn't require payment AND it's not a classic-full viewer scenario,
-          // keep it "unlocked" for UI (detail screen is public anyway).
           if (!requiresPaidLeague && !classicFullViewerRequiresUnlock) {
             viewerUnlocked[league.id] = true;
             return;
           }
 
-          // Otherwise: require payment/coupon unlock.
           final paidReceipt = await _hasPaidChargesRemote(
             userId: effectiveUserId,
             leagueId: league.id,
@@ -251,9 +241,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
     if (!doc.exists) return false;
 
-    // Backward + forward compatible:
-    // - old UI wrote: { paid: true, ... }
-    // - new receipt store writes: { receiptId, provider, paidAtMs, ... } (no 'paid' flag)
     final data = doc.data() ?? <String, dynamic>{};
 
     final paidFlag = data['paid'] == true;
@@ -284,10 +271,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final status = (data['status'] ?? '').toString().trim().toLowerCase();
     final paidAtMs = (data['paidAtMs'] is num) ? (data['paidAtMs'] as num).toInt() : 0;
 
-    // SECURITY: pending is NOT access.
     if (status == 'paid') return true;
-
-    // Legacy tolerance: if older docs don't have status but have paidAtMs.
     if (status.isEmpty && paidAtMs > 0) return true;
 
     return false;
@@ -335,23 +319,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final isOwner = _isOwnerForViewer(league, authUid);
     final viewerIsParticipant = _viewerIsParticipantByLeagueId[league.id] ?? false;
 
-    final requiresPaidLeague = league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
+    final requiresPaidLeague =
+        league.format == LeagueFormat.uclGroup || league.format == LeagueFormat.uclSwiss;
     final isClassic = league.format == LeagueFormat.classic;
 
     final classicFullViewerRequiresUnlock = isClassic && isFull && !isOwner && !viewerIsParticipant;
 
-    // Only show unlock options when relevant.
     if (!requiresPaidLeague && !classicFullViewerRequiresUnlock) return;
 
-    // Owner never pays
     if (isOwner) {
       _snack(l10n.tr('leagues_creator_unlocked'));
       return;
     }
 
-    // If already unlocked, reflect state and stop.
     final alreadyPaid = await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
-    final alreadyCoupon = alreadyPaid ? false : await _hasPaidCouponRemote(userId: authUid, leagueId: league.id);
+    final alreadyCoupon =
+        alreadyPaid ? false : await _hasPaidCouponRemote(userId: authUid, leagueId: league.id);
 
     if (alreadyPaid || alreadyCoupon) {
       if (!mounted) return;
@@ -393,8 +376,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           return;
         }
 
-        // Store receipt in the canonical location used by your access system:
-        // users/{uid}/leagueCharges/{leagueId}
         await LeagueChargesStore.online().storeReceipt(
           LeagueChargesReceipt(
             leagueId: league.id,
@@ -405,7 +386,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           ),
         );
 
-        // Ensure deterministic membership for chat rules (role MUST be member, not organizer).
         await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
           leagueId: league.id,
           uid: authUid,
@@ -417,7 +397,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           _viewerChargesPaid[league.id] = true;
         });
 
-        Navigator.of(context).pop(); // close sheet
+        Navigator.of(context).pop();
         _snack(l10n.tr('leagues_unlocked_success'));
       } catch (e) {
         if (!mounted) return;
@@ -467,7 +447,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         if (!res.success) {
           setModalState(() {
             busy = false;
-            error = res.errorMessage?.trim().isNotEmpty == true ? res.errorMessage : 'Coupon redemption failed.';
+            error =
+                res.errorMessage?.trim().isNotEmpty == true ? res.errorMessage : 'Coupon redemption failed.';
           });
           setState(() => _payingLeagueId = null);
           return;
@@ -477,10 +458,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           leagueId: league.id,
           uid: authUid,
         );
-      } catch (e) {
-        // Fallback: older versions of LeagueAccessService may not have the helper name above.
-        // We'll just ignore membership creation here if it doesn't exist.
-      }
+      } catch (e) {}
 
       try {
         await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
@@ -562,22 +540,21 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               ),
                             ],
                             const SizedBox(height: 16),
-
-                            // PAY
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton.icon(
                                 onPressed: busy ? null : () => unlockByPay(setModalState),
                                 icon: const Icon(Icons.payments_outlined),
                                 label: busy
-                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
                                     : const Text('Pay to unlock', style: TextStyle(fontWeight: FontWeight.w900)),
                               ),
                             ),
-
                             const SizedBox(height: 14),
-
-                            // COUPON
                             Align(
                               alignment: AlignmentDirectional.centerStart,
                               child: Text(
@@ -609,7 +586,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 label: const Text('Apply coupon', style: TextStyle(fontWeight: FontWeight.w900)),
                               ),
                             ),
-
                             if ((error ?? '').trim().isNotEmpty) ...[
                               const SizedBox(height: 12),
                               Container(
@@ -626,7 +602,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 ),
                               ),
                             ],
-
                             const SizedBox(height: 12),
                             SizedBox(
                               width: double.infinity,
@@ -697,7 +672,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Header ──
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                   child: Glass(
@@ -752,11 +726,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 4),
                 const GlassSearchBar(),
                 const SizedBox(height: 4),
-
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
@@ -848,10 +820,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
         final isClassic = league.format == LeagueFormat.classic;
 
-        // Classic full => viewer-only users can unlock as viewers (pay/coupon).
         final classicFullViewerRequiresUnlock = isClassic && isFull && !isOwner && !viewerIsParticipant;
 
-        // For paid leagues, owner bypass only (participants still need to unlock).
         final requiresUnlock = (requiresPaidLeague && !isOwner) || classicFullViewerRequiresUnlock;
 
         final unlocked = _viewerChargesPaid[league.id] ?? false;
@@ -890,15 +860,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 ),
               ),
             ),
-
-            // League image thumb
             PositionedDirectional(
               bottom: 14,
               start: 14,
               child: _LeagueImageThumb(imageUrl: league.leagueImageUrl),
             ),
-
-            // Owner badge
             if (isOwner)
               PositionedDirectional(
                 top: 12,
@@ -911,8 +877,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                   border: cs.primary.withOpacity(0.45),
                 ),
               ),
-
-            // Viewer badge
             if (viewerIsViewerOnly)
               PositionedDirectional(
                 top: 12,
@@ -925,8 +889,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                   border: Colors.white.withOpacity(0.15),
                 ),
               ),
-
-            // Status badges (top-left)
             PositionedDirectional(
               top: 12,
               start: 12,
@@ -953,8 +915,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 ],
               ),
             ),
-
-            // Pay button
             if (showLockedBadge)
               PositionedDirectional(
                 bottom: 14,
@@ -981,8 +941,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             ? const SizedBox(
                                 width: 14,
                                 height: 14,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                               )
                             : Text(
                                 l10n.tr('leagues_pay_button'),
@@ -1123,7 +1082,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Handle
                     Container(
                       width: 40,
                       height: 4,
@@ -1133,7 +1091,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       child: Text(
@@ -1145,7 +1102,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       ),
                     ),
                     const SizedBox(height: 14),
-
                     _OptionTile(
                       icon: Icons.add_rounded,
                       iconBg: cs.primary,
@@ -1158,8 +1114,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         _refreshLeagues();
                       },
                     ),
-                    Divider(
-                        color: Colors.white.withOpacity(0.06), height: 1, indent: 16, endIndent: 16),
+                    Divider(color: Colors.white.withOpacity(0.06), height: 1, indent: 16, endIndent: 16),
                     _OptionTile(
                       icon: Icons.qr_code_scanner_rounded,
                       iconBg: Colors.teal,
@@ -1174,8 +1129,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         }
                       },
                     ),
-                    Divider(
-                        color: Colors.white.withOpacity(0.06), height: 1, indent: 16, endIndent: 16),
+                    Divider(color: Colors.white.withOpacity(0.06), height: 1, indent: 16, endIndent: 16),
                     _OptionTile(
                       icon: Icons.key_rounded,
                       iconBg: Colors.deepPurple,
@@ -1247,18 +1201,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               organizerUserId: '',
               code: code,
               qrPayloadOverride: '',
-              settings:
-                  LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
+              settings: LeagueSettings.defaultsFor(LeagueFormat.classic).copyWith(lastPulledAtMs: now),
               updatedAtMs: now,
               version: 1,
             );
           },
         );
 
-        final Membership? membership =
-            await repo.getMembership(leagueId: league.id, userId: authUid);
-        final effectiveMode =
-            (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
+        final Membership? membership = await repo.getMembership(leagueId: league.id, userId: authUid);
+        final effectiveMode = (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
 
         if (!context.mounted) return;
         Navigator.of(context).pop();
@@ -1266,8 +1217,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         if (!context.mounted) return;
 
         String message;
-        final bool adminAlreadyAdded =
-            membership != null && (membership.teamId?.trim().isNotEmpty == true);
+        final bool adminAlreadyAdded = membership != null && (membership.teamId?.trim().isNotEmpty == true);
 
         if (adminAlreadyAdded) {
           message = (mode == LeagueJoinMode.viewer)
@@ -1378,8 +1328,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 },
                               ),
                               const SizedBox(height: 14),
-
-                              // Join mode selector
                               Glass(
                                 borderRadius: 18,
                                 padding: const EdgeInsets.all(14),
@@ -1402,8 +1350,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                             selected: mode == LeagueJoinMode.participant,
                                             onTap: joining
                                                 ? null
-                                                : () => setModalState(
-                                                    () => mode = LeagueJoinMode.participant),
+                                                : () => setModalState(() => mode = LeagueJoinMode.participant),
                                           ),
                                         ),
                                         const SizedBox(width: 10),
@@ -1412,10 +1359,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                             label: l10n.tr('leagues_join_viewer_only'),
                                             icon: Icons.visibility_rounded,
                                             selected: mode == LeagueJoinMode.viewer,
-                                            onTap: joining
-                                                ? null
-                                                : () => setModalState(
-                                                    () => mode = LeagueJoinMode.viewer),
+                                            onTap: joining ? null : () => setModalState(() => mode = LeagueJoinMode.viewer),
                                           ),
                                         ),
                                       ],
@@ -1448,8 +1392,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                           height: 46,
                                           decoration: BoxDecoration(
                                             borderRadius: BorderRadius.circular(14),
-                                            border: Border.all(
-                                                color: Colors.white.withOpacity(0.12)),
+                                            border: Border.all(color: Colors.white.withOpacity(0.12)),
                                           ),
                                           child: Center(
                                             child: Text(
@@ -1487,14 +1430,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                                 ? const SizedBox(
                                                     width: 18,
                                                     height: 18,
-                                                    child: CircularProgressIndicator(
-                                                        strokeWidth: 2, color: Colors.white),
+                                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                                   )
                                                 : Row(
                                                     mainAxisSize: MainAxisSize.min,
                                                     children: [
-                                                      const Icon(Icons.login_rounded,
-                                                          size: 18, color: Colors.white),
+                                                      const Icon(Icons.login_rounded, size: 18, color: Colors.white),
                                                       const SizedBox(width: 8),
                                                       Text(
                                                         l10n.tr('common_join'),
@@ -1530,9 +1471,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   }
 }
 
-// ─────────────────────────────────────────────
-// Option tile for bottom sheet
-// ─────────────────────────────────────────────
 class _OptionTile extends StatelessWidget {
   const _OptionTile({
     required this.icon,
@@ -1574,8 +1512,8 @@ class _OptionTile extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
+                          fontWeight: FontWeight.w900,
+                        ),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -1597,9 +1535,6 @@ class _OptionTile extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Mode chip for join sheet
-// ─────────────────────────────────────────────
 class _ModeChip extends StatelessWidget {
   const _ModeChip({
     required this.label,
@@ -1648,13 +1583,13 @@ class _ModeChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// League Image Thumb
-// ─────────────────────────────────────────────
 class _LeagueImageThumb extends StatelessWidget {
   const _LeagueImageThumb({required this.imageUrl});
 
-  final String imageUrl;
+  static const double _size = 44;
+  static const int _cachePx = 96;
+
+  final String? imageUrl;
 
   Uint8List? _tryDecodeDataUri(String raw) {
     final s = raw.trim();
@@ -1687,10 +1622,12 @@ class _LeagueImageThumb extends StatelessWidget {
     final suffix = u.substring(idx + marker.length);
 
     final transforms = <String>[
-      'f_auto', 'q_auto',
+      'f_auto',
+      'q_auto',
       if (width != null && width > 0) 'w_$width',
       if (height != null && height > 0) 'h_$height',
-      'c_fill', 'g_auto',
+      'c_fill',
+      'g_auto',
     ].join(',');
 
     final parts = suffix.split('/');
@@ -1708,45 +1645,49 @@ class _LeagueImageThumb extends StatelessWidget {
     return '$prefix$transforms/$suffix';
   }
 
+  Widget _placeholder(ColorScheme cs) {
+    return Center(
+      child: Icon(Icons.emoji_events_rounded, color: cs.primary, size: 20),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final url = imageUrl.trim();
-    final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
-    final Widget content;
-    if (bytes != null) {
-      content = Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
-    } else if (url.isNotEmpty && _looksLikeHttpUrl(url)) {
-      const cw = 96;
-      const ch = 96;
-      final displayUrl = _cloudinaryOptimizedUrl(url, width: cw, height: ch);
-      content = Image.network(
-        displayUrl,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        filterQuality: FilterQuality.low,
-        cacheWidth: cw,
-        cacheHeight: ch,
-        errorBuilder: (_, __, ___) =>
-            Icon(Icons.emoji_events_rounded, color: cs.primary, size: 20),
-        loadingBuilder: (context, child, event) {
-          if (event == null) return child;
-          return Center(
-            child: SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-            ),
-          );
-        },
-      );
-    } else {
-      content = Icon(Icons.emoji_events_rounded, color: cs.primary, size: 20);
-    }
+    final raw = (imageUrl ?? '').trim();
+
+    final bytes = raw.isEmpty ? null : _tryDecodeDataUri(raw);
+
+    final Widget inner = switch (bytes) {
+      Uint8List() => Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          width: double.infinity,
+          height: double.infinity,
+          filterQuality: FilterQuality.low,
+        ),
+      _ when raw.isNotEmpty && _looksLikeHttpUrl(raw) => Image.network(
+          _cloudinaryOptimizedUrl(raw, width: _cachePx, height: _cachePx),
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          width: double.infinity,
+          height: double.infinity,
+          filterQuality: FilterQuality.low,
+          cacheWidth: _cachePx,
+          cacheHeight: _cachePx,
+          errorBuilder: (context, error, stackTrace) => _placeholder(cs),
+          frameBuilder: (context, child, frame, wasSyncLoaded) {
+            if (frame == null && !wasSyncLoaded) return _placeholder(cs);
+            return child;
+          },
+        ),
+      _ => _placeholder(cs),
+    };
 
     return Container(
-      width: 44,
-      height: 44,
+      width: _size,
+      height: _size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: LinearGradient(
@@ -1759,14 +1700,13 @@ class _LeagueImageThumb extends StatelessWidget {
         ),
         border: Border.all(color: cs.primary.withOpacity(0.20)),
       ),
-      child: ClipOval(child: Center(child: content)),
+      child: ClipOval(
+        child: SizedBox.expand(child: inner),
+      ),
     );
   }
 }
 
-// ─────────────────────────────────────────────
-// Card Badge
-// ─────────────────────────────────────────────
 class _CardBadge extends StatelessWidget {
   const _CardBadge({
     required this.label,
