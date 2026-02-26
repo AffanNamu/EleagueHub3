@@ -382,7 +382,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           if (league.hasCoupons) ...[
                             const SizedBox(height: 10),
                             Text(
-                              'Coupons are configured for this league. If you don't see them yet, try again in a moment.',
+                              'Coupons are configured for this league. If you don’t see them yet, try again in a moment.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: cs.onSurface.withOpacity(0.65),
@@ -839,7 +839,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _leagueImageUrl,
-          label: 'League Image',
+          label: 'League image (optional)',
           uploading: _uploadingLeagueImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.leagueImage),
           onClear: () => setState(() => _leagueImageUrl.text = ''),
@@ -847,7 +847,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _sponsorImageUrl,
-          label: 'Sponsor Image',
+          label: 'Sponsor image (optional)',
           uploading: _uploadingSponsorImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
           onClear: () => setState(() => _sponsorImageUrl.text = ''),
@@ -887,9 +887,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
                 ),
                 subtitle: Text(
-                  _privacy == LeaguePrivacy.private
-                      ? 'Only members can view and join.'
-                      : 'Anyone can view, join with code.',
+                  _privacy == LeaguePrivacy.private ? 'Only members can view and join.' : 'Anyone can view, join with code.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.onSurface.withOpacity(0.65),
                     fontSize: 12,
@@ -1322,12 +1320,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 }
 
-/// Redesigned _OptionalImageField:
-/// - NO TextField displaying the URL — the Cloudinary link is NEVER visible.
-/// - Shows a thumbnail preview if an image is set (from URL or base64 data URI).
-/// - Shows a human-readable status label ("Image uploaded" / "No image selected").
-/// - Upload and Clear buttons remain fully functional.
-/// - The TextEditingController still holds the URL internally for backend submission.
 class _OptionalImageField extends StatelessWidget {
   const _OptionalImageField({
     required this.controller,
@@ -1361,121 +1353,133 @@ class _OptionalImageField extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final url = controller.text.trim();
-    final hasImage = url.isNotEmpty;
-    final bytes = hasImage ? _tryDecodeDataUri(url) : null;
+    // IMPORTANT:
+    // - Never render controller.text anywhere (prevents URL exposure).
+    // - Rebuild when controller changes (upload/clear) without needing parent setState.
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final url = value.text.trim();
+        final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
+        final hasImage = url.isNotEmpty;
 
-    // Thumbnail preview
-    final preview = Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: hasImage ? cs.primary.withOpacity(0.40) : cs.onSurface.withOpacity(0.14),
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: bytes != null
-            ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
-            : (hasImage
-                ? Image.network(
-                    url,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    errorBuilder: (_, __, ___) => Icon(
-                      Icons.broken_image_outlined,
-                      color: cs.onSurface.withOpacity(0.45),
-                      size: 20,
+        final preview = Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: cs.onSurface.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: bytes != null
+                ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
+                : (hasImage
+                    ? Image.network(
+                        url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Icon(
+                          Icons.image_outlined,
+                          color: cs.onSurface.withOpacity(0.55),
+                        ),
+                      )
+                    : Icon(Icons.image_outlined, color: cs.onSurface.withOpacity(0.55))),
+          ),
+        );
+
+        final String statusText = uploading
+            ? 'Uploading...'
+            : hasImage
+                ? 'Uploaded'
+                : 'No image selected';
+
+        final IconData tickIcon = hasImage ? Icons.check_box : Icons.check_box_outline_blank;
+        final Color tickColor = hasImage ? cs.primary : cs.onSurface.withOpacity(0.45);
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Preview does not expose any URL text.
+            Semantics(
+              label: label,
+              image: true,
+              child: preview,
+            ),
+            const SizedBox(width: 10),
+
+            // Replaces prior URL TextField to eliminate any link exposure.
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-                  )
-                : Icon(
-                    Icons.image_outlined,
-                    color: cs.onSurface.withOpacity(0.40),
-                    size: 20,
-                  )),
-      ),
-    );
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(tickIcon, size: 16, color: tickColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            statusText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.70),
+                              fontWeight: FontWeight.w700,
+                              height: 1.1,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
-    // Status text — NEVER shows the URL
-    final statusText = hasImage ? 'Image uploaded ✓' : 'No image selected';
-    final statusColor = hasImage ? cs.primary : cs.onSurface.withOpacity(0.55);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: cs.onSurface.withOpacity(0.03),
-        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          preview,
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(width: 8),
+            Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
+                SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: uploading
+                      ? Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                        )
+                      : IconButton(
+                          tooltip: 'Upload',
+                          onPressed: onUpload,
+                          icon: const Icon(Icons.cloud_upload_outlined),
+                        ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  statusText,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: statusColor,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
+                SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: IconButton(
+                    tooltip: hasImage ? 'Clear' : 'Clear (disabled)',
+                    onPressed: (!uploading && hasImage) ? onClear : null,
+                    icon: const Icon(Icons.clear),
                   ),
                 ),
               ],
             ),
-          ),
-          const SizedBox(width: 8),
-          // Upload button
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: uploading
-                ? Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                  )
-                : IconButton(
-                    tooltip: 'Upload image',
-                    onPressed: onUpload,
-                    icon: Icon(
-                      Icons.cloud_upload_outlined,
-                      color: cs.primary,
-                    ),
-                  ),
-          ),
-          // Clear button — only shown when an image is set
-          if (hasImage)
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: IconButton(
-                tooltip: 'Remove image',
-                onPressed: onClear,
-                icon: Icon(
-                  Icons.close,
-                  color: cs.error.withOpacity(0.80),
-                  size: 20,
-                ),
-              ),
-            ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 }
