@@ -26,10 +26,10 @@ dependencies:
   firebase_crashlytics: ^4.1.0
   firebase_storage: ^12.3.7
 
-  # Deep links (AGP 8+ compatible). Replaces uni_links which fails release manifest processing.
+  # Deep links
   app_links: ^6.4.0
 
-  # UI-only preferences (allowed minimal persistence)
+  # UI preferences
   shared_preferences: ^2.2.3
 
   # Features
@@ -44,37 +44,31 @@ dependencies:
   cached_network_image: ^3.4.1
   url_launcher: ^6.3.1
 
-  # Cloudinary (unsigned upload preset)
+  # Cloudinary
   cloudinary_public: ^0.23.1
 
   http: ^1.2.2
 
-  # Payments (Flutterwave)
+  # Payments
   flutterwave_standard: ^1.0.9
 
-  # Local LAN Streaming (Screen + Front Camera) via WebRTC
+  # Streaming
   flutter_webrtc: 0.12.5+hotfix.2
   permission_handler: ^11.3.1
 
-  # Local notifications (for app creator via SettingsScreen)
+  # Notifications
   flutter_local_notifications: ^17.2.3
 
   livekit_client: 2.3.6
 
-  # Marquee scrolling text (for announcements)
   marquee: ^2.2.3
 
-  # Voice messages (record + playback)
-  #
-  # record 4.x fails on AGP 8+ because it uses `package="..."` in its plugin AndroidManifest.xml
-  # which is no longer supported for namespace.
-  # Use record 6.x which is compatible with modern Flutter + AGP.
+  # Voice
   record: ^6.0.0
   just_audio: ^0.9.38
   path: ^1.9.0
 
 dev_dependencies:
-  flutter_launcher_icons: ^0.13.1
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
