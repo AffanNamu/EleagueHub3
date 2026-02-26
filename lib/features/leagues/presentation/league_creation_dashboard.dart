@@ -1045,7 +1045,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _leagueImageUrl,
-          label: 'League Image URL (optional)',
+          label: 'League image (optional)',
           uploading: _uploadingLeagueImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.leagueImage),
           onClear: () => setState(() => _leagueImageUrl.text = ''),
@@ -1053,7 +1053,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _sponsorImageUrl,
-          label: 'Sponsor Image URL (optional)',
+          label: 'Sponsor image (optional)',
           uploading: _uploadingSponsorImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
           onClear: () => setState(() => _sponsorImageUrl.text = ''),
@@ -1816,80 +1816,129 @@ class _OptionalImageField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final url = controller.text.trim();
-    final bytes = url.isEmpty ? null : _tryDecodeDataUri(url);
+    // SECURITY: Never render controller.text as visible UI anywhere in this widget.
+    // This prevents Cloudinary URL exposure while still keeping controller value
+    // for backend submission and for the thumbnail preview.
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final raw = value.text.trim();
+        final bytes = raw.isEmpty ? null : _tryDecodeDataUri(raw);
+        final hasImage = raw.isNotEmpty;
 
-    final preview = Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: bytes != null
-            ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
-            : (url.isNotEmpty
-                ? Image.network(
-                    url,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55)),
-                  )
-                : Icon(Icons.emoji_events_outlined, color: cs.onSurface.withOpacity(0.55))),
-      ),
-    );
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        preview,
-        const SizedBox(width: 10),
-        Expanded(
-          child: TextField(
-            controller: controller,
-            keyboardType: TextInputType.url,
-            style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600),
-            decoration: InputDecoration(
-              labelText: label,
-              prefixIcon: const Icon(Icons.link),
-            ),
+        final preview = Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: cs.onSurface.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cs.onSurface.withOpacity(0.14)),
           ),
-        ),
-        const SizedBox(width: 8),
-        Column(
-          mainAxisSize: MainAxisSize.min,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: bytes != null
+                ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
+                : (hasImage
+                    ? Image.network(
+                        raw,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            Icon(Icons.image_outlined, color: cs.onSurface.withOpacity(0.55)),
+                      )
+                    : Icon(Icons.image_outlined, color: cs.onSurface.withOpacity(0.55))),
+          ),
+        );
+
+        final String statusText = uploading
+            ? 'Uploading...'
+            : hasImage
+                ? 'Uploaded'
+                : 'No image selected';
+
+        final IconData tickIcon = hasImage ? Icons.check_box : Icons.check_box_outline_blank;
+        final Color tickColor = hasImage ? cs.primary : cs.onSurface.withOpacity(0.45);
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: uploading
-                  ? Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                    )
-                  : IconButton(
-                      tooltip: 'Upload',
-                      onPressed: onUpload,
-                      icon: const Icon(Icons.cloud_upload_outlined),
+            preview,
+            const SizedBox(width: 10),
+
+            // Replaces the URL TextField entirely (no URL text is ever shown).
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-            ),
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: IconButton(
-                tooltip: 'Clear',
-                onPressed: onClear,
-                icon: const Icon(Icons.clear),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(tickIcon, size: 16, color: tickColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            statusText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.70),
+                              fontWeight: FontWeight.w700,
+                              height: 1.1,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
+
+            const SizedBox(width: 8),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: uploading
+                      ? Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                        )
+                      : IconButton(
+                          tooltip: 'Upload',
+                          onPressed: onUpload,
+                          icon: const Icon(Icons.cloud_upload_outlined),
+                        ),
+                ),
+                SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: IconButton(
+                    tooltip: hasImage ? 'Clear' : 'Clear (disabled)',
+                    onPressed: (!uploading && hasImage) ? onClear : null,
+                    icon: const Icon(Icons.clear),
+                  ),
+                ),
+              ],
+            ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 }
