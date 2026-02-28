@@ -12,7 +12,20 @@
           "package_name": "com.eleaguehub.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "155243307303-qknvc7k1lg94lkntk99ot4325h703sni.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.eleaguehub.app",
+            "certificate_hash": "068c1d8d11a357e75336f58d93bf20fa52a6fbe8"
+          }
+        },
+        {
+          "client_id": "155243307303-gu3ucs09cvng144h5ppjgquptrouo0ne.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyD2lIyhi9wgPOWkAuJA0tmizB_rrj7QZnM"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "155243307303-gu3ucs09cvng144h5ppjgquptrouo0ne.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
