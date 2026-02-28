@@ -11,7 +11,7 @@ jobs:
     env:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
-      # Put secret into env first (secrets context is NOT allowed directly in step/job if:)
+      # Put secret into env first (then use env in `if:`)
       ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
 
     steps:
@@ -51,9 +51,19 @@ jobs:
       - name: Restore stable debug keystore (for Firebase SHA-1)
         if: ${{ env.ANDROID_DEBUG_KEYSTORE_B64 != '' }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.android
-          echo "$ANDROID_DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
-          echo "Debug keystore SHA-1:"
+
+          # Decode secret safely (strip CR/LF). `echo` can mangle; use printf.
+          printf '%s' "$ANDROID_DEBUG_KEYSTORE_B64" \
+            | tr -d '\r\n' \
+            | base64 --decode --ignore-garbage \
+            > ~/.android/debug.keystore
+
+          # Ensure we actually wrote something
+          test -s ~/.android/debug.keystore
+
+          echo "Debug keystore fingerprints:"
           keytool -list -v \
             -alias androiddebugkey \
             -keystore ~/.android/debug.keystore \
