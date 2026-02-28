@@ -11,6 +11,8 @@ jobs:
     env:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
+      # Put secret into env first (secrets context is NOT allowed directly in step/job if:)
+      ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
 
     steps:
       - uses: actions/checkout@v4
@@ -46,23 +48,11 @@ jobs:
           echo "--- android/local.properties ---"
           cat android/local.properties
 
-      # OPTIONAL BUT RECOMMENDED FOR GOOGLE SIGN-IN IN CI:
-      # Provide a stable debug keystore so the SHA-1 doesn't change every run.
-      #
-      # Create once locally (same as Android debug keystore defaults):
-      #   keytool -genkeypair -v -keystore debug.keystore -storepass android -keypass android \
-      #     -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-      #     -dname "CN=Android Debug,O=Android,C=US"
-      #
-      # Then base64 it and save as GitHub Secret ANDROID_DEBUG_KEYSTORE_B64:
-      #   base64 -w 0 debug.keystore
-      #
-      # Add that keystore's SHA-1 to Firebase for package: com.eleaguehub.app
       - name: Restore stable debug keystore (for Firebase SHA-1)
-        if: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 != '' }}
+        if: ${{ env.ANDROID_DEBUG_KEYSTORE_B64 != '' }}
         run: |
           mkdir -p ~/.android
-          echo "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" | base64 -d > ~/.android/debug.keystore
+          echo "$ANDROID_DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
           echo "Debug keystore SHA-1:"
           keytool -list -v \
             -alias androiddebugkey \
@@ -97,8 +87,8 @@ jobs:
       - name: Build DEBUG APK
         run: |
           flutter build apk --debug --no-tree-shake-icons \
-            --dart-define=CLOUDINARY_CLOUD_NAME="${{ env.CLOUDINARY_CLOUD_NAME }}" \
-            --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET="${{ env.CLOUDINARY_UNSIGNED_UPLOAD_PRESET }}"
+            --dart-define=CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
+            --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET="${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
 
       - name: Show build outputs
         run: |
