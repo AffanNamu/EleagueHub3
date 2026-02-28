@@ -39,12 +39,17 @@ android {
     }
 
     buildTypes {
-        release {
+        debug {
+            // Explicitly use the standard debug keystore (good for Firebase SHA-1 testing)
             signingConfig signingConfigs.debug
+        }
+
+        release {
+            // Keep release unsigned here (so you don't accidentally ship with debug signing).
+            // For production, add a proper release signingConfig.
             minifyEnabled false
             shrinkResources false
         }
-        debug { }
     }
 }
 

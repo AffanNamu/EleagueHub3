@@ -1,4 +1,4 @@
-name: Android CI
+name: Android CI (Debug APK for Google Sign-In testing)
 
 on:
   push:
@@ -46,13 +46,36 @@ jobs:
           echo "--- android/local.properties ---"
           cat android/local.properties
 
+      # OPTIONAL BUT RECOMMENDED FOR GOOGLE SIGN-IN IN CI:
+      # Provide a stable debug keystore so the SHA-1 doesn't change every run.
+      #
+      # Create once locally (same as Android debug keystore defaults):
+      #   keytool -genkeypair -v -keystore debug.keystore -storepass android -keypass android \
+      #     -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+      #     -dname "CN=Android Debug,O=Android,C=US"
+      #
+      # Then base64 it and save as GitHub Secret ANDROID_DEBUG_KEYSTORE_B64:
+      #   base64 -w 0 debug.keystore
+      #
+      # Add that keystore's SHA-1 to Firebase for package: com.eleaguehub.app
+      - name: Restore stable debug keystore (for Firebase SHA-1)
+        if: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 != '' }}
+        run: |
+          mkdir -p ~/.android
+          echo "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" | base64 -d > ~/.android/debug.keystore
+          echo "Debug keystore SHA-1:"
+          keytool -list -v \
+            -alias androiddebugkey \
+            -keystore ~/.android/debug.keystore \
+            -storepass android \
+            -keypass android | grep -E "SHA1:|SHA-1:|SHA256:|SHA-256:" || true
+
       - name: Install dependencies
         run: flutter pub get
 
       # ===============================
-      # NEW STEPS FOR LAUNCHER ICONS
+      # LAUNCHER ICONS
       # ===============================
-
       - name: Clean old launcher icons
         run: |
           rm -rf android/app/src/main/res/mipmap-*
@@ -69,12 +92,11 @@ jobs:
         run: flutter pub run flutter_launcher_icons
 
       # ===============================
-      # CONTINUE BUILD
+      # BUILD DEBUG APK (for Google Sign-In testing)
       # ===============================
-
-      - name: Build APK
+      - name: Build DEBUG APK
         run: |
-          flutter build apk --release --no-tree-shake-icons \
+          flutter build apk --debug --no-tree-shake-icons \
             --dart-define=CLOUDINARY_CLOUD_NAME="${{ env.CLOUDINARY_CLOUD_NAME }}" \
             --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET="${{ env.CLOUDINARY_UNSIGNED_UPLOAD_PRESET }}"
 
@@ -83,9 +105,9 @@ jobs:
           ls -la build/app/outputs || true
           ls -la build/app/outputs/flutter-apk || true
 
-      - name: Upload APK artifact
+      - name: Upload DEBUG APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/*.apk
+          name: app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
