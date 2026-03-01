@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 /// User-safe exception: if UI shows `$e`, it will still be a friendly message.
@@ -44,7 +45,7 @@ class AuthService {
       case 'network-request-failed':
         return 'Your network appears to be offline. Please check your connection and try again.';
       case 'invalid-email':
-        return 'That email address doesn’t look right. Please check and try again.';
+        return 'That email address doesn\'t look right. Please check and try again.';
       case 'user-disabled':
         return 'This account has been disabled. Please contact support.';
       case 'user-not-found':
@@ -120,20 +121,63 @@ class AuthService {
 
   Future<UserCredential> signInWithGoogle() async {
     try {
-      final googleUser = await GoogleSignIn().signIn().timeout(const Duration(seconds: 30));
+      debugPrint('GOOGLE_AUTH: Starting Google Sign-In...');
+
+      final googleSignIn = GoogleSignIn(scopes: ['email']);
+
+      // Ensure any previous session is cleared
+      await googleSignIn.signOut().catchError((_) => null);
+
+      debugPrint('GOOGLE_AUTH: Calling signIn()...');
+      final googleUser = await googleSignIn.signIn().timeout(const Duration(seconds: 30));
+
       if (googleUser == null) {
+        debugPrint('GOOGLE_AUTH: User cancelled sign-in');
         throw const UserFriendlyException('Sign-in was cancelled.');
       }
 
+      debugPrint('GOOGLE_AUTH: Got user: ${googleUser.email}');
+      debugPrint('GOOGLE_AUTH: Getting authentication tokens...');
+
       final googleAuth = await googleUser.authentication.timeout(const Duration(seconds: 20));
+
+      debugPrint('GOOGLE_AUTH: accessToken present: ${googleAuth.accessToken != null}');
+      debugPrint('GOOGLE_AUTH: idToken present: ${googleAuth.idToken != null}');
+
+      if (googleAuth.idToken == null) {
+        debugPrint('GOOGLE_AUTH: CRITICAL — idToken is null!');
+        debugPrint('GOOGLE_AUTH: This means default_web_client_id is wrong or missing');
+        throw const UserFriendlyException(
+          'Google Sign-In configuration error. Please contact support.',
+        );
+      }
+
       final cred = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      return await _auth.signInWithCredential(cred).timeout(const Duration(seconds: 25));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+      debugPrint('GOOGLE_AUTH: Signing into Firebase...');
+      final result = await _auth.signInWithCredential(cred).timeout(const Duration(seconds: 25));
+      debugPrint('GOOGLE_AUTH: SUCCESS — uid: ${result.user?.uid}');
+
+      return result;
+    } catch (e, stackTrace) {
+      debugPrint('GOOGLE_AUTH: ERROR — ${e.runtimeType}: $e');
+      debugPrint('GOOGLE_AUTH: STACK — $stackTrace');
+
+      // Re-throw UserFriendlyException as-is
+      if (e is UserFriendlyException) rethrow;
+
+      // Show the REAL error for debugging (temporary — remove after fixing)
+      if (e is FirebaseAuthException) {
+        debugPrint('GOOGLE_AUTH: FirebaseAuth code: ${e.code}, message: ${e.message}');
+        throw UserFriendlyException('Google sign-in failed: ${e.code} — ${e.message}');
+      }
+
+      // Show platform exceptions (this is where error code 10 appears)
+      debugPrint('GOOGLE_AUTH: Raw error for debugging: $e');
+      throw UserFriendlyException('Google sign-in failed: $e');
     }
   }
 
