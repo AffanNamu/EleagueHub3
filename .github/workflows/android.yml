@@ -57,6 +57,15 @@ jobs:
           out.write_bytes(data)
           PY
 
+      - name: Verify keystore is valid
+        run: |
+          echo "Keystore size: $(wc -c < ~/.android/debug.keystore) bytes"
+          keytool -list -v \
+            -alias androiddebugkey \
+            -keystore ~/.android/debug.keystore \
+            -storepass android \
+            -keypass android | grep -E "SHA1:|SHA-1:" || true
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -80,6 +89,12 @@ jobs:
           flutter build apk --release --no-tree-shake-icons \
             --dart-define=CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
             --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET="${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
+
+      - name: Verify APK is signed
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          echo "APK size: $(wc -c < "$APK") bytes"
+          $ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools/ | tail -1)/apksigner verify --print-certs "$APK" || echo "WARNING: APK signature verification failed"
 
       - name: Show build outputs
         run: |
