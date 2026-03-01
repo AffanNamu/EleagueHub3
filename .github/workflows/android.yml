@@ -11,7 +11,6 @@ jobs:
     env:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
-      # Put secret into env first (then use env in `if:`)
       ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
 
     steps:
@@ -50,18 +49,40 @@ jobs:
 
       - name: Restore stable debug keystore (for Firebase SHA-1)
         if: ${{ env.ANDROID_DEBUG_KEYSTORE_B64 != '' }}
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p ~/.android
 
-          # Decode secret safely (strip CR/LF). `echo` can mangle; use printf.
-          printf '%s' "$ANDROID_DEBUG_KEYSTORE_B64" \
-            | tr -d '\r\n' \
-            | base64 --decode --ignore-garbage \
-            > ~/.android/debug.keystore
+          echo "Keystore secret length (chars): $(printf '%s' "$ANDROID_DEBUG_KEYSTORE_B64" | tr -d '\r\n' | wc -c)"
 
-          # Ensure we actually wrote something
-          test -s ~/.android/debug.keystore
+          python3 - <<'PY'
+          import os, base64, pathlib, sys
+
+          b64 = os.environ.get("ANDROID_DEBUG_KEYSTORE_B64", "")
+          b64 = b64.strip().replace("\n","").replace("\r","").strip()
+
+          # If user pasted with quotes, remove them
+          if (len(b64) >= 2) and ((b64[0] == b64[-1] == '"') or (b64[0] == b64[-1] == "'")):
+              b64 = b64[1:-1]
+
+          # pad to multiple of 4 (fixes missing '=' issues)
+          b64 += "=" * ((4 - (len(b64) % 4)) % 4)
+
+          try:
+              data = base64.b64decode(b64, validate=False)
+          except Exception as e:
+              print("Base64 decode failed:", e)
+              print("len=", len(b64), "mod4=", len(b64) % 4)
+              sys.exit(1)
+
+          out = pathlib.Path.home() / ".android" / "debug.keystore"
+          out.write_bytes(data)
+          print("Wrote ~/.android/debug.keystore bytes:", len(data))
+          PY
+
+          # Confirm keystore is readable
+          keytool -list -keystore ~/.android/debug.keystore -storepass android | head -n 20
 
           echo "Debug keystore fingerprints:"
           keytool -list -v \
@@ -73,9 +94,6 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # ===============================
-      # LAUNCHER ICONS
-      # ===============================
       - name: Clean old launcher icons
         run: |
           rm -rf android/app/src/main/res/mipmap-*
@@ -91,9 +109,6 @@ jobs:
       - name: Generate launcher icons
         run: flutter pub run flutter_launcher_icons
 
-      # ===============================
-      # BUILD DEBUG APK (for Google Sign-In testing)
-      # ===============================
       - name: Build DEBUG APK
         run: |
           flutter build apk --debug --no-tree-shake-icons \
