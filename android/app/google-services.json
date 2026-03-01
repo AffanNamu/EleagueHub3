@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "155243307303-ibnscg611c203udqsg5m6nrock99lk0r.apps.googleusercontent.com",
+          "client_id": "155243307303-tko4h519lmuh0umdn4qm5qcdj4qml664.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.eleaguehub.app",
-            "certificate_hash": "775a17fe924117a844b355909837fe51f64e7792"
+            "certificate_hash": "1b3145a5d51f5f85a50534d91d7870e35ba5490a"
           }
         },
         {
