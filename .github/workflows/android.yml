@@ -1,4 +1,4 @@
-name: Android CI (Debug APK for Google Sign-In testing)
+name: Android CI (Release APK - Production)
 
 on:
   push:
@@ -33,63 +33,29 @@ jobs:
       - name: Resolve Flutter SDK path (FLUTTER_ROOT)
         run: |
           FLUTTER_BIN="$(which flutter)"
-          echo "flutter bin: $FLUTTER_BIN"
           FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
-          echo "Resolved FLUTTER_ROOT=$FLUTTER_ROOT"
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
 
-      - name: Write android/local.properties (required for Gradle)
+      - name: Write android/local.properties
         run: |
           SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
-          echo "Using Android SDK at: $SDK_DIR"
           echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
           echo "sdk.dir=${SDK_DIR}" >> android/local.properties
-          echo "--- android/local.properties ---"
-          cat android/local.properties
 
-      - name: Restore stable debug keystore (for Firebase SHA-1)
+      - name: Restore stable debug keystore
         if: ${{ env.ANDROID_DEBUG_KEYSTORE_B64 != '' }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ~/.android
-
-          echo "Keystore secret length (chars): $(printf '%s' "$ANDROID_DEBUG_KEYSTORE_B64" | tr -d '\r\n' | wc -c)"
-
           python3 - <<'PY'
-          import os, base64, pathlib, sys
-
-          b64 = os.environ.get("ANDROID_DEBUG_KEYSTORE_B64", "")
-          b64 = b64.strip().replace("\n","").replace("\r","").strip()
-
-          # If user pasted with quotes, remove them
-          if (len(b64) >= 2) and ((b64[0] == b64[-1] == '"') or (b64[0] == b64[-1] == "'")):
-              b64 = b64[1:-1]
-
-          # pad to multiple of 4 (fixes missing '=' issues)
+          import os, base64, pathlib
+          b64 = os.environ.get("ANDROID_DEBUG_KEYSTORE_B64", "").strip().replace("\n","").replace("\r","")
           b64 += "=" * ((4 - (len(b64) % 4)) % 4)
-
-          try:
-              data = base64.b64decode(b64, validate=False)
-          except Exception as e:
-              print("Base64 decode failed:", e)
-              print("len=", len(b64), "mod4=", len(b64) % 4)
-              sys.exit(1)
-
+          data = base64.b64decode(b64, validate=False)
           out = pathlib.Path.home() / ".android" / "debug.keystore"
           out.write_bytes(data)
-          print("Wrote ~/.android/debug.keystore bytes:", len(data))
           PY
-
-          # Confirm keystore is readable
-          keytool -list -keystore ~/.android/debug.keystore -storepass android | head -n 20
-
-          echo "Debug keystore fingerprints:"
-          keytool -list -v \
-            -alias androiddebugkey \
-            -keystore ~/.android/debug.keystore \
-            -storepass android \
-            -keypass android | grep -E "SHA1:|SHA-1:|SHA256:|SHA-256:" || true
 
       - name: Install dependencies
         run: flutter pub get
@@ -109,20 +75,19 @@ jobs:
       - name: Generate launcher icons
         run: flutter pub run flutter_launcher_icons
 
-      - name: Build DEBUG APK
+      - name: Build RELEASE APK
         run: |
-          flutter build apk --debug --no-tree-shake-icons \
+          flutter build apk --release --no-tree-shake-icons \
             --dart-define=CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
             --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET="${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
 
       - name: Show build outputs
         run: |
-          ls -la build/app/outputs || true
           ls -la build/app/outputs/flutter-apk || true
 
-      - name: Upload DEBUG APK artifact
+      - name: Upload RELEASE APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
