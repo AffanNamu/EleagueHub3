@@ -43,6 +43,29 @@ class GlassScaffold extends StatelessWidget {
               ),
             ),
           ),
+
+          // Soft ambient glow layer (light mode only)
+          if (brightness == Brightness.light)
+            Positioned(
+              top: -120,
+              right: -80,
+              child: IgnorePointer(
+                child: Container(
+                  width: 300,
+                  height: 300,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        Color(0x337AB6FF),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
           body,
         ],
       ),

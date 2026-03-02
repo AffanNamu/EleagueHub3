@@ -164,7 +164,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   // ---------------------------------------------------------------------------
 
   Color _baseSnackBg(ThemeData theme) {
-    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+    return theme.brightness == Brightness.dark
+        ? const Color(0xFF101522)
+        : const Color(0xFF0F172A);
   }
 
   void _snack(String msg, {Color? bg, Color? fg}) {
@@ -250,7 +252,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           .toList();
 
       final existingIds = teams.map((t) => t.id).toSet();
-      final tempIds = _tempTeams.map((t) => (t['userId'] ?? '').trim()).where((id) => id.isNotEmpty).toSet();
+      final tempIds = _tempTeams
+          .map((t) => (t['userId'] ?? '').trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
 
       final autoTemp = <Map<String, String>>[];
       final defaultGroup = _isGroupLeague ? _selectedGroup : _leaguePoolGroup;
@@ -416,7 +421,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final String groupToUse;
     if (_isGroupLeague) {
       final active = _activeGroups;
-      final desired = (groupOverride != null && groupOverride.trim().isNotEmpty) ? groupOverride.trim() : _selectedGroup;
+      final desired =
+          (groupOverride != null && groupOverride.trim().isNotEmpty) ? groupOverride.trim() : _selectedGroup;
       groupToUse = active.contains(desired) ? desired : (active.isNotEmpty ? active.first : 'Group A');
     } else {
       groupToUse = _leaguePoolGroup;
@@ -474,7 +480,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Add single dialog
+  // Add single dialog (Glass dialog; avoids transparent AlertDialog surfaces)
   // ---------------------------------------------------------------------------
 
   Future<void> _showAddSingleDialog() async {
@@ -536,174 +542,199 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       await showDialog<void>(
         context: context,
         barrierDismissible: true,
+        barrierColor: Colors.black.withOpacity(0.55),
         builder: (ctx) {
           final theme = Theme.of(ctx);
           final cs = theme.colorScheme;
           final onSurface = cs.onSurface;
           final primary = cs.primary;
 
-          return AlertDialog(
-            backgroundColor: cs.surface,
-            title: Text(
-              l10n.tr('add_teams_add_player_by_userid_title'),
-              style: TextStyle(
-                color: onSurface,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            content: StatefulBuilder(
-              builder: (ctx, setModalState) {
-                final resolvedShare = (resolved == null) ? '' : _shareId(resolved!.userId);
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: Glass(
+              borderRadius: 26,
+              padding: const EdgeInsets.all(18),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: StatefulBuilder(
+                  builder: (ctx, setModalState) {
+                    final resolvedShare = (resolved == null) ? '' : _shareId(resolved!.userId);
 
-                return SizedBox(
-                  width: 520,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: controller,
-                        autofocus: true,
-                        decoration: InputDecoration(
-                          hintText: l10n.tr('add_teams_userid_hint'),
-                          prefixIcon: const Icon(Icons.badge),
-                          suffixIcon: resolving
-                              ? Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: primary,
-                                    ),
-                                  ),
-                                )
-                              : IconButton(
-                                  tooltip: l10n.tr(
-                                    'add_teams_lookup_tooltip',
-                                  ),
-                                  onPressed: () => resolveNow(setModalState),
-                                  icon: Icon(Icons.search, color: primary),
-                                ),
-                        ),
-                        onChanged: (_) {
-                          debounce?.cancel();
-                          debounce = Timer(
-                            const Duration(milliseconds: 350),
-                            () {
-                              if (!ctx.mounted) return;
-                              // ignore: discarded_futures
-                              resolveNow(setModalState);
-                            },
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      if (resolved != null)
-                        Container(
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: primary.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: primary.withOpacity(0.22),
-                            ),
-                          ),
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l10n.tr('add_teams_resolved_profile_title'),
-                                style: TextStyle(
-                                  color: primary,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 12,
-                                ),
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                color: primary.withOpacity(0.12),
+                                border: Border.all(color: primary.withOpacity(0.22)),
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                resolved!.teamName,
-                                style: TextStyle(
+                              child: Icon(Icons.badge, color: primary),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                l10n.tr('add_teams_add_player_by_userid_title'),
+                                style: theme.textTheme.titleMedium?.copyWith(
                                   color: onSurface,
                                   fontWeight: FontWeight.w900,
-                                  fontSize: 15,
                                 ),
-                                overflow: TextOverflow.ellipsis,
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${l10n.tr('add_teams_uid_prefix')}$resolvedShare',
-                                style: TextStyle(
-                                  color: onSurface.withOpacity(0.65),
-                                  fontSize: 11,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Internal uid: ${resolved!.userId}',
-                                style: TextStyle(
-                                  color: onSurface.withOpacity(0.45),
-                                  fontSize: 10,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (_isGroupLeague) ...[
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.grid_view,
-                                      size: 16,
-                                      color: onSurface.withOpacity(0.60),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '${l10n.tr('add_teams_will_be_placed_in_prefix')}${_groupDisplayName(l10n, _selectedGroup)}',
-                                      style: TextStyle(
-                                        color: onSurface.withOpacity(0.72),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
+                            ),
+                            IconButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                            ),
+                          ],
                         ),
-                      if (error != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          error!,
-                          style: TextStyle(
-                            color: cs.error,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: controller,
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            hintText: l10n.tr('add_teams_userid_hint'),
+                            prefixIcon: const Icon(Icons.badge),
+                            suffixIcon: resolving
+                                ? Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                                    ),
+                                  )
+                                : IconButton(
+                                    tooltip: l10n.tr('add_teams_lookup_tooltip'),
+                                    onPressed: () => resolveNow(setModalState),
+                                    icon: Icon(Icons.search, color: primary),
+                                  ),
                           ),
-                          textAlign: TextAlign.center,
+                          onChanged: (_) {
+                            debounce?.cancel();
+                            debounce = Timer(
+                              const Duration(milliseconds: 350),
+                              () {
+                                if (!ctx.mounted) return;
+                                // ignore: discarded_futures
+                                resolveNow(setModalState);
+                              },
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        if (resolved != null)
+                          Container(
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: primary.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: primary.withOpacity(0.22)),
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  l10n.tr('add_teams_resolved_profile_title'),
+                                  style: TextStyle(
+                                    color: primary,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  resolved!.teamName,
+                                  style: TextStyle(
+                                    color: onSurface,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 15,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${l10n.tr('add_teams_uid_prefix')}$resolvedShare',
+                                  style: TextStyle(
+                                    color: onSurface.withOpacity(0.65),
+                                    fontSize: 11,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Internal uid: ${resolved!.userId}',
+                                  style: TextStyle(
+                                    color: onSurface.withOpacity(0.45),
+                                    fontSize: 10,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (_isGroupLeague) ...[
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.grid_view, size: 16, color: onSurface.withOpacity(0.60)),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        '${l10n.tr('add_teams_will_be_placed_in_prefix')}${_groupDisplayName(l10n, _selectedGroup)}',
+                                        style: TextStyle(
+                                          color: onSurface.withOpacity(0.72),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        if (error != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            error!,
+                            style: TextStyle(
+                              color: cs.error,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.of(ctx).pop(),
+                                child: Text(l10n.tr('common_cancel')),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: () async {
+                                  if (resolved == null) return;
+                                  await _addResolvedTeam(resolved!);
+                                  if (ctx.mounted) Navigator.of(ctx).pop();
+                                },
+                                icon: const Icon(Icons.person_add),
+                                label: Text(l10n.tr('common_add')),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
-                    ],
-                  ),
-                );
-              },
+                    );
+                  },
+                ),
+              ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: Text(l10n.tr('common_cancel')),
-              ),
-              FilledButton.icon(
-                onPressed: () async {
-                  if (resolved == null) return;
-                  await _addResolvedTeam(resolved!);
-                  if (ctx.mounted) Navigator.of(ctx).pop();
-                },
-                icon: const Icon(Icons.person_add),
-                label: Text(l10n.tr('common_add')),
-              ),
-            ],
           );
         },
       );
@@ -805,7 +836,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
 
     Future<void> addValidAndClose(BuildContext ctx) async {
-      final valid = rows.where((r) => r.status == _BulkStatus.ok && r.resolved != null).map((r) => r.resolved!).toList();
+      final valid = rows
+          .where((r) => r.status == _BulkStatus.ok && r.resolved != null)
+          .map((r) => r.resolved!)
+          .toList();
       if (valid.isEmpty) return;
 
       for (final r in valid) {
@@ -827,8 +861,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
         final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
-        final inputBg = theme.brightness == Brightness.dark ? Colors.black.withOpacity(0.20) : Colors.black.withOpacity(0.04);
-        final inputStroke = theme.brightness == Brightness.dark ? Colors.white.withOpacity(0.18) : onSurface.withOpacity(0.14);
+        // PREMIUM FIX: avoid hard-coded black/white fills so this looks good on light theme too.
+        final inputBg = theme.brightness == Brightness.dark
+            ? onSurface.withOpacity(0.14)
+            : onSurface.withOpacity(0.04);
+        final inputStroke = theme.brightness == Brightness.dark
+            ? onSurface.withOpacity(0.18)
+            : onSurface.withOpacity(0.14);
 
         return SafeArea(
           child: Padding(
@@ -853,6 +892,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w900,
+                                color: onSurface,
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -1245,31 +1285,82 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         final ok = await showDialog<bool>(
               context: context,
               barrierDismissible: true,
+              barrierColor: Colors.black.withOpacity(0.55),
               builder: (ctx) {
                 final theme = Theme.of(ctx);
                 final cs = theme.colorScheme;
                 final onSurface = cs.onSurface;
 
-                return AlertDialog(
-                  backgroundColor: cs.surface,
-                  title: Text(
-                    l10n.tr('add_teams_regenerate_fixtures_title'),
-                    style: TextStyle(color: onSurface),
-                  ),
-                  content: Text(
-                    l10n.tr('add_teams_regenerate_fixtures_message'),
-                    style: TextStyle(color: onSurface.withOpacity(0.72)),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: Text(l10n.tr('common_cancel')),
+                return Dialog(
+                  backgroundColor: Colors.transparent,
+                  insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  child: Glass(
+                    borderRadius: 26,
+                    padding: const EdgeInsets.all(18),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 520),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(14),
+                                  color: const Color(0xFFF59E0B).withOpacity(0.16),
+                                  border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.35)),
+                                ),
+                                child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B)),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Text(
+                                  l10n.tr('add_teams_regenerate_fixtures_title'),
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: onSurface,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            l10n.tr('add_teams_regenerate_fixtures_message'),
+                            style: TextStyle(
+                              color: onSurface.withOpacity(0.72),
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: Text(l10n.tr('common_cancel')),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: Text(l10n.tr('add_teams_regenerate')),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: Text(l10n.tr('add_teams_regenerate')),
-                    ),
-                  ],
+                  ),
                 );
               },
             ) ??
@@ -1463,12 +1554,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          l10n.tr(
-                                            'add_teams_header_title',
-                                          ),
+                                          l10n.tr('add_teams_header_title'),
                                           style: theme.textTheme.titleMedium?.copyWith(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w800,
+                                            color: onSurface,
                                           ),
                                         ),
                                         const SizedBox(height: 4),
@@ -1627,6 +1717,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
+                    color: onSurface,
                   ),
                 ),
               ],
@@ -1749,7 +1840,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 0),
           const SizedBox(width: 12),
           Expanded(
             child: SingleChildScrollView(
@@ -1821,6 +1911,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
+                    color: onSurface,
                   ),
                 ),
               ],
@@ -1866,10 +1957,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     ),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     itemCount: existingCount + newCount,
                     itemBuilder: (context, i) {
                       if (i < existingCount) {
@@ -1893,9 +1981,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         final idx = i - existingCount;
                         final team = _tempTeams[idx];
                         final group = team['group'] ?? '';
-                        final short = _shareId(
-                          (team['userId'] ?? '').trim(),
-                        );
+                        final short = _shareId((team['userId'] ?? '').trim());
                         final label = group.isEmpty
                             ? '${l10n.tr('add_teams_label_new')} · $short'
                             : '${l10n.tr('add_teams_label_new')} · ${_groupDisplayName(l10n, group)} · $short';
@@ -1934,9 +2020,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.save),
                     label: Text(l10n.tr('add_teams_save_teams')),
@@ -1955,9 +2039,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.auto_awesome),
                     label: Text(l10n.tr('add_teams_generate_fixtures')),
@@ -2072,6 +2154,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
+                                color: onSurface,
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -2355,6 +2438,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
+                                color: onSurface,
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -2584,10 +2668,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           borderRadius: BorderRadius.circular(14),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 4,
-              vertical: 2,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             child: Row(
               children: [
                 CircleAvatar(
@@ -2614,6 +2695,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         style: theme.textTheme.bodyMedium?.copyWith(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
+                          color: onSurface,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),

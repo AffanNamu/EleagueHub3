@@ -21,6 +21,7 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/league_switcher.dart';
 import '../../../core/widgets/section_header.dart';
+import '../../admin/pricing_quick_editor_sheet.dart';
 import '../../auth/data/auth_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
@@ -31,7 +32,6 @@ import '../../legal/terms_of_service_screen.dart';
 import '../../leagues/data/services/reward_firestore_service.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
-import '../../admin/pricing_quick_editor_sheet.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -241,17 +241,92 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (context.mounted) context.go('/login');
       return;
     }
+
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
-        title: const Text('Remove photo?'),
-        content: const Text('This will remove your profile/team photo.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
-        ],
-      ),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        final onSurface = cs.onSurface;
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: Glass(
+            borderRadius: 26,
+            padding: const EdgeInsets.all(18),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: cs.error.withOpacity(0.10),
+                          border: Border.all(color: cs.error.withOpacity(0.25)),
+                        ),
+                        child: Icon(Icons.delete_outline_rounded, color: cs.error, size: 22),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          'Remove photo?',
+                          style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                                color: onSurface,
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      'This will remove your profile/team photo.',
+                      style: TextStyle(
+                        color: onSurface.withOpacity(0.65),
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: cs.error,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: const Text('Remove'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
 
     if (confirm != true) return;
@@ -293,6 +368,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (context.mounted) context.go('/login');
       return;
     }
+
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
     } catch (e) {
@@ -336,6 +412,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 constraints: const BoxConstraints(maxWidth: 620),
                 child: Glass(
                   borderRadius: 28,
+                  padding: EdgeInsets.zero,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                     child: Column(
@@ -390,7 +467,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             if (snap.connectionState == ConnectionState.waiting) {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 14),
-                                child: Center(child: CircularProgressIndicator(color: cs.primary)),
+                                child: Center(
+                                  child: CircularProgressIndicator(color: cs.primary),
+                                ),
                               );
                             }
 
@@ -456,12 +535,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 _kv(context, 'Currency', cfg.currency),
                                 _kv(context, 'Unit price', '${money(cfg.unitPrice)} ${cfg.currency}'),
                                 _kv(context, 'Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}'),
-                                _kv(context, 'Threshold', cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}'),
+                                _kv(
+                                  context,
+                                  'Threshold',
+                                  cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}',
+                                ),
                                 _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
-                                const Divider(),
+                                Divider(color: onSurface.withOpacity(0.10)),
                                 _kv(context, 'Discount', '${cfg.discountPercent}%'),
                                 _kv(context, 'Users pay', '$usersPay%'),
-                                const Divider(),
+                                Divider(color: onSurface.withOpacity(0.10)),
                                 _kv(context, 'Purchased', '${cfg.qtyTotal}'),
                                 _kv(context, 'Remaining', '${cfg.qtyRemaining}'),
                                 _kv(context, 'Redeemed', '$redeemed'),
@@ -516,7 +599,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         return Center(
                                           child: Text(
                                             UserFriendlyError.toMessage(rs.error as Object),
-                                            style: theme.textTheme.bodySmall?.copyWith(color: cs.error, fontWeight: FontWeight.w700),
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: cs.error,
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                             textAlign: TextAlign.center,
                                           ),
                                         );
@@ -529,7 +615,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         return Center(
                                           child: Text(
                                             'No redemptions yet.',
-                                            style: theme.textTheme.bodySmall?.copyWith(color: onSurface.withOpacity(0.70), fontWeight: FontWeight.w600),
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: onSurface.withOpacity(0.70),
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
                                         );
                                       }
@@ -555,12 +644,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               size: 20,
                                             ),
                                             title: Text(
-                                              userId.isEmpty ? '(unknown user)' : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
-                                              style: theme.textTheme.bodyMedium?.copyWith(color: onSurface, fontWeight: FontWeight.w900),
+                                              userId.isEmpty
+                                                  ? '(unknown user)'
+                                                  : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
+                                              style: theme.textTheme.bodyMedium?.copyWith(
+                                                color: onSurface,
+                                                fontWeight: FontWeight.w900,
+                                              ),
                                             ),
                                             subtitle: Text(
                                               isPaid ? 'Paid • $provider • $when' : 'Pending • ${money(expected)} $currency',
-                                              style: theme.textTheme.bodySmall?.copyWith(color: onSurface.withOpacity(0.65), fontWeight: FontWeight.w700),
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                color: onSurface.withOpacity(0.65),
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                             ),
                                             trailing: IconButton(
                                               tooltip: 'Copy user id',
@@ -568,7 +665,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               onPressed: () async {
                                                 await Clipboard.setData(ClipboardData(text: userId));
                                                 if (!context.mounted) return;
-                                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Copied: $userId')));
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Copied: $userId')),
+                                                );
                                               },
                                             ),
                                           );
@@ -623,6 +722,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     unawaited(ConnectivityService.instance.initialize());
+
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final t = theme.textTheme;
@@ -630,11 +730,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final onSurface = cs.onSurface;
 
     final user = FirebaseAuth.instance.currentUser;
-    final uid = user?.uid ?? '';
+    final uid = (user?.uid ?? '').trim();
 
-    final isSuperAdmin = uid.trim() == _superAdminUid;
+    final isSuperAdmin = uid == _superAdminUid;
 
-    if (uid.trim().isNotEmpty) {
+    if (uid.isNotEmpty) {
       AppAdminsService.instance.ensureStarted();
     }
 
@@ -645,464 +745,529 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final repo = UserProfileRepository();
 
+    final muted = onSurface.withOpacity(0.55);
+    final faint = onSurface.withOpacity(0.30);
+
     return GlassScaffold(
-      body: ListView(
-        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-        padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
-        children: [
-          const SizedBox(height: 44),
-
-          // ── Profile Card ──
-          Glass(
-            padding: const EdgeInsets.all(18),
-            child: StreamBuilder<UserProfile?>(
-              stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
-              builder: (context, snap) {
-                final profile = snap.data;
-
-                final teamName = (profile != null && profile.teamName.trim().isNotEmpty)
-                    ? profile.teamName.trim()
-                    : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
-
-                final shortUserId = (profile != null)
-                    ? profile.effectiveShareId
-                    : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
-
-                final rawAvatarUrl = _readProfileImageUrl(profile, user);
-                final avatarUrl = rawAvatarUrl.isNotEmpty && _looksLikeHttpUrl(rawAvatarUrl)
-                    ? _cloudinaryOptimizedUrl(rawAvatarUrl, width: 256, height: 256, crop: 'fill')
-                    : rawAvatarUrl;
-
-                final muted = onSurface.withOpacity(0.55);
-
-                return Column(
-                  children: [
-                    // Avatar + Name row
-                    Row(
-                      children: [
-                        // Avatar
-                        Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: cs.primary.withOpacity(0.35),
-                                blurRadius: 20,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              InkWell(
-                                borderRadius: BorderRadius.circular(999),
-                                onTap: uid.isEmpty ? null : () => _pickAndUploadAvatar(context),
-                                onLongPress: uid.isEmpty ? null : () => _clearAvatar(context),
-                                child: CircleAvatar(
-                                  radius: 32,
-                                  backgroundColor: cs.primary.withOpacity(0.85),
-                                  child: ClipOval(
-                                    child: SizedBox(
-                                      width: 64,
-                                      height: 64,
-                                      child: (avatarUrl.trim().isNotEmpty && _looksLikeHttpUrl(avatarUrl))
-                                          ? Image.network(
-                                              avatarUrl,
-                                              fit: BoxFit.cover,
-                                              gaplessPlayback: true,
-                                              filterQuality: FilterQuality.low,
-                                              errorBuilder: (_, __, ___) =>
-                                                  const Icon(Icons.person, color: Colors.white, size: 30),
-                                              loadingBuilder: (context, child, event) {
-                                                if (event == null) return child;
-                                                return const Icon(Icons.person, color: Colors.white, size: 30);
-                                              },
-                                            )
-                                          : const Icon(Icons.person, color: Colors.white, size: 30),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (_uploadingAvatar)
-                                const Positioned.fill(
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: Color(0x66000000),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Center(
-                                      child: SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: AnimatedSwitcher(
-                                      duration: const Duration(milliseconds: 200),
-                                      child: Text(
-                                        teamName,
-                                        key: ValueKey(teamName),
-                                        style: t.titleLarge?.copyWith(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 20,
-                                          color: onSurface,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: l10n.tr('profile_edit_team_name_tooltip'),
-                                    icon: Icon(Icons.edit_rounded, color: muted, size: 18),
-                                    onPressed: uid.isEmpty
-                                        ? null
-                                        : () {
-                                            HapticFeedback.selectionClick();
-                                            _editTeamName(context, userId: uid, current: profile?.teamName ?? '');
-                                          },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  Icon(Icons.tag_rounded, size: 13, color: onSurface.withOpacity(0.45)),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      uid.isEmpty ? l10n.tr('profile_not_signed_in') : shortUserId,
-                                      style: TextStyle(
-                                        color: onSurface.withOpacity(0.60),
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 12,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  InkWell(
-                                    borderRadius: BorderRadius.circular(8),
-                                    onTap: uid.isEmpty
-                                        ? null
-                                        : () async {
-                                            HapticFeedback.lightImpact();
-                                            await Clipboard.setData(ClipboardData(text: shortUserId));
-                                            if (!context.mounted) return;
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(SnackBar(content: Text(l10n.tr('profile_userid_copied'))));
-                                          },
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(4),
-                                      child: Icon(Icons.copy_rounded, size: 14, color: onSurface.withOpacity(0.45)),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Action buttons row
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _ProfileActionChip(
-                            icon: themeState.mode == ThemeMode.dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                            label: themeState.mode == ThemeMode.dark ? 'Light' : 'Dark',
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              ref.read(themeControllerProvider.notifier).toggleTheme();
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _ProfileActionChip(
-                            icon: Icons.settings_rounded,
-                            label: 'Settings',
-                            onTap: () => context.push('/settings'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _ProfileActionChip(
-                            icon: Icons.logout_rounded,
-                            label: 'Logout',
-                            isDestructive: true,
-                            onTap: () async {
-                              final ok = await _confirmLogout(context);
-                              if (!ok) return;
-                              try {
-                                await AuthService().signOut();
-                              } catch (e) {
-                                if (context.mounted) {
-                                  _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-                                }
-                                return;
-                              }
-                              if (!context.mounted) return;
-                              context.go('/login');
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-
-          const SizedBox(height: 22),
-          const LeagueSwitcher(),
-          const SizedBox(height: 22),
-
-          // ── League Stats ──
-          SectionHeader(l10n.tr('profile_section_league_overview')),
-          const SizedBox(height: 12),
-
-          Glass(
-            padding: const EdgeInsets.all(14),
-            child: Row(
+      body: SafeArea(
+        bottom: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: ListView(
+              physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 110),
               children: [
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.emoji_events_rounded,
-                    label: l10n.tr('profile_stat_active'),
-                    value: '—',
+                const SizedBox(height: 8),
+
+                // ─────────────────────────────
+                // Premium Profile Header (Refine + Structure polish)
+                // ─────────────────────────────
+                Glass(
+                  borderRadius: 28,
+                  padding: const EdgeInsets.all(18),
+                  child: StreamBuilder<UserProfile?>(
+                    stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
+                    builder: (context, snap) {
+                      final profile = snap.data;
+
+                      final teamName = (profile != null && profile.teamName.trim().isNotEmpty)
+                          ? profile.teamName.trim()
+                          : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
+
+                      final shortUserId = (profile != null)
+                          ? profile.effectiveShareId
+                          : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
+
+                      final rawAvatarUrl = _readProfileImageUrl(profile, user);
+                      final avatarUrl = rawAvatarUrl.isNotEmpty && _looksLikeHttpUrl(rawAvatarUrl)
+                          ? _cloudinaryOptimizedUrl(rawAvatarUrl, width: 256, height: 256, crop: 'fill')
+                          : rawAvatarUrl;
+
+                      return Column(
+                        children: [
+                          Row(
+                            children: [
+                              // Avatar
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: cs.primary.withOpacity(0.30),
+                                      blurRadius: 26,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    InkWell(
+                                      borderRadius: BorderRadius.circular(999),
+                                      onTap: uid.isEmpty ? null : () => _pickAndUploadAvatar(context),
+                                      onLongPress: uid.isEmpty ? null : () => _clearAvatar(context),
+                                      child: CircleAvatar(
+                                        radius: 34,
+                                        backgroundColor: cs.primary.withOpacity(0.90),
+                                        child: ClipOval(
+                                          child: SizedBox(
+                                            width: 68,
+                                            height: 68,
+                                            child: (avatarUrl.trim().isNotEmpty && _looksLikeHttpUrl(avatarUrl))
+                                                ? Image.network(
+                                                    avatarUrl,
+                                                    fit: BoxFit.cover,
+                                                    gaplessPlayback: true,
+                                                    filterQuality: FilterQuality.low,
+                                                    errorBuilder: (_, __, ___) =>
+                                                        const Icon(Icons.person, color: Colors.white, size: 30),
+                                                    loadingBuilder: (context, child, event) {
+                                                      if (event == null) return child;
+                                                      return const Icon(Icons.person, color: Colors.white, size: 30);
+                                                    },
+                                                  )
+                                                : const Icon(Icons.person, color: Colors.white, size: 30),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (_uploadingAvatar)
+                                      const Positioned.fill(
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            color: Color(0x66000000),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Center(
+                                            child: SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(width: 16),
+
+                              // Name + user id
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: AnimatedSwitcher(
+                                            duration: const Duration(milliseconds: 200),
+                                            child: Text(
+                                              teamName,
+                                              key: ValueKey(teamName),
+                                              style: t.titleLarge?.copyWith(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 20,
+                                                letterSpacing: -0.3,
+                                                color: onSurface,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          tooltip: l10n.tr('profile_edit_team_name_tooltip'),
+                                          icon: Icon(Icons.edit_rounded, color: muted, size: 18),
+                                          onPressed: uid.isEmpty
+                                              ? null
+                                              : () {
+                                                  HapticFeedback.selectionClick();
+                                                  _editTeamName(
+                                                    context,
+                                                    userId: uid,
+                                                    current: profile?.teamName ?? '',
+                                                  );
+                                                },
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(Icons.tag_rounded, size: 13, color: onSurface.withOpacity(0.45)),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            uid.isEmpty ? l10n.tr('profile_not_signed_in') : shortUserId,
+                                            style: TextStyle(
+                                              color: onSurface.withOpacity(0.60),
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        InkWell(
+                                          borderRadius: BorderRadius.circular(10),
+                                          onTap: uid.isEmpty
+                                              ? null
+                                              : () async {
+                                                  HapticFeedback.lightImpact();
+                                                  await Clipboard.setData(ClipboardData(text: shortUserId));
+                                                  if (!context.mounted) return;
+                                                  _snack(context, l10n.tr('profile_userid_copied'));
+                                                },
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(6),
+                                            child: Icon(Icons.copy_rounded, size: 16, color: onSurface.withOpacity(0.42)),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 16),
+                          Divider(color: onSurface.withOpacity(0.08), height: 1),
+                          const SizedBox(height: 14),
+
+                          // Quick actions (refined)
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _ProfileActionChip(
+                                  icon: themeState.mode == ThemeMode.dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                                  label: themeState.mode == ThemeMode.dark ? 'Light' : 'Dark',
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    ref.read(themeControllerProvider.notifier).toggleTheme();
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _ProfileActionChip(
+                                  icon: Icons.settings_rounded,
+                                  label: 'Settings',
+                                  onTap: () => context.push('/settings'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _ProfileActionChip(
+                                  icon: Icons.logout_rounded,
+                                  label: 'Logout',
+                                  isDestructive: true,
+                                  onTap: () async {
+                                    final ok = await _confirmLogout(context);
+                                    if (!ok) return;
+                                    try {
+                                      await AuthService().signOut();
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                                      }
+                                      return;
+                                    }
+                                    if (!context.mounted) return;
+                                    context.go('/login');
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.groups_rounded,
-                    label: l10n.tr('profile_stat_teams'),
-                    value: '—',
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.sports_rounded,
-                    label: l10n.tr('profile_stat_format'),
-                    value: currentLeague.name.toUpperCase().replaceAll('CLASSIC', 'CL').replaceAll('SWISS', 'SW'),
-                  ),
-                ),
-              ],
-            ),
-          ),
 
-          const SizedBox(height: 22),
+                const SizedBox(height: 18),
+                const LeagueSwitcher(),
+                const SizedBox(height: 18),
 
-          // ── Super Admin: Rewards fulfillment monitoring ──
-          if (isSuperAdmin) ...[
-            SectionHeader('Rewards Fulfillment'),
-            const SizedBox(height: 12),
-            _SuperAdminRewardsPanel(
-              superAdminUid: uid,
-            ),
-            const SizedBox(height: 22),
-          ],
-
-          // ── Coupons ──
-          SectionHeader('Coupons'),
-          const SizedBox(height: 12),
-          if (uid.isEmpty)
-            Glass(
-              padding: const EdgeInsets.all(18),
-              child: Row(
-                children: [
-                  Icon(Icons.lock_outline_rounded, color: onSurface.withOpacity(0.45)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Sign in to view your coupons.',
-                      style: TextStyle(
-                        color: onSurface.withOpacity(0.65),
-                        fontWeight: FontWeight.w600,
+                // ─────────────────────────────
+                // League Overview (refined)
+                // ─────────────────────────────
+                SectionHeader(l10n.tr('profile_section_league_overview')),
+                const SizedBox(height: 12),
+                Glass(
+                  borderRadius: 24,
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.emoji_events_rounded,
+                          label: l10n.tr('profile_stat_active'),
+                          value: '—',
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.groups_rounded,
+                          label: l10n.tr('profile_stat_teams'),
+                          value: '—',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.sports_rounded,
+                          label: l10n.tr('profile_stat_format'),
+                          value: currentLeague.name
+                              .toUpperCase()
+                              .replaceAll('CLASSIC', 'CL')
+                              .replaceAll('SWISS', 'SW'),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+
+                const SizedBox(height: 18),
+
+                // ─────────────────────────────
+                // Super Admin (unchanged logic, refined container)
+                // ─────────────────────────────
+                if (isSuperAdmin) ...[
+                  SectionHeader('Rewards Fulfillment'),
+                  const SizedBox(height: 12),
+                  _SuperAdminRewardsPanel(superAdminUid: uid),
+                  const SizedBox(height: 18),
                 ],
-              ),
-            )
-          else
-            Glass(
-              padding: const EdgeInsets.all(14),
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance.collection('leagues').where('organizerUid', isEqualTo: uid).limit(25).snapshots(),
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Text(
-                      UserFriendlyError.toMessage(snap.error as Object),
-                      style: t.bodyMedium?.copyWith(color: cs.error, fontWeight: FontWeight.w700),
-                    );
-                  }
 
-                  if (!snap.hasData) {
-                    return Center(child: CircularProgressIndicator(color: cs.primary));
-                  }
-
-                  final leagues = snap.data!.docs.map((d) => <String, dynamic>{...d.data(), 'id': d.id}).where((m) {
-                    final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
-                    if (!enabled) return false;
-                    final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
-                    return dp >= 0;
-                  }).toList();
-
-                  if (leagues.isEmpty) {
-                    return Row(
+                // ─────────────────────────────
+                // Coupons (unchanged logic, refined)
+                // ─────────────────────────────
+                SectionHeader('Coupons'),
+                const SizedBox(height: 12),
+                if (uid.isEmpty)
+                  Glass(
+                    borderRadius: 22,
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
                       children: [
-                        Icon(Icons.confirmation_number_outlined, color: onSurface.withOpacity(0.45)),
+                        Icon(Icons.lock_outline_rounded, color: onSurface.withOpacity(0.45)),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'No coupons found. Enable coupons during league creation payment.',
+                            'Sign in to view your coupons.',
                             style: TextStyle(
                               color: onSurface.withOpacity(0.65),
                               fontWeight: FontWeight.w600,
-                              height: 1.35,
                             ),
                           ),
                         ),
                       ],
-                    );
-                  }
+                    ),
+                  )
+                else
+                  Glass(
+                    borderRadius: 22,
+                    padding: const EdgeInsets.all(14),
+                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('leagues')
+                          .where('organizerUid', isEqualTo: uid)
+                          .limit(25)
+                          .snapshots(),
+                      builder: (context, snap) {
+                        if (snap.hasError) {
+                          return Text(
+                            UserFriendlyError.toMessage(snap.error as Object),
+                            style: t.bodyMedium?.copyWith(
+                              color: cs.error,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          );
+                        }
 
-                  return Column(
+                        if (!snap.hasData) {
+                          return Center(child: CircularProgressIndicator(color: cs.primary));
+                        }
+
+                        final leagues = snap.data!.docs
+                            .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
+                            .where((m) {
+                              final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
+                              if (!enabled) return false;
+                              final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
+                              return dp >= 0;
+                            })
+                            .toList();
+
+                        if (leagues.isEmpty) {
+                          return Row(
+                            children: [
+                              Icon(Icons.confirmation_number_outlined, color: onSurface.withOpacity(0.45)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'No coupons found. Enable coupons during league creation payment.',
+                                  style: TextStyle(
+                                    color: onSurface.withOpacity(0.65),
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+
+                        return Column(
+                          children: [
+                            for (final m in leagues) ...[
+                              _OrganizerLeagueCouponsTile(
+                                leagueName: (m['name'] as String?) ?? 'League',
+                                subtitle: _couponLeagueSubtitle(
+                                  enabled: true,
+                                  discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
+                                ),
+                                onView: () => _showCouponConfigSheet(
+                                  context,
+                                  leagueId: (m['id'] as String?) ?? '',
+                                  leagueName: (m['name'] as String?) ?? 'League',
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                            ],
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+
+                const SizedBox(height: 18),
+
+                // ─────────────────────────────
+                // Legal (refined)
+                // ─────────────────────────────
+                SectionHeader('Legal'),
+                const SizedBox(height: 12),
+                Glass(
+                  borderRadius: 22,
+                  padding: const EdgeInsets.all(6),
+                  child: Column(
                     children: [
-                      for (final m in leagues) ...[
-                        _OrganizerLeagueCouponsTile(
-                          leagueName: (m['name'] as String?) ?? 'League',
-                          subtitle: _couponLeagueSubtitle(
-                            enabled: true,
-                            discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
-                          ),
-                          onView: () => _showCouponConfigSheet(
-                            context,
-                            leagueId: (m['id'] as String?) ?? '',
-                            leagueName: (m['name'] as String?) ?? 'League',
-                          ),
+                      _LegalNavRow(
+                        icon: Icons.privacy_tip_outlined,
+                        title: 'Privacy Policy',
+                        subtitle: 'How we collect, use, and protect information.',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
                         ),
-                        const SizedBox(height: 10),
-                      ],
+                      ),
+                      Divider(color: onSurface.withOpacity(0.08), height: 1),
+                      _LegalNavRow(
+                        icon: Icons.article_outlined,
+                        title: 'Terms of Service',
+                        subtitle: 'Rules and conditions for using the app.',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
+                        ),
+                      ),
+                      Divider(color: onSurface.withOpacity(0.08), height: 1),
+                      _LegalNavRow(
+                        icon: Icons.support_agent_outlined,
+                        title: 'Contact',
+                        subtitle: 'Get help or report an issue.',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const ContactScreen()),
+                        ),
+                      ),
+                      Divider(color: onSurface.withOpacity(0.08), height: 1),
+                      _LegalNavRow(
+                        icon: Icons.link_outlined,
+                        title: 'Affiliate Disclosure',
+                        subtitle: 'How affiliate links work in the marketplace.',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const AffiliateDisclosureScreen()),
+                        ),
+                      ),
                     ],
-                  );
-                },
-              ),
-            ),
+                  ),
+                ),
 
-          const SizedBox(height: 22),
+                const SizedBox(height: 18),
 
-          // ── Legal ──
-          SectionHeader('Legal'),
-          const SizedBox(height: 12),
-          Glass(
-            padding: const EdgeInsets.all(6),
-            child: Column(
-              children: [
-                _LegalNavRow(
-                  icon: Icons.privacy_tip_outlined,
-                  title: 'Privacy Policy',
-                  subtitle: 'How we collect, use, and protect information.',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
+                // ─────────────────────────────
+                // Admin (unchanged logic, refined)
+                // ─────────────────────────────
+                if (isPricingAdmin || isSuperAdmin) ...[
+                  SectionHeader('Admin'),
+                  const SizedBox(height: 12),
+                  Glass(
+                    borderRadius: 22,
+                    padding: const EdgeInsets.all(6),
+                    child: Column(
+                      children: [
+                        if (isSuperAdmin) ...[
+                          _AdminRow(
+                            icon: Icons.store_mall_directory_rounded,
+                            title: 'Marketplace Upload',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(builder: (_) => const AdminMarketplaceUploadScreen()),
+                            ),
+                          ),
+                          if (isPricingAdmin)
+                            Divider(
+                              color: onSurface.withOpacity(0.08),
+                              height: 1,
+                            ),
+                        ],
+                        if (isPricingAdmin) ...[
+                          _AdminRow(
+                            icon: Icons.price_change_rounded,
+                            title: 'Pricing (Quick Editor)',
+                            onTap: () => showPricingQuickEditorSheet(context),
+                          ),
+                          Divider(color: onSurface.withOpacity(0.08), height: 1),
+                          _AdminRow(
+                            icon: Icons.admin_panel_settings_rounded,
+                            title: 'Pricing Admin',
+                            onTap: () => GoRouter.of(context).push('/admin/pricing'),
+                          ),
+                          Divider(color: onSurface.withOpacity(0.08), height: 1),
+                          _AdminRow(
+                            icon: Icons.group_add_rounded,
+                            title: 'Manage Pricing Admins',
+                            onTap: () => GoRouter.of(context).push('/admin/pricing-admins'),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
+                ],
+
+                const SizedBox(height: 18),
+
+                // footer spacing
+                Row(
+                  children: [
+                    Expanded(child: Divider(color: faint)),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Profile',
+                      style: TextStyle(color: muted, fontWeight: FontWeight.w700, fontSize: 12),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Divider(color: faint)),
+                  ],
                 ),
-                Divider(color: onSurface.withOpacity(0.08), height: 1),
-                _LegalNavRow(
-                  icon: Icons.article_outlined,
-                  title: 'Terms of Service',
-                  subtitle: 'Rules and conditions for using the app.',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
-                  ),
-                ),
-                Divider(color: onSurface.withOpacity(0.08), height: 1),
-                _LegalNavRow(
-                  icon: Icons.support_agent_outlined,
-                  title: 'Contact',
-                  subtitle: 'Get help or report an issue.',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const ContactScreen()),
-                  ),
-                ),
-                Divider(color: onSurface.withOpacity(0.08), height: 1),
-                _LegalNavRow(
-                  icon: Icons.link_outlined,
-                  title: 'Affiliate Disclosure',
-                  subtitle: 'How affiliate links work in the marketplace.',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const AffiliateDisclosureScreen()),
-                  ),
-                ),
+
+                const SizedBox(height: 22),
               ],
             ),
           ),
-
-          const SizedBox(height: 22),
-
-          // ── Admin ──
-          if (isPricingAdmin || isSuperAdmin) ...[
-            SectionHeader('Admin'),
-            const SizedBox(height: 12),
-            Glass(
-              padding: const EdgeInsets.all(6),
-              child: Column(
-                children: [
-                  if (isSuperAdmin) ...[
-                    _AdminRow(
-                      icon: Icons.store_mall_directory_rounded,
-                      title: 'Marketplace Upload',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(builder: (_) => const AdminMarketplaceUploadScreen()),
-                      ),
-                    ),
-                    if (isPricingAdmin) Divider(color: onSurface.withOpacity(0.08), height: 1),
-                  ],
-                  if (isPricingAdmin) ...[
-                    _AdminRow(
-                      icon: Icons.price_change_rounded,
-                      title: 'Pricing (Quick Editor)',
-                      onTap: () => showPricingQuickEditorSheet(context),
-                    ),
-                    Divider(color: onSurface.withOpacity(0.08), height: 1),
-                    _AdminRow(
-                      icon: Icons.admin_panel_settings_rounded,
-                      title: 'Pricing Admin',
-                      onTap: () => GoRouter.of(context).push('/admin/pricing'),
-                    ),
-                    Divider(color: onSurface.withOpacity(0.08), height: 1),
-                    _AdminRow(
-                      icon: Icons.group_add_rounded,
-                      title: 'Manage Pricing Admins',
-                      onTap: () => GoRouter.of(context).push('/admin/pricing-admins'),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 32),
-        ],
+        ),
       ),
     );
   }
@@ -1110,6 +1275,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget _kv(BuildContext context, String k, String v) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -1119,7 +1286,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Text(
               k,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.70),
+                color: onSurface.withOpacity(0.70),
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1128,7 +1295,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Text(
               v,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.90),
+                color: onSurface.withOpacity(0.90),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -1153,6 +1320,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
           child: Glass(
+            borderRadius: 26,
             padding: const EdgeInsets.all(20),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
@@ -1254,31 +1422,77 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           final theme = Theme.of(ctx);
           final onSurface = theme.colorScheme.onSurface;
 
-          return AlertDialog(
-            backgroundColor: theme.colorScheme.surface,
-            title: Text(
-              l10n.tr('profile_edit_team_dialog_title'),
-              style: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
-            ),
-            content: TextField(
-              controller: controller,
-              autofocus: true,
-              style: TextStyle(color: onSurface, fontWeight: FontWeight.w600),
-              decoration: InputDecoration(
-                hintText: l10n.tr('profile_team_name_hint'),
-                hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: Glass(
+              borderRadius: 26,
+              padding: const EdgeInsets.all(18),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            color: theme.colorScheme.primary.withOpacity(0.12),
+                            border: Border.all(color: theme.colorScheme.primary.withOpacity(0.22)),
+                          ),
+                          child: Icon(Icons.edit_rounded, color: theme.colorScheme.primary),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            l10n.tr('profile_edit_team_dialog_title'),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: onSurface,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(ctx).pop(null),
+                          icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      style: TextStyle(color: onSurface, fontWeight: FontWeight.w700),
+                      decoration: InputDecoration(
+                        hintText: l10n.tr('profile_team_name_hint'),
+                        hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(ctx).pop(null),
+                            child: Text(l10n.tr('common_cancel')),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                            child: Text(l10n.tr('common_save')),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(null),
-                child: Text(l10n.tr('common_cancel')),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-                child: Text(l10n.tr('common_save')),
-              ),
-            ],
           );
         },
       );
@@ -1306,6 +1520,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 }
+
 
 // ─────────────────────────────────────────────
 // Super Admin Rewards Panel
@@ -1401,7 +1616,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
 
     final teamNames = <String, String>{
       for (final d in teamsSnap.docs)
-        d.id: _stringFrom(d.data()['name'] ?? d.data()['teamName'] ?? d.data()['displayName'] ?? '', fallback: d.id),
+        d.id: _stringFrom(
+          d.data()['name'] ?? d.data()['teamName'] ?? d.data()['displayName'] ?? '',
+          fallback: d.id,
+        ),
     };
 
     final stats = <String, _TeamStats>{
@@ -1496,6 +1714,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
     final leaguesQuery = _firestore.collection('leagues').orderBy('updatedAtMs', descending: true).limit(_limit);
 
     return Glass(
+      borderRadius: 24,
       padding: const EdgeInsets.all(14),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: leaguesQuery.snapshots(),
@@ -1790,6 +2009,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
         if (rs.hasError) {
           // Don’t hide the league if reward read fails; show minimal tile.
           return Glass(
+            borderRadius: 22,
             padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1831,6 +2051,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
         }
 
         return Glass(
+          borderRadius: 22,
           padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1859,7 +2080,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      '🏆 Rewards',
+                      'Rewards',
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: Colors.black.withOpacity(0.86),
                         fontWeight: FontWeight.w900,
@@ -2043,6 +2264,7 @@ class _WinnerResult {
 // ─────────────────────────────────────────────
 // Profile Action Chip
 // ─────────────────────────────────────────────
+
 class _ProfileActionChip extends StatelessWidget {
   const _ProfileActionChip({
     required this.icon,
@@ -2059,25 +2281,31 @@ class _ProfileActionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
     final color = isDestructive ? const Color(0xFFE53935) : cs.primary;
+    final bg = isDestructive ? color.withOpacity(0.10) : onSurface.withOpacity(0.04);
+    final border = isDestructive ? color.withOpacity(0.20) : onSurface.withOpacity(0.10);
+    final fg = isDestructive ? color : (cs.primary);
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.10),
+          color: bg,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.20)),
+          border: Border.all(color: border),
         ),
         child: Column(
           children: [
-            Icon(icon, color: color, size: 20),
+            Icon(icon, color: fg, size: 20),
             const SizedBox(height: 4),
             Text(
               label,
               style: TextStyle(
-                color: color,
+                color: fg,
                 fontSize: 11,
                 fontWeight: FontWeight.w800,
               ),
@@ -2090,8 +2318,9 @@ class _ProfileActionChip extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Stat Card (no mock data)
+// Stat Card
 // ─────────────────────────────────────────────
+
 class _StatCard extends StatelessWidget {
   const _StatCard({
     required this.icon,
@@ -2107,12 +2336,13 @@ class _StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.04),
+        color: onSurface.withOpacity(0.04),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cs.onSurface.withOpacity(0.08)),
+        border: Border.all(color: onSurface.withOpacity(0.08)),
       ),
       child: Column(
         children: [
@@ -2122,9 +2352,9 @@ class _StatCard extends StatelessWidget {
             child: Text(
               value,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                color: onSurface,
-              ),
+                    fontWeight: FontWeight.w900,
+                    color: onSurface,
+                  ),
             ),
           ),
           const SizedBox(height: 2),
@@ -2146,6 +2376,7 @@ class _StatCard extends StatelessWidget {
 // ─────────────────────────────────────────────
 // Legal Row
 // ─────────────────────────────────────────────
+
 class _LegalNavRow extends StatelessWidget {
   const _LegalNavRow({
     required this.icon,
@@ -2190,9 +2421,9 @@ class _LegalNavRow extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: onSurface,
-                    ),
+                          fontWeight: FontWeight.w900,
+                          color: onSurface,
+                        ),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -2218,6 +2449,7 @@ class _LegalNavRow extends StatelessWidget {
 // ─────────────────────────────────────────────
 // Admin Row
 // ─────────────────────────────────────────────
+
 class _AdminRow extends StatelessWidget {
   const _AdminRow({
     required this.icon,
@@ -2273,6 +2505,7 @@ class _AdminRow extends StatelessWidget {
 // ─────────────────────────────────────────────
 // Coupon Tile
 // ─────────────────────────────────────────────
+
 class _OrganizerLeagueCouponsTile extends StatelessWidget {
   const _OrganizerLeagueCouponsTile({
     required this.leagueName,
@@ -2288,7 +2521,9 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
+
     return Glass(
+      borderRadius: 18,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
@@ -2337,3 +2572,4 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
     );
   }
 }
+

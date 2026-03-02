@@ -27,7 +27,11 @@ class ProductDetailsScreen extends StatelessWidget {
     if (trimmed.isEmpty) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(behavior: SnackBarBehavior.floating, margin: const EdgeInsets.all(12), content: Text(trimmed)),
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        content: Text(trimmed),
+      ),
     );
   }
 
@@ -49,6 +53,7 @@ class ProductDetailsScreen extends StatelessWidget {
     }
 
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
 
     final confirm = await showModalBottomSheet<bool>(
       context: context,
@@ -67,7 +72,7 @@ class ProductDetailsScreen extends StatelessWidget {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.25),
+                    color: onSurface.withOpacity(0.25),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -77,68 +82,56 @@ class ProductDetailsScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
-                      colors: [cs.primary.withOpacity(0.30), cs.primary.withOpacity(0.08)],
+                      colors: [
+                        cs.primary.withOpacity(0.25),
+                        cs.primary.withOpacity(0.08)
+                      ],
                     ),
                   ),
-                  child: Icon(Icons.open_in_new_rounded, color: cs.primary, size: 24),
+                  child: Icon(Icons.open_in_new_rounded,
+                      color: cs.primary, size: 24),
                 ),
                 const SizedBox(height: 14),
                 Text(
                   'Continue to Partner Store?',
-                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, fontSize: 18),
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                      ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'You will be redirected to an external store to complete your purchase.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white.withOpacity(0.50), fontSize: 13, fontWeight: FontWeight.w600, height: 1.4),
+                  style: TextStyle(
+                    color: onSurface.withOpacity(0.60),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                  ),
                 ),
                 const SizedBox(height: 20),
                 Row(
                   children: [
                     Expanded(
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () => Navigator.of(ctx).pop(false),
-                          borderRadius: BorderRadius.circular(14),
-                          child: Ink(
-                            height: 46,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.white.withOpacity(0.12)),
-                            ),
-                            child: Center(
-                              child: Text('Cancel', style: TextStyle(color: Colors.white.withOpacity(0.6), fontWeight: FontWeight.w800)),
-                            ),
-                          ),
-                        ),
+                      child: OutlinedButton(
+                        onPressed: () =>
+                            Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel'),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () => Navigator.of(ctx).pop(true),
-                          borderRadius: BorderRadius.circular(14),
-                          child: Ink(
-                            height: 46,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              gradient: LinearGradient(colors: [cs.primary, cs.primary.withOpacity(0.75)]),
-                            ),
-                            child: const Center(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.open_in_new_rounded, size: 18, color: Colors.white),
-                                  SizedBox(width: 8),
-                                  Text('Continue', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-                                ],
-                              ),
-                            ),
-                          ),
+                      child: ElevatedButton.icon(
+                        onPressed: () =>
+                            Navigator.of(ctx).pop(true),
+                        icon: const Icon(
+                            Icons.open_in_new_rounded,
+                            size: 18),
+                        label: const Text('Continue'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: cs.primary,
+                          foregroundColor: Colors.white,
                         ),
                       ),
                     ),
@@ -160,10 +153,15 @@ class ProductDetailsScreen extends StatelessWidget {
     }
 
     try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!launched && context.mounted) _snack(context, 'Could not open partner store.');
+      final launched =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && context.mounted) {
+        _snack(context, 'Could not open partner store.');
+      }
     } catch (_) {
-      if (context.mounted) _snack(context, 'Could not open partner store.');
+      if (context.mounted) {
+        _snack(context, 'Could not open partner store.');
+      }
     }
   }
 
@@ -171,6 +169,7 @@ class ProductDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
     final repo = MarketplaceRepository();
 
     return GlassScaffold(
@@ -182,7 +181,8 @@ class ProductDetailsScreen extends StatelessWidget {
           icon: Glass(
             padding: const EdgeInsets.all(8),
             borderRadius: 12,
-            child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white.withOpacity(0.9)),
+            child: Icon(Icons.arrow_back_ios_new_rounded,
+                size: 18, color: onSurface),
           ),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
@@ -191,99 +191,77 @@ class ProductDetailsScreen extends StatelessWidget {
         stream: repo.watchProductById(productId),
         initialData: initialProduct,
         builder: (context, snap) {
-          if (snap.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Glass(
-                  borderRadius: 22,
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(shape: BoxShape.circle, color: cs.error.withOpacity(0.12)),
-                        child: Icon(Icons.error_outline_rounded, color: cs.error, size: 26),
-                      ),
-                      const SizedBox(height: 14),
-                      Text('Could not load product.', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }
-
           if (!snap.hasData) {
             return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(color: cs.primary),
-                  const SizedBox(height: 14),
-                  Text('Loading product...', style: TextStyle(color: Colors.white.withOpacity(0.45), fontWeight: FontWeight.w600)),
-                ],
-              ),
+              child: CircularProgressIndicator(
+                  color: cs.primary),
             );
           }
 
-          final p = snap.data;
-          if (p == null) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Glass(
-                  borderRadius: 22,
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.inventory_2_outlined, color: Colors.white.withOpacity(0.4), size: 40),
-                      const SizedBox(height: 14),
-                      Text('Product not found.', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }
-
+          final p = snap.data!;
           final img = p.imageUrl.trim();
-          final hasImg = img.isNotEmpty && _looksLikeHttpUrl(img);
+          final hasImg =
+              img.isNotEmpty && _looksLikeHttpUrl(img);
 
           return ListView(
-            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+            physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics()),
+            padding:
+                const EdgeInsets.fromLTRB(16, 4, 16, 100),
             children: [
-              // ── Product Image ──
               Glass(
                 borderRadius: 22,
                 padding: const EdgeInsets.all(10),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius:
+                      BorderRadius.circular(16),
                   child: AspectRatio(
                     aspectRatio: 1.1,
                     child: hasImg
                         ? CachedNetworkImage(
                             imageUrl: img,
                             fit: BoxFit.cover,
-                            fadeInDuration: const Duration(milliseconds: 150),
-                            placeholder: (context, _) => Container(
-                              color: Colors.white.withOpacity(0.04),
+                            placeholder:
+                                (context, _) =>
+                                    Container(
+                              color: onSurface
+                                  .withOpacity(
+                                      0.04),
                               child: Center(
-                                child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary)),
+                                child:
+                                    CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color:
+                                      cs.primary,
+                                ),
                               ),
                             ),
-                            errorWidget: (context, _, __) => Container(
-                              color: Colors.white.withOpacity(0.04),
-                              child: Icon(Icons.image_not_supported_outlined, color: Colors.white.withOpacity(0.3)),
+                            errorWidget:
+                                (context, _, __) =>
+                                    Container(
+                              color: onSurface
+                                  .withOpacity(
+                                      0.04),
+                              child: Icon(
+                                Icons
+                                    .image_not_supported_outlined,
+                                color: onSurface
+                                    .withOpacity(
+                                        0.35),
+                              ),
                             ),
                           )
                         : Container(
-                            color: Colors.white.withOpacity(0.04),
-                            child: Icon(Icons.image_outlined, color: Colors.white.withOpacity(0.3), size: 48),
+                            color: onSurface
+                                .withOpacity(
+                                    0.04),
+                            child: Icon(
+                              Icons.image_outlined,
+                              size: 48,
+                              color: onSurface
+                                  .withOpacity(
+                                      0.35),
+                            ),
                           ),
                   ),
                 ),
@@ -291,135 +269,96 @@ class ProductDetailsScreen extends StatelessWidget {
 
               const SizedBox(height: 14),
 
-              // ── Product Info ──
               Glass(
                 borderRadius: 20,
                 padding: const EdgeInsets.all(18),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
                     Text(
-                      p.name.trim().isEmpty ? 'Untitled product' : p.name.trim(),
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 22,
-                        letterSpacing: -0.5,
+                      p.name.trim().isEmpty
+                          ? 'Untitled product'
+                          : p.name.trim(),
+                      style: theme
+                          .textTheme.titleLarge
+                          ?.copyWith(
+                        fontWeight:
+                            FontWeight.w900,
                         height: 1.15,
                       ),
                     ),
-                    const SizedBox(height: 10),
-
-                    // Price
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: cs.primary.withOpacity(0.10),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: cs.primary.withOpacity(0.20)),
-                      ),
-                      child: Text(
-                        p.price.trim().isEmpty ? '—' : p.price.trim(),
-                        style: TextStyle(
-                          color: cs.primary,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 20,
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // Seller
-                    Row(
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withOpacity(0.06),
-                          ),
-                          child: Icon(Icons.storefront_rounded, size: 16, color: Colors.white.withOpacity(0.5)),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            p.sellerName.trim().isEmpty ? 'Seller' : p.sellerName.trim(),
-                            style: TextStyle(color: Colors.white.withOpacity(0.60), fontWeight: FontWeight.w800, fontSize: 14),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-                    Divider(color: Colors.white.withOpacity(0.06)),
                     const SizedBox(height: 12),
-
-                    // Description
+                    Text(
+                      p.price.trim().isEmpty
+                          ? '—'
+                          : p.price.trim(),
+                      style: TextStyle(
+                        color: cs.primary,
+                        fontWeight:
+                            FontWeight.w900,
+                        fontSize: 22,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Divider(
+                        color: onSurface
+                            .withOpacity(0.08)),
+                    const SizedBox(height: 12),
                     Text(
                       'Description',
-                      style: TextStyle(color: Colors.white.withOpacity(0.45), fontWeight: FontWeight.w800, fontSize: 12),
+                      style: TextStyle(
+                        color: onSurface
+                            .withOpacity(0.55),
+                        fontWeight:
+                            FontWeight.w800,
+                        fontSize: 12,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      p.description.trim().isEmpty ? 'No description.' : p.description.trim(),
-                      style: TextStyle(color: Colors.white.withOpacity(0.60), fontWeight: FontWeight.w600, height: 1.45, fontSize: 14),
+                      p.description.trim().isEmpty
+                          ? 'No description.'
+                          : p.description.trim(),
+                      style: TextStyle(
+                        color: onSurface
+                            .withOpacity(0.70),
+                        fontWeight:
+                            FontWeight.w600,
+                        height: 1.45,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 14),
+              const SizedBox(height: 18),
 
-              // ── Buy Button ──
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _buyNow(context, p),
-                  borderRadius: BorderRadius.circular(18),
-                  child: Ink(
-                    height: 54,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      gradient: LinearGradient(
-                        colors: [cs.primary, cs.primary.withOpacity(0.75)],
-                      ),
-                      border: Border.all(color: cs.primary.withOpacity(0.40)),
-                      boxShadow: [
-                        BoxShadow(color: cs.primary.withOpacity(0.25), blurRadius: 16, offset: const Offset(0, 4)),
-                      ],
-                    ),
-                    child: const Center(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.shopping_cart_rounded, size: 20, color: Colors.white),
-                          SizedBox(width: 10),
-                          Text('BUY NOW', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 0.5)),
-                        ],
-                      ),
+              SizedBox(
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: () =>
+                      _buyNow(context, p),
+                  icon: const Icon(
+                      Icons.shopping_cart_rounded),
+                  label: const Text(
+                    'BUY NOW',
+                    style: TextStyle(
+                      fontWeight:
+                          FontWeight.w900,
+                      letterSpacing: 0.5,
                     ),
                   ),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // ── Affiliate Disclosure ──
-              Glass(
-                borderRadius: 14,
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline_rounded, color: Colors.white.withOpacity(0.35), size: 16),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Affiliate disclosure: purchases via this link may earn us a commission.',
-                        style: TextStyle(color: Colors.white.withOpacity(0.40), fontWeight: FontWeight.w600, fontSize: 11, height: 1.3),
-                      ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: cs.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(
+                              18),
                     ),
-                  ],
+                  ),
                 ),
               ),
             ],

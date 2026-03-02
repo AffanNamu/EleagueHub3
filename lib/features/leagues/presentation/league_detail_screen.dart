@@ -15,7 +15,6 @@ import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
@@ -97,8 +96,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     super.dispose();
   }
 
+  // Premium light-mode toast background (fixes "dark snackbars" in white theme)
   Color _baseToastBg(ThemeData theme) {
-    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0B1220);
+    return theme.brightness == Brightness.dark
+        ? const Color(0xFF101522)
+        : const Color(0xFFF2F7FF);
   }
 
   void _toast(
@@ -110,8 +112,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     if (!mounted) return;
 
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final resolvedBg = bg ?? _baseToastBg(theme);
-    final resolvedFg = fg ?? Colors.white;
+    final resolvedFg = fg ??
+        (theme.brightness == Brightness.dark ? Colors.white : cs.onSurface);
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -145,7 +150,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final accent = cs.primary;
     _toast(
       msg,
-      bg: Color.alphaBlend(accent.withOpacity(0.22), baseBg),
+      bg: Color.alphaBlend(accent.withOpacity(0.16), baseBg),
       fg: accent,
       icon: Icons.check_circle_outline,
     );
@@ -156,7 +161,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final baseBg = _baseToastBg(theme);
     _toast(
       msg,
-      bg: Color.alphaBlend(_premiumAmber.withOpacity(0.22), baseBg),
+      bg: Color.alphaBlend(_premiumAmber.withOpacity(0.16), baseBg),
       fg: _premiumAmber,
       icon: Icons.warning_amber_rounded,
     );
@@ -168,7 +173,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final baseBg = _baseToastBg(theme);
     _toast(
       msg,
-      bg: Color.alphaBlend(cs.error.withOpacity(0.22), baseBg),
+      bg: Color.alphaBlend(cs.error.withOpacity(0.14), baseBg),
       fg: cs.error,
       icon: Icons.error_outline,
     );
@@ -198,7 +203,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     _annLastCount = count;
     _annScrollTimer?.cancel();
 
-    _annScrollTimer = Timer.periodic(const Duration(milliseconds: 40), (timer) {
+    _annScrollTimer =
+        Timer.periodic(const Duration(milliseconds: 40), (timer) {
       if (!_annScrollController.hasClients) return;
       final maxScroll = _annScrollController.position.maxScrollExtent;
       if (maxScroll <= 0) return;
@@ -233,7 +239,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     for (final d in snap.docs) {
       final data = d.data();
       data['createdAtMs'] = _intFrom(data['createdAtMs'], fallback: 0);
-      data['id'] = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? data['id'] : d.id;
+      data['id'] = (data['id'] is String &&
+              (data['id'] as String).trim().isNotEmpty)
+          ? data['id']
+          : d.id;
       try {
         out.add(LeagueAnnouncement.fromMap(data));
       } catch (_) {}
@@ -266,16 +275,22 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       throw FirebaseAuthException(code: 'unauthenticated');
     }
 
-    await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+    await ConnectivityService.instance
+        .requireOnline(timeout: const Duration(seconds: 4));
 
-    final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+    final league =
+        await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
     if (league == null) {
       throw const _L10nException('leagues_error_not_found_local_storage');
     }
 
-    final fixtures = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
-    final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
-    final knockouts = await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+    final fixtures =
+        await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+    final teams =
+        await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+    final knockouts = await _repo
+        .getKnockoutMatches(widget.leagueId)
+        .timeout(const Duration(seconds: 25));
 
     final announcements = await _loadAnnouncements(widget.leagueId);
 
@@ -330,12 +345,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final unplayed = sortedAll.where((m) => !m.isPlayed).toList();
     if (unplayed.isEmpty) return [];
 
-    final roundsWithUnplayed = unplayed.map((m) => m.roundNumber).toSet().toList()..sort();
+    final roundsWithUnplayed = unplayed.map((m) => m.roundNumber).toSet().toList()
+      ..sort();
 
     int effectiveRound = selectedRound;
     if (!roundsWithUnplayed.contains(effectiveRound)) {
       final next = roundsWithUnplayed.where((r) => r > selectedRound).toList();
-      effectiveRound = next.isNotEmpty ? next.first : roundsWithUnplayed.first;
+      effectiveRound =
+          next.isNotEmpty ? next.first : roundsWithUnplayed.first;
     }
 
     if (effectiveRound != selectedRound) {
@@ -345,7 +362,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       });
     }
 
-    final filtered = sortedAll.where((m) => !m.isPlayed && m.roundNumber >= effectiveRound).toList();
+    final filtered = sortedAll
+        .where((m) => !m.isPlayed && m.roundNumber >= effectiveRound)
+        .toList();
     if (filtered.length <= limit) return filtered;
     return filtered.take(limit).toList();
   }
@@ -357,7 +376,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         return;
       }
 
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -382,13 +402,15 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       setState(() {});
       _toastOk(context.l10n.tr('league_details_space_started'));
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+          UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
   Future<void> _onEndSpace(League league) async {
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -410,27 +432,32 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       setState(() {});
       _toastOk(context.l10n.tr('league_details_space_ended'));
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+          UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
   Future<void> _onOpenSpace(League league) async {
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       if (!mounted) return;
       context.push('/leagues/${league.id}/space');
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+          UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
   Future<void> _onOpenLeagueChatroom(League league) async {
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       if (!mounted) return;
       context.push('/leagues/${widget.leagueId}/chat');
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+          UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
   }
 
@@ -461,177 +488,181 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final isWide = MediaQuery.of(context).size.width > 600;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppTheme.backgroundGradient(theme.brightness),
+    return GlassScaffold(
+      appBar: AppBar(
+        title: Text(l10n.tr('league_details_appbar_title')),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: l10n.tr('common_refresh'),
+            onPressed: () {
+              setState(() {});
+              _toastOk(l10n.tr('common_done'));
+            },
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
       ),
-      child: GlassScaffold(
-        appBar: AppBar(
-          title: Text(l10n.tr('league_details_appbar_title')),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          actions: [
-            IconButton(
-              tooltip: l10n.tr('common_refresh'),
-              onPressed: () {
-                setState(() {});
-                _toastOk(l10n.tr('common_done'));
-              },
-              icon: const Icon(Icons.refresh),
-            ),
-          ],
-        ),
-        body: SafeArea(
-          child: Center(
-            child: FutureBuilder<Map<String, dynamic>>(
-              future: _loadData(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(
-                    child: CircularProgressIndicator(color: cs.primary),
-                  );
-                }
+      body: SafeArea(
+        child: Center(
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: _loadData(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return Center(
+                  child: CircularProgressIndicator(color: cs.primary),
+                );
+              }
 
-                if (snapshot.hasError) {
-                  final err = snapshot.error;
-                  final message = (err is _L10nException)
-                      ? l10n.tr(err.key)
-                      : UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
+              if (snapshot.hasError) {
+                final err = snapshot.error;
+                final message = (err is _L10nException)
+                    ? l10n.tr(err.key)
+                    : UserFriendlyError.toMessage(
+                        err is Object ? err : Exception('unknown'));
 
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.error_outline, color: cs.error, size: 48),
-                          const SizedBox(height: 16),
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline,
+                            color: cs.error, size: 48),
+                        const SizedBox(height: 16),
+                        Text(
+                          '${l10n.tr('common_error_prefix')}: $message',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: cs.onSurface.withOpacity(0.72),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (kDebugMode && err != null) ...[
+                          const SizedBox(height: 6),
                           Text(
-                            '${l10n.tr('common_error_prefix')}: $message',
+                            err.runtimeType.toString(),
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: cs.onBackground.withOpacity(0.72),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (kDebugMode && err != null) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              err.runtimeType.toString(),
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: cs.onBackground.withOpacity(0.45), fontSize: 12),
-                            ),
-                          ],
-                          const SizedBox(height: 16),
-                          TextButton(
-                            onPressed: () => setState(() {}),
-                            child: Text(
-                              l10n.tr('common_retry'),
-                              style: TextStyle(color: cs.primary, fontWeight: FontWeight.w800),
+                              color: cs.onSurface.withOpacity(0.45),
+                              fontSize: 12,
                             ),
                           ),
                         ],
-                      ),
-                    ),
-                  );
-                }
-
-                if (!snapshot.hasData) return const SizedBox.shrink();
-
-                final league = snapshot.data!['league'] as League;
-                final fixtures = snapshot.data!['fixtures'] as List<FixtureMatch>;
-                final teams = snapshot.data!['teams'] as List<Team>;
-                final teamNames = snapshot.data!['teamNames'] as Map<String, String>;
-                final teamImageUrls = snapshot.data!['teamImageUrls'] as Map<String, String>;
-                final currentUserId = snapshot.data!['currentUserId'] as String;
-                final membership = snapshot.data!['membership'] as Membership?;
-                final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
-                final announcements = snapshot.data!['announcements'] as List<LeagueAnnouncement>;
-                final space = snapshot.data!['space'] as Map<String, dynamic>?;
-
-                final sorted = _sortedSchedule(fixtures);
-                final rounds = _allRounds(sorted);
-                final selectedRound = (_lastViewedRound != null && rounds.contains(_lastViewedRound))
-                    ? _lastViewedRound!
-                    : (rounds.isEmpty ? 1 : rounds.first);
-
-                final upcoming = _computeUpcomingUnplayed(
-                  sortedAll: sorted,
-                  selectedRound: selectedRound,
-                  limit: 8,
-                );
-
-                int latestAnnMs = 0;
-                if (announcements.isNotEmpty) {
-                  latestAnnMs = announcements.map((a) => a.createdAtMs).reduce(max);
-                }
-                final hasUnreadAnnouncements = announcements.isNotEmpty && latestAnnMs > _lastSeenAnnMs;
-
-                if (hasUnreadAnnouncements) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _markAnnouncementsSeen(latestAnnMs);
-                  });
-                }
-
-                _ensureAnnounceAutoScroll(announcements.length);
-
-                final isOwnerByMembership = membership?.role == LeagueRole.organizer;
-                final isOwnerByLeague =
-                    league.organizerUid.trim().isNotEmpty && league.organizerUid.trim() == currentUserId.trim();
-                final isOwner = isOwnerByMembership || isOwnerByLeague;
-
-                // ── FIXED: Show chat for anyone who is in the league ──
-                // membership != null: has memberships/{uid} doc
-                // isInMemberIds: is in the league's memberIds array
-                // isOwner: is the organizer
-                // Any of these means user is a league participant → can chat
-                final canChat = true; // Always show; route is guarded so unauthorized users will see the access gate.
-
-                final spaceLive = space?['isLive'] == true;
-
-                return ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: isWide ? 600 : 500),
-                  child: RefreshIndicator(
-                    onRefresh: () async => setState(() {}),
-                    color: cs.primary,
-                    child: ListView(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      children: [
-                        _overviewCard(context, league, isOwner),
-                        if (announcements.isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          _announcementsCard(context, announcements, hasUnreadAnnouncements),
-                        ],
                         const SizedBox(height: 16),
-                        _quickActions(
-                          context,
-                          league,
-                          isOwner,
-                          canChat,
-                          fixtures,
-                          teams,
-                          knockouts,
-                          spaceLive,
-                          currentUserId,
-                        ),
-                        const SizedBox(height: 16),
-                        _rewardsPreviewCard(context, league, isOwner),
-                        const SizedBox(height: 16),
-                        _upcomingMatchesCard(
-                          context,
-                          fixtures: upcoming,
-                          names: teamNames,
-                          teamImageUrls: teamImageUrls,
-                          rounds: rounds,
-                          selectedRound: selectedRound,
-                          onRoundSelected: (r) => _persistRound(r),
+                        TextButton(
+                          onPressed: () => setState(() {}),
+                          child: Text(
+                            l10n.tr('common_retry'),
+                            style: TextStyle(
+                                color: cs.primary,
+                                fontWeight: FontWeight.w800),
+                          ),
                         ),
                       ],
                     ),
                   ),
                 );
-              },
-            ),
+              }
+
+              if (!snapshot.hasData) return const SizedBox.shrink();
+
+              final league = snapshot.data!['league'] as League;
+              final fixtures = snapshot.data!['fixtures'] as List<FixtureMatch>;
+              final teams = snapshot.data!['teams'] as List<Team>;
+              final teamNames = snapshot.data!['teamNames'] as Map<String, String>;
+              final teamImageUrls =
+                  snapshot.data!['teamImageUrls'] as Map<String, String>;
+              final currentUserId = snapshot.data!['currentUserId'] as String;
+              final membership = snapshot.data!['membership'] as Membership?;
+              final knockouts = snapshot.data!['knockouts'] as List<KnockoutMatch>;
+              final announcements =
+                  snapshot.data!['announcements'] as List<LeagueAnnouncement>;
+              final space = snapshot.data!['space'] as Map<String, dynamic>?;
+
+              final sorted = _sortedSchedule(fixtures);
+              final rounds = _allRounds(sorted);
+              final selectedRound = (_lastViewedRound != null &&
+                      rounds.contains(_lastViewedRound))
+                  ? _lastViewedRound!
+                  : (rounds.isEmpty ? 1 : rounds.first);
+
+              final upcoming = _computeUpcomingUnplayed(
+                sortedAll: sorted,
+                selectedRound: selectedRound,
+                limit: 8,
+              );
+
+              int latestAnnMs = 0;
+              if (announcements.isNotEmpty) {
+                latestAnnMs =
+                    announcements.map((a) => a.createdAtMs).reduce(max);
+              }
+              final hasUnreadAnnouncements =
+                  announcements.isNotEmpty && latestAnnMs > _lastSeenAnnMs;
+
+              if (hasUnreadAnnouncements) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _markAnnouncementsSeen(latestAnnMs);
+                });
+              }
+
+              _ensureAnnounceAutoScroll(announcements.length);
+
+              final isOwnerByMembership = membership?.role == LeagueRole.organizer;
+              final isOwnerByLeague = league.organizerUid.trim().isNotEmpty &&
+                  league.organizerUid.trim() == currentUserId.trim();
+              final isOwner = isOwnerByMembership || isOwnerByLeague;
+
+              final canChat = true; // route guard decides final access
+              final spaceLive = space?['isLive'] == true;
+
+              return ConstrainedBox(
+                constraints:
+                    BoxConstraints(maxWidth: isWide ? 600 : 500),
+                child: RefreshIndicator(
+                  onRefresh: () async => setState(() {}),
+                  color: cs.primary,
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    children: [
+                      _overviewCard(context, league, isOwner),
+                      if (announcements.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _announcementsCard(
+                            context, announcements, hasUnreadAnnouncements),
+                      ],
+                      const SizedBox(height: 16),
+                      _quickActions(
+                        context,
+                        league,
+                        isOwner,
+                        canChat,
+                        fixtures,
+                        teams,
+                        knockouts,
+                        spaceLive,
+                        currentUserId,
+                      ),
+                      const SizedBox(height: 16),
+                      _rewardsPreviewCard(context, league, isOwner),
+                      const SizedBox(height: 16),
+                      _upcomingMatchesCard(
+                        context,
+                        fixtures: upcoming,
+                        names: teamNames,
+                        teamImageUrls: teamImageUrls,
+                        rounds: rounds,
+                        selectedRound: selectedRound,
+                        onRoundSelected: (r) => _persistRound(r),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -646,21 +677,34 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final settings = league.settings;
 
     final rulePills = <Widget>[
-      _pill(league.isPrivate ? l10n.tr('league_details_private') : l10n.tr('league_details_public'), cs.primary),
-      _pill('${league.maxTeams} ${l10n.tr('league_details_teams_max_suffix')}', _premiumAmber),
-      _pill(league.region, _premiumViolet),
-      if (league.viewerCapacity > 0) _pill('${league.viewerCapacity} Viewers', _premiumTeal),
       _pill(
-        settings.doubleRoundRobin ? l10n.tr('league_details_double_rr') : l10n.tr('league_details_single_rr'),
+        league.isPrivate
+            ? l10n.tr('league_details_private')
+            : l10n.tr('league_details_public'),
+        cs.primary,
+      ),
+      _pill('${league.maxTeams} ${l10n.tr('league_details_teams_max_suffix')}',
+          _premiumAmber),
+      _pill(league.region, _premiumViolet),
+      if (league.viewerCapacity > 0)
+        _pill('${league.viewerCapacity} Viewers', _premiumTeal),
+      _pill(
+        settings.doubleRoundRobin
+            ? l10n.tr('league_details_double_rr')
+            : l10n.tr('league_details_single_rr'),
         _premiumSky,
       ),
     ];
 
     if (league.format == LeagueFormat.uclGroup) {
-      rulePills.add(_pill('${l10n.tr('league_details_group_size_prefix')} ${settings.groupSize}', _premiumTeal));
+      rulePills.add(_pill(
+          '${l10n.tr('league_details_group_size_prefix')} ${settings.groupSize}',
+          _premiumTeal));
     }
     if (league.format == LeagueFormat.uclSwiss) {
-      rulePills.add(_pill('${l10n.tr('league_details_swiss_rounds_prefix')} ${settings.swissRounds}', _premiumTeal));
+      rulePills.add(_pill(
+          '${l10n.tr('league_details_swiss_rounds_prefix')} ${settings.swissRounds}',
+          _premiumTeal));
     }
 
     final desc = league.description.trim();
@@ -696,7 +740,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       color: cs.primary.withOpacity(0.10),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.verified_user, color: cs.primary, size: 20),
+                    child: Icon(Icons.verified_user,
+                        color: cs.primary, size: 20),
                   ),
                 ),
             ],
@@ -729,7 +774,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     );
   }
 
-  Widget _announcementsCard(BuildContext context, List<LeagueAnnouncement> anns, bool hasUnread) {
+  Widget _announcementsCard(BuildContext context, List<LeagueAnnouncement> anns,
+      bool hasUnread) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
@@ -755,14 +801,18 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               if (hasUnread) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: cs.error.withOpacity(0.90),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
                     l10n.tr('league_details_new_badge'),
-                    style: TextStyle(color: cs.onError, fontSize: 10, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                        color: cs.onError,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -778,8 +828,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, index) {
                 final a = sorted[index];
-                final timeStr = formatter.format(DateTime.fromMillisecondsSinceEpoch(a.createdAtMs));
-                return GlassAnnouncement(title: a.title, message: a.message, time: timeStr);
+                final timeStr =
+                    formatter.format(DateTime.fromMillisecondsSinceEpoch(a.createdAtMs));
+                return GlassAnnouncement(
+                    title: a.title, message: a.message, time: timeStr);
               },
             ),
           ),
@@ -815,7 +867,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 onPressed: _openRewardsViewer,
                 child: Text(
                   'View all',
-                  style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
+                  style: TextStyle(
+                      color: cs.primary,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12),
                 ),
               ),
               if (isOwner) ...[
@@ -825,7 +880,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   icon: const Icon(Icons.edit_outlined, size: 18),
                   label: const Text(
                     'Manage',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                    style: TextStyle(
+                        fontWeight: FontWeight.w900, fontSize: 12),
                   ),
                 ),
               ],
@@ -849,7 +905,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                           child: SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2.4, color: cs.primary),
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2.4, color: cs.primary),
                           ),
                         ),
                       )
@@ -857,11 +914,13 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                         ? Container(
                             key: const ValueKey('empty'),
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 14, horizontal: 12),
                             decoration: BoxDecoration(
                               color: cs.onSurface.withOpacity(0.05),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+                              border: Border.all(
+                                  color: cs.onSurface.withOpacity(0.12)),
                             ),
                             child: Text(
                               'No rewards available',
@@ -880,11 +939,13 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                               if (snap.hasError) {
                                 return Container(
                                   width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12, horizontal: 12),
                                   decoration: BoxDecoration(
                                     color: cs.error.withOpacity(0.10),
                                     borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: cs.error.withOpacity(0.18)),
+                                    border: Border.all(
+                                        color: cs.error.withOpacity(0.18)),
                                   ),
                                   child: Text(
                                     'Failed to load rewards',
@@ -905,15 +966,19 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                                 tween: Tween<double>(begin: 0.96, end: 1),
                                 duration: const Duration(milliseconds: 240),
                                 curve: Curves.easeOutCubic,
-                                builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                                builder: (context, scale, child) =>
+                                    Transform.scale(scale: scale, child: child),
                                 child: Column(
                                   children: [
-                                    for (final r in preview) RewardCard(reward: r, onTap: _openRewardsViewer),
+                                    for (final r in preview)
+                                      RewardCard(
+                                          reward: r, onTap: _openRewardsViewer),
                                     if (all.length > preview.length)
                                       Padding(
                                         padding: const EdgeInsets.only(top: 6),
                                         child: Align(
-                                          alignment: AlignmentDirectional.center,
+                                          alignment:
+                                              AlignmentDirectional.center,
                                           child: Text(
                                             '+${all.length - preview.length} more',
                                             style: TextStyle(
@@ -956,7 +1021,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final isGroup = league.format == LeagueFormat.uclGroup;
     final hasKnockouts = knockouts.isNotEmpty;
 
-    void showNeedKnockoutsSnack() => _toastWarn(l10n.tr('league_details_need_knockouts_first'));
+    void showNeedKnockoutsSnack() =>
+        _toastWarn(l10n.tr('league_details_need_knockouts_first'));
 
     return Glass(
       padding: const EdgeInsets.all(20),
@@ -972,10 +1038,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             ),
           ),
           const SizedBox(height: 8),
-
           _buildLeagueSpaceRow(context, league, isOwner, spaceLive, currentUserId),
-
-          // League Chatroom button — visible for ALL league participants
           if (canChat) ...[
             const SizedBox(height: 12),
             SizedBox(
@@ -985,7 +1048,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
                   foregroundColor: cs.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: () => _onOpenLeagueChatroom(league),
                 icon: const Icon(Icons.forum_outlined),
@@ -996,9 +1060,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ),
           ],
-
           const SizedBox(height: 16),
-
           Row(
             children: [
               Expanded(
@@ -1018,7 +1080,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ],
           ),
-
           if (!isOwner) ...[
             const SizedBox(height: 12),
             if (hasKnockouts)
@@ -1027,13 +1088,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
-                  onPressed: () => context.push('/leagues/${widget.leagueId}/knockout'),
+                  onPressed: () =>
+                      context.push('/leagues/${widget.leagueId}/knockout'),
                   icon: const Icon(Icons.emoji_events_rounded),
                   label: Text(
                     l10n.tr('league_details_view_knockout_bracket'),
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                    style:
+                        const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                   ),
                 ),
               )
@@ -1067,12 +1131,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
               child: Text(
                 l10n.tr('league_details_view_only_banner'),
-                style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: cs.onSurface.withOpacity(0.72),
+                  fontWeight: FontWeight.w700,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
           ],
-
           if (isOwner) ...[
             const SizedBox(height: 12),
             SizedBox(
@@ -1080,7 +1146,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
                 icon: const Icon(Icons.edit_note),
                 label: Text(
@@ -1102,12 +1169,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
                   foregroundColor: cs.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
                 icon: const Icon(Icons.settings),
                 label: Text(
                   l10n.tr('league_details_league_settings_admin'),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  style:
+                      const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                 ),
                 onPressed: () => context.push('/leagues/${widget.leagueId}/admin'),
               ),
@@ -1121,12 +1190,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     side: BorderSide(color: cs.primary),
                     foregroundColor: cs.primary,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
                   icon: const Icon(Icons.emoji_events),
                   label: Text(
                     l10n.tr('league_details_generate_knockout_swiss'),
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                    style:
+                        const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                   ),
                   onPressed: () => _generateSwissKnockouts(context, league, teams, fixtures),
                 ),
@@ -1141,12 +1212,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     side: BorderSide(color: cs.primary),
                     foregroundColor: cs.primary,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
                   icon: const Icon(Icons.emoji_events_outlined),
                   label: Text(
                     l10n.tr('league_details_generate_knockout_groups'),
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                    style:
+                        const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                   ),
                   onPressed: () => _generateGroupKnockouts(context, league),
                 ),
@@ -1159,7 +1232,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   Expanded(
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
-                        foregroundColor: hasKnockouts ? cs.primary : cs.onSurface.withOpacity(0.30),
+                        foregroundColor: hasKnockouts
+                            ? cs.primary
+                            : cs.onSurface.withOpacity(0.30),
                       ),
                       onPressed: hasKnockouts
                           ? () => context.push('/leagues/${widget.leagueId}/knockout')
@@ -1167,7 +1242,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       icon: const Icon(Icons.account_tree_outlined, size: 18),
                       label: Text(
                         l10n.tr('league_details_view_knockout_bracket'),
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w900, fontSize: 12),
                       ),
                     ),
                   ),
@@ -1175,7 +1251,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   Expanded(
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
-                        foregroundColor: hasKnockouts ? cs.primary : cs.onSurface.withOpacity(0.30),
+                        foregroundColor: hasKnockouts
+                            ? cs.primary
+                            : cs.onSurface.withOpacity(0.30),
                       ),
                       onPressed: hasKnockouts
                           ? () async {
@@ -1187,7 +1265,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       icon: const Icon(Icons.sports_score, size: 18),
                       label: Text(
                         l10n.tr('league_details_manage_ko_scores'),
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w900, fontSize: 12),
                       ),
                     ),
                   ),
@@ -1236,7 +1315,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 icon: const Icon(Icons.mic, size: 18),
                 label: Text(
                   l10n.tr('league_details_start_space'),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  style:
+                      const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                 ),
               ),
             ),
@@ -1270,14 +1350,18 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             ),
             if (isOwner) ...[
               const SizedBox(width: 10),
-              Container(width: 1, height: 16, color: cs.onSurface.withOpacity(0.18)),
+              Container(
+                  width: 1,
+                  height: 16,
+                  color: cs.onSurface.withOpacity(0.18)),
               const SizedBox(width: 6),
               InkWell(
                 onTap: () => _onEndSpace(league),
                 borderRadius: BorderRadius.circular(999),
                 child: Padding(
                   padding: const EdgeInsets.all(4),
-                  child: Icon(Icons.stop_circle_outlined, size: 18, color: cs.error),
+                  child: Icon(Icons.stop_circle_outlined,
+                      size: 18, color: cs.error),
                 ),
               ),
             ],
@@ -1301,7 +1385,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final cs = theme.colorScheme;
 
     final unplayedFixtures = fixtures.where((f) => !f.isPlayed).toList();
-    final unplayedRounds = rounds.where((r) => unplayedFixtures.any((f) => f.roundNumber == r)).toList();
+    final unplayedRounds =
+        rounds.where((r) => unplayedFixtures.any((f) => f.roundNumber == r)).toList();
 
     return Glass(
       padding: const EdgeInsets.all(20),
@@ -1340,7 +1425,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               child: Center(
                 child: Text(
                   l10n.tr('league_details_no_upcoming_fixtures'),
-                  style: TextStyle(color: cs.onSurface.withOpacity(0.45), fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: cs.onSurface.withOpacity(0.45),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             )
@@ -1360,7 +1448,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               onPressed: () => context.push('/leagues/${widget.leagueId}/fixtures'),
               child: Text(
                 l10n.tr('league_details_view_all_fixtures'),
-                style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w900),
+                style: TextStyle(
+                  color: cs.primary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ),
@@ -1369,7 +1461,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     );
   }
 
-  Widget _roundChip({required String label, required bool selected, required VoidCallback onTap}) {
+  Widget _roundChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
     final cs = Theme.of(context).colorScheme;
 
     return InkWell(
@@ -1380,7 +1476,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         decoration: BoxDecoration(
           color: selected ? cs.primary : cs.onSurface.withOpacity(0.06),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: selected ? cs.primary : cs.onSurface.withOpacity(0.12)),
+          border: Border.all(
+              color: selected ? cs.primary : cs.onSurface.withOpacity(0.12)),
         ),
         child: Text(
           label,
@@ -1428,10 +1525,17 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: cs.onSurface.withOpacity(0.10), borderRadius: BorderRadius.circular(6)),
+              decoration: BoxDecoration(
+                color: cs.onSurface.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(6),
+              ),
               child: Text(
                 '${l10n.tr('league_details_round_prefix')}${f.roundNumber}',
-                style: TextStyle(color: cs.onSurface.withOpacity(0.65), fontSize: 11, fontWeight: FontWeight.w800),
+                style: TextStyle(
+                  color: cs.onSurface.withOpacity(0.65),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
             const SizedBox(width: 10),
@@ -1461,7 +1565,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Text(
                 l10n.tr('league_details_vs'),
-                style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
+                style: TextStyle(
+                  color: cs.primary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
               ),
             ),
             Expanded(
@@ -1493,7 +1601,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     );
   }
 
-  Widget _actionButton({required IconData icon, required String label, required VoidCallback onTap}) {
+  Widget _actionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
@@ -1536,7 +1648,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       ),
       child: Text(
         text,
-        style: TextStyle(fontWeight: FontWeight.w900, color: c, fontSize: 11),
+        style: TextStyle(
+          fontWeight: FontWeight.w900,
+          color: c,
+          fontSize: 11,
+        ),
       ),
     );
   }
@@ -1560,7 +1676,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         return;
       }
 
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final existing = await _repo.getKnockoutMatches(league.id);
       if (existing.isNotEmpty) {
@@ -1577,7 +1694,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       final requiredRounds = league.settings.swissRounds;
 
       final roundsSet = swissMatches.map((m) => m.roundNumber).toSet();
-      final hasAllRounds = List.generate(requiredRounds, (i) => i + 1).every((r) => roundsSet.contains(r));
+      final hasAllRounds =
+          List.generate(requiredRounds, (i) => i + 1).every((r) => roundsSet.contains(r));
       if (!hasAllRounds) {
         _toastWarn(
           '${l10n.tr('league_details_generate_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_generate_all_swiss_rounds_suffix')}',
@@ -1585,7 +1703,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         return;
       }
 
-      final anyUnplayedInRequired = swissMatches.where((m) => m.roundNumber <= requiredRounds).any((m) => !m.isPlayed);
+      final anyUnplayedInRequired = swissMatches
+          .where((m) => m.roundNumber <= requiredRounds)
+          .any((m) => !m.isPlayed);
       if (anyUnplayedInRequired) {
         _toastWarn(
           '${l10n.tr('league_details_finish_all_swiss_rounds_prefix')} $requiredRounds ${l10n.tr('league_details_finish_all_swiss_rounds_suffix')}',
@@ -1593,7 +1713,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         return;
       }
 
-      final swissStandings = StandingsCalculator.calculate(teams: teams, matches: swissMatches);
+      final swissStandings =
+          StandingsCalculator.calculate(teams: teams, matches: swissMatches);
 
       if (swissStandings.length != teams.length) {
         _toastErr(l10n.tr('league_details_standings_team_mismatch'));
@@ -1623,7 +1744,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     }
   }
 
-  Future<void> _generateGroupKnockouts(BuildContext context, League league) async {
+  Future<void> _generateGroupKnockouts(
+      BuildContext context, League league) async {
     final l10n = context.l10n;
 
     try {
@@ -1649,7 +1771,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       }
 
       if (league.settings.groupSize != 4) {
-        _toastWarn('${l10n.tr('league_details_group_size_expected_4_prefix')}: ${league.settings.groupSize}.');
+        _toastWarn(
+            '${l10n.tr('league_details_group_size_expected_4_prefix')}: ${league.settings.groupSize}.');
       }
 
       final groupMatches = matches.where((m) => m.groupId != null).toList();
@@ -1752,11 +1875,13 @@ class _LeagueHero extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url, {int width = 1200, int height = 600, String crop = 'fill'}) {
+  String _cloudinaryOptimizedUrl(String url,
+      {int width = 1200, int height = 600, String crop = 'fill'}) {
     final u = url.trim();
     if (u.isEmpty) return u;
 
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1779,7 +1904,8 @@ class _LeagueHero extends StatelessWidget {
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) return u;
@@ -1821,7 +1947,8 @@ class _LeagueHero extends StatelessWidget {
     }
 
     if (u.isNotEmpty && _looksLikeHttpUrl(u)) {
-      final deliver = optimizeCloudinary ? _cloudinaryOptimizedUrl(u, width: cacheWidth, height: cacheHeight) : u;
+      final deliver =
+          optimizeCloudinary ? _cloudinaryOptimizedUrl(u, width: cacheWidth, height: cacheHeight) : u;
 
       return Image.network(
         deliver,
@@ -1831,7 +1958,8 @@ class _LeagueHero extends StatelessWidget {
         cacheWidth: cacheWidth,
         cacheHeight: cacheHeight,
         errorBuilder: (_, __, ___) => Center(
-          child: Icon(Icons.emoji_events_outlined, size: 36, color: cs.onSurface.withOpacity(0.55)),
+          child: Icon(Icons.emoji_events_outlined,
+              size: 36, color: cs.onSurface.withOpacity(0.55)),
         ),
         loadingBuilder: (context, child, event) {
           if (event == null) return child;
@@ -1854,7 +1982,8 @@ class _LeagueHero extends StatelessWidget {
         u,
         fit: fit,
         errorBuilder: (_, __, ___) => Center(
-          child: Icon(Icons.emoji_events_outlined, size: 36, color: cs.onSurface.withOpacity(0.55)),
+          child: Icon(Icons.emoji_events_outlined,
+              size: 36, color: cs.onSurface.withOpacity(0.55)),
         ),
         loadingBuilder: (context, child, event) {
           if (event == null) return child;
@@ -1873,7 +2002,8 @@ class _LeagueHero extends StatelessWidget {
     }
 
     return Center(
-      child: Icon(Icons.emoji_events_outlined, size: 48, color: cs.onSurface.withOpacity(0.55)),
+      child: Icon(Icons.emoji_events_outlined,
+          size: 48, color: cs.onSurface.withOpacity(0.55)),
     );
   }
 
@@ -1955,7 +2085,8 @@ class _TeamThumb extends StatelessWidget {
     final u = url.trim();
     if (u.isEmpty) return u;
 
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1971,7 +2102,8 @@ class _TeamThumb extends StatelessWidget {
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) return u;
@@ -2009,14 +2141,25 @@ class _TeamThumb extends StatelessWidget {
                 filterQuality: FilterQuality.low,
                 cacheWidth: px,
                 cacheHeight: px,
-                errorBuilder: (_, __, ___) =>
-                    Icon(Icons.emoji_events_outlined, size: size * 0.70, color: cs.onSurface.withOpacity(0.55)),
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.emoji_events_outlined,
+                  size: size * 0.70,
+                  color: cs.onSurface.withOpacity(0.55),
+                ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(Icons.emoji_events_outlined, size: size * 0.70, color: cs.onSurface.withOpacity(0.55));
+                  return Icon(
+                    Icons.emoji_events_outlined,
+                    size: size * 0.70,
+                    color: cs.onSurface.withOpacity(0.55),
+                  );
                 },
               )
-            : Icon(Icons.emoji_events_outlined, size: size * 0.70, color: cs.onSurface.withOpacity(0.55)),
+            : Icon(
+                Icons.emoji_events_outlined,
+                size: size * 0.70,
+                color: cs.onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }

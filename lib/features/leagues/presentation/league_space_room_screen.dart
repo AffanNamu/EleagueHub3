@@ -75,14 +75,21 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   String _youLabel = 'You';
 
-  DocumentReference<Map<String, dynamic>> get _spaceDoc =>
-      _firestore.collection('leagues').doc(widget.leagueId).collection('space').doc('current');
+  DocumentReference<Map<String, dynamic>> get _spaceDoc => _firestore
+      .collection('leagues')
+      .doc(widget.leagueId)
+      .collection('space')
+      .doc('current');
 
-  CollectionReference<Map<String, dynamic>> get _requestsCol => _spaceDoc.collection('requests');
-  CollectionReference<Map<String, dynamic>> get _speakersCol => _spaceDoc.collection('speakers');
+  CollectionReference<Map<String, dynamic>> get _requestsCol =>
+      _spaceDoc.collection('requests');
+  CollectionReference<Map<String, dynamic>> get _speakersCol =>
+      _spaceDoc.collection('speakers');
 
-  DocumentReference<Map<String, dynamic>> get _myRequestDoc => _requestsCol.doc(_uid);
-  DocumentReference<Map<String, dynamic>> get _mySpeakerDoc => _speakersCol.doc(_uid);
+  DocumentReference<Map<String, dynamic>> get _myRequestDoc =>
+      _requestsCol.doc(_uid);
+  DocumentReference<Map<String, dynamic>> get _mySpeakerDoc =>
+      _speakersCol.doc(_uid);
 
   @override
   void didChangeDependencies() {
@@ -117,10 +124,15 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url, {int width = 96, int height = 96}) {
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int width = 96,
+    int height = 96,
+  }) {
     final u = url.trim();
     if (u.isEmpty) return u;
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
     final marker = '/image/upload/';
     final idx = u.indexOf(marker);
@@ -131,7 +143,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final parts = suffix.split('/');
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) return u;
       parts[0] = 'f_auto,q_auto,$first';
@@ -143,15 +156,29 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   String _bestEffortProfileImageUrlFromProfile(dynamic profile) {
     if (profile == null) return '';
     String url = '';
-    try { final v = (profile.photoUrl as String?) ?? ''; if (v.trim().isNotEmpty) url = v.trim(); } catch (_) {}
-    if (url.isEmpty) { try { final v = (profile.profileImageUrl as String?) ?? ''; if (v.trim().isNotEmpty) url = v.trim(); } catch (_) {} }
-    if (url.isEmpty) { try { final v = (profile.teamImageUrl as String?) ?? ''; if (v.trim().isNotEmpty) url = v.trim(); } catch (_) {} }
+    try {
+      final v = (profile.photoUrl as String?) ?? '';
+      if (v.trim().isNotEmpty) url = v.trim();
+    } catch (_) {}
+    if (url.isEmpty) {
+      try {
+        final v = (profile.profileImageUrl as String?) ?? '';
+        if (v.trim().isNotEmpty) url = v.trim();
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      try {
+        final v = (profile.teamImageUrl as String?) ?? '';
+        if (v.trim().isNotEmpty) url = v.trim();
+      } catch (_) {}
+    }
     return url.trim();
   }
 
   void _ensureDisplayNameLoaded(String userId) {
     final uid = userId.trim();
     if (uid.isEmpty) return;
+
     final hasName = (_displayNameByUserId[uid] ?? '').trim().isNotEmpty;
     final hasAvatar = _avatarUrlByUserId.containsKey(uid);
     if (hasName && hasAvatar) return;
@@ -160,9 +187,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     unawaited(() async {
       try {
-        final profile = await _profiles.fetchByUserId(uid).timeout(const Duration(seconds: 10));
+        final profile =
+            await _profiles.fetchByUserId(uid).timeout(const Duration(seconds: 10));
         String name = '';
-        try { name = (profile?.teamName as String?)?.trim() ?? ''; } catch (_) {}
+        try {
+          name = (profile?.teamName as String?)?.trim() ?? '';
+        } catch (_) {}
         final avatar = _bestEffortProfileImageUrlFromProfile(profile).trim();
         if (!mounted) return;
         setState(() {
@@ -170,24 +200,34 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           if (avatar.isNotEmpty) _avatarUrlByUserId[uid] = avatar;
           else _avatarUrlByUserId.putIfAbsent(uid, () => '');
         });
-      } catch (_) {}
-      finally { _displayNameLoading.remove(uid); }
+      } catch (_) {} finally {
+        _displayNameLoading.remove(uid);
+      }
     }());
   }
 
   String _avatarUrl(String userId) {
     final raw = (_avatarUrlByUserId[userId] ?? '').trim();
     if (raw.isEmpty) return '';
-    if (_looksLikeHttpUrl(raw)) return _cloudinaryOptimizedUrl(raw, width: 96, height: 96);
+    if (_looksLikeHttpUrl(raw)) {
+      return _cloudinaryOptimizedUrl(raw, width: 96, height: 96);
+    }
     return raw;
   }
 
+  // Premium toast colors (fixes dark-looking toast in light theme)
   void _toast(String msg, {Color? accent, IconData? icon}) {
     if (!mounted) return;
+
     final theme = Theme.of(context);
-    final baseBg = theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
-    final fg = accent ?? Colors.white;
-    final bg = accent == null ? baseBg : Color.alphaBlend(accent.withOpacity(0.22), baseBg);
+    final cs = theme.colorScheme;
+
+    final baseBg = theme.brightness == Brightness.dark
+        ? const Color(0xFF101522)
+        : const Color(0xFFF2F7FF);
+
+    final fg = accent ?? (theme.brightness == Brightness.dark ? Colors.white : cs.onSurface);
+    final bg = accent == null ? baseBg : Color.alphaBlend(accent.withOpacity(0.16), baseBg);
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -197,8 +237,16 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         backgroundColor: bg,
         content: Row(
           children: [
-            if (icon != null) ...[Icon(icon, color: fg, size: 18), const SizedBox(width: 10)],
-            Expanded(child: Text(msg, style: TextStyle(color: fg, fontWeight: FontWeight.w700))),
+            if (icon != null) ...[
+              Icon(icon, color: fg, size: 18),
+              const SizedBox(width: 10),
+            ],
+            Expanded(
+              child: Text(
+                msg,
+                style: TextStyle(color: fg, fontWeight: FontWeight.w700),
+              ),
+            ),
           ],
         ),
         duration: const Duration(seconds: 2),
@@ -206,25 +254,45 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     );
   }
 
-  void _toastOk(String msg) => _toast(msg, accent: Theme.of(context).colorScheme.primary, icon: Icons.check_circle_outline);
-  void _toastWarn(String msg) => _toast(msg, accent: const Color(0xFFF59E0B), icon: Icons.warning_amber_rounded);
-  void _toastErr(String msg) => _toast(msg, accent: Theme.of(context).colorScheme.error, icon: Icons.error_outline);
+  void _toastOk(String msg) => _toast(
+        msg,
+        accent: Theme.of(context).colorScheme.primary,
+        icon: Icons.check_circle_outline,
+      );
+  void _toastWarn(String msg) => _toast(
+        msg,
+        accent: const Color(0xFFF59E0B),
+        icon: Icons.warning_amber_rounded,
+      );
+  void _toastErr(String msg) => _toast(
+        msg,
+        accent: Theme.of(context).colorScheme.error,
+        icon: Icons.error_outline,
+      );
 
   String _friendlyConnectionError(Object error) {
     final raw = error.toString().toLowerCase();
     if (raw.contains('timeout') || raw.contains('timed out')) {
       return 'Connection timed out. Please check your internet and try again.';
     }
-    if (raw.contains('no internet') || raw.contains('offline') || raw.contains('network')) {
+    if (raw.contains('no internet') ||
+        raw.contains('offline') ||
+        raw.contains('network')) {
       return 'No internet connection. Please check your network and try again.';
     }
     if (raw.contains('permission') || raw.contains('denied')) {
       return 'Microphone permission is required to join voice chat.';
     }
-    if (raw.contains('token') || raw.contains('auth') || raw.contains('401') || raw.contains('403')) {
+    if (raw.contains('token') ||
+        raw.contains('auth') ||
+        raw.contains('401') ||
+        raw.contains('403')) {
       return 'Authentication failed. Please sign out and sign back in.';
     }
-    if (raw.contains('room') || raw.contains('livekit') || raw.contains('websocket') || raw.contains('connect')) {
+    if (raw.contains('room') ||
+        raw.contains('livekit') ||
+        raw.contains('websocket') ||
+        raw.contains('connect')) {
       return 'Could not connect to voice server. Retrying...';
     }
     return 'Something went wrong. Please try again.';
@@ -253,12 +321,18 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     await _requestMicPermissionOnJoinFn();
 
-    _spaceSub = _spaceDoc.snapshots(includeMetadataChanges: true).listen((snap) async {
+    _spaceSub = _spaceDoc
+        .snapshots(includeMetadataChanges: true)
+        .listen((snap) async {
       if (!mounted) return;
       if (snap.metadata.isFromCache) return;
 
       if (!snap.exists) {
-        setState(() { _space = null; _loading = false; _error = ''; });
+        setState(() {
+          _space = null;
+          _loading = false;
+          _error = '';
+        });
         await _disconnectAudio();
         return;
       }
@@ -267,16 +341,26 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         final data = snap.data() ?? <String, dynamic>{};
         final space = LeagueSpace.fromJson(data);
         _ensureDisplayNameLoaded(space.hostUserId);
-        setState(() { _space = space; _loading = false; _error = ''; });
+        setState(() {
+          _space = space;
+          _loading = false;
+          _error = '';
+        });
         _ensureSpaceRoleListeners();
         _autoConnectIfNeeded();
         if (!_isLive && _connected) await _disconnectAudio();
       } catch (e) {
-        setState(() { _loading = false; _error = _friendlyConnectionError(e); });
+        setState(() {
+          _loading = false;
+          _error = _friendlyConnectionError(e);
+        });
       }
     }, onError: (e) {
       if (!mounted) return;
-      setState(() { _loading = false; _error = _friendlyConnectionError(e); });
+      setState(() {
+        _loading = false;
+        _error = _friendlyConnectionError(e);
+      });
     });
   }
 
@@ -289,14 +373,18 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     try {
       final st = await Permission.microphone.request();
       return st.isGranted;
-    } catch (_) { return false; }
+    } catch (_) {
+      return false;
+    }
   }
 
   void _autoConnectIfNeeded() {
     if (_joiningAudio || _connected) return;
     if (_uid.isEmpty || !_isLive) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _joiningAudio || _connected || _uid.isEmpty || !_isLive) return;
+      if (!mounted || _joiningAudio || _connected || _uid.isEmpty || !_isLive) {
+        return;
+      }
       _connectAudio();
     });
   }
@@ -307,31 +395,53 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
     if (_isHost) {
       if (!_isSpeakerApproved || _speakerMutedByHost) {
-        setState(() { _isSpeakerApproved = true; _speakerMutedByHost = false; _myRequestStatus = ''; });
+        setState(() {
+          _isSpeakerApproved = true;
+          _speakerMutedByHost = false;
+          _myRequestStatus = '';
+        });
       }
       unawaited(_syncMicWithSpaceState());
       return;
     }
 
-    _mySpeakerSub ??= _mySpeakerDoc.snapshots(includeMetadataChanges: true).listen((snap) async {
+    _mySpeakerSub ??= _mySpeakerDoc
+        .snapshots(includeMetadataChanges: true)
+        .listen((snap) async {
       if (snap.metadata.isFromCache) return;
       final approved = snap.exists;
       final muted = (snap.data()?['muted'] == true);
       final wasApproved = _isSpeakerApproved;
       final prevMuted = _speakerMutedByHost;
       if (!mounted) return;
-      setState(() { _isSpeakerApproved = approved; _speakerMutedByHost = muted; });
+      setState(() {
+        _isSpeakerApproved = approved;
+        _speakerMutedByHost = muted;
+      });
       await _syncMicWithSpaceState();
-      if (wasApproved != approved && approved) _toastOk(l10n.tr('league_space_toast_now_speaker'));
-      if (wasApproved != approved && !approved) _toast(l10n.tr('league_space_toast_now_listener'));
-      if (prevMuted != muted && muted) _toastWarn(l10n.tr('league_space_toast_host_muted_you'));
-      if (prevMuted != muted && !muted && approved) _toastOk(l10n.tr('league_space_toast_host_unmuted_you'));
+      if (wasApproved != approved && approved) {
+        _toastOk(l10n.tr('league_space_toast_now_speaker'));
+      }
+      if (wasApproved != approved && !approved) {
+        _toast(l10n.tr('league_space_toast_now_listener'));
+      }
+      if (prevMuted != muted && muted) {
+        _toastWarn(l10n.tr('league_space_toast_host_muted_you'));
+      }
+      if (prevMuted != muted && !muted && approved) {
+        _toastOk(l10n.tr('league_space_toast_host_unmuted_you'));
+      }
     });
 
-    _myRequestSub ??= _myRequestDoc.snapshots(includeMetadataChanges: true).listen((snap) {
+    _myRequestSub ??= _myRequestDoc
+        .snapshots(includeMetadataChanges: true)
+        .listen((snap) {
       if (snap.metadata.isFromCache) return;
       if (!mounted) return;
-      if (!snap.exists) { setState(() => _myRequestStatus = ''); return; }
+      if (!snap.exists) {
+        setState(() => _myRequestStatus = '');
+        return;
+      }
       final status = (snap.data()?['status'] ?? '').toString();
       setState(() => _myRequestStatus = status);
     });
@@ -352,7 +462,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   bool get _isHost => _space != null && _uid.isNotEmpty && _space!.hostUserId == _uid;
 
   Future<void> _maybeStartAudioPlayback(Room room) async {
-    try { await (room as dynamic).startAudio(); } catch (_) {}
+    try {
+      await (room as dynamic).startAudio();
+    } catch (_) {}
   }
 
   Future<void> _startVoiceFgs() async {
@@ -364,30 +476,42 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (!st.isGranted) await Permission.notification.request();
     } catch (_) {}
     final title = 'Voice chat';
-    final text = (_space?.title?.trim().isNotEmpty == true) ? _space!.title!.trim() : 'Space audio is running';
+    final text = (_space?.title?.trim().isNotEmpty == true)
+        ? _space!.title!.trim()
+        : 'Space audio is running';
     try {
-      await OverlayPlatform.startOverlayVoiceForegroundService(title: title, text: text);
+      await OverlayPlatform.startOverlayVoiceForegroundService(
+          title: title, text: text);
       _voiceFgsRunning = true;
-    } catch (_) { _voiceFgsRunning = false; }
+    } catch (_) {
+      _voiceFgsRunning = false;
+    }
   }
 
   Future<void> _stopVoiceFgs() async {
     if (!_voiceFgsRunning) return;
-    try { await OverlayPlatform.stopOverlayVoiceForegroundService(); } catch (_) {}
+    try {
+      await OverlayPlatform.stopOverlayVoiceForegroundService();
+    } catch (_) {}
     _voiceFgsRunning = false;
   }
 
   void _registerOverlayHandlersForSpace() {
     OverlayBridge.setMicEnabled = (enabled) async {
       if (!_connected || _room == null || !_micPrimed) return;
-      if (enabled) { await _syncMicWithSpaceState(); return; }
+      if (enabled) {
+        await _syncMicWithSpaceState();
+        return;
+      }
       await _setMicEnabled(false);
     };
     OverlayBridge.toggleMic = () async {
       if (!_connected || _room == null) return;
       await _toggleMic();
     };
-    OverlayBridge.endSession = () async { await _disconnectAudio(); };
+    OverlayBridge.endSession = () async {
+      await _disconnectAudio();
+    };
     OverlayBridge.sendQuick = null;
   }
 
@@ -396,7 +520,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (!mounted) return;
       setState(() {
         _isReconnecting = false;
-        _error = 'Unable to reconnect after multiple attempts. Please try again manually.';
+        _error =
+            'Unable to reconnect after multiple attempts. Please try again manually.';
       });
       return;
     }
@@ -422,10 +547,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     if (_joiningAudio || _connected) return;
     if (!_isLive || _uid.isEmpty) return;
 
-    setState(() { _joiningAudio = true; _error = ''; });
+    setState(() {
+      _joiningAudio = true;
+      _error = '';
+    });
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       await _requestMicPermissionOnJoinFn();
 
       final token = await LiveKitService.fetchToken(
@@ -438,7 +567,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         roomOptions: const RoomOptions(
           adaptiveStream: true,
           dynacast: true,
-          defaultAudioPublishOptions: AudioPublishOptions(dtx: true, audioBitrate: 32000),
+          defaultAudioPublishOptions: AudioPublishOptions(
+            dtx: true,
+            audioBitrate: 32000,
+          ),
         ),
       );
 
@@ -446,12 +578,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       _listener!.on<RoomConnectedEvent>((event) {
         if (!mounted) return;
-        setState(() { _connected = true; _isReconnecting = false; _reconnectAttempts = 0; });
+        setState(() {
+          _connected = true;
+          _isReconnecting = false;
+          _reconnectAttempts = 0;
+        });
       });
 
       _listener!.on<RoomDisconnectedEvent>((event) {
         if (!mounted) return;
-        setState(() { _connected = false; _micEnabled = false; _micPrimed = false; });
+        setState(() {
+          _connected = false;
+          _micEnabled = false;
+          _micPrimed = false;
+        });
         unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
 
         if (_isLive && !_isReconnecting) {
@@ -465,7 +605,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       if (!mounted) return;
 
-      setState(() { _room = room; _connected = true; _reconnectAttempts = 0; _isReconnecting = false; });
+      setState(() {
+        _room = room;
+        _connected = true;
+        _reconnectAttempts = 0;
+        _isReconnecting = false;
+      });
 
       await _primeMicPublicationOnJoin();
       await _syncMicWithSpaceState();
@@ -479,13 +624,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
       final friendlyMsg = _friendlyConnectionError(e);
 
-      setState(() { _joiningAudio = false; });
+      setState(() {
+        _joiningAudio = false;
+      });
 
       final raw = e.toString().toLowerCase();
-      final isTransient = raw.contains('timeout') || raw.contains('network') ||
-          raw.contains('websocket') || raw.contains('connect') || raw.contains('offline');
+      final isTransient = raw.contains('timeout') ||
+          raw.contains('network') ||
+          raw.contains('websocket') ||
+          raw.contains('connect') ||
+          raw.contains('offline');
 
-      if (isTransient && _reconnectAttempts < _maxReconnectAttempts && _isLive) {
+      if (isTransient &&
+          _reconnectAttempts < _maxReconnectAttempts &&
+          _isLive) {
         _toastWarn('Reconnecting...');
         _scheduleReconnect();
       } else {
@@ -514,7 +666,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
   Future<void> _syncMicWithSpaceState() async {
     if (!_connected || _room == null) return;
-    final shouldBeUnmuted = _isHost || (_isSpeakerApproved && !_speakerMutedByHost);
+    final shouldBeUnmuted =
+        _isHost || (_isSpeakerApproved && !_speakerMutedByHost);
     if (!_micPrimed) {
       if (shouldBeUnmuted) {
         _toastWarn(context.l10n.tr('league_space_mic_not_primed_toast'));
@@ -532,7 +685,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (!mounted) return;
       setState(() => _micEnabled = enabled);
       unawaited(OverlayPlatform.setOverlayMicMutedState(muted: !enabled));
-    } catch (e) { debugPrint('setMicrophoneEnabled($enabled) failed: $e'); }
+    } catch (e) {
+      debugPrint('setMicrophoneEnabled($enabled) failed: $e');
+    }
   }
 
   Future<void> _disconnectAudio() async {
@@ -547,8 +702,12 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     try {
       _listener?.dispose();
       _listener = null;
-      try { await _room?.disconnect(); } catch (_) {}
-      try { await _room?.dispose(); } catch (_) {}
+      try {
+        await _room?.disconnect();
+      } catch (_) {}
+      try {
+        await _room?.dispose();
+      } catch (_) {}
     } catch (_) {}
 
     _room = null;
@@ -569,10 +728,15 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final l10n = context.l10n;
     if (_room == null) return;
     if (!_canToggleMic) {
-      if (!_micPrimed) _toastWarn(l10n.tr('league_space_mic_unavailable_permission_denied'));
-      else if (_speakerMutedByHost) _toastWarn(l10n.tr('league_space_you_are_muted_by_host'));
-      else if (!_isSpeakerApproved) _toastWarn(l10n.tr('league_space_request_to_speak_to_enable_mic'));
-      else _toastWarn(l10n.tr('league_space_mic_unavailable'));
+      if (!_micPrimed) {
+        _toastWarn(l10n.tr('league_space_mic_unavailable_permission_denied'));
+      } else if (_speakerMutedByHost) {
+        _toastWarn(l10n.tr('league_space_you_are_muted_by_host'));
+      } else if (!_isSpeakerApproved) {
+        _toastWarn(l10n.tr('league_space_request_to_speak_to_enable_mic'));
+      } else {
+        _toastWarn(l10n.tr('league_space_mic_unavailable'));
+      }
       return;
     }
     final next = !_micEnabled;
@@ -583,79 +747,113 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   Future<void> _requestToSpeak() async {
     final l10n = context.l10n;
     if (_uid.isEmpty || _space == null || _isHost) return;
-    if (!_isLive) { _toastWarn(l10n.tr('league_space_space_not_live')); return; }
+    if (!_isLive) {
+      _toastWarn(l10n.tr('league_space_space_not_live'));
+      return;
+    }
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       final now = DateTime.now().millisecondsSinceEpoch;
       await _myRequestDoc.set({
-        'userId': _uid, 'status': 'pending', 'createdAtMs': now, 'updatedAtMs': now,
+        'userId': _uid,
+        'status': 'pending',
+        'createdAtMs': now,
+        'updatedAtMs': now,
       }, SetOptions(merge: true)).timeout(const Duration(seconds: 12));
       _toastOk(l10n.tr('league_space_request_sent'));
-    } catch (e) { _toastErr(_friendlyConnectionError(e)); }
+    } catch (e) {
+      _toastErr(_friendlyConnectionError(e));
+    }
   }
 
   Future<void> _withdrawRequest() async {
     final l10n = context.l10n;
     if (_uid.isEmpty) return;
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       await _myRequestDoc.delete().timeout(const Duration(seconds: 12));
       _toastOk(l10n.tr('league_space_request_removed'));
-    } catch (e) { _toastErr(_friendlyConnectionError(e)); }
+    } catch (e) {
+      _toastErr(_friendlyConnectionError(e));
+    }
   }
 
   Future<void> _approveRequest(String userId) async {
     final l10n = context.l10n;
     if (!_isHost) return;
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       final batch = _firestore.batch();
       final now = DateTime.now().millisecondsSinceEpoch;
       batch.set(_speakersCol.doc(userId), {
-        'userId': userId, 'approvedBy': _uid, 'approvedAtMs': now, 'muted': false,
+        'userId': userId,
+        'approvedBy': _uid,
+        'approvedAtMs': now,
+        'muted': false,
       }, SetOptions(merge: true));
       batch.set(_requestsCol.doc(userId), {
-        'userId': userId, 'status': 'approved', 'updatedAtMs': now,
+        'userId': userId,
+        'status': 'approved',
+        'updatedAtMs': now,
       }, SetOptions(merge: true));
       await batch.commit().timeout(const Duration(seconds: 15));
       _toastOk('${l10n.tr('league_space_approved_prefix')}${_displayName(userId)}');
-    } catch (e) { _toastErr(_friendlyConnectionError(e)); }
+    } catch (e) {
+      _toastErr(_friendlyConnectionError(e));
+    }
   }
 
   Future<void> _denyRequest(String userId) async {
     final l10n = context.l10n;
     if (!_isHost) return;
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       final now = DateTime.now().millisecondsSinceEpoch;
       await _requestsCol.doc(userId).set({
-        'userId': userId, 'status': 'denied', 'updatedAtMs': now,
+        'userId': userId,
+        'status': 'denied',
+        'updatedAtMs': now,
       }, SetOptions(merge: true)).timeout(const Duration(seconds: 12));
       await _speakersCol.doc(userId).delete().timeout(const Duration(seconds: 12));
       _toastWarn('${l10n.tr('league_space_denied_prefix')}${_displayName(userId)}');
-    } catch (e) { _toastErr(_friendlyConnectionError(e)); }
+    } catch (e) {
+      _toastErr(_friendlyConnectionError(e));
+    }
   }
 
   Future<void> _removeSpeaker(String userId) async {
     final l10n = context.l10n;
     if (!_isHost) return;
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       await _speakersCol.doc(userId).delete().timeout(const Duration(seconds: 12));
       _toastWarn('${l10n.tr('league_space_removed_speaker_prefix')}${_displayName(userId)}');
-    } catch (e) { _toastErr(_friendlyConnectionError(e)); }
+    } catch (e) {
+      _toastErr(_friendlyConnectionError(e));
+    }
   }
 
   Future<void> _toggleMuteSpeaker(String userId, bool muted) async {
     final l10n = context.l10n;
     if (!_isHost) return;
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
-      await _speakersCol.doc(userId).set({'muted': muted}, SetOptions(merge: true)).timeout(const Duration(seconds: 12));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
+      await _speakersCol
+          .doc(userId)
+          .set({'muted': muted}, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 12));
       _toast(muted
           ? '${l10n.tr('league_space_muted_prefix')}${_displayName(userId)}'
           : '${l10n.tr('league_space_unmuted_prefix')}${_displayName(userId)}');
-    } catch (e) { _toastErr(_friendlyConnectionError(e)); }
+    } catch (e) {
+      _toastErr(_friendlyConnectionError(e));
+    }
   }
 
   @override
@@ -663,6 +861,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -673,7 +872,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           icon: Glass(
             padding: const EdgeInsets.all(8),
             borderRadius: 12,
-            child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white.withOpacity(0.9)),
+            child: Icon(Icons.arrow_back_ios_new_rounded,
+                size: 18, color: onSurface),
           ),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
@@ -694,13 +894,15 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 700),
             child: ListView(
-              physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+              physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics()),
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
               children: [
                 // ── Header ──
                 Glass(
                   borderRadius: 22,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   child: Row(
                     children: [
                       Container(
@@ -711,15 +913,20 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                           gradient: LinearGradient(
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
-                            colors: [cs.primary.withOpacity(0.30), cs.primary.withOpacity(0.08)],
+                            colors: [
+                              cs.primary.withOpacity(0.30),
+                              cs.primary.withOpacity(0.08)
+                            ],
                           ),
                         ),
-                        child: Icon(Icons.spatial_audio_rounded, color: cs.primary, size: 22),
+                        child: Icon(Icons.spatial_audio_rounded,
+                            color: cs.primary, size: 22),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
                           children: [
                             Text(
                               l10n.tr('league_space_appbar_title'),
@@ -727,15 +934,21 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                 fontWeight: FontWeight.w900,
                                 fontSize: 18,
                                 letterSpacing: -0.3,
+                                color: onSurface,
                               ),
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              _loading ? 'Loading...' : (_connected ? 'Connected' : 'Not connected'),
+                              _loading
+                                  ? 'Loading...'
+                                  : (_connected
+                                      ? 'Connected'
+                                      : 'Not connected'),
                               style: TextStyle(
                                 color: _connected
-                                    ? const Color(0xFF00E676).withOpacity(0.8)
-                                    : Colors.white.withOpacity(0.45),
+                                    ? const Color(0xFF00E676)
+                                        .withOpacity(0.85)
+                                    : onSurface.withOpacity(0.55),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -751,7 +964,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
                 // ── Main content ──
                 if (_loading)
-                  _buildLoadingState(cs)
+                  _buildLoadingState(theme, cs)
                 else if (_error.isNotEmpty)
                   _buildErrorState(theme, cs)
                 else if (_isReconnecting)
@@ -768,7 +981,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     );
   }
 
-  Widget _buildLoadingState(ColorScheme cs) {
+  Widget _buildLoadingState(ThemeData theme, ColorScheme cs) {
+    final onSurface = cs.onSurface;
     return Glass(
       borderRadius: 22,
       padding: const EdgeInsets.all(32),
@@ -779,7 +993,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           const SizedBox(height: 16),
           Text(
             'Connecting to space...',
-            style: TextStyle(color: Colors.white.withOpacity(0.50), fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: onSurface.withOpacity(0.60),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -787,6 +1004,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Widget _buildErrorState(ThemeData theme, ColorScheme cs) {
+    final onSurface = cs.onSurface;
     return Glass(
       borderRadius: 22,
       padding: const EdgeInsets.all(24),
@@ -800,69 +1018,53 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               shape: BoxShape.circle,
               color: Colors.orangeAccent.withOpacity(0.12),
             ),
-            child: const Icon(Icons.wifi_off_rounded, color: Colors.orangeAccent, size: 28),
+            child: const Icon(Icons.wifi_off_rounded,
+                color: Colors.orangeAccent, size: 28),
           ),
           const SizedBox(height: 16),
           Text(
             'Connection Issue',
-            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, fontSize: 18),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+              color: onSurface,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             _error,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.55), fontWeight: FontWeight.w600, height: 1.4),
+            style: TextStyle(
+              color: onSurface.withOpacity(0.65),
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 20),
           Row(
             children: [
               Expanded(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => Navigator.of(context).maybePop(),
-                    borderRadius: BorderRadius.circular(14),
-                    child: Ink(
-                      height: 44,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.white.withOpacity(0.12)),
-                      ),
-                      child: Center(
-                        child: Text('Go Back', style: TextStyle(color: Colors.white.withOpacity(0.6), fontWeight: FontWeight.w800)),
-                      ),
-                    ),
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: onSurface.withOpacity(0.18)),
+                    foregroundColor: onSurface.withOpacity(0.80),
                   ),
+                  child: const Text('Go Back'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () {
-                      setState(() { _error = ''; _reconnectAttempts = 0; });
-                      _connectAudio();
-                    },
-                    borderRadius: BorderRadius.circular(14),
-                    child: Ink(
-                      height: 44,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        gradient: LinearGradient(colors: [cs.primary, cs.primary.withOpacity(0.75)]),
-                      ),
-                      child: const Center(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.refresh_rounded, size: 18, color: Colors.white),
-                            SizedBox(width: 8),
-                            Text('Retry', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                child: FilledButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _error = '';
+                      _reconnectAttempts = 0;
+                    });
+                    _connectAudio();
+                  },
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Retry'),
                 ),
               ),
             ],
@@ -873,13 +1075,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
   }
 
   Widget _buildReconnectingState(ThemeData theme, ColorScheme cs) {
+    final onSurface = cs.onSurface;
     return Glass(
       borderRadius: 22,
       padding: const EdgeInsets.all(28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
+          const SizedBox(
             width: 48,
             height: 48,
             child: CircularProgressIndicator(
@@ -890,48 +1093,58 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           const SizedBox(height: 18),
           Text(
             'Reconnecting...',
-            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, fontSize: 18),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+              color: onSurface,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'Attempt $_reconnectAttempts of $_maxReconnectAttempts',
-            style: TextStyle(color: Colors.white.withOpacity(0.45), fontWeight: FontWeight.w600, fontSize: 13),
+            style: TextStyle(
+              color: onSurface.withOpacity(0.55),
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             'Please wait while we restore your connection.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.40), fontSize: 12, height: 1.4),
+            style: TextStyle(
+              color: onSurface.withOpacity(0.50),
+              fontSize: 12,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 18),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () {
-                _reconnectTimer?.cancel();
-                setState(() { _isReconnecting = false; _reconnectAttempts = 0; });
-                unawaited(_disconnectAudio());
-              },
-              borderRadius: BorderRadius.circular(14),
-              child: Ink(
-                height: 42,
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white.withOpacity(0.12)),
-                ),
-                child: Center(
-                  child: Text('Cancel', style: TextStyle(color: Colors.white.withOpacity(0.6), fontWeight: FontWeight.w800)),
-                ),
-              ),
+          OutlinedButton(
+            onPressed: () {
+              _reconnectTimer?.cancel();
+              setState(() {
+                _isReconnecting = false;
+                _reconnectAttempts = 0;
+              });
+              unawaited(_disconnectAudio());
+            },
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(color: onSurface.withOpacity(0.18)),
+              foregroundColor: onSurface.withOpacity(0.80),
             ),
+            child: const Text('Cancel'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildNoSpaceState(ThemeData theme, ColorScheme cs, AppLocalizations l10n) {
+  Widget _buildNoSpaceState(
+    ThemeData theme,
+    ColorScheme cs,
+    AppLocalizations l10n,
+  ) {
+    final onSurface = cs.onSurface;
     return Glass(
       borderRadius: 22,
       padding: const EdgeInsets.all(28),
@@ -949,18 +1162,27 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 colors: [cs.primary.withOpacity(0.25), cs.primary.withOpacity(0.08)],
               ),
             ),
-            child: Icon(Icons.spatial_audio_off_rounded, color: cs.primary, size: 28),
+            child: Icon(Icons.spatial_audio_off_rounded,
+                color: cs.primary, size: 28),
           ),
           const SizedBox(height: 16),
           Text(
             'No Active Space',
-            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, fontSize: 18),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+              color: onSurface,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             l10n.tr('league_space_no_active_space'),
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.50), fontWeight: FontWeight.w600, height: 1.4),
+            style: TextStyle(
+              color: onSurface.withOpacity(0.65),
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
           ),
         ],
       ),
@@ -971,15 +1193,15 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final space = _space!;
+    final onSurface = cs.onSurface;
 
+    final space = _space!;
     _ensureDisplayNameLoaded(space.hostUserId);
 
     final isLive = _isLive;
 
     return Column(
       children: [
-        // ── Space info card ──
         Glass(
           borderRadius: 20,
           padding: const EdgeInsets.all(18),
@@ -989,8 +1211,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               Row(
                 children: [
                   Icon(
-                    isLive ? Icons.graphic_eq_rounded : Icons.spatial_audio_off_rounded,
-                    color: isLive ? cs.primary : Colors.white.withOpacity(0.4),
+                    isLive
+                        ? Icons.graphic_eq_rounded
+                        : Icons.spatial_audio_off_rounded,
+                    color: isLive ? cs.primary : onSurface.withOpacity(0.45),
                     size: 22,
                   ),
                   const SizedBox(width: 10),
@@ -1001,6 +1225,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                         fontWeight: FontWeight.w900,
                         fontSize: 16,
                         letterSpacing: -0.2,
+                        color: onSurface,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1018,7 +1243,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     child: Text(
                       '${l10n.tr('league_space_host_prefix')}${_displayName(space.hostUserId)}',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.50),
+                        color: onSurface.withOpacity(0.60),
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1033,7 +1258,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
 
         const SizedBox(height: 12),
 
-        // ── Controls card ──
         Glass(
           borderRadius: 20,
           padding: const EdgeInsets.all(16),
@@ -1043,23 +1267,38 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 children: [
                   Expanded(
                     child: _SpaceActionButton(
-                      icon: _joiningAudio ? null : (_connected ? Icons.call_end_rounded : Icons.headset_mic_rounded),
-                      label: _connected ? l10n.tr('league_space_leave_audio') : l10n.tr('league_space_join_audio'),
+                      icon: _joiningAudio
+                          ? null
+                          : (_connected
+                              ? Icons.call_end_rounded
+                              : Icons.headset_mic_rounded),
+                      label: _connected
+                          ? l10n.tr('league_space_leave_audio')
+                          : l10n.tr('league_space_join_audio'),
                       isLoading: _joiningAudio,
                       color: _connected ? cs.error : cs.primary,
                       onPressed: _joiningAudio
                           ? null
                           : _connected
-                              ? () async { await _disconnectAudio(); if (mounted) setState(() {}); }
+                              ? () async {
+                                  await _disconnectAudio();
+                                  if (mounted) setState(() {});
+                                }
                               : _connectAudio,
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: _SpaceActionButton(
-                      icon: _micEnabled ? Icons.mic_rounded : Icons.mic_off_rounded,
-                      label: _micEnabled ? l10n.tr('league_space_mic_on') : l10n.tr('league_space_mic_off'),
-                      color: _canToggleMic ? cs.primary : Colors.white.withOpacity(0.3),
+                      icon: _micEnabled
+                          ? Icons.mic_rounded
+                          : Icons.mic_off_rounded,
+                      label: _micEnabled
+                          ? l10n.tr('league_space_mic_on')
+                          : l10n.tr('league_space_mic_off'),
+                      color: _canToggleMic
+                          ? cs.primary
+                          : onSurface.withOpacity(0.35),
                       outlined: true,
                       onPressed: _canToggleMic ? _toggleMic : null,
                     ),
@@ -1067,13 +1306,14 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.04),
+                  color: onSurface.withOpacity(0.04),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: onSurface.withOpacity(0.08)),
                 ),
                 child: Text(
                   _connected
@@ -1081,19 +1321,23 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                           ? l10n.tr('league_space_connected_as_host')
                           : (_isSpeakerApproved
                               ? (_speakerMutedByHost
-                                  ? l10n.tr('league_space_connected_as_speaker_muted_by_host')
-                                  : l10n.tr('league_space_connected_as_speaker'))
-                              : l10n.tr('league_space_connected_as_listener')))
+                                  ? l10n.tr(
+                                      'league_space_connected_as_speaker_muted_by_host')
+                                  : l10n.tr(
+                                      'league_space_connected_as_speaker'))
+                              : l10n.tr(
+                                  'league_space_connected_as_listener')))
                       : l10n.tr('league_space_not_connected'),
                   style: TextStyle(
-                    color: _connected ? const Color(0xFF00E676).withOpacity(0.7) : Colors.white.withOpacity(0.45),
+                    color: _connected
+                        ? const Color(0xFF00E676).withOpacity(0.75)
+                        : onSurface.withOpacity(0.55),
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
                   textAlign: TextAlign.center,
                 ),
               ),
-
               if (!_isHost) ...[
                 const SizedBox(height: 12),
                 Row(
@@ -1107,7 +1351,9 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                                 ? l10n.tr('league_space_request_pending')
                                 : l10n.tr('league_space_request_to_speak')),
                         color: cs.primary,
-                        onPressed: (isLive && !_isSpeakerApproved && _myRequestStatus != 'pending')
+                        onPressed: (isLive &&
+                                !_isSpeakerApproved &&
+                                _myRequestStatus != 'pending')
                             ? _requestToSpeak
                             : null,
                       ),
@@ -1116,9 +1362,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     _SpaceActionButton(
                       icon: Icons.close_rounded,
                       label: l10n.tr('common_cancel'),
-                      color: Colors.white.withOpacity(0.5),
+                      color: onSurface.withOpacity(0.55),
                       outlined: true,
-                      onPressed: (_myRequestStatus == 'pending') ? _withdrawRequest : null,
+                      onPressed:
+                          (_myRequestStatus == 'pending') ? _withdrawRequest : null,
                     ),
                   ],
                 ),
@@ -1126,7 +1373,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                   const SizedBox(height: 8),
                   Text(
                     l10n.tr('league_space_request_denied'),
-                    style: TextStyle(color: Colors.orangeAccent.withOpacity(0.7), fontSize: 12, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      color: Colors.orangeAccent.withOpacity(0.80),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -1135,7 +1386,6 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ),
         ),
 
-        // ── Host panel ──
         if (_isHost) ...[
           const SizedBox(height: 12),
           Glass(
@@ -1146,26 +1396,34 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.admin_panel_settings_rounded, color: cs.primary, size: 20),
+                    Icon(Icons.admin_panel_settings_rounded,
+                        color: cs.primary, size: 20),
                     const SizedBox(width: 8),
                     Text(
                       l10n.tr('league_space_host_panel_title'),
-                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: onSurface,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 14),
-
                 Text(
                   l10n.tr('league_space_requests_title'),
-                  style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 12, fontWeight: FontWeight.w800),
+                  style: TextStyle(
+                    color: onSurface.withOpacity(0.60),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _requestsCol.where('status', isEqualTo: 'pending').snapshots(),
                   builder: (context, snap) {
                     if (snap.hasError) {
-                      return _InlineErrorCard(message: _friendlyConnectionError(snap.error!));
+                      return _InlineErrorCard(
+                          message: _friendlyConnectionError(snap.error!));
                     }
                     if (!snap.hasData) return const SizedBox.shrink();
                     final docs = snap.data!.docs;
@@ -1174,7 +1432,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text(
                           l10n.tr('league_space_no_pending_requests'),
-                          style: TextStyle(color: Colors.white.withOpacity(0.35), fontWeight: FontWeight.w600, fontSize: 12),
+                          style: TextStyle(
+                            color: onSurface.withOpacity(0.45),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
                         ),
                       );
                     }
@@ -1195,21 +1457,24 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     );
                   },
                 ),
-
                 const SizedBox(height: 14),
-                Divider(color: Colors.white.withOpacity(0.06)),
+                Divider(color: onSurface.withOpacity(0.08)),
                 const SizedBox(height: 10),
-
                 Text(
                   l10n.tr('league_space_speakers_title'),
-                  style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 12, fontWeight: FontWeight.w800),
+                  style: TextStyle(
+                    color: onSurface.withOpacity(0.60),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _speakersCol.orderBy('approvedAtMs', descending: false).snapshots(),
                   builder: (context, snap) {
                     if (snap.hasError) {
-                      return _InlineErrorCard(message: _friendlyConnectionError(snap.error!));
+                      return _InlineErrorCard(
+                          message: _friendlyConnectionError(snap.error!));
                     }
                     if (!snap.hasData) return const SizedBox.shrink();
                     final docs = snap.data!.docs;
@@ -1218,7 +1483,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text(
                           l10n.tr('league_space_no_speakers_yet'),
-                          style: TextStyle(color: Colors.white.withOpacity(0.35), fontWeight: FontWeight.w600, fontSize: 12),
+                          style: TextStyle(
+                            color: onSurface.withOpacity(0.45),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
                         ),
                       );
                     }
@@ -1262,13 +1531,15 @@ class _LiveBadge extends StatefulWidget {
   State<_LiveBadge> createState() => _LiveBadgeState();
 }
 
-class _LiveBadgeState extends State<_LiveBadge> with SingleTickerProviderStateMixin {
+class _LiveBadgeState extends State<_LiveBadge>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
 
   @override
   void initState() {
     super.initState();
-    _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
+    _pulse =
+        AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
     if (widget.isLive) _pulse.repeat(reverse: true);
   }
 
@@ -1276,16 +1547,21 @@ class _LiveBadgeState extends State<_LiveBadge> with SingleTickerProviderStateMi
   void didUpdateWidget(_LiveBadge old) {
     super.didUpdateWidget(old);
     if (widget.isLive && !_pulse.isAnimating) _pulse.repeat(reverse: true);
-    else if (!widget.isLive && _pulse.isAnimating) _pulse.stop();
+    if (!widget.isLive && _pulse.isAnimating) _pulse.stop();
   }
 
   @override
-  void dispose() { _pulse.dispose(); super.dispose(); }
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final color = widget.isLive ? cs.error : Colors.white.withOpacity(0.4);
+    final onSurface = cs.onSurface;
+
+    final color = widget.isLive ? cs.error : onSurface.withOpacity(0.55);
 
     return AnimatedBuilder(
       listenable: _pulse,
@@ -1304,12 +1580,23 @@ class _LiveBadgeState extends State<_LiveBadge> with SingleTickerProviderStateMi
           mainAxisSize: MainAxisSize.min,
           children: [
             if (widget.isLive) ...[
-              Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: color)),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+              ),
               const SizedBox(width: 5),
             ],
             Text(
-              widget.isLive ? widget.l10n.tr('league_space_live_badge') : widget.l10n.tr('league_space_ended_badge'),
-              style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+              widget.isLive
+                  ? widget.l10n.tr('league_space_live_badge')
+                  : widget.l10n.tr('league_space_ended_badge'),
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
+              ),
             ),
           ],
         ),
@@ -1357,16 +1644,27 @@ class _SpaceActionButton extends StatelessWidget {
           ),
           child: Center(
             child: isLoading
-                ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: effectiveColor))
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: effectiveColor),
+                  )
                 : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (icon != null) ...[Icon(icon, size: 18, color: effectiveColor), const SizedBox(width: 6)],
+                      if (icon != null) ...[
+                        Icon(icon, size: 18, color: effectiveColor),
+                        const SizedBox(width: 6),
+                      ],
                       Flexible(
                         child: Text(
                           label,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: effectiveColor, fontWeight: FontWeight.w800, fontSize: 12),
+                          style: TextStyle(
+                            color: effectiveColor,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -1387,6 +1685,8 @@ class _InlineErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.all(12),
@@ -1397,12 +1697,17 @@ class _InlineErrorCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline_rounded, color: Colors.orangeAccent.withOpacity(0.7), size: 18),
+          Icon(Icons.info_outline_rounded,
+              color: Colors.orangeAccent.withOpacity(0.7), size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: TextStyle(color: Colors.orangeAccent.withOpacity(0.8), fontWeight: FontWeight.w700, fontSize: 12),
+              style: TextStyle(
+                color: onSurface.withOpacity(0.75),
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
             ),
           ),
         ],
@@ -1434,14 +1739,15 @@ class _RequestTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: onSurface.withOpacity(0.04),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: onSurface.withOpacity(0.08)),
       ),
       child: Row(
         children: [
@@ -1451,14 +1757,27 @@ class _RequestTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
-                Text(shortUid, style: TextStyle(color: Colors.white.withOpacity(0.40), fontSize: 11)),
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                    color: onSurface,
+                  ),
+                ),
+                Text(
+                  shortUid,
+                  style: TextStyle(
+                    color: onSurface.withOpacity(0.50),
+                    fontSize: 11,
+                  ),
+                ),
               ],
             ),
           ),
           _SmallActionBtn(
             icon: Icons.close_rounded,
-            color: Colors.redAccent,
+            color: cs.error,
             onTap: onDeny,
           ),
           const SizedBox(width: 6),
@@ -1497,13 +1816,19 @@ class _SpeakerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
+    final mutedColor = Colors.orangeAccent;
+    final liveColor = const Color(0xFF00E676);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: onSurface.withOpacity(0.04),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: onSurface.withOpacity(0.08)),
       ),
       child: Row(
         children: [
@@ -1513,21 +1838,35 @@ class _SpeakerTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                    color: onSurface,
+                  ),
+                ),
                 Row(
                   children: [
-                    Text(shortUid, style: TextStyle(color: Colors.white.withOpacity(0.40), fontSize: 11)),
+                    Text(
+                      shortUid,
+                      style: TextStyle(
+                        color: onSurface.withOpacity(0.50),
+                        fontSize: 11,
+                      ),
+                    ),
                     const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: muted ? Colors.orangeAccent.withOpacity(0.12) : const Color(0xFF00E676).withOpacity(0.12),
+                        color: (muted ? mutedColor : liveColor).withOpacity(0.12),
                         borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: (muted ? mutedColor : liveColor).withOpacity(0.22)),
                       ),
                       child: Text(
                         muted ? l10n.tr('league_space_muted') : l10n.tr('league_space_unmuted'),
                         style: TextStyle(
-                          color: muted ? Colors.orangeAccent : const Color(0xFF00E676),
+                          color: muted ? mutedColor : liveColor,
                           fontSize: 9,
                           fontWeight: FontWeight.w900,
                         ),
@@ -1540,13 +1879,13 @@ class _SpeakerTile extends StatelessWidget {
           ),
           _SmallActionBtn(
             icon: muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-            color: muted ? Colors.orangeAccent : const Color(0xFF00E676),
+            color: muted ? mutedColor : liveColor,
             onTap: onToggleMute,
           ),
           const SizedBox(width: 6),
           _SmallActionBtn(
             icon: Icons.person_remove_rounded,
-            color: Colors.redAccent,
+            color: cs.error,
             onTap: onRemove,
           ),
         ],
@@ -1559,7 +1898,12 @@ class _SpeakerTile extends StatelessWidget {
 // Small Action Button
 // ─────────────────────────────────────────────
 class _SmallActionBtn extends StatelessWidget {
-  const _SmallActionBtn({required this.icon, required this.color, required this.onTap});
+  const _SmallActionBtn({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
@@ -1599,6 +1943,8 @@ class _UserThumb extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
     final px = (size * 3).clamp(48, 120).toInt();
@@ -1611,7 +1957,10 @@ class _UserThumb extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [cs.primary.withOpacity(0.18), cs.primary.withOpacity(0.06)],
+          colors: [
+            cs.primary.withOpacity(0.18),
+            cs.primary.withOpacity(0.06),
+          ],
         ),
         border: Border.all(color: cs.primary.withOpacity(0.18)),
       ),
@@ -1624,33 +1973,26 @@ class _UserThumb extends StatelessWidget {
                 filterQuality: FilterQuality.low,
                 cacheWidth: px,
                 cacheHeight: px,
-                errorBuilder: (_, __, ___) => Icon(Icons.person, size: size * 0.60, color: Colors.white.withOpacity(0.5)),
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.person,
+                  size: size * 0.60,
+                  color: onSurface.withOpacity(0.55),
+                ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(Icons.person, size: size * 0.60, color: Colors.white.withOpacity(0.5));
+                  return Icon(
+                    Icons.person,
+                    size: size * 0.60,
+                    color: onSurface.withOpacity(0.55),
+                  );
                 },
               )
-            : Icon(Icons.person, size: size * 0.60, color: Colors.white.withOpacity(0.5)),
+            : Icon(
+                Icons.person,
+                size: size * 0.60,
+                color: onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }
-}
-
-// ─────────────────────────────────────────────
-// AnimatedBuilder helper
-// ─────────────────────────────────────────────
-class AnimatedBuilder extends AnimatedWidget {
-  const AnimatedBuilder({
-    super.key,
-    required super.listenable,
-    required this.builder,
-    this.child,
-  });
-
-  Animation<dynamic> get animation => listenable as Animation<dynamic>;
-  final TransitionBuilder builder;
-  final Widget? child;
-
-  @override
-  Widget build(BuildContext context) => builder(context, child);
 }

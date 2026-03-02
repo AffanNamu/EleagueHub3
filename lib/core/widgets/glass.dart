@@ -1,6 +1,6 @@
 import 'dart:ui';
-
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 class Glass extends StatelessWidget {
   const Glass({
@@ -8,12 +8,9 @@ class Glass extends StatelessWidget {
     required this.child,
     this.borderRadius = 20,
     this.padding = const EdgeInsets.all(16),
-    this.blur = 12.0,
+    this.blur = 18.0,
     this.opacity = 0.08,
     this.border = true,
-
-    // Backward/forward compatible params (so other widgets can pass them)
-    // without forcing you to edit those widgets.
     this.fill,
     this.enableBorder,
     this.borderColor,
@@ -23,31 +20,35 @@ class Glass extends StatelessWidget {
   final double borderRadius;
   final EdgeInsetsGeometry padding;
   final double blur;
-
-  /// Used when [fill] is null (keeps existing behavior everywhere else).
   final double opacity;
-
-  /// Existing API: whether to draw border.
   final bool border;
-
-  /// New API: explicit fill color (used by offline_banner.dart).
-  /// If provided, it overrides [opacity]/default fill.
   final Color? fill;
-
-  /// New API: alias for border (used by offline_banner.dart).
-  /// If provided, it overrides [border].
   final bool? enableBorder;
-
-  /// Optional override for border color (safe default kept).
   final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final br = BorderRadius.circular(borderRadius);
 
-    final effectiveFill = fill ?? Colors.white.withOpacity(opacity);
-    final effectiveBorderEnabled = enableBorder ?? border;
-    final effectiveBorderColor = borderColor ?? Colors.white.withOpacity(0.12);
+    final effectiveFill =
+        fill ?? AppTheme.glassFill(brightness);
+
+    final effectiveBorderEnabled =
+        enableBorder ?? border;
+
+    final effectiveBorderColor =
+        borderColor ?? AppTheme.glassStroke(brightness);
+
+    final lightGlow = brightness == Brightness.light
+        ? [
+            BoxShadow(
+              color: const Color(0x667AB6FF),
+              blurRadius: 30,
+              offset: const Offset(0, 14),
+            ),
+          ]
+        : null;
 
     return ClipRRect(
       borderRadius: br,
@@ -61,6 +62,7 @@ class Glass extends StatelessWidget {
             border: effectiveBorderEnabled
                 ? Border.all(color: effectiveBorderColor)
                 : null,
+            boxShadow: lightGlow,
           ),
           child: child,
         ),
@@ -75,7 +77,7 @@ class GlassCard extends StatelessWidget {
     required this.child,
     this.padding,
     this.borderRadius,
-    this.blur = 10.0,
+    this.blur = 16.0,
   });
 
   final Widget child;
@@ -85,7 +87,9 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final br = borderRadius ?? BorderRadius.circular(18);
+    final brightness = Theme.of(context).brightness;
+    final br = borderRadius ?? BorderRadius.circular(22);
+
     return ClipRRect(
       borderRadius: br,
       child: BackdropFilter(
@@ -94,10 +98,19 @@ class GlassCard extends StatelessWidget {
           padding: padding,
           decoration: BoxDecoration(
             borderRadius: br,
-            color: Colors.white.withOpacity(0.05),
+            color: AppTheme.glassFill(brightness),
             border: Border.all(
-              color: Colors.white.withOpacity(0.10),
+              color: AppTheme.glassStroke(brightness),
             ),
+            boxShadow: brightness == Brightness.light
+                ? [
+                    const BoxShadow(
+                      color: Color(0x557AB6FF),
+                      blurRadius: 28,
+                      offset: Offset(0, 16),
+                    ),
+                  ]
+                : null,
           ),
           child: child,
         ),
