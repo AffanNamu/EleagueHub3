@@ -752,7 +752,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                               child: TextField(
                                 controller: _quickInput,
                                 maxLength: _quickMaxChars,
-                                inputFormatters: const [
+                                inputFormatters: [
                                   LengthLimitingTextInputFormatter(_quickMaxChars),
                                 ],
                                 textInputAction: TextInputAction.done,
