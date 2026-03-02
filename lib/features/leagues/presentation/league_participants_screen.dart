@@ -383,18 +383,25 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final assignedLeagueTeamName = (m.teamId != null && m.teamId!.isNotEmpty)
-        ? (_teamsById[m.teamId!]?.name ?? '${l10n.tr('league_participants_team_prefix')}${m.teamId}')
-        : l10n.tr('league_participants_no_team');
+    final teamId = (m.teamId ?? '').trim();
+    final team = teamId.isEmpty ? null : _teamsById[teamId];
 
-    final globalTeamName = _teamNameByUserId[m.userId];
-    final title = (globalTeamName != null && globalTeamName.trim().isNotEmpty) ? globalTeamName : m.userId;
+    final String assignedLeagueTeamName = team != null
+        ? team.name
+        : (teamId.isNotEmpty ? l10n.tr('league_participants_team_prefix').trim().isEmpty ? 'Team' : l10n.tr('league_participants_team_prefix').trim() : l10n.tr('league_participants_no_team'));
+
+    // Hide Firebase UID from viewers: only show resolved display name (teamName) or a generic label.
+    final globalTeamName = (_teamNameByUserId[m.userId] ?? '').trim();
+    final title = globalTeamName.isNotEmpty
+        ? globalTeamName
+        : (assignedLeagueTeamName.trim().isNotEmpty && assignedLeagueTeamName != l10n.tr('league_participants_no_team') ? assignedLeagueTeamName : 'Participant');
 
     final isOrganizer = m.role == LeagueRole.organizer;
 
+    // Hide Firebase UID from subtitle as well.
     final subtitle = isOrganizer
-        ? '${l10n.tr('league_participants_role_organizer')} • $assignedLeagueTeamName • ${l10n.tr('league_participants_userid_prefix')}${m.userId}'
-        : '$assignedLeagueTeamName • ${l10n.tr('league_participants_userid_prefix')}${m.userId}';
+        ? '${l10n.tr('league_participants_role_organizer')} • $assignedLeagueTeamName'
+        : assignedLeagueTeamName;
 
     final avatarUrl = _avatarUrlForUserId(m.userId);
 

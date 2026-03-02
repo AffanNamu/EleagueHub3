@@ -53,15 +53,22 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   final Set<String> _requestedUserImageIds = <String>{};
 
   Color _baseToastBg(ThemeData theme) {
-    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+    // Premium: light mode should NOT use a dark toast background.
+    if (theme.brightness == Brightness.dark) return const Color(0xFF101522);
+    return const Color(0xFFF8FBFF);
   }
 
   void _toast(String msg, {Color? bg, Color? fg}) {
     if (!mounted) return;
 
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final resolvedBg = bg ?? _baseToastBg(theme);
-    final resolvedFg = fg ?? Colors.white;
+    final resolvedFg = fg ??
+        (theme.brightness == Brightness.dark
+            ? Colors.white
+            : cs.onSurface.withOpacity(0.92));
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -69,7 +76,10 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
         backgroundColor: resolvedBg,
-        content: Text(msg, style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600)),
+        content: Text(
+          msg,
+          style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600),
+        ),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -80,21 +90,26 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
     final accent = cs.primary;
-    _toast(msg, bg: Color.alphaBlend(accent.withOpacity(0.22), baseBg), fg: accent);
+
+    _toast(
+      msg,
+      bg: Color.alphaBlend(accent.withOpacity(0.16), baseBg),
+      fg: accent,
+    );
   }
 
   void _toastWarn(String msg) {
     const warn = Color(0xFFF59E0B);
     final theme = Theme.of(context);
     final baseBg = _baseToastBg(theme);
-    _toast(msg, bg: Color.alphaBlend(warn.withOpacity(0.22), baseBg), fg: warn);
+    _toast(msg, bg: Color.alphaBlend(warn.withOpacity(0.16), baseBg), fg: warn);
   }
 
   void _toastErr(String msg) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.22), baseBg), fg: cs.error);
+    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.14), baseBg), fg: cs.error);
   }
 
   @override
@@ -728,7 +743,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                   child: SectionHeader(l10n.tr('admin_score_section_title')),
                 ),
                 const SizedBox(height: 6),
-
                 if (showGenerateClassic || showGenerateGroup || showGenerateSwiss)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -804,7 +818,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                       ],
                     ),
                   ),
-
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Text(
@@ -814,10 +827,8 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-
                 if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
                 if (availableRounds.isNotEmpty) _buildRoundSelector(availableRounds),
-
                 const SizedBox(height: 4),
                 Expanded(
                   child: visibleMatches.isEmpty
@@ -1218,10 +1229,13 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                     foregroundColor: primary,
                   ),
                   icon: widget.saving
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: primary,
+                          ),
                         )
                       : const Icon(Icons.done_all, size: 24),
                 ),
@@ -1391,7 +1405,11 @@ class _TeamThumb extends StatelessWidget {
                   );
                 },
               )
-            : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+            : Icon(
+                Icons.emoji_events_outlined,
+                size: 14,
+                color: cs.onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }

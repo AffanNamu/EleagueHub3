@@ -51,6 +51,35 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     super.dispose();
   }
 
+  Color _panelFill(ThemeData theme) {
+    if (theme.brightness == Brightness.light) {
+      // Premium frosted sub-surface on top of Glass.
+      return Colors.white.withOpacity(0.42);
+    }
+    return theme.colorScheme.onSurface.withOpacity(0.04);
+  }
+
+  Color _panelBorder(ThemeData theme, {Color? accent}) {
+    final cs = theme.colorScheme;
+    if (theme.brightness == Brightness.light) {
+      final a = accent ?? cs.primary;
+      return Color.alphaBlend(a.withOpacity(0.12), Colors.white.withOpacity(0.78));
+    }
+    return cs.onSurface.withOpacity(0.10);
+  }
+
+  List<BoxShadow>? _panelShadow(ThemeData theme, {Color? tint}) {
+    if (theme.brightness != Brightness.light) return null;
+    final c = tint ?? const Color(0xFFB4D2FF);
+    return <BoxShadow>[
+      BoxShadow(
+        color: c.withOpacity(0.22),
+        blurRadius: 30,
+        offset: const Offset(0, 18),
+      ),
+    ];
+  }
+
   bool _addonsOnlyFromRouteExtra() {
     try {
       final extra = GoRouterState.of(context).extra;
@@ -316,6 +345,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
             final bool customInvalid = _couponCodeCustomMode && _customNameInvalid(_couponCodeBase.text);
 
+            final chipBg = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.34) : cs.onSurface.withOpacity(0.06);
+            final chipBorder =
+                theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.12);
+
             return SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               child: Center(
@@ -352,9 +385,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: cs.onSurface.withOpacity(0.04),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                            color: _panelFill(theme),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: _panelBorder(theme)),
+                            boxShadow: _panelShadow(theme, tint: cs.primary),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -531,7 +565,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           setState(() => _discountPercent = rounded.clamp(5, 100));
                                         },
                                 ),
-
                                 const SizedBox(height: 12),
                                 Text(
                                   'Coupon code type (optional)',
@@ -546,12 +579,18 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                     ChoiceChip(
                                       label: const Text('Random', style: TextStyle(fontWeight: FontWeight.w800)),
                                       selected: !_couponCodeCustomMode,
+                                      selectedColor: cs.primary.withOpacity(0.18),
+                                      backgroundColor: chipBg,
+                                      side: BorderSide(color: !_couponCodeCustomMode ? cs.primary.withOpacity(0.35) : chipBorder),
                                       onSelected: _processing ? null : (_) => setState(() => _couponCodeCustomMode = false),
                                     ),
                                     const SizedBox(width: 10),
                                     ChoiceChip(
                                       label: const Text('Custom', style: TextStyle(fontWeight: FontWeight.w800)),
                                       selected: _couponCodeCustomMode,
+                                      selectedColor: cs.primary.withOpacity(0.18),
+                                      backgroundColor: chipBg,
+                                      side: BorderSide(color: _couponCodeCustomMode ? cs.primary.withOpacity(0.35) : chipBorder),
                                       onSelected: _processing ? null : (_) => setState(() => _couponCodeCustomMode = true),
                                     ),
                                   ],
@@ -600,9 +639,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: cs.onSurface.withOpacity(0.04),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                            color: _panelFill(theme),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: _panelBorder(theme)),
+                            boxShadow: _panelShadow(theme),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -634,6 +674,14 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                             Expanded(
                               child: OutlinedButton(
                                 onPressed: _processing ? null : () => context.pop<LeagueCreationPaymentResult?>(null),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                    color: theme.brightness == Brightness.light
+                                        ? Colors.white.withOpacity(0.72)
+                                        : cs.onSurface.withOpacity(0.18),
+                                  ),
+                                  foregroundColor: cs.onSurface.withOpacity(0.85),
+                                ),
                                 child: Text(l10n.tr('common_cancel')),
                               ),
                             ),

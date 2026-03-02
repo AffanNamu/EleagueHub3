@@ -19,7 +19,8 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart' hide UserFriendlyException;
 import '../data/league_spaces_local.dart' hide UserFriendlyException;
-import '../data/leagues_repository_local.dart' show LocalLeaguesRepository, UserFriendlyException;
+import '../data/leagues_repository_local.dart'
+    show LocalLeaguesRepository, UserFriendlyException;
 import '../data/services/reward_firestore_service.dart';
 import '../logic/coupon_codes_service.dart';
 import '../logic/coupon_config_service.dart' hide UserFriendlyException;
@@ -65,6 +66,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   bool _addingMeAsParticipant = false;
 
   bool _processingUpgradePayment = false;
+
+  // UI state: shows a spinner under the delete icon in the list tile + disables taps.
+  bool _deletingLeague = false;
 
   String _currentAuthUid = '';
   String _remoteOrganizerUid = '';
@@ -181,7 +185,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     if (available.isEmpty) return null;
     available.sort((a, b) => a.value.compareTo(b.value));
     final min = available.first.value;
-    final minGroups = available.where((e) => e.value == min).map((e) => e.key).toList();
+    final minGroups =
+        available.where((e) => e.value == min).map((e) => e.key).toList();
     final rnd = Random.secure();
     return minGroups[rnd.nextInt(minGroups.length)];
   }
@@ -212,7 +217,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       await _requireOnline();
 
-      league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+      league =
+          await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
       space = await _spaceRepo.getSpace(widget.leagueId).timeout(const Duration(seconds: 10));
 
       try {
@@ -252,9 +258,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         );
 
         if (isOrganizer) {
-          final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+          final teams =
+              await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
           final myTeamId = currentAuthUid;
-          final alreadyParticipant = myTeamId.isNotEmpty && teams.any((t) => t.id == myTeamId);
+          final alreadyParticipant =
+              myTeamId.isNotEmpty && teams.any((t) => t.id == myTeamId);
           showAddMe = !alreadyParticipant;
         }
       }
@@ -354,16 +362,22 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       if (!result.success) {
         _snack(
-          result.errorMessage?.trim().isNotEmpty == true ? result.errorMessage! : 'Payment failed',
+          result.errorMessage?.trim().isNotEmpty == true
+              ? result.errorMessage!
+              : 'Payment failed',
         );
         return;
       }
 
-      final addCoupons = result.buyCouponsForParticipants ? (result.couponCount < 0 ? 0 : result.couponCount) : 0;
+      final addCoupons = result.buyCouponsForParticipants
+          ? (result.couponCount < 0 ? 0 : result.couponCount)
+          : 0;
 
-      final nextCouponsEnabled = league.couponsEnabled || result.buyCouponsForParticipants;
-      final nextDiscountPercent =
-          result.buyCouponsForParticipants ? result.couponDiscountPercent : league.couponDiscountPercent;
+      final nextCouponsEnabled =
+          league.couponsEnabled || result.buyCouponsForParticipants;
+      final nextDiscountPercent = result.buyCouponsForParticipants
+          ? result.couponDiscountPercent
+          : league.couponDiscountPercent;
       final nextCouponCount = league.couponCount + addCoupons;
 
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -395,7 +409,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         }
       } catch (_) {
         if (mounted) {
-          _snack("We saved your purchase, but couldn't update coupons right now. Please try again.");
+          _snack(
+            "We saved your purchase, but couldn't update coupons right now. Please try again.",
+          );
         }
       }
 
@@ -540,7 +556,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             }
 
                             final redeemed = cfg.qtyRedeemed;
-                            final usersPay = (100 - cfg.discountPercent).clamp(0, 100);
+                            final usersPay =
+                                (100 - cfg.discountPercent).clamp(0, 100);
 
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -801,10 +818,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     padding: const EdgeInsets.only(bottom: 10),
                                     child: Row(
                                       children: [
-                                        const SizedBox(
+                                        SizedBox(
                                           width: 16,
                                           height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: cs.primary,
+                                          ),
                                         ),
                                         const SizedBox(width: 10),
                                         Text(
@@ -937,10 +957,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   FilledButton.icon(
                                     onPressed: generating ? null : generate,
                                     icon: generating
-                                        ? const SizedBox(
+                                        ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: cs.onPrimary,
+                                            ),
                                           )
                                         : const Icon(Icons.add),
                                     label: const Text('Generate'),
@@ -972,10 +995,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   FilledButton.icon(
                                     onPressed: generating ? null : generate,
                                     icon: generating
-                                        ? const SizedBox(
+                                        ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: cs.onPrimary,
+                                            ),
                                           )
                                         : const Icon(Icons.check),
                                     label: const Text('Create'),
@@ -1013,7 +1039,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     );
                                   }
                                   if (!snap.hasData) {
-                                    return Center(child: CircularProgressIndicator(color: cs.primary));
+                                    return Center(
+                                      child: CircularProgressIndicator(color: cs.primary),
+                                    );
                                   }
                                   final docs = snap.data!.docs;
                                   if (docs.isEmpty) {
@@ -1029,7 +1057,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   }
                                   return ListView.separated(
                                     itemCount: docs.length,
-                                    separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
+                                    separatorBuilder: (_, __) =>
+                                        Divider(color: onSurface.withOpacity(0.10)),
                                     itemBuilder: (context, i) {
                                       final d = docs[i].data();
                                       final code = docs[i].id;
@@ -1154,14 +1183,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         throw UserFriendlyException(l10n.tr('league_admin_only_organizer_action'));
       }
 
-      if (league.format == LeagueFormat.uclGroup && !(league.maxTeams == 16 || league.maxTeams == 32)) {
+      if (league.format == LeagueFormat.uclGroup &&
+          !(league.maxTeams == 16 || league.maxTeams == 32)) {
         throw UserFriendlyException(l10n.tr('league_admin_ucl_group_maxteams_error'));
       }
-      if (league.format == LeagueFormat.uclSwiss && !(league.maxTeams == 18 || league.maxTeams == 36)) {
+      if (league.format == LeagueFormat.uclSwiss &&
+          !(league.maxTeams == 18 || league.maxTeams == 36)) {
         throw UserFriendlyException(l10n.tr('league_admin_swiss_maxteams_error'));
       }
 
-      final existingTeams = await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
+      final existingTeams =
+          await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
       final alreadyHasTeam = existingTeams.any((t) => t.id == authUid);
       if (alreadyHasTeam) {
         _snack(l10n.tr('league_admin_already_added_participant_team_exists'));
@@ -1174,7 +1206,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         throw UserFriendlyException('$prefix${league.maxTeams}$suffix');
       }
 
-      final profile = await UserProfileRepository().fetchByUserId(authUid).timeout(const Duration(seconds: 12));
+      final profile = await UserProfileRepository()
+          .fetchByUserId(authUid)
+          .timeout(const Duration(seconds: 12));
       final teamName = profile?.teamName.trim() ?? '';
       if (teamName.isEmpty) {
         throw UserFriendlyException(l10n.tr('league_admin_profile_team_name_missing'));
@@ -1206,7 +1240,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         version: 1,
       );
 
-      await _repo.saveTeams(league.id, <Team>[...existingTeams, team]).timeout(const Duration(seconds: 25));
+      await _repo
+          .saveTeams(league.id, <Team>[...existingTeams, team])
+          .timeout(const Duration(seconds: 25));
 
       await _repo
           .assignTeamToUserInLeague(
@@ -1372,8 +1408,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     return GlassScaffold(
       appBar: AppBar(
         title: Text(l10n.tr('league_admin_appbar_title')),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         actions: [
           IconButton(
             tooltip: l10n.tr('common_refresh'),
@@ -1412,13 +1446,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    // Premium, theme-consistent semantic accents (soft, not neon).
+    const success = Color(0xFF22C55E);
+    const warning = Color(0xFFF59E0B);
+
     return ValueListenableBuilder<bool>(
       valueListenable: ConnectivityService.instance.isConnected,
       builder: (context, online, _) {
         final title = online ? 'Online' : 'Offline';
-        final subtitle = online ? 'All changes are saved to the server instantly.' : 'You appear to be offline. Some actions may not work.';
+        final subtitle = online
+            ? 'All changes are saved to the server instantly.'
+            : 'You appear to be offline. Some actions may not work.';
         final statusIcon = online ? Icons.wifi : Icons.wifi_off;
-        final statusColor = online ? const Color(0xFF22C55E) : const Color(0xFFF59E0B);
+        final statusColor = online ? success : warning;
 
         return Glass(
           borderRadius: 24,
@@ -1505,14 +1545,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           _buildSettingsTile(
             context,
             Icons.person_add_alt_1,
-            _addingMeAsParticipant ? l10n.tr('league_admin_adding_you') : l10n.tr('league_admin_add_me_participant'),
+            _addingMeAsParticipant
+                ? l10n.tr('league_admin_adding_you')
+                : l10n.tr('league_admin_add_me_participant'),
             l10n.tr('league_admin_add_me_participant_subtitle'),
             onTap: _addingMeAsParticipant ? null : _addMeAsParticipant,
           ),
         _buildSettingsTile(
           context,
           Icons.file_download_outlined,
-          _exportingRoster ? l10n.tr('league_admin_exporting_roster') : l10n.tr('league_admin_export_roster'),
+          _exportingRoster
+              ? l10n.tr('league_admin_exporting_roster')
+              : l10n.tr('league_admin_export_roster'),
           l10n.tr('league_admin_export_roster_subtitle'),
           onTap: _exportingRoster ? null : _exportRosterCsv,
         ),
@@ -1540,7 +1584,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         _buildSettingsTile(
           context,
           Icons.spatial_audio_off,
-          _space?.isLive == true ? l10n.tr('league_admin_league_space_live') : l10n.tr('league_admin_league_space_voice_room'),
+          _space?.isLive == true
+              ? l10n.tr('league_admin_league_space_live')
+              : l10n.tr('league_admin_league_space_voice_room'),
           _space?.isLive == true
               ? l10n.tr('league_admin_league_space_live_subtitle')
               : l10n.tr('league_admin_league_space_voice_room_subtitle'),
@@ -1563,10 +1609,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         _buildSettingsTile(
           context,
           Icons.delete_forever,
-          l10n.tr('league_admin_delete_league'),
-          l10n.tr('league_admin_delete_league_subtitle'),
+          _deletingLeague ? 'Deleting…' : l10n.tr('league_admin_delete_league'),
+          _deletingLeague
+              ? 'Please wait'
+              : l10n.tr('league_admin_delete_league_subtitle'),
           isDestructive: true,
-          onTap: _confirmDeleteLeague,
+          showLeadingSpinner: _deletingLeague,
+          onTap: _deletingLeague ? null : _confirmDeleteLeague,
         ),
       ],
     );
@@ -1587,9 +1636,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final done = snapshot.connectionState == ConnectionState.done;
         final hasRewards = snapshot.data == true;
 
-        final title = done
-            ? (hasRewards ? 'Manage Rewards' : 'Add Rewards')
-            : 'Rewards';
+        final title = done ? (hasRewards ? 'Manage Rewards' : 'Add Rewards') : 'Rewards';
         final subtitle = done
             ? (hasRewards ? '🏆 Rewards Available' : 'No rewards yet — create prizes for positions')
             : 'Checking rewards...';
@@ -1611,6 +1658,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     String title,
     String subtitle, {
     bool isDestructive = false,
+    bool showLeadingSpinner = false,
     VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
@@ -1618,6 +1666,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final chevronIcon = isRtl ? Icons.chevron_left : Icons.chevron_right;
     final leadingColor = isDestructive ? cs.error : cs.primary;
+
+    final leading = showLeadingSpinner
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: leadingColor),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: leadingColor,
+                ),
+              ),
+            ],
+          )
+        : Icon(icon, color: leadingColor);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1627,7 +1693,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(icon, color: leadingColor),
+            leading: leading,
             title: Text(
               title,
               style: theme.textTheme.titleSmall?.copyWith(
@@ -1802,7 +1868,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final startPrefix = l10n.tr('league_admin_league_space_start_description_prefix');
         final startSuffix = l10n.tr('league_admin_league_space_start_description_suffix');
 
-        final descText = spaceLive ? '$runningPrefix $leagueName.' : '$startPrefix $leagueName$startSuffix';
+        final descText = spaceLive
+            ? '$runningPrefix $leagueName.'
+            : '$startPrefix $leagueName$startSuffix';
 
         return SafeArea(
           child: Padding(
@@ -1939,7 +2007,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom).add(const EdgeInsets.all(16)),
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
+                .add(const EdgeInsets.all(16)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
@@ -2194,47 +2263,89 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     showDialog(
       context: context,
       builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
-        return AlertDialog(
-          backgroundColor: cs.surface,
-          title: Text(
-            l10n.tr('league_admin_delete_league_confirm_title'),
-            style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
-          ),
-          content: Text(
-            l10n.tr('league_admin_delete_league_confirm_message'),
-            style: TextStyle(color: onSurface.withOpacity(0.72), fontWeight: FontWeight.w600),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(l10n.tr('common_cancel')),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: cs.error),
-              onPressed: () async {
-                try {
-                  final uid = _authUidOrRedirect();
-                  if (uid == null) return;
+        final dialogBg = theme.brightness == Brightness.light
+            ? Colors.white.withOpacity(0.92)
+            : cs.surface;
 
-                  await _requireOnline();
+        bool deleting = false;
 
-                  await _repo.deleteLeagueCompletely(widget.leagueId).timeout(const Duration(seconds: 30));
-                  if (!mounted) return;
-                  Navigator.of(ctx).pop();
-                  GoRouter.of(context).go('/leagues');
-                  _snack(l10n.tr('league_admin_league_deleted'));
-                } catch (e) {
-                  if (!mounted) return;
-                  Navigator.of(ctx).pop();
-                  _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
-                }
-              },
-              child: Text(l10n.tr('league_admin_delete')),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (ctx, setStateDialog) {
+            return AlertDialog(
+              backgroundColor: dialogBg,
+              title: Text(
+                l10n.tr('league_admin_delete_league_confirm_title'),
+                style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
+              ),
+              content: Text(
+                l10n.tr('league_admin_delete_league_confirm_message'),
+                style: TextStyle(
+                  color: onSurface.withOpacity(0.72),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: deleting ? null : () => Navigator.of(ctx).pop(),
+                  child: Text(l10n.tr('common_cancel')),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: cs.error),
+                  onPressed: deleting
+                      ? null
+                      : () async {
+                          setStateDialog(() => deleting = true);
+                          if (mounted) setState(() => _deletingLeague = true);
+
+                          try {
+                            final uid = _authUidOrRedirect();
+                            if (uid == null) return;
+
+                            await _requireOnline();
+
+                            await _repo
+                                .deleteLeagueCompletely(widget.leagueId)
+                                .timeout(const Duration(seconds: 30));
+
+                            if (!mounted) return;
+
+                            Navigator.of(ctx).pop();
+
+                            // Navigate away after the dialog closes.
+                            GoRouter.of(context).go('/leagues');
+                            _snack(l10n.tr('league_admin_league_deleted'));
+                          } catch (e) {
+                            if (!mounted) return;
+                            Navigator.of(ctx).pop();
+                            _snack(UserFriendlyError.toMessage(
+                              e is Object ? e : Exception('unknown'),
+                            ));
+                          } finally {
+                            if (mounted) setState(() => _deletingLeague = false);
+                            if (ctx.mounted) setStateDialog(() => deleting = false);
+                          }
+                        },
+                  icon: deleting
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: cs.onError,
+                          ),
+                        )
+                      : const Icon(Icons.delete_forever),
+                  label: Text(
+                    deleting ? 'Deleting…' : l10n.tr('league_admin_delete'),
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );

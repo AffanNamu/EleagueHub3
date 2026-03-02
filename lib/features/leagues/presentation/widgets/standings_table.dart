@@ -94,8 +94,33 @@ class _StandingsTableState extends State<StandingsTable> {
   @override
   Widget build(BuildContext context) {
     final rows = _sorted;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final screenHeight = MediaQuery.of(context).size.height;
     final maxTableHeight = screenHeight * 0.6;
+
+    final headerStyle = theme.textTheme.labelLarge?.copyWith(
+      color: cs.onSurface.withOpacity(0.82),
+      fontWeight: FontWeight.w900,
+    );
+
+    final cellStyle = theme.textTheme.bodySmall?.copyWith(
+      color: cs.onSurface.withOpacity(0.78),
+      fontWeight: FontWeight.w700,
+      height: 1.15,
+    );
+
+    final primaryCellStyle = theme.textTheme.bodySmall?.copyWith(
+      color: cs.onSurface.withOpacity(0.92),
+      fontWeight: FontWeight.w800,
+      height: 1.15,
+    );
+
+    final pointsStyle = theme.textTheme.bodySmall?.copyWith(
+      color: cs.onSurface.withOpacity(0.95),
+      fontWeight: FontWeight.w900,
+    );
 
     return Glass(
       borderRadius: 20,
@@ -115,6 +140,9 @@ class _StandingsTableState extends State<StandingsTable> {
                   sortAscending: widget.allowSorting ? _asc : true,
                   sortColumnIndex: widget.allowSorting ? _sortCol : null,
                   columnSpacing: 18,
+                  headingTextStyle: headerStyle,
+                  dataTextStyle: cellStyle,
+                  dividerThickness: 0.6,
                   columns: [
                     _col('Team', 0),
                     _col('P', 1, numeric: true),
@@ -127,7 +155,14 @@ class _StandingsTableState extends State<StandingsTable> {
                   ],
                   rows: [
                     for (int i = 0; i < rows.length; i++)
-                      _row(context, i, rows.length, rows[i]),
+                      _row(
+                        context,
+                        i,
+                        rows.length,
+                        rows[i],
+                        primaryCellStyle: primaryCellStyle,
+                        pointsStyle: pointsStyle,
+                      ),
                   ],
                 ),
               ),
@@ -141,10 +176,7 @@ class _StandingsTableState extends State<StandingsTable> {
   DataColumn _col(String label, int index, {bool numeric = false}) {
     return DataColumn(
       numeric: numeric,
-      label: Text(
-        label,
-        style: const TextStyle(fontWeight: FontWeight.w800),
-      ),
+      label: Text(label),
       onSort: widget.allowSorting
           ? (colIndex, ascending) {
               setState(() {
@@ -160,18 +192,25 @@ class _StandingsTableState extends State<StandingsTable> {
     BuildContext context,
     int i,
     int total,
-    StandingsRow r,
-  ) {
+    StandingsRow r, {
+    required TextStyle? primaryCellStyle,
+    required TextStyle? pointsStyle,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     Color? zoneColor;
 
     if (widget.rowColorBuilder != null) {
       zoneColor = widget.rowColorBuilder!(context, i, r, total);
     } else {
-      final primary = Theme.of(context).colorScheme.primary;
+      // Default zones: keep consistent across themes and keep it premium-light friendly.
+      final topZone = const Color(0xFF22C55E).withOpacity(0.12);
+      final midZone = cs.primary.withOpacity(0.10);
       zoneColor = i < 2
-          ? Colors.green.withOpacity(0.12)
+          ? topZone
           : i < 4
-              ? primary.withOpacity(0.10)
+              ? midZone
               : Colors.transparent;
     }
 
@@ -181,7 +220,7 @@ class _StandingsTableState extends State<StandingsTable> {
         DataCell(
           Text(
             '${i + 1}. ${r.teamName}',
-            style: const TextStyle(fontWeight: FontWeight.w700),
+            style: primaryCellStyle,
           ),
         ),
         DataCell(Text('${r.mp}')),
@@ -193,7 +232,7 @@ class _StandingsTableState extends State<StandingsTable> {
         DataCell(
           Text(
             '${r.pts}',
-            style: const TextStyle(fontWeight: FontWeight.w900),
+            style: pointsStyle,
           ),
         ),
       ],

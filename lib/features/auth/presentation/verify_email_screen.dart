@@ -111,7 +111,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         _showSnack('Email verified. Welcome!');
         // Router redirect will move user onward.
       } else {
-        _showSnack('Verification applied. If you still see this screen, tap “I verified, continue”.');
+        _showSnack(
+          'Verification applied. If you still see this screen, tap “I verified, continue”.',
+        );
       }
     } catch (e) {
       _showSnack('$e');
@@ -130,7 +132,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         return;
       }
       if (!u.emailVerified) {
-        _showSnack('Not verified yet. Please open the email and follow the verification link, then try again.');
+        _showSnack(
+          'Not verified yet. Please open the email and follow the verification link, then try again.',
+        );
         return;
       }
 
@@ -156,6 +160,8 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final user = FirebaseAuth.instance.currentUser;
     final email = user?.email ?? '';
 
@@ -181,18 +187,26 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.mark_email_read_outlined, size: 44, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.mark_email_read_outlined,
+                      size: 44,
+                      color: cs.primary,
+                    ),
                     const SizedBox(height: 10),
                     Text(
                       'Confirm your email to continue',
-                      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      email.isEmpty ? 'We sent a verification email using Firebase Authentication.' : 'We sent a verification email to:\n$email',
+                      email.isEmpty
+                          ? 'We sent a verification email using Firebase Authentication.'
+                          : 'We sent a verification email to:\n$email',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.72),
+                        color: cs.onSurface.withOpacity(0.72),
                         height: 1.35,
                       ),
                       textAlign: TextAlign.center,
@@ -201,7 +215,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     Text(
                       'Option A: Tap the link in the email.\nOption B: Copy the link (or code) and paste it below.',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.65),
+                        color: cs.onSurface.withOpacity(0.65),
                         height: 1.35,
                       ),
                       textAlign: TextAlign.center,
@@ -235,10 +249,13 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                           child: FilledButton(
                             onPressed: _submitting ? null : _verifyByCode,
                             child: _submitting
-                                ? const SizedBox(
+                                ? SizedBox(
                                     width: 18,
                                     height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: cs.onPrimary,
+                                    ),
                                   )
                                 : const Text('Verify'),
                           ),

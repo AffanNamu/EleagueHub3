@@ -40,6 +40,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    // Premium, theme-consistent semantic accents (soft, not neon).
+    const success = Color(0xFF22C55E);
+    const warning = Color(0xFFF59E0B);
+
     final st = ref.watch(callSessionControllerProvider);
     final ctrl = ref.read(callSessionControllerProvider.notifier);
 
@@ -59,8 +63,6 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     return GlassScaffold(
       appBar: AppBar(
         title: Text(_trOr(l10n, 'call_room_title', 'Voice Room')),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
       ),
       body: SafeArea(
         child: Stack(
@@ -75,8 +77,14 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        _trOr(l10n, 'call_room_how_title', 'Create or join with 8-digit code'),
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                        _trOr(
+                          l10n,
+                          'call_room_how_title',
+                          'Create or join with 8-digit code',
+                        ),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -93,15 +101,18 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                       const SizedBox(height: 12),
                       if (st.error.isNotEmpty) ...[
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: st.reconnecting
-                                ? const Color(0xFFF59E0B).withOpacity(0.12)
+                                ? warning.withOpacity(0.12)
                                 : cs.error.withOpacity(0.10),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: st.reconnecting
-                                  ? const Color(0xFFF59E0B).withOpacity(0.30)
+                                  ? warning.withOpacity(0.30)
                                   : cs.error.withOpacity(0.25),
                             ),
                           ),
@@ -113,21 +124,23 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                   height: 14,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: Color(0xFFF59E0B),
+                                    color: warning,
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                               ] else ...[
-                                Icon(Icons.info_outline, size: 16, color: cs.error),
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 16,
+                                  color: cs.error,
+                                ),
                                 const SizedBox(width: 10),
                               ],
                               Expanded(
                                 child: Text(
                                   st.error,
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: st.reconnecting
-                                        ? const Color(0xFFF59E0B)
-                                        : cs.error,
+                                    color: st.reconnecting ? warning : cs.error,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -141,28 +154,39 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                         children: [
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: (st.joining || st.reconnecting) ? null : () async => ctrl.createAndJoin(),
+                              onPressed: (st.joining || st.reconnecting)
+                                  ? null
+                                  : () async => ctrl.createAndJoin(),
                               icon: st.joining
-                                  ? const SizedBox(
+                                  ? SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: cs.onPrimary,
+                                      ),
                                     )
                                   : const Icon(Icons.add_call),
-                              label: Text(_trOr(l10n, 'call_room_create', 'Create')),
+                              label: Text(
+                                _trOr(l10n, 'call_room_create', 'Create'),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: (!st.connected && !st.joining && !st.reconnecting)
+                              onPressed: (!st.connected &&
+                                      !st.joining &&
+                                      !st.reconnecting)
                                   ? () async {
                                       final code = _codeCtrl.text.trim();
                                       await ctrl.joinByCode(code);
                                     }
                                   : null,
                               icon: const Icon(Icons.login),
-                              label: Text(_trOr(l10n, 'call_room_join', 'Join')),
+                              label: Text(
+                                _trOr(l10n, 'call_room_join', 'Join'),
+                              ),
                             ),
                           ),
                         ],
@@ -170,13 +194,17 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                       const SizedBox(height: 10),
                       TextField(
                         controller: _codeCtrl,
-                        enabled: !st.connected && !st.joining && !st.reconnecting,
+                        enabled:
+                            !st.connected && !st.joining && !st.reconnecting,
                         keyboardType: TextInputType.number,
                         maxLength: 8,
                         decoration: InputDecoration(
                           counterText: '',
-                          hintText: _trOr(l10n, 'call_room_code_hint', 'Enter 8-digit code'),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                          hintText: _trOr(
+                            l10n,
+                            'call_room_code_hint',
+                            'Enter 8-digit code',
+                          ),
                         ),
                       ),
                     ],
@@ -191,7 +219,9 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                     children: [
                       Text(
                         _trOr(l10n, 'call_room_status_title', 'Status'),
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Row(
@@ -202,9 +232,9 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: st.connected
-                                  ? const Color(0xFF22C55E)
+                                  ? success
                                   : st.reconnecting
-                                      ? const Color(0xFFF59E0B)
+                                      ? warning
                                       : cs.onSurface.withOpacity(0.30),
                             ),
                           ),
@@ -214,14 +244,16 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                               st.connected
                                   ? '${_trOr(l10n, 'call_room_connected', 'Connected')} • ${_trOr(l10n, 'call_room_code', 'Code')}: ${st.callId}'
                                   : st.reconnecting
-                                      ? _trOr(l10n, 'call_room_reconnecting', 'Reconnecting...')
-                                      : _trOr(l10n, 'call_room_not_connected', 'Not connected'),
+                                      ? _trOr(l10n, 'call_room_reconnecting',
+                                          'Reconnecting...')
+                                      : _trOr(l10n, 'call_room_not_connected',
+                                          'Not connected'),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 fontWeight: FontWeight.w800,
                                 color: st.connected
-                                    ? const Color(0xFF22C55E)
+                                    ? success
                                     : st.reconnecting
-                                        ? const Color(0xFFF59E0B)
+                                        ? warning
                                         : cs.onSurface.withOpacity(0.75),
                               ),
                             ),
@@ -230,12 +262,17 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                             IconButton(
                               tooltip: _trOr(l10n, 'common_copy', 'Copy'),
                               onPressed: () async {
-                                await Clipboard.setData(ClipboardData(text: st.callId));
+                                await Clipboard.setData(
+                                  ClipboardData(text: st.callId),
+                                );
                                 if (!mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     behavior: SnackBarBehavior.floating,
-                                    content: Text(_trOr(l10n, 'call_room_copied', 'Code copied')),
+                                    content: Text(
+                                      _trOr(l10n, 'call_room_copied',
+                                          'Code copied'),
+                                    ),
                                   ),
                                 );
                               },
@@ -248,19 +285,31 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: (st.connected || st.reconnecting) ? ctrl.leave : null,
+                              onPressed: (st.connected || st.reconnecting)
+                                  ? ctrl.leave
+                                  : null,
                               icon: const Icon(Icons.call_end),
-                              label: Text(_trOr(l10n, 'call_room_leave', 'Leave')),
+                              label: Text(
+                                _trOr(l10n, 'call_room_leave', 'Leave'),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: (st.connected && st.micPermissionGranted) ? ctrl.toggleMic : null,
-                              icon: Icon(st.micEnabled ? Icons.mic : Icons.mic_off),
-                              label: Text(st.micEnabled
-                                  ? _trOr(l10n, 'call_room_mic_on', 'Mic on')
-                                  : _trOr(l10n, 'call_room_mic_off', 'Mic off')),
+                              onPressed: (st.connected &&
+                                      st.micPermissionGranted)
+                                  ? ctrl.toggleMic
+                                  : null,
+                              icon: Icon(
+                                st.micEnabled ? Icons.mic : Icons.mic_off,
+                              ),
+                              label: Text(
+                                st.micEnabled
+                                    ? _trOr(l10n, 'call_room_mic_on', 'Mic on')
+                                    : _trOr(l10n, 'call_room_mic_off',
+                                        'Mic off'),
+                              ),
                             ),
                           ),
                         ],
@@ -268,8 +317,13 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                       const SizedBox(height: 8),
                       Text(
                         st.micPermissionGranted
-                            ? _trOr(l10n, 'call_room_mic_hint_ok', 'Mic permission granted')
-                            : _trOr(l10n, 'call_room_mic_hint_denied', 'Mic permission denied (you can still listen)'),
+                            ? _trOr(l10n, 'call_room_mic_hint_ok',
+                                'Mic permission granted')
+                            : _trOr(
+                                l10n,
+                                'call_room_mic_hint_denied',
+                                'Mic permission denied (you can still listen)',
+                              ),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: cs.onSurface.withOpacity(0.65),
                           fontWeight: FontWeight.w600,
@@ -289,7 +343,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                   ignoring: true,
                   child: Glass(
                     borderRadius: 18,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
                     child: Row(
                       children: [
                         Icon(Icons.bolt, color: cs.primary, size: 18),
@@ -316,7 +373,9 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
             LiveFloatingQuickMessage(
               enabled: st.connected,
               messages: quickList,
-              onSend: (m) => ref.read(callSessionControllerProvider.notifier).sendQuick(m),
+              onSend: (m) => ref
+                  .read(callSessionControllerProvider.notifier)
+                  .sendQuick(m),
               icon: Icons.message_rounded,
             ),
           ],

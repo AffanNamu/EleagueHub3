@@ -86,11 +86,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final t = theme.textTheme;
 
     final fieldStyle = theme.textTheme.bodyLarge?.copyWith(
       fontWeight: FontWeight.w600,
-      color: theme.colorScheme.onSurface,
+      color: cs.onSurface,
     );
 
     return GlassScaffold(
@@ -120,7 +121,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     Text(
                       l10n.onboardingDescription,
                       style: t.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.72),
+                        color: cs.onSurface.withOpacity(0.72),
                         height: 1.35,
                       ),
                       textAlign: TextAlign.center,
@@ -129,7 +130,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     TextField(
                       controller: _teamName,
                       style: fieldStyle,
-                      cursorColor: theme.colorScheme.primary,
+                      cursorColor: cs.primary,
                       decoration: InputDecoration(
                         labelText: l10n.onboardingTeamNameLabel,
                       ),
@@ -138,7 +139,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     TextField(
                       controller: _q1,
                       style: fieldStyle,
-                      cursorColor: theme.colorScheme.primary,
+                      cursorColor: cs.primary,
                       decoration: InputDecoration(
                         labelText: l10n.onboardingFavoriteGameLabel,
                       ),
@@ -147,7 +148,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     TextField(
                       controller: _q2,
                       style: fieldStyle,
-                      cursorColor: theme.colorScheme.primary,
+                      cursorColor: cs.primary,
                       decoration: InputDecoration(
                         labelText: l10n.onboardingExperienceLevelLabel,
                       ),
@@ -156,7 +157,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     TextField(
                       controller: _q3,
                       style: fieldStyle,
-                      cursorColor: theme.colorScheme.primary,
+                      cursorColor: cs.primary,
                       decoration: InputDecoration(
                         labelText: l10n.onboardingRegionLabel,
                       ),
@@ -167,10 +168,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       child: FilledButton(
                         onPressed: _submitting ? null : _submit,
                         child: _submitting
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: cs.onPrimary,
+                                ),
                               )
                             : Text(l10n.onboardingContinue),
                       ),

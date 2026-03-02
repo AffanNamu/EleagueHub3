@@ -57,7 +57,8 @@ class LeagueFlipCard extends StatefulWidget {
   State<LeagueFlipCard> createState() => _LeagueFlipCardState();
 }
 
-class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProviderStateMixin {
+class _LeagueFlipCardState extends State<LeagueFlipCard>
+    with SingleTickerProviderStateMixin {
   static const double _outerRadius = 28;
 
   final RewardFirestoreService _rewardsService = RewardFirestoreService();
@@ -67,7 +68,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
   bool _showBack = false;
 
-  final Map<String, Future<String?>> _topRewardFutureCache = <String, Future<String?>>{};
+  final Map<String, Future<String?>> _topRewardFutureCache =
+      <String, Future<String?>>{};
 
   @override
   void initState() {
@@ -159,8 +161,10 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
     final map = _extractMap(widget.league);
 
-    if (map.containsKey('homeAwayEnabled') || map.containsKey('homeAndAwayEnabled')) {
-      return _boolFromAny(map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'], fallback: false);
+    if (map.containsKey('homeAwayEnabled') ||
+        map.containsKey('homeAndAwayEnabled')) {
+      return _boolFromAny(map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'],
+          fallback: false);
     }
 
     final settings = map['settings'];
@@ -180,7 +184,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
     final league = widget.league;
     final map = _extractMap(league);
-    final id = (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '').toString().trim();
+    final id =
+        (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '').toString().trim();
     if (id.isNotEmpty) return id;
 
     try {
@@ -296,10 +301,15 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
             tween: Tween<double>(begin: 0.985, end: 1.0),
             duration: const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
-            builder: (context, s, child) => Transform.scale(scale: s, child: child),
+            builder: (context, s, child) =>
+                Transform.scale(scale: s, child: child),
             child: AnimatedBuilder(
               animation: _anim,
               builder: (context, _) {
+                final theme = Theme.of(context);
+                final cs = theme.colorScheme;
+                final isLight = theme.brightness == Brightness.light;
+
                 final t = _anim.value;
                 final angle = t * math.pi;
 
@@ -310,9 +320,21 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                 final scale = 1.0 + (0.018 * lift);
 
                 final isBackVisible = t >= 0.5;
-                final face = isBackVisible ? _backFace(context, t) : _frontFace(context, leagueId, t);
+                final face = isBackVisible
+                    ? _backFace(context, t)
+                    : _frontFace(context, leagueId, t);
 
+                // Premium shadow:
+                // - Light mode: soft blue glow (avoid harsh dark shadow)
+                // - Dark mode: keep deeper shadow for contrast
                 final shadowOpacity = 0.10 + (0.20 * lift);
+                final shadowColor = isLight
+                    ? cs.primary.withValues(alpha: 0.10 + (0.18 * lift))
+                    : Colors.black.withValues(alpha: shadowOpacity);
+
+                final effectiveBorderColor = isLight
+                    ? Colors.white.withValues(alpha: 0.22)
+                    : Colors.white.withValues(alpha: 0.10);
 
                 return Transform.translate(
                   offset: Offset(0, translateY),
@@ -323,8 +345,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                         borderRadius: BorderRadius.circular(_outerRadius),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: shadowOpacity),
-                            blurRadius: 34,
+                            color: shadowColor,
+                            blurRadius: isLight ? 38 : 34,
                             offset: const Offset(0, 18),
                           ),
                         ],
@@ -345,7 +367,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                             padding: EdgeInsets.zero,
                             blur: 18,
                             opacity: 0.055,
-                            borderColor: Colors.white.withValues(alpha: 0.10),
+                            borderColor: effectiveBorderColor,
                             child: SizedBox(height: height, child: face),
                           ),
                         ),
@@ -369,10 +391,12 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
     final distribution = _distribution();
     final subtitle = _subtitle();
 
-    final bool wantsRewardsUi =
-        (widget.showRewardsBadge || widget.showRewardsPreview) && leagueId.trim().isNotEmpty;
+    final bool wantsRewardsUi = (widget.showRewardsBadge ||
+            widget.showRewardsPreview) &&
+        leagueId.trim().isNotEmpty;
 
-    final Future<String?>? topRewardFuture = wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
+    final Future<String?>? topRewardFuture =
+        wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
 
     final bool showHomeAway = _homeAwayEnabled();
 
@@ -544,7 +568,10 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                       switchOutCurve: Curves.easeOutCubic,
                       child: Container(
                         key: ValueKey<String>('topReward:$name'),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(999),
                           gradient: LinearGradient(
@@ -562,7 +589,11 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.card_giftcard_outlined, size: 16, color: cs.primary),
+                            Icon(
+                              Icons.card_giftcard_outlined,
+                              size: 16,
+                              color: cs.primary,
+                            ),
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
@@ -583,27 +614,66 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                 ),
               ],
               const Spacer(),
-              Row(
-                children: [
-                  Expanded(
-                    child: _ActionChip(
-                      icon: Icons.qr_code_2_rounded,
-                      label: 'Tap for QR & invite code',
-                      fg: cs.primary,
-                      bg: cs.primary.withValues(alpha: 0.14),
-                      border: cs.primary.withValues(alpha: 0.32),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  _ActionChip(
+
+              // Bottom actions (responsive; keeps everything visible on small screens)
+              LayoutBuilder(
+                builder: (context, c) {
+                  final narrow = c.maxWidth < 360;
+
+                  final qrChip = _ActionChip(
+                    icon: Icons.qr_code_2_rounded,
+                    label: narrow ? 'QR & code' : 'Tap for QR & invite code',
+                    fg: cs.primary,
+                    bg: cs.primary.withValues(alpha: 0.14),
+                    border: cs.primary.withValues(alpha: 0.32),
+                  );
+
+                  final flipChip = _ActionChip(
                     icon: Icons.touch_app_rounded,
                     label: 'Flip',
                     fg: cs.onSurface.withValues(alpha: 0.75),
                     bg: cs.onSurface.withValues(alpha: 0.06),
                     border: cs.onSurface.withValues(alpha: 0.12),
                     compact: true,
-                  ),
-                ],
+                  );
+
+                  final detailsHintChip = _ActionChip(
+                    icon: Icons.open_in_new_rounded,
+                    label: narrow ? '2× Details' : 'Double-tap details',
+                    fg: cs.onSurface.withValues(alpha: 0.70),
+                    bg: cs.onSurface.withValues(alpha: 0.05),
+                    border: cs.onSurface.withValues(alpha: 0.10),
+                    compact: true,
+                  );
+
+                  if (!narrow) {
+                    return Row(
+                      children: [
+                        Expanded(child: qrChip),
+                        const SizedBox(width: 10),
+                        flipChip,
+                        const SizedBox(width: 8),
+                        detailsHintChip,
+                      ],
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      qrChip,
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          flipChip,
+                          const SizedBox(width: 8),
+                          detailsHintChip,
+                        ],
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -727,7 +797,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                               borderRadius: BorderRadius.circular(18),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.18),
+                                  color: theme.brightness == Brightness.light
+                                      ? cs.primary.withValues(alpha: 0.18)
+                                      : Colors.black.withValues(alpha: 0.18),
                                   blurRadius: 22,
                                   offset: const Offset(0, 14),
                                 ),
@@ -800,7 +872,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: code.isEmpty ? null : () => _copyInviteCode(context),
+                        onTap:
+                            code.isEmpty ? null : () => _copyInviteCode(context),
                         borderRadius: BorderRadius.circular(16),
                         child: Ink(
                           height: 44,
@@ -909,10 +982,12 @@ class _LeagueHeroTile extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url, {required int width, required int height}) {
+  String _cloudinaryOptimizedUrl(String url,
+      {required int width, required int height}) {
     final u = url.trim();
     if (u.isEmpty || u.startsWith('data:image')) return u;
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1057,6 +1132,13 @@ class _ActionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    final textStyle = theme.textTheme.labelLarge?.copyWith(
+      color: fg,
+      fontWeight: FontWeight.w900,
+      letterSpacing: 0.1,
+    );
+
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 12 : 14,
@@ -1072,18 +1154,22 @@ class _ActionChip extends StatelessWidget {
         children: [
           Icon(icon, size: 18, color: fg),
           const SizedBox(width: 10),
-          Expanded(
-            child: Text(
+          if (compact)
+            Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: fg,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.1,
+              style: textStyle,
+            )
+          else
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textStyle,
               ),
             ),
-          ),
         ],
       ),
     );
@@ -1212,5 +1298,6 @@ class _NanoGridPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

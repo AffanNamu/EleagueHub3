@@ -9,7 +9,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/chat_repository.dart';
@@ -142,13 +141,16 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     );
   }
 
-  void _toastErr(Object e) =>
-      _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
+  void _toastErr(Object e) => _toast(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+        error: true,
+      );
 
   Future<void> _requestAccess() async {
     setState(() => _sending = true);
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final now = DateTime.now().millisecondsSinceEpoch;
       final docRef = _repo.globalChatRequestDoc(_user.uid);
@@ -188,7 +190,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
     setState(() => _sending = true);
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       await _repo.sendGlobalMessage(
         senderId: _user.uid,
@@ -219,7 +222,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
     setState(() => _sending = true);
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final pick = await SafeImagePicker.pickImage();
       if (pick.wasCancelled) {
@@ -283,7 +287,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     }
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       await _repo.softDeleteGlobalMessage(
         messageId: msg.messageId,
         deletedBy: _user.uid,
@@ -309,7 +314,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     final isAdmin = _isSuperAdmin || _isGlobalAdmin;
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       await _repo.pinGlobalMessage(
         messageId: msg.messageId,
         pinnedBy: _user.uid,
@@ -333,7 +339,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         ? msg.text.trim()
         : (msg.type == ChatMessageType.image
             ? msg.imageUrl.trim()
-            : (msg.type == ChatMessageType.voice ? msg.voiceUrl.trim() : ''));
+            : (msg.type == ChatMessageType.voice
+                ? msg.voiceUrl.trim()
+                : ''));
 
     if (txt.isEmpty) {
       _toast('Nothing to copy', error: true);
@@ -372,20 +380,22 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
           if (!selecting) {
             return AppBar(
               title: const Text('Global Chat'),
-              backgroundColor: Colors.transparent,
-              elevation: 0,
               actions: [
                 if (_isSuperAdmin)
                   IconButton(
                     tooltip: 'Requests',
-                    onPressed: () => context.push('/admin/global-chat-requests'),
-                    icon: const Icon(Icons.admin_panel_settings_outlined),
+                    onPressed: () =>
+                        context.push('/admin/global-chat-requests'),
+                    icon: const Icon(
+                      Icons.admin_panel_settings_outlined,
+                    ),
                   ),
               ],
             );
           }
 
-          final selectedMsg = (selectedId != null) ? _msgById[selectedId] : null;
+          final selectedMsg =
+              (selectedId != null) ? _msgById[selectedId] : null;
 
           return AppBar(
             leading: IconButton(
@@ -394,12 +404,11 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
               icon: const Icon(Icons.close_rounded),
             ),
             title: const Text('1 selected'),
-            backgroundColor: Colors.transparent,
-            elevation: 0,
             actions: [
               IconButton(
                 tooltip: 'Copy',
-                onPressed: selectedMsg == null ? null : () => _copySelected(selectedMsg),
+                onPressed:
+                    selectedMsg == null ? null : () => _copySelected(selectedMsg),
                 icon: const Icon(Icons.copy_rounded),
               ),
               if (selectedMsg != null && _canDeleteMessage(selectedMsg))
@@ -443,8 +452,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
             builder: (context, snap) {
               if (snap.hasError) {
                 final err = snap.error;
-                final msg =
-                    UserFriendlyError.toMessage(err is Object ? err : Exception('unknown'));
+                final msg = UserFriendlyError.toMessage(
+                  err is Object ? err : Exception('unknown'),
+                );
 
                 return Center(
                   child: Padding(
@@ -454,13 +464,18 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.error_outline, color: theme.colorScheme.error, size: 36),
+                          Icon(
+                            Icons.error_outline,
+                            color: theme.colorScheme.error,
+                            size: 36,
+                          ),
                           const SizedBox(height: 10),
                           Text(
                             msg,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: theme.colorScheme.onSurface.withOpacity(0.75),
+                              color: theme.colorScheme.onSurface
+                                  .withOpacity(0.75),
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -503,7 +518,10 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                   final m = msgs[i];
                   final isMe = m.senderId.trim() == _user.uid.trim();
 
-                  final key = _messageKeys.putIfAbsent(m.messageId, () => GlobalKey());
+                  final key = _messageKeys.putIfAbsent(
+                    m.messageId,
+                    () => GlobalKey(),
+                  );
 
                   return ValueListenableBuilder<String?>(
                     valueListenable: _selectedMessageId,
@@ -518,13 +536,16 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                           selected: selectedId == m.messageId,
                           onLongPress: () {
                             HapticFeedback.mediumImpact();
-                            _replyTo.value = null; // WhatsApp-like: selection cancels reply
+                            _replyTo.value =
+                                null; // WhatsApp-like: selection cancels reply
                             _selectedMessageId.value = m.messageId;
                           },
                           onTap: () {
                             if (!selecting) return;
                             _selectedMessageId.value =
-                                (selectedId == m.messageId) ? null : m.messageId;
+                                (selectedId == m.messageId)
+                                    ? null
+                                    : m.messageId;
                           },
                           onSwipeReply: selecting
                               ? null
@@ -580,122 +601,125 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
     final bypassRequest = _isSuperAdmin;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppTheme.backgroundGradient(theme.brightness),
-      ),
-      child: WillPopScope(
-        onWillPop: () async {
-          if (_isSelecting) {
-            _selectedMessageId.value = null;
-            return false;
-          }
-          return true;
-        },
-        child: GlassScaffold(
-          appBar: _buildAppBar(),
-          body: bypassRequest
-              ? _chatBody(canSend: true)
-              : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: _repo.globalChatRequestDoc(_user.uid).snapshots(),
-                  builder: (context, snap) {
-                    if (snap.hasError) {
-                      return Center(
+    return WillPopScope(
+      onWillPop: () async {
+        if (_isSelecting) {
+          _selectedMessageId.value = null;
+          return false;
+        }
+        return true;
+      },
+      child: GlassScaffold(
+        appBar: _buildAppBar(),
+        body: bypassRequest
+            ? _chatBody(canSend: true)
+            : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: _repo.globalChatRequestDoc(_user.uid).snapshots(),
+                builder: (context, snap) {
+                  if (snap.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Glass(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            UserFriendlyError.toMessage(
+                              snap.error is Object
+                                  ? snap.error!
+                                  : Exception('unknown'),
+                            ),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color:
+                                  theme.colorScheme.onSurface.withOpacity(0.75),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  final data = snap.data?.data();
+                  final statusRaw = (data?['status'] as String? ?? '').trim();
+                  final status = statusRaw.toLowerCase();
+
+                  final approved = status == 'approved';
+                  final pending = status == 'pending';
+                  final rejected = status == 'rejected';
+
+                  if (!approved) {
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Glass(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              UserFriendlyError.toMessage(
-                                snap.error is Object ? snap.error! : Exception('unknown'),
-                              ),
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: theme.colorScheme.onSurface.withOpacity(0.75),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
-                    final data = snap.data?.data();
-                    final statusRaw = (data?['status'] as String? ?? '').trim();
-                    final status = statusRaw.toLowerCase();
-
-                    final approved = status == 'approved';
-                    final pending = status == 'pending';
-                    final rejected = status == 'rejected';
-
-                    if (!approved) {
-                      return Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 520),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Glass(
-                              padding: const EdgeInsets.all(18),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Access required',
-                                    style: theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                      color: theme.colorScheme.onSurface,
-                                    ),
+                            padding: const EdgeInsets.all(18),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Access required',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    color: theme.colorScheme.onSurface,
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    pending
-                                        ? 'Your request is pending admin approval.'
-                                        : rejected
-                                            ? 'Your request was rejected. You can request again.'
-                                            : 'Request access to join the global public chatroom.',
-                                    style: TextStyle(
-                                      color: theme.colorScheme.onSurface.withOpacity(0.65),
-                                      fontWeight: FontWeight.w700,
-                                      height: 1.35,
-                                    ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  pending
+                                      ? 'Your request is pending admin approval.'
+                                      : rejected
+                                          ? 'Your request was rejected. You can request again.'
+                                          : 'Request access to join the global public chatroom.',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface
+                                        .withOpacity(0.65),
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.35,
                                   ),
-                                  const SizedBox(height: 14),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: FilledButton.icon(
-                                          onPressed: _sending ? null : _requestAccess,
-                                          icon: const Icon(Icons.lock_open_rounded),
-                                          label: Text(
-                                            pending ? 'Pending…' : 'Request access',
-                                            style: const TextStyle(fontWeight: FontWeight.w900),
+                                ),
+                                const SizedBox(height: 14),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed:
+                                            _sending ? null : _requestAccess,
+                                        icon: const Icon(Icons.lock_open_rounded),
+                                        label: Text(
+                                          pending ? 'Pending…' : 'Request access',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
                                           ),
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    'Only approved users can read and send messages.',
-                                    style: TextStyle(
-                                      color: theme.colorScheme.onSurface.withOpacity(0.45),
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 12,
                                     ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Only approved users can read and send messages.',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface
+                                        .withOpacity(0.45),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      );
-                    }
+                      ),
+                    );
+                  }
 
-                    return _chatBody(canSend: true);
-                  },
-                ),
-        ),
+                  return _chatBody(canSend: true);
+                },
+              ),
       ),
     );
   }

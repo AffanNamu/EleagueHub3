@@ -40,7 +40,8 @@ class _LiveListScreenState extends State<LiveListScreen> {
     }
 
     await ConnectivityService.instance.initialize();
-    final ok = await ConnectivityService.instance.recheckConnection(timeout: const Duration(seconds: 4));
+    final ok = await ConnectivityService.instance
+        .recheckConnection(timeout: const Duration(seconds: 4));
     if (!ok) {
       _showSnack(UserFriendlyError.toMessage(SocketException('offline')));
       return false;
@@ -58,8 +59,6 @@ class _LiveListScreenState extends State<LiveListScreen> {
     return GlassScaffold(
       appBar: AppBar(
         title: Text(l10n.tr('live_list_appbar_title')),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
       ),
       body: SafeArea(
         child: Center(
@@ -100,10 +99,13 @@ class _LiveListScreenState extends State<LiveListScreen> {
                                 }
                               },
                         icon: _busy
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: cs.onPrimary,
+                                ),
                               )
                             : const Icon(Icons.login),
                         label: Text(l10n.tr('live_list_join_match_button')),
@@ -119,7 +121,8 @@ class _LiveListScreenState extends State<LiveListScreen> {
                                 setState(() => _busy = true);
 
                                 final matchIdCtrl = TextEditingController();
-                                final portCtrl = TextEditingController(text: '8765');
+                                final portCtrl =
+                                    TextEditingController(text: '8765');
 
                                 try {
                                   final okOnline = await _ensureSignedInAndOnline();
@@ -132,8 +135,15 @@ class _LiveListScreenState extends State<LiveListScreen> {
                                       final dialogTheme = Theme.of(ctx);
                                       final dialogCs = dialogTheme.colorScheme;
 
+                                      // Your light theme uses a transparent `surface`,
+                                      // so dialogs should have an explicit premium backdrop.
+                                      final dialogBg =
+                                          dialogTheme.brightness == Brightness.light
+                                              ? Colors.white.withOpacity(0.92)
+                                              : dialogCs.surface;
+
                                       return AlertDialog(
-                                        backgroundColor: dialogCs.surface,
+                                        backgroundColor: dialogBg,
                                         title: Text(
                                           l10n.tr('live_list_host_dialog_title'),
                                           style: TextStyle(
@@ -147,8 +157,12 @@ class _LiveListScreenState extends State<LiveListScreen> {
                                             TextField(
                                               controller: matchIdCtrl,
                                               decoration: InputDecoration(
-                                                labelText: l10n.tr('live_list_host_dialog_live_match_id_label'),
-                                                hintText: l10n.tr('live_list_host_dialog_live_match_id_hint'),
+                                                labelText: l10n.tr(
+                                                  'live_list_host_dialog_live_match_id_label',
+                                                ),
+                                                hintText: l10n.tr(
+                                                  'live_list_host_dialog_live_match_id_hint',
+                                                ),
                                               ),
                                             ),
                                             const SizedBox(height: 10),
@@ -156,20 +170,28 @@ class _LiveListScreenState extends State<LiveListScreen> {
                                               controller: portCtrl,
                                               keyboardType: TextInputType.number,
                                               decoration: InputDecoration(
-                                                labelText: l10n.tr('live_list_host_dialog_port_label'),
-                                                hintText: l10n.tr('live_list_host_dialog_port_hint'),
+                                                labelText: l10n.tr(
+                                                  'live_list_host_dialog_port_label',
+                                                ),
+                                                hintText: l10n.tr(
+                                                  'live_list_host_dialog_port_hint',
+                                                ),
                                               ),
                                             ),
                                           ],
                                         ),
                                         actions: [
                                           TextButton(
-                                            onPressed: () => Navigator.pop(ctx, false),
+                                            onPressed: () =>
+                                                Navigator.pop(ctx, false),
                                             child: Text(l10n.tr('common_cancel')),
                                           ),
                                           FilledButton(
-                                            onPressed: () => Navigator.pop(ctx, true),
-                                            child: Text(l10n.tr('live_list_host_dialog_start')),
+                                            onPressed: () =>
+                                                Navigator.pop(ctx, true),
+                                            child: Text(
+                                              l10n.tr('live_list_host_dialog_start'),
+                                            ),
                                           ),
                                         ],
                                       );
@@ -179,7 +201,8 @@ class _LiveListScreenState extends State<LiveListScreen> {
                                   if (ok != true) return;
 
                                   final matchId = matchIdCtrl.text.trim();
-                                  final port = int.tryParse(portCtrl.text.trim()) ?? 8765;
+                                  final port =
+                                      int.tryParse(portCtrl.text.trim()) ?? 8765;
                                   if (matchId.isEmpty) {
                                     _showSnack('Please enter a valid match ID.');
                                     return;

@@ -33,8 +33,6 @@ class BatteryOptimizationGuide {
 
   static Future<void> show(BuildContext context) async {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     final info = await _deviceInfo();
     final manufacturer = (info['manufacturer'] ?? '').toString().toLowerCase();
@@ -53,7 +51,8 @@ class BatteryOptimizationGuide {
         final sheetTheme = Theme.of(ctx);
         final sheetCs = sheetTheme.colorScheme;
 
-        final vendorLabel = vendor.isEmpty ? l10n.tr('battery_opt_android') : vendor.toUpperCase();
+        final vendorLabel =
+            vendor.isEmpty ? l10n.tr('battery_opt_android') : vendor.toUpperCase();
         final modelSuffix = model.isNotEmpty ? ' • $model' : '';
 
         return Padding(
@@ -150,7 +149,10 @@ class BatteryOptimizationGuide {
                     onPressed: () => Navigator.pop(ctx),
                     child: Text(
                       l10n.tr('battery_opt_close'),
-                      style: TextStyle(color: sheetCs.primary, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        color: sheetCs.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ],

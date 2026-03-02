@@ -57,6 +57,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -74,18 +75,24 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.lock_reset, size: 44, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.lock_reset,
+                      size: 44,
+                      color: cs.primary,
+                    ),
                     const SizedBox(height: 10),
                     Text(
                       'Forgot your password?',
-                      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 6),
                     Text(
                       'Enter your email and we’ll send a one-time reset link using Firebase Authentication’s built-in email system.',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.72),
+                        color: cs.onSurface.withOpacity(0.72),
                         height: 1.35,
                       ),
                       textAlign: TextAlign.center,
@@ -108,10 +115,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       child: FilledButton(
                         onPressed: _submitting ? null : _send,
                         child: _submitting
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: cs.onPrimary,
+                                ),
                               )
                             : const Text('Send reset email'),
                       ),

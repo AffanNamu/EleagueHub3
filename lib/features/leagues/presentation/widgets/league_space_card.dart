@@ -37,6 +37,9 @@ class LeagueSpaceCard extends StatelessWidget {
 
         final liveDot = isLive ? cs.error : cs.onSurface.withOpacity(0.14);
 
+        // Light theme: soften the live glow; dark theme: keep it slightly stronger.
+        final glowOpacity = theme.brightness == Brightness.light ? 0.26 : 0.45;
+
         return Glass(
           borderRadius: 20,
           padding: const EdgeInsets.all(16),
@@ -52,9 +55,9 @@ class LeagueSpaceCard extends StatelessWidget {
                   boxShadow: isLive
                       ? [
                           BoxShadow(
-                            color: cs.error.withOpacity(0.45),
-                            blurRadius: 8,
-                            spreadRadius: 2,
+                            color: cs.error.withOpacity(glowOpacity),
+                            blurRadius: 10,
+                            spreadRadius: 1.5,
                           )
                         ]
                       : const [],

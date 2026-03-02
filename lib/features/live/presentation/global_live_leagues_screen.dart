@@ -43,10 +43,12 @@ class GlobalLiveLeaguesScreen extends ConsumerStatefulWidget {
   const GlobalLiveLeaguesScreen({super.key});
 
   @override
-  ConsumerState<GlobalLiveLeaguesScreen> createState() => _GlobalLiveLeaguesScreenState();
+  ConsumerState<GlobalLiveLeaguesScreen> createState() =>
+      _GlobalLiveLeaguesScreenState();
 }
 
-class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScreen> with TickerProviderStateMixin {
+class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScreen>
+    with TickerProviderStateMixin {
   String? _joiningLeagueId;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -68,17 +70,22 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
   void initState() {
     super.initState();
     _searchController.addListener(() {
-      setState(() => _searchQuery = _searchController.text.trim().toLowerCase());
+      setState(
+        () => _searchQuery = _searchController.text.trim().toLowerCase(),
+      );
     });
     _headerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
     );
-    _headerFade = CurvedAnimation(parent: _headerController, curve: Curves.easeOut);
+    _headerFade =
+        CurvedAnimation(parent: _headerController, curve: Curves.easeOut);
     _headerSlide = Tween<Offset>(
       begin: const Offset(0, -0.15),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _headerController, curve: Curves.easeOutCubic));
+    ).animate(
+      CurvedAnimation(parent: _headerController, curve: Curves.easeOutCubic),
+    );
     _headerController.forward();
   }
 
@@ -95,7 +102,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
       final name = item.league.name.toLowerCase();
       final region = item.league.region.toLowerCase();
       final season = item.league.season.toLowerCase();
-      return name.contains(_searchQuery) || region.contains(_searchQuery) || season.contains(_searchQuery);
+      return name.contains(_searchQuery) ||
+          region.contains(_searchQuery) ||
+          season.contains(_searchQuery);
     }).toList();
   }
 
@@ -119,12 +128,18 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
 
     // Classic full means user joins as viewer (your requirement):
     // show pay/coupon options for viewer unlock.
-    final classicFullViewer = fmt == LeagueFormat.classic && item.isFullComputed && mode == LeagueJoinMode.viewer;
+    final classicFullViewer =
+        fmt == LeagueFormat.classic &&
+            item.isFullComputed &&
+            mode == LeagueJoinMode.viewer;
 
     return paidLeague || classicFullViewer;
   }
 
-  Future<bool> _ensureUnlockedOrShowSheet(GlobalPublicLeague item, LeagueJoinMode mode) async {
+  Future<bool> _ensureUnlockedOrShowSheet(
+    GlobalPublicLeague item,
+    LeagueJoinMode mode,
+  ) async {
     final authUid = _authUidOrEmpty();
     if (authUid.isEmpty) {
       _snack('Please sign in and try again.');
@@ -134,7 +149,8 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
     if (!_requiresUnlock(item, mode)) return true;
 
     try {
-      final decision = await LeagueAccessService.instance.checkAccess(leagueId: item.league.id, force: false);
+      final decision = await LeagueAccessService.instance
+          .checkAccess(leagueId: item.league.id, force: false);
       if (decision.allowed) return true;
     } catch (e) {
       _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
@@ -146,7 +162,8 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
 
     // Verify again after unlock attempt (defensive).
     try {
-      final decision2 = await LeagueAccessService.instance.checkAccess(leagueId: item.league.id, force: true);
+      final decision2 = await LeagueAccessService.instance
+          .checkAccess(leagueId: item.league.id, force: true);
       return decision2.allowed;
     } catch (e) {
       _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
@@ -203,7 +220,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
             if (!res.success) {
               setSheetState(() {
                 busy = false;
-                error = res.errorMessage?.trim().isNotEmpty == true ? res.errorMessage : 'Payment not successful.';
+                error = res.errorMessage?.trim().isNotEmpty == true
+                    ? res.errorMessage
+                    : 'Payment not successful.';
               });
               return;
             }
@@ -220,7 +239,8 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
             );
 
             // Ensure deterministic membership for league chat rules.
-            await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+            await LeagueAccessService.instance
+                .ensureDeterministicMembershipBestEffort(
               leagueId: item.league.id,
               uid: authUid,
             );
@@ -230,7 +250,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
           } catch (e) {
             setSheetState(() {
               busy = false;
-              error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+              error = UserFriendlyError.toMessage(
+                e is Object ? e : Exception('unknown'),
+              );
             });
           }
         }
@@ -260,12 +282,15 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
             if (!res.success) {
               setSheetState(() {
                 busy = false;
-                error = res.errorMessage?.trim().isNotEmpty == true ? res.errorMessage : 'Coupon redemption failed.';
+                error = res.errorMessage?.trim().isNotEmpty == true
+                    ? res.errorMessage
+                    : 'Coupon redemption failed.';
               });
               return;
             }
 
-            await LeagueAccessService.instance.ensureDeterministicMembershipBestEffort(
+            await LeagueAccessService.instance
+                .ensureDeterministicMembershipBestEffort(
               leagueId: item.league.id,
               uid: authUid,
             );
@@ -275,14 +300,17 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
           } catch (e) {
             setSheetState(() {
               busy = false;
-              error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+              error = UserFriendlyError.toMessage(
+                e is Object ? e : Exception('unknown'),
+              );
             });
           }
         }
 
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+            padding: EdgeInsets.only(bottom: bottomInset)
+                .add(const EdgeInsets.all(12)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
@@ -318,7 +346,11 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                   ],
                                 ),
                               ),
-                              child: Icon(Icons.lock_outline_rounded, color: cs.primary, size: 28),
+                              child: Icon(
+                                Icons.lock_outline_rounded,
+                                color: cs.primary,
+                                size: 28,
+                              ),
                             ),
                             const SizedBox(height: 12),
                             Text(
@@ -339,18 +371,26 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                               ),
                             ),
                             const SizedBox(height: 16),
-
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton.icon(
                                 onPressed: busy ? null : () => doPay(setSheetState),
                                 icon: const Icon(Icons.payments_outlined),
                                 label: busy
-                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Text('Pay to unlock', style: TextStyle(fontWeight: FontWeight.w900)),
+                                    ? SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: cs.onPrimary,
+                                        ),
+                                      )
+                                    : const Text(
+                                        'Pay to unlock',
+                                        style: TextStyle(fontWeight: FontWeight.w900),
+                                      ),
                               ),
                             ),
-
                             const SizedBox(height: 14),
                             Align(
                               alignment: AlignmentDirectional.centerStart,
@@ -369,7 +409,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                               enabled: !busy,
                               textCapitalization: TextCapitalization.characters,
                               decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.confirmation_number_outlined),
+                                prefixIcon: const Icon(
+                                  Icons.confirmation_number_outlined,
+                                ),
                                 hintText: 'Enter coupon code',
                                 filled: true,
                                 fillColor: on.withOpacity(0.06),
@@ -383,7 +425,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(14),
-                                  borderSide: BorderSide(color: cs.primary.withOpacity(0.55)),
+                                  borderSide: BorderSide(
+                                    color: cs.primary.withOpacity(0.55),
+                                  ),
                                 ),
                               ),
                               onSubmitted: (_) => doCoupon(setSheetState),
@@ -394,10 +438,12 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                               child: OutlinedButton.icon(
                                 onPressed: busy ? null : () => doCoupon(setSheetState),
                                 icon: const Icon(Icons.verified_outlined),
-                                label: const Text('Apply coupon', style: TextStyle(fontWeight: FontWeight.w900)),
+                                label: const Text(
+                                  'Apply coupon',
+                                  style: TextStyle(fontWeight: FontWeight.w900),
+                                ),
                               ),
                             ),
-
                             if ((error ?? '').trim().isNotEmpty) ...[
                               const SizedBox(height: 12),
                               Container(
@@ -406,15 +452,19 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 decoration: BoxDecoration(
                                   color: cs.error.withOpacity(0.10),
                                   borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: cs.error.withOpacity(0.25)),
+                                  border: Border.all(
+                                    color: cs.error.withOpacity(0.25),
+                                  ),
                                 ),
                                 child: Text(
                                   error!.trim(),
-                                  style: TextStyle(color: cs.error, fontWeight: FontWeight.w800),
+                                  style: TextStyle(
+                                    color: cs.error,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ),
                             ],
-
                             const SizedBox(height: 10),
                             SizedBox(
                               width: double.infinity,
@@ -444,10 +494,6 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
   }
 
   Future<void> _showJoinModeSheet(GlobalPublicLeague item) async {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final on = cs.onSurface;
-
     if (item.isFinished) {
       _snack('This league is finished.');
       return;
@@ -465,7 +511,8 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
 
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.only(bottom: mq.viewInsets.bottom).add(const EdgeInsets.all(12)),
+            padding: EdgeInsets.only(bottom: mq.viewInsets.bottom)
+                .add(const EdgeInsets.all(12)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
@@ -499,7 +546,11 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                               ],
                             ),
                           ),
-                          child: Icon(Icons.group_add_rounded, color: cs.primary, size: 26),
+                          child: Icon(
+                            Icons.group_add_rounded,
+                            color: cs.primary,
+                            size: 26,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         Text(
@@ -523,16 +574,20 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                         _JoinModeTile(
                           icon: Icons.sports_soccer,
                           title: 'Join as Participant',
-                          subtitle: item.isFullComputed ? 'League is currently full. You can still join as a viewer.' : 'Counts towards league capacity and lets you participate.',
+                          subtitle: item.isFullComputed
+                              ? 'League is currently full. You can still join as a viewer.'
+                              : 'Counts towards league capacity and lets you participate.',
                           badge: item.isFullComputed ? 'FULL' : null,
                           badgeColor: item.isFullComputed ? cs.error : cs.primary,
-                          onTap: () => Navigator.of(ctx).pop(LeagueJoinMode.participant),
+                          onTap: () =>
+                              Navigator.of(ctx).pop(LeagueJoinMode.participant),
                         ),
                         const SizedBox(height: 10),
                         _JoinModeTile(
                           icon: Icons.visibility_outlined,
                           title: 'Join as Viewer',
-                          subtitle: 'View league content without taking a participant slot.',
+                          subtitle:
+                              'View league content without taking a participant slot.',
                           onTap: () => Navigator.of(ctx).pop(LeagueJoinMode.viewer),
                         ),
                         const SizedBox(height: 14),
@@ -600,10 +655,17 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
             builder: (ctx) {
               final theme = Theme.of(ctx);
               final cs = theme.colorScheme;
+
+              final dialogBg = theme.brightness == Brightness.light
+                  ? Colors.white.withOpacity(0.90)
+                  : cs.surface;
+
               return AlertDialog(
-                backgroundColor: cs.surface,
+                backgroundColor: dialogBg,
                 title: const Text('League is full'),
-                content: const Text('No participant slots left. Do you want to join as a viewer instead?'),
+                content: const Text(
+                  'No participant slots left. Do you want to join as a viewer instead?',
+                ),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(ctx).pop(false),
@@ -621,7 +683,8 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
           if (joinViewer == true) {
             // If classic full viewer or paid league, the join sheet already did unlock.
             // But if this full-status happened in a race, enforce unlock now.
-            final ok = await _ensureUnlockedOrShowSheet(item, LeagueJoinMode.viewer);
+            final ok =
+                await _ensureUnlockedOrShowSheet(item, LeagueJoinMode.viewer);
             if (!ok) return;
             await _join(item, LeagueJoinMode.viewer);
           }
@@ -637,7 +700,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
       }
     } catch (e) {
       if (!mounted) return;
-      _snack('Join failed: ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}');
+      _snack(
+        'Join failed: ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}',
+      );
     } finally {
       if (mounted) setState(() => _joiningLeagueId = null);
     }
@@ -653,13 +718,15 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
     return GlassScaffold(
       appBar: AppBar(
         title: const Text(''),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         leading: IconButton(
           icon: Glass(
             padding: const EdgeInsets.all(8),
             borderRadius: 12,
-            child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: on.withOpacity(0.90)),
+            child: Icon(
+              Icons.arrow_back_ios_new_rounded,
+              size: 18,
+              color: on.withOpacity(0.90),
+            ),
           ),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
@@ -679,7 +746,10 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                       padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                       child: Glass(
                         borderRadius: 22,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 18,
+                        ),
                         child: Row(
                           children: [
                             Container(
@@ -790,7 +860,11 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 shape: BoxShape.circle,
                                 color: cs.error.withOpacity(0.15),
                               ),
-                              child: Icon(Icons.error_outline_rounded, color: cs.error, size: 30),
+                              child: Icon(
+                                Icons.error_outline_rounded,
+                                color: cs.error,
+                                size: 30,
+                              ),
                             ),
                             const SizedBox(height: 14),
                             Text(
@@ -839,7 +913,11 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                       ],
                                     ),
                                   ),
-                                  child: Icon(Icons.public_rounded, color: cs.primary, size: 32),
+                                  child: Icon(
+                                    Icons.public_rounded,
+                                    color: cs.primary,
+                                    size: 32,
+                                  ),
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
@@ -874,7 +952,11 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.search_off_rounded, color: on.withOpacity(0.40), size: 40),
+                                Icon(
+                                  Icons.search_off_rounded,
+                                  color: on.withOpacity(0.40),
+                                  size: 40,
+                                ),
                                 const SizedBox(height: 12),
                                 Text(
                                   'No leagues match your search',
@@ -891,7 +973,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                       }
 
                       return ListView.separated(
-                        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                        physics: const BouncingScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics(),
+                        ),
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                         itemCount: items.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -933,7 +1017,8 @@ class _AnimatedLeagueCard extends StatefulWidget {
   State<_AnimatedLeagueCard> createState() => _AnimatedLeagueCardState();
 }
 
-class _AnimatedLeagueCardState extends State<_AnimatedLeagueCard> with SingleTickerProviderStateMixin {
+class _AnimatedLeagueCardState extends State<_AnimatedLeagueCard>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _fade;
   late final Animation<Offset> _slide;
@@ -946,13 +1031,17 @@ class _AnimatedLeagueCardState extends State<_AnimatedLeagueCard> with SingleTic
       duration: const Duration(milliseconds: 500),
     );
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
-    _slide = Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
+    _slide =
+        Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
     );
 
-    Future.delayed(Duration(milliseconds: math.min(widget.index * 80, 400)), () {
-      if (mounted) _ctrl.forward();
-    });
+    Future.delayed(
+      Duration(milliseconds: math.min(widget.index * 80, 400)),
+      () {
+        if (mounted) _ctrl.forward();
+      },
+    );
   }
 
   @override
@@ -992,7 +1081,8 @@ class _LeagueCard extends StatefulWidget {
   State<_LeagueCard> createState() => _LeagueCardState();
 }
 
-class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderStateMixin {
+class _LeagueCardState extends State<_LeagueCard>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _tapCtrl;
   late final Animation<double> _scale;
 
@@ -1034,7 +1124,9 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
     final isLive = !item.isFinished && !item.isFullComputed;
     final organizerDisplay = _safeOrganizerName(item);
 
-    final participantText = item.registeredCount == null ? '${item.league.maxTeams}' : '${item.registeredCount}/${item.league.maxTeams}';
+    final participantText = item.registeredCount == null
+        ? '${item.league.maxTeams}'
+        : '${item.registeredCount}/${item.league.maxTeams}';
 
     return AnimatedBuilder(
       listenable: _scale,
@@ -1127,7 +1219,9 @@ class _LeagueCardState extends State<_LeagueCard> with SingleTickerProviderState
                   ),
                   _InfoChip(
                     icon: Icons.public_rounded,
-                    label: item.league.region.isNotEmpty ? item.league.region : 'Global',
+                    label: item.league.region.isNotEmpty
+                        ? item.league.region
+                        : 'Global',
                   ),
                   if (item.league.viewerCapacity > 0)
                     _InfoChip(
@@ -1189,7 +1283,8 @@ class _StatusBadge extends StatefulWidget {
   State<_StatusBadge> createState() => _StatusBadgeState();
 }
 
-class _StatusBadgeState extends State<_StatusBadge> with SingleTickerProviderStateMixin {
+class _StatusBadgeState extends State<_StatusBadge>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
 
   @override
@@ -1339,15 +1434,20 @@ class _PremiumJoinButton extends StatelessWidget {
                   ),
             color: disabled ? on.withOpacity(0.08) : null,
             border: Border.all(
-              color: disabled ? on.withOpacity(0.10) : cs.primary.withOpacity(0.40),
+              color: disabled
+                  ? on.withOpacity(0.10)
+                  : cs.primary.withOpacity(0.40),
             ),
           ),
           child: Center(
             child: joining
-                ? const SizedBox(
+                ? SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: cs.onPrimary,
+                    ),
                   )
                 : Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1414,7 +1514,8 @@ class _LeagueThumb extends StatelessWidget {
       return Image.network(
         u,
         fit: fit,
-        errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_rounded, color: cs.primary, size: 24),
+        errorBuilder: (_, __, ___) =>
+            Icon(Icons.emoji_events_rounded, color: cs.primary, size: 24),
         loadingBuilder: (context, w, event) {
           if (event == null) return w;
           return Center(
@@ -1433,8 +1534,10 @@ class _LeagueThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final sponsor = sponsorImageUrl.trim();
+    final isLight = theme.brightness == Brightness.light;
 
     return Container(
       width: 52,
@@ -1464,13 +1567,18 @@ class _LeagueThumb extends StatelessWidget {
                   width: 20,
                   height: 20,
                   decoration: BoxDecoration(
-                    color: cs.surface.withOpacity(0.92),
+                    color: isLight
+                        ? Colors.white.withOpacity(0.92)
+                        : cs.surface.withOpacity(0.92),
                     shape: BoxShape.circle,
                     border: Border.all(color: cs.onSurface.withOpacity(0.20)),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.20),
-                        blurRadius: 4,
+                        color: isLight
+                            ? cs.primary.withOpacity(0.18)
+                            : Colors.black.withOpacity(0.20),
+                        blurRadius: isLight ? 10 : 4,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -1555,11 +1663,16 @@ class _JoinModeTile extends StatelessWidget {
                       if (badge != null) ...[
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: (badgeColor ?? cs.primary).withOpacity(0.12),
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: (badgeColor ?? cs.primary).withOpacity(0.30)),
+                            border: Border.all(
+                              color: (badgeColor ?? cs.primary).withOpacity(0.30),
+                            ),
                           ),
                           child: Text(
                             badge!,

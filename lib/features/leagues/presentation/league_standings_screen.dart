@@ -260,7 +260,8 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
   Widget _avatarStrip(List<StandingsRow> rows) {
     if (rows.isEmpty) return const SizedBox.shrink();
 
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final take = rows.length > 12 ? rows.take(12).toList() : rows.toList();
     final ids = <String>[];
@@ -279,6 +280,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
       _ensureUserImagesForTeamIds(ids);
     });
 
+    final chipFill = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.34) : cs.onSurface.withOpacity(0.04);
+    final chipBorder = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.10);
+
     return Container(
       height: 28,
       margin: const EdgeInsets.only(bottom: 10),
@@ -291,14 +295,33 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
           final name = names[i].trim();
           final url = (id.isEmpty ? '' : (_teamImageUrls[id] ?? '')).trim();
 
+          // Avoid exposing Firebase UID in UI (tooltip/label) if teamName is missing.
+          final bool idLooksUid = _looksLikeFirebaseUid(id);
+          final displayLabel = name.isNotEmpty
+              ? name
+              : (idLooksUid ? 'TEAM' : id);
+
+          final tooltipLabel = name.isNotEmpty
+              ? name
+              : (idLooksUid ? 'Team' : id);
+
           return Tooltip(
-            message: name.isEmpty ? id : name,
+            message: tooltipLabel,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: cs.onSurface.withOpacity(0.04),
+                color: chipFill,
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                border: Border.all(color: chipBorder),
+                boxShadow: theme.brightness == Brightness.light
+                    ? <BoxShadow>[
+                        BoxShadow(
+                          color: const Color(0xFFB4D2FF).withOpacity(0.14),
+                          blurRadius: 18,
+                          offset: const Offset(0, 12),
+                        ),
+                      ]
+                    : null,
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -306,7 +329,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                   _TeamThumb(url: url),
                   const SizedBox(width: 6),
                   Text(
-                    (name.isNotEmpty ? name : id).toUpperCase(),
+                    displayLabel.toUpperCase(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -356,7 +379,7 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
         child: RefreshIndicator(
           onRefresh: _refresh,
           color: cs.primary,
-          backgroundColor: cs.surface,
+          backgroundColor: theme.brightness == Brightness.light ? Colors.white.withOpacity(0.92) : cs.surface,
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 700),
@@ -742,19 +765,25 @@ class _TeamThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
     final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
 
+    final fill =
+        theme.brightness == Brightness.light ? Colors.white.withOpacity(0.40) : cs.onSurface.withOpacity(0.06);
+    final border =
+        theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.14);
+
     return Container(
       width: 18,
       height: 18,
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
+        color: fill,
         shape: BoxShape.circle,
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(color: border),
       ),
       child: ClipOval(
         child: has

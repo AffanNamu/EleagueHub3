@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/color_compat.dart';
+import '../../../../core/widgets/glass.dart';
+import '../../../../core/widgets/glass_scaffold.dart';
 import '../../data/models/reward_model.dart';
 import '../../data/services/reward_firestore_service.dart';
 import '../../../marketplace/data/cloudinary_upload_service.dart';
@@ -23,8 +25,7 @@ class EditLeagueRewardsScreen extends StatefulWidget {
   final String leagueId;
 
   @override
-  State<EditLeagueRewardsScreen> createState() =>
-      _EditLeagueRewardsScreenState();
+  State<EditLeagueRewardsScreen> createState() => _EditLeagueRewardsScreenState();
 }
 
 class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
@@ -85,16 +86,23 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
   }
 
   Future<void> _deleteReward(RewardModel reward) async {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final dialogBg =
+        theme.brightness == Brightness.light ? Colors.white.withOpacity(0.92) : cs.surface;
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
+          backgroundColor: dialogBg,
           title: const Text('Delete reward?'),
           content: Text('This will permanently remove "${reward.rewardName}".'),
           actions: <Widget>[
             TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton.tonal(
               onPressed: () => Navigator.pop(context, true),
               child: const Text('Delete'),
@@ -110,6 +118,155 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isLight = theme.brightness == Brightness.light;
+
+    final pageBody = FutureBuilder<bool>(
+      future: _isOrganizer(),
+      builder: (context, permSnap) {
+        if (permSnap.connectionState != ConnectionState.done) {
+          return Center(
+            child: SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.6,
+                color: cs.primary,
+              ),
+            ),
+          );
+        }
+
+        final isOrganizer = permSnap.data == true;
+        if (!isOrganizer) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Text(
+                'You do not have permission to manage rewards for this league.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface.withOpacity(0.80),
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+          );
+        }
+
+        return StreamBuilder<List<RewardModel>>(
+          stream: _service.streamRewards(leagueId: widget.leagueId),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Text(
+                    snapshot.error.toString(),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: cs.error.withOpacity(0.95),
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+              );
+            }
+
+            if (!snapshot.hasData) {
+              return Center(
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.6,
+                    color: cs.primary,
+                  ),
+                ),
+              );
+            }
+
+            final rewards = snapshot.data ?? const <RewardModel>[];
+            if (rewards.isEmpty) {
+              return Center(
+                child: Text(
+                  'No rewards yet. Tap "Add Reward" to create one.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurface.withOpacity(0.78),
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              itemCount: rewards.length,
+              itemBuilder: (context, index) {
+                final reward = rewards[index];
+                return RewardCard(
+                  reward: reward,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      IconButton(
+                        tooltip: 'Edit',
+                        onPressed: () => _editReward(reward),
+                        icon: Icon(
+                          Icons.edit_outlined,
+                          color: cs.onSurface.withOpacity(0.85),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Delete',
+                        onPressed: () => _deleteReward(reward),
+                        icon: Icon(
+                          Icons.delete_outline,
+                          color: cs.error.withOpacity(0.95),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+
+    final fab = FutureBuilder<bool>(
+      future: _isOrganizer(),
+      builder: (context, snapshot) {
+        final canManage = snapshot.data == true;
+        if (!canManage) return const SizedBox.shrink();
+
+        return FloatingActionButton.extended(
+          onPressed: _createReward,
+          icon: const Icon(Icons.add),
+          label: const Text('Add Reward'),
+        );
+      },
+    );
+
+    // Light mode: premium glass scaffold background.
+    if (isLight) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: const Text('Manage Rewards'),
+        ),
+        floatingActionButton: fab,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(top: kToolbarHeight),
+            child: pageBody,
+          ),
+        ),
+      );
+    }
+
+    // Dark mode: keep previous dark styling unchanged.
     return Scaffold(
       backgroundColor: const Color(0xFF0B0F1A),
       appBar: AppBar(
@@ -117,19 +274,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
         elevation: 0,
         title: const Text('Manage Rewards'),
       ),
-      floatingActionButton: FutureBuilder<bool>(
-        future: _isOrganizer(),
-        builder: (context, snapshot) {
-          final canManage = snapshot.data == true;
-          if (!canManage) return const SizedBox.shrink();
-
-          return FloatingActionButton.extended(
-            onPressed: _createReward,
-            icon: const Icon(Icons.add),
-            label: const Text('Add Reward'),
-          );
-        },
-      ),
+      floatingActionButton: fab,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -142,104 +287,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
             end: Alignment.bottomRight,
           ),
         ),
-        child: FutureBuilder<bool>(
-          future: _isOrganizer(),
-          builder: (context, permSnap) {
-            if (permSnap.connectionState != ConnectionState.done) {
-              return const Center(
-                child: SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(strokeWidth: 2.6)),
-              );
-            }
-
-            final isOrganizer = permSnap.data == true;
-            if (!isOrganizer) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: Text(
-                    'You do not have permission to manage rewards for this league.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.8),
-                        ),
-                  ),
-                ),
-              );
-            }
-
-            return StreamBuilder<List<RewardModel>>(
-              stream: _service.streamRewards(leagueId: widget.leagueId),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Text(
-                        snapshot.error.toString(),
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.redAccent.withValues(alpha: 0.9),
-                            ),
-                      ),
-                    ),
-                  );
-                }
-
-                if (!snapshot.hasData) {
-                  return const Center(
-                    child: SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(strokeWidth: 2.6)),
-                  );
-                }
-
-                final rewards = snapshot.data ?? const <RewardModel>[];
-                if (rewards.isEmpty) {
-                  return Center(
-                    child: Text(
-                      'No rewards yet. Tap "Add Reward" to create one.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.78),
-                          ),
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                  itemCount: rewards.length,
-                  itemBuilder: (context, index) {
-                    final reward = rewards[index];
-                    return RewardCard(
-                      reward: reward,
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          IconButton(
-                            tooltip: 'Edit',
-                            onPressed: () => _editReward(reward),
-                            icon: const Icon(Icons.edit_outlined,
-                                color: Colors.white),
-                          ),
-                          IconButton(
-                            tooltip: 'Delete',
-                            onPressed: () => _deleteReward(reward),
-                            icon: const Icon(Icons.delete_outline,
-                                color: Colors.white),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            );
-          },
-        ),
+        child: pageBody,
       ),
     );
   }
@@ -332,17 +380,13 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(e.toString()),
-            behavior: SnackBarBehavior.floating),
+        SnackBar(content: Text(e.toString()), behavior: SnackBarBehavior.floating),
       );
     }
   }
 
   Future<PlatformFile> _platformFileFromXFile(XFile x) async {
-    final name = (x.name).trim().isNotEmpty
-        ? x.name.trim()
-        : _fallbackNameFromPath(x.path);
+    final name = (x.name).trim().isNotEmpty ? x.name.trim() : _fallbackNameFromPath(x.path);
 
     final p = x.path.trim();
     if (p.isNotEmpty) {
@@ -436,6 +480,12 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+    final isLight = theme.brightness == Brightness.light;
+
+    final dropdownBg = isLight ? Colors.white : const Color(0xFF0E1628);
 
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
@@ -443,175 +493,160 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
         padding: EdgeInsets.only(bottom: bottomInset),
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF0E1628),
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: SingleChildScrollView(
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+            child: Glass(
+              borderRadius: 24,
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              child: Column(
-                children: <Widget>[
-                  Container(
-                    width: 44,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(99),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: <Widget>[
+                    Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: onSurface.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          widget.title,
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed:
-                            _busy ? null : () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close, color: Colors.white),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Form(
-                    key: _formKey,
-                    child: Column(
+                    const SizedBox(height: 14),
+                    Row(
                       children: <Widget>[
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: DropdownButtonFormField<int>(
-                                value: _position,
-                                decoration: const InputDecoration(
-                                  labelText: 'Position',
-                                  border: OutlineInputBorder(),
-                                ),
-                                dropdownColor: const Color(0xFF0E1628),
-                                items: List<DropdownMenuItem<int>>.generate(
-                                  50,
-                                  (i) => DropdownMenuItem<int>(
-                                    value: i + 1,
-                                    child: Text('${i + 1}'),
-                                  ),
-                                ),
-                                onChanged: _busy
-                                    ? null
-                                    : (v) {
-                                        if (v == null) return;
-                                        setState(() => _position = v);
-                                      },
-                              ),
+                        Expanded(
+                          child: Text(
+                            widget.title,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: onSurface,
+                              fontWeight: FontWeight.w900,
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: DropdownButtonFormField<String>(
-                                value: RewardModel.normalizeRewardType(
-                                    _rewardType),
-                                decoration: const InputDecoration(
-                                  labelText: 'Reward Type',
-                                  border: OutlineInputBorder(),
-                                ),
-                                dropdownColor: const Color(0xFF0E1628),
-                                items: const <DropdownMenuItem<String>>[
-                                  DropdownMenuItem(
-                                      value: 'cash', child: Text('Cash')),
-                                  DropdownMenuItem(
-                                      value: 'physical',
-                                      child: Text('Physical')),
-                                  DropdownMenuItem(
-                                      value: 'digital',
-                                      child: Text('Digital')),
-                                  DropdownMenuItem(
-                                      value: 'trophy', child: Text('Trophy')),
-                                  DropdownMenuItem(
-                                      value: 'other', child: Text('Other')),
-                                ],
-                                onChanged: _busy
-                                    ? null
-                                    : (v) {
-                                        if (v == null) return;
-                                        setState(() => _rewardType = v);
-                                      },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          initialValue: _rewardName,
-                          enabled: !_busy,
-                          decoration: const InputDecoration(
-                            labelText: 'Reward Name',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (v) {
-                            if (v == null || v.trim().isEmpty)
-                              return 'Reward name is required';
-                            if (v.trim().length < 2) return 'Too short';
-                            return null;
-                          },
-                          onSaved: (v) => _rewardName = v ?? '',
-                          textInputAction: TextInputAction.next,
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          initialValue: _description,
-                          enabled: !_busy,
-                          decoration: const InputDecoration(
-                            labelText: 'Description',
-                            border: OutlineInputBorder(),
-                          ),
-                          maxLines: 4,
-                          onSaved: (v) => _description = v ?? '',
-                        ),
-                        const SizedBox(height: 12),
-                        _ImagePickerRow(
-                          existingUrl: _existingImageUrl,
-                          pickedXFile: _pickedXFile,
-                          pickedPlatformFile: _pickedPlatformFile,
-                          onPick: _busy ? null : _pickImage,
-                          onClear: _busy
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _pickedXFile = null;
-                                    _pickedPlatformFile = null;
-                                    _existingImageUrl = '';
-                                  });
-                                },
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            onPressed: _busy ? null : _submit,
-                            child: _busy
-                                ? const SizedBox(
-                                    height: 18,
-                                    width: 18,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  )
-                                : const Text('Save'),
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        IconButton(
+                          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                          icon: Icon(Icons.close, color: onSurface.withOpacity(0.85)),
+                        ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    Form(
+                      key: _formKey,
+                      child: Column(
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: DropdownButtonFormField<int>(
+                                  value: _position,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Position',
+                                  ),
+                                  dropdownColor: dropdownBg,
+                                  items: List<DropdownMenuItem<int>>.generate(
+                                    50,
+                                    (i) => DropdownMenuItem<int>(
+                                      value: i + 1,
+                                      child: Text('${i + 1}'),
+                                    ),
+                                  ),
+                                  onChanged: _busy
+                                      ? null
+                                      : (v) {
+                                          if (v == null) return;
+                                          setState(() => _position = v);
+                                        },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  value: RewardModel.normalizeRewardType(_rewardType),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Reward Type',
+                                  ),
+                                  dropdownColor: dropdownBg,
+                                  items: const <DropdownMenuItem<String>>[
+                                    DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                                    DropdownMenuItem(value: 'physical', child: Text('Physical')),
+                                    DropdownMenuItem(value: 'digital', child: Text('Digital')),
+                                    DropdownMenuItem(value: 'trophy', child: Text('Trophy')),
+                                    DropdownMenuItem(value: 'other', child: Text('Other')),
+                                  ],
+                                  onChanged: _busy
+                                      ? null
+                                      : (v) {
+                                          if (v == null) return;
+                                          setState(() => _rewardType = v);
+                                        },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            initialValue: _rewardName,
+                            enabled: !_busy,
+                            decoration: const InputDecoration(
+                              labelText: 'Reward Name',
+                            ),
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) return 'Reward name is required';
+                              if (v.trim().length < 2) return 'Too short';
+                              return null;
+                            },
+                            onSaved: (v) => _rewardName = v ?? '',
+                            textInputAction: TextInputAction.next,
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            initialValue: _description,
+                            enabled: !_busy,
+                            decoration: const InputDecoration(
+                              labelText: 'Description',
+                            ),
+                            maxLines: 4,
+                            onSaved: (v) => _description = v ?? '',
+                          ),
+                          const SizedBox(height: 12),
+                          _ImagePickerRow(
+                            existingUrl: _existingImageUrl,
+                            pickedXFile: _pickedXFile,
+                            pickedPlatformFile: _pickedPlatformFile,
+                            onPick: _busy ? null : _pickImage,
+                            onClear: _busy
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _pickedXFile = null;
+                                      _pickedPlatformFile = null;
+                                      _existingImageUrl = '';
+                                    });
+                                  },
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: _busy ? null : _submit,
+                              child: _busy
+                                  ? SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: cs.onPrimary,
+                                      ),
+                                    )
+                                  : const Text('Save'),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -638,28 +673,28 @@ class _ImagePickerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final Widget preview = _buildPreview(context);
 
     return InputDecorator(
       decoration: const InputDecoration(
         labelText: 'Reward Image (Cloudinary)',
-        border: OutlineInputBorder(),
       ),
       child: Row(
         children: <Widget>[
-          ClipRRect(
-              borderRadius: BorderRadius.circular(12), child: preview),
+          ClipRRect(borderRadius: BorderRadius.circular(12), child: preview),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               pickedXFile != null || pickedPlatformFile != null
                   ? 'Selected image'
-                  : (existingUrl.trim().isNotEmpty
-                      ? 'Using existing image'
-                      : 'No image selected'),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.82),
-                  ),
+                  : (existingUrl.trim().isNotEmpty ? 'Using existing image' : 'No image selected'),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface.withOpacity(0.82),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(width: 8),
@@ -688,13 +723,13 @@ class _ImagePickerRow extends StatelessWidget {
           width: 64,
           height: 64,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _fallback(),
+          errorBuilder: (_, __, ___) => _fallback(context),
         );
       }
     }
 
     if (pickedPlatformFile != null) {
-      return _platformPreview(pickedPlatformFile!);
+      return _platformPreview(context, pickedPlatformFile!);
     }
 
     if (existingUrl.trim().isNotEmpty) {
@@ -703,17 +738,21 @@ class _ImagePickerRow extends StatelessWidget {
         width: 64,
         height: 64,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _fallback(),
+        errorBuilder: (_, __, ___) => _fallback(context),
       );
     }
 
-    return _fallback();
+    return _fallback(context);
   }
 
-  Widget _platformPreview(PlatformFile f) {
+  Widget _platformPreview(BuildContext context, PlatformFile f) {
     if (f.bytes != null && f.bytes!.isNotEmpty) {
-      return Image.memory(f.bytes!,
-          width: 64, height: 64, fit: BoxFit.cover);
+      return Image.memory(
+        f.bytes!,
+        width: 64,
+        height: 64,
+        fit: BoxFit.cover,
+      );
     }
     final p = (f.path ?? '').trim();
     if (p.isNotEmpty) {
@@ -722,20 +761,23 @@ class _ImagePickerRow extends StatelessWidget {
         width: 64,
         height: 64,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _fallback(),
+        errorBuilder: (_, __, ___) => _fallback(context),
       );
     }
-    return _fallback();
+    return _fallback(context);
   }
 
-  Widget _fallback() {
+  Widget _fallback(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Container(
       width: 64,
       height: 64,
-      color: Colors.white.withOpacity(0.08),
+      color: cs.onSurface.withOpacity(0.06),
       alignment: Alignment.center,
-      child: Icon(Icons.image_outlined,
-          color: Colors.white.withOpacity(0.55)),
+      child: Icon(
+        Icons.image_outlined,
+        color: cs.onSurface.withOpacity(0.55),
+      ),
     );
   }
 }

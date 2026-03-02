@@ -40,7 +40,12 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   static const int _groupSize = 4;
 
   Color _baseToastBg(ThemeData theme) {
-    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+    // Premium light toast: near-white (not dark) so it matches the white glass system.
+    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xF2FFFFFF);
+  }
+
+  Color _baseToastFg(ThemeData theme) {
+    return theme.brightness == Brightness.dark ? Colors.white : theme.colorScheme.onSurface;
   }
 
   void _toast(String msg, {Color? bg, Color? fg}) {
@@ -48,7 +53,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
     final theme = Theme.of(context);
     final resolvedBg = bg ?? _baseToastBg(theme);
-    final resolvedFg = fg ?? Colors.white;
+    final resolvedFg = fg ?? _baseToastFg(theme);
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -56,7 +61,10 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
         backgroundColor: resolvedBg,
-        content: Text(msg, style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600)),
+        content: Text(
+          msg,
+          style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w700, height: 1.2),
+        ),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -67,21 +75,36 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
     final accent = cs.primary;
-    _toast(msg, bg: Color.alphaBlend(accent.withOpacity(0.22), baseBg), fg: accent);
+
+    final bg = theme.brightness == Brightness.light
+        ? Color.alphaBlend(accent.withOpacity(0.14), baseBg)
+        : Color.alphaBlend(accent.withOpacity(0.22), baseBg);
+
+    _toast(msg, bg: bg, fg: theme.brightness == Brightness.light ? cs.onSurface : accent);
   }
 
   void _toastWarn(String msg) {
     const warn = Color(0xFFF59E0B);
     final theme = Theme.of(context);
     final baseBg = _baseToastBg(theme);
-    _toast(msg, bg: Color.alphaBlend(warn.withOpacity(0.22), baseBg), fg: warn);
+
+    final bg = theme.brightness == Brightness.light
+        ? Color.alphaBlend(warn.withOpacity(0.12), baseBg)
+        : Color.alphaBlend(warn.withOpacity(0.22), baseBg);
+
+    _toast(msg, bg: bg, fg: theme.brightness == Brightness.light ? Theme.of(context).colorScheme.onSurface : warn);
   }
 
   void _toastErr(String msg) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.22), baseBg), fg: cs.error);
+
+    final bg = theme.brightness == Brightness.light
+        ? Color.alphaBlend(cs.error.withOpacity(0.10), baseBg)
+        : Color.alphaBlend(cs.error.withOpacity(0.22), baseBg);
+
+    _toast(msg, bg: bg, fg: theme.brightness == Brightness.light ? cs.onSurface : cs.error);
   }
 
   @override

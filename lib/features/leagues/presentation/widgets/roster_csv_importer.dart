@@ -260,6 +260,11 @@ Future<void> _showImportPreviewSheet({
       final cs = theme.colorScheme;
       final onSurface = cs.onSurface;
 
+      // Premium, theme-consistent semantic accents (soft, not neon).
+      const success = Color(0xFF22C55E);
+      final info = cs.primary;
+      const warning = Color(0xFFF59E0B);
+
       // Theme-aware colors for light mode readability.
       final subtleText = onSurface.withOpacity(0.65);
       final faintText = onSurface.withOpacity(0.48);
@@ -398,23 +403,23 @@ Future<void> _showImportPreviewSheet({
                                 _StatusChip(
                                   icon: Icons.verified_rounded,
                                   label: '$okCount OK',
-                                  color: const Color(0xFF00E676),
-                                  bg: const Color(0xFF00E676).withOpacity(0.10),
+                                  color: success,
+                                  bg: success.withOpacity(0.10),
                                 ),
                                 const SizedBox(width: 8),
                                 _StatusChip(
                                   icon: Icons.cloud_off_rounded,
                                   label: '$okCsvCount CSV',
-                                  color: Colors.blueAccent,
-                                  bg: Colors.blueAccent.withOpacity(0.10),
+                                  color: info,
+                                  bg: info.withOpacity(0.10),
                                 ),
                                 const SizedBox(width: 8),
                                 if (notFoundCount > 0) ...[
                                   _StatusChip(
                                     icon: Icons.close_rounded,
                                     label: '$notFoundCount Missing',
-                                    color: Colors.redAccent,
-                                    bg: Colors.redAccent.withOpacity(0.10),
+                                    color: cs.error,
+                                    bg: cs.error.withOpacity(0.10),
                                   ),
                                   const SizedBox(width: 8),
                                 ],
@@ -422,8 +427,8 @@ Future<void> _showImportPreviewSheet({
                                   _StatusChip(
                                     icon: Icons.wifi_off_rounded,
                                     label: '$offlineCount Offline',
-                                    color: Colors.orangeAccent,
-                                    bg: Colors.orangeAccent.withOpacity(0.10),
+                                    color: warning,
+                                    bg: warning.withOpacity(0.12),
                                   ),
                               ],
                             ),
@@ -472,12 +477,11 @@ Future<void> _showImportPreviewSheet({
                                     height: 32,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color:
-                                          Colors.orangeAccent.withOpacity(0.12),
+                                      color: warning.withOpacity(0.12),
                                     ),
-                                    child: const Icon(
+                                    child: Icon(
                                       Icons.wifi_off_rounded,
-                                      color: Colors.orangeAccent,
+                                      color: warning,
                                       size: 16,
                                     ),
                                   ),
@@ -527,17 +531,17 @@ Future<void> _showImportPreviewSheet({
                               padding: const EdgeInsets.all(12),
                               child: Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.error_outline_rounded,
-                                    color: Colors.redAccent,
+                                    color: cs.error,
                                     size: 18,
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
                                       error!,
-                                      style: const TextStyle(
-                                        color: Colors.redAccent,
+                                      style: TextStyle(
+                                        color: cs.error,
                                         fontWeight: FontWeight.w700,
                                         fontSize: 12,
                                       ),
@@ -643,6 +647,11 @@ class _RosterRowCard extends StatelessWidget {
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
 
+    // Premium, theme-consistent semantic accents (soft, not neon).
+    const success = Color(0xFF22C55E);
+    final info = cs.primary;
+    const warning = Color(0xFFF59E0B);
+
     final isOk = row.status == RosterRowStatus.ok && row.resolved != null;
     final isOkCsv = row.status == RosterRowStatus.okCsv && row.resolved != null;
     final isPending = row.status == RosterRowStatus.pending;
@@ -661,16 +670,17 @@ class _RosterRowCard extends StatelessWidget {
 
     if (isOk) {
       icon = Icons.verified_rounded;
-      iconColor = const Color(0xFF00E676);
-      bgColor = const Color(0xFF00E676).withOpacity(0.12);
+      iconColor = success;
+      bgColor = success.withOpacity(0.12);
 
       // Team name is primary; never show raw Firebase UID.
       title = row.resolved!.teamName;
-      subtitle = isHiddenUid ? 'Verified • UID hidden' : 'Verified • $displayInput';
+      subtitle =
+          isHiddenUid ? 'Verified • UID hidden' : 'Verified • $displayInput';
     } else if (isOkCsv) {
       icon = Icons.cloud_off_rounded;
-      iconColor = Colors.blueAccent;
-      bgColor = Colors.blueAccent.withOpacity(0.10);
+      iconColor = info;
+      bgColor = info.withOpacity(0.10);
 
       title = row.resolved!.teamName;
       subtitle = isHiddenUid ? 'CSV OK • UID hidden' : 'CSV OK • $displayInput';
@@ -683,15 +693,15 @@ class _RosterRowCard extends StatelessWidget {
       subtitle = 'Pending validation';
     } else if (isOffline) {
       icon = Icons.wifi_off_rounded;
-      iconColor = Colors.orangeAccent;
-      bgColor = Colors.orangeAccent.withOpacity(0.10);
+      iconColor = warning;
+      bgColor = warning.withOpacity(0.12);
 
       title = displayInput;
       subtitle = 'Offline (cannot verify)';
     } else {
       icon = Icons.close_rounded;
-      iconColor = Colors.redAccent;
-      bgColor = Colors.redAccent.withOpacity(0.10);
+      iconColor = cs.error;
+      bgColor = cs.error.withOpacity(0.10);
 
       title = displayInput;
       subtitle = 'No profile found';

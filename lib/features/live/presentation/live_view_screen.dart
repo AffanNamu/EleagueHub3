@@ -773,8 +773,6 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
     return GlassScaffold(
       appBar: AppBar(
         title: Text(title),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         actions: [
           IconButton(
             tooltip: _trOr(l10n, 'live_view_copy_match_info_tooltip', 'Copy match info'),
@@ -1192,7 +1190,8 @@ class _DualViewerStreamLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final waitingForPrefix = _trOr(l10n, 'live_view_waiting_for_prefix', 'Waiting for ');
+    final waitingForPrefix =
+        _trOr(l10n, 'live_view_waiting_for_prefix', 'Waiting for ');
     final camHint = _trOr(l10n, 'live_view_cam_hint', 'Cam…');
 
     final theme = Theme.of(context);
@@ -1237,7 +1236,8 @@ class _DualViewerStreamLayout extends StatelessWidget {
                             : Center(
                                 child: Text(
                                   '$waitingForPrefix$homeLabel…',
-                                  style: theme.textTheme.titleSmall?.copyWith(color: Colors.white70),
+                                  style: theme.textTheme.titleSmall
+                                      ?.copyWith(color: Colors.white70),
                                 ),
                               ),
                       ),
@@ -1257,7 +1257,8 @@ class _DualViewerStreamLayout extends StatelessWidget {
                             : Center(
                                 child: Text(
                                   '$waitingForPrefix$awayLabel…',
-                                  style: theme.textTheme.titleSmall?.copyWith(color: Colors.white70),
+                                  style: theme.textTheme.titleSmall
+                                      ?.copyWith(color: Colors.white70),
                                 ),
                               ),
                       ),
@@ -1326,7 +1327,8 @@ class _GamerStreamLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final waitingForStream = _trOr(l10n, 'live_view_waiting_for_stream', 'Waiting for stream…');
+    final waitingForStream =
+        _trOr(l10n, 'live_view_waiting_for_stream', 'Waiting for stream…');
 
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
@@ -1346,7 +1348,8 @@ class _GamerStreamLayout extends StatelessWidget {
                     : Center(
                         child: Text(
                           waitingForStream,
-                          style: theme.textTheme.titleSmall?.copyWith(color: Colors.white70),
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(color: Colors.white70),
                         ),
                       ),
               ),

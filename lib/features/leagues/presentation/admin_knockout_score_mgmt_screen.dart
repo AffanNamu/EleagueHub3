@@ -28,10 +28,12 @@ class AdminKnockoutScoreMgmtScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<AdminKnockoutScoreMgmtScreen> createState() => _AdminKnockoutScoreMgmtScreenState();
+  ConsumerState<AdminKnockoutScoreMgmtScreen> createState() =>
+      _AdminKnockoutScoreMgmtScreenState();
 }
 
-class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScoreMgmtScreen> {
+class _AdminKnockoutScoreMgmtScreenState
+    extends ConsumerState<AdminKnockoutScoreMgmtScreen> {
   late LocalLeaguesRepository _repo;
 
   bool _isLoading = true;
@@ -78,14 +80,20 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   }
 
   Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
-    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    final clean = ids
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e))
+        .toList(growable: false);
     if (clean.isEmpty) return const <String, String>{};
 
     final out = <String, String>{};
 
     const chunkSize = 10;
     for (var i = 0; i < clean.length; i += chunkSize) {
-      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+      final chunk = clean.sublist(
+        i,
+        (i + chunkSize > clean.length) ? clean.length : i + chunkSize,
+      );
 
       final snap = await _firestore
           .collection('users')
@@ -129,15 +137,22 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
   }
 
   Color _baseToastBg(ThemeData theme) {
-    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xFF0F172A);
+    // Premium: light mode should NOT use a dark toast background.
+    if (theme.brightness == Brightness.dark) return const Color(0xFF101522);
+    return const Color(0xFFF8FBFF);
   }
 
   void _toast(String msg, {Color? bg, Color? fg}) {
     if (!mounted) return;
 
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final resolvedBg = bg ?? _baseToastBg(theme);
-    final resolvedFg = fg ?? Colors.white;
+    final resolvedFg = fg ??
+        (theme.brightness == Brightness.dark
+            ? Colors.white
+            : cs.onSurface.withOpacity(0.92));
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -145,7 +160,10 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
         backgroundColor: resolvedBg,
-        content: Text(msg, style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600)),
+        content: Text(
+          msg,
+          style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w600),
+        ),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -156,21 +174,21 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
     final accent = cs.primary;
-    _toast(msg, bg: Color.alphaBlend(accent.withOpacity(0.22), baseBg), fg: accent);
+    _toast(msg, bg: Color.alphaBlend(accent.withOpacity(0.16), baseBg), fg: accent);
   }
 
   void _toastWarn(String msg) {
     const warn = Color(0xFFF59E0B);
     final theme = Theme.of(context);
     final baseBg = _baseToastBg(theme);
-    _toast(msg, bg: Color.alphaBlend(warn.withOpacity(0.22), baseBg), fg: warn);
+    _toast(msg, bg: Color.alphaBlend(warn.withOpacity(0.16), baseBg), fg: warn);
   }
 
   void _toastErr(String msg) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.22), baseBg), fg: cs.error);
+    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.14), baseBg), fg: cs.error);
   }
 
   void _toastFromError(Object error) {
@@ -321,10 +339,14 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         return;
       }
 
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance.requireOnline(
+        timeout: const Duration(seconds: 4),
+      );
 
-      final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
-      final matches = await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+      final teams =
+          await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+      final matches =
+          await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
       matches.sort((a, b) {
         final ai = _roundOrder.indexOf(a.roundName);
@@ -399,7 +421,9 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
     setState(() => _savingMatchId = match.id);
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance.requireOnline(
+        timeout: const Duration(seconds: 4),
+      );
 
       var updatedMatch = match.copyWith(
         homeScore: hScore,
@@ -498,7 +522,9 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
         allMatches: all,
       );
 
-      await _repo.saveKnockoutMatches(widget.leagueId, advanced).timeout(const Duration(seconds: 30));
+      await _repo
+          .saveKnockoutMatches(widget.leagueId, advanced)
+          .timeout(const Duration(seconds: 30));
 
       if (!mounted) return;
       setState(() => _matches = advanced);
@@ -534,9 +560,7 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
       ),
       body: SafeArea(
         child: _isLoading
-            ? Center(
-                child: CircularProgressIndicator(color: cs.primary),
-              )
+            ? Center(child: CircularProgressIndicator(color: cs.primary))
             : (_loadError != null
                 ? _buildLoadErrorState(_loadError!)
                 : Center(
@@ -548,7 +572,9 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                         children: [
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: SectionHeader(l10n.tr('admin_knockout_section_title')),
+                            child: SectionHeader(
+                              l10n.tr('admin_knockout_section_title'),
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Padding(
@@ -702,10 +728,14 @@ class _AdminKnockoutScoreMgmtScreenState extends ConsumerState<AdminKnockoutScor
                   child: _ScoreEntryTile(
                     key: ValueKey(m.id),
                     match: m,
-                    homeName: _teamNames[m.homeTeamId ?? ''] ?? (m.homeTeamId ?? 'TBD'),
-                    awayName: _teamNames[m.awayTeamId ?? ''] ?? (m.awayTeamId ?? 'TBD'),
-                    homeImageUrl: (_teamImageUrls[m.homeTeamId ?? ''] ?? '').trim(),
-                    awayImageUrl: (_teamImageUrls[m.awayTeamId ?? ''] ?? '').trim(),
+                    homeName: _teamNames[m.homeTeamId ?? ''] ??
+                        (m.homeTeamId ?? 'TBD'),
+                    awayName: _teamNames[m.awayTeamId ?? ''] ??
+                        (m.awayTeamId ?? 'TBD'),
+                    homeImageUrl:
+                        (_teamImageUrls[m.homeTeamId ?? ''] ?? '').trim(),
+                    awayImageUrl:
+                        (_teamImageUrls[m.awayTeamId ?? ''] ?? '').trim(),
                     isSaving: _savingMatchId == m.id,
                     onSave: (h, a) => _updateScore(m, h, a),
                   ),
@@ -766,7 +796,9 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     }
   }
 
-  bool get _isCompleted => widget.match.status == MatchStatus.completed || widget.match.status == MatchStatus.played;
+  bool get _isCompleted =>
+      widget.match.status == MatchStatus.completed ||
+      widget.match.status == MatchStatus.played;
 
   bool get _disabled => widget.isSaving;
 
@@ -804,7 +836,9 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
 
     final isPlayoff = widget.match.roundName == 'Play-off';
     final legLabel = isPlayoff
-        ? (widget.match.isSecondLeg ? l10n.tr('admin_knockout_leg2') : l10n.tr('admin_knockout_leg1'))
+        ? (widget.match.isSecondLeg
+            ? l10n.tr('admin_knockout_leg2')
+            : l10n.tr('admin_knockout_leg1'))
         : null;
 
     return Glass(
@@ -829,7 +863,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               Expanded(
                 child: Row(
                   children: [
-                    _TeamThumb(url: widget.homeImageUrl),
+                    _TeamThumb(url: widget.homeImageUrl, size: 18),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -869,19 +903,24 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    _TeamThumb(url: widget.awayImageUrl),
+                    _TeamThumb(url: widget.awayImageUrl, size: 18),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _isCompleted ? primary.withOpacity(0.14) : onSurface.withOpacity(0.06),
+                  color: _isCompleted
+                      ? primary.withOpacity(0.14)
+                      : onSurface.withOpacity(0.06),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  _isCompleted ? l10n.tr('admin_knockout_status_completed') : l10n.tr('admin_knockout_status_pending'),
+                  _isCompleted
+                      ? l10n.tr('admin_knockout_status_completed')
+                      : l10n.tr('admin_knockout_status_pending'),
                   style: TextStyle(
                     color: _isCompleted ? primary : onSurface.withOpacity(0.55),
                     fontSize: 11,
@@ -934,7 +973,10 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                     ? SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: primary,
+                        ),
                       )
                     : const Icon(Icons.done_all, size: 24),
               ),
@@ -964,7 +1006,11 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _stepperButton(icon: Icons.remove, onPressed: value > 0 ? onDec : null, enabled: value > 0 && !widget.isSaving),
+          _stepperButton(
+            icon: Icons.remove,
+            onPressed: value > 0 ? onDec : null,
+            enabled: value > 0 && !widget.isSaving,
+          ),
           const SizedBox(width: 6),
           SizedBox(
             width: 28,
@@ -978,7 +1024,11 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
             ),
           ),
           const SizedBox(width: 6),
-          _stepperButton(icon: Icons.add, onPressed: widget.isSaving ? null : onInc, enabled: !widget.isSaving),
+          _stepperButton(
+            icon: Icons.add,
+            onPressed: widget.isSaving ? null : onInc,
+            enabled: !widget.isSaving,
+          ),
         ],
       ),
     );
@@ -1004,7 +1054,11 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
           color: enabled ? primary.withOpacity(0.10) : onSurface.withOpacity(0.04),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, size: 18, color: enabled ? primary : onSurface.withOpacity(0.30)),
+        child: Icon(
+          icon,
+          size: 18,
+          color: enabled ? primary : onSurface.withOpacity(0.30),
+        ),
       ),
     );
   }
@@ -1013,9 +1067,11 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
 class _TeamThumb extends StatelessWidget {
   const _TeamThumb({
     required this.url,
+    required this.size,
   });
 
   final String url;
+  final double size;
 
   bool _looksLikeHttpUrl(String s) {
     final u = s.trim().toLowerCase();
@@ -1026,7 +1082,8 @@ class _TeamThumb extends StatelessWidget {
     final u = url.trim();
     if (u.isEmpty) return u;
 
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1042,7 +1099,8 @@ class _TeamThumb extends StatelessWidget {
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) return u;
@@ -1059,11 +1117,13 @@ class _TeamThumb extends StatelessWidget {
 
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
-    final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
+
+    final px = (size * 3).clamp(48, 96).toInt();
+    final d = has ? _cloudinaryOptimizedUrl(raw, width: px, height: px) : '';
 
     return Container(
-      width: 22,
-      height: 22,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: cs.onSurface.withOpacity(0.06),
         shape: BoxShape.circle,
@@ -1076,16 +1136,27 @@ class _TeamThumb extends StatelessWidget {
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 filterQuality: FilterQuality.low,
-                cacheWidth: 64,
-                cacheHeight: 64,
-                errorBuilder: (_, __, ___) =>
-                    Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+                cacheWidth: px,
+                cacheHeight: px,
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.emoji_events_outlined,
+                  size: size * 0.68,
+                  color: cs.onSurface.withOpacity(0.55),
+                ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55));
+                  return Icon(
+                    Icons.emoji_events_outlined,
+                    size: size * 0.68,
+                    color: cs.onSurface.withOpacity(0.55),
+                  );
                 },
               )
-            : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+            : Icon(
+                Icons.emoji_events_outlined,
+                size: size * 0.68,
+                color: cs.onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }

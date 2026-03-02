@@ -97,10 +97,12 @@ class BracketPainter extends CustomPainter {
 
     final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
 
+    // Light theme: premium bluish connector tint (matches the new white theme direction).
+    // Dark theme: keep subtle white.
     final resolvedColor = lineColor ??
         (brightness == Brightness.dark
             ? Colors.white24
-            : const Color(0x260A1D37)); // deep-navy tint for light backgrounds
+            : const Color(0x337AB6FF)); // soft blue-tint for light backgrounds
 
     final xStart = isLeftToRight ? 0.0 : size.width;
     final xEnd = isLeftToRight ? size.width : 0.0;

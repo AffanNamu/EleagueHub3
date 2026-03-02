@@ -27,22 +27,33 @@ class GlassSearchBar extends StatelessWidget {
 
     final textColor = cs.onSurface;
 
+    final isLight = brightness == Brightness.light;
+
     return Padding(
       padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 16, 8),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(16),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: Container(
             decoration: BoxDecoration(
               color: fill,
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: stroke),
+              boxShadow: isLight
+                  ? <BoxShadow>[
+                      BoxShadow(
+                        color: const Color(0xFFB4D2FF).withOpacity(0.18),
+                        blurRadius: 22,
+                        offset: const Offset(0, 14),
+                      ),
+                    ]
+                  : null,
             ),
             child: TextField(
               controller: controller,
               onChanged: onChanged,
-              style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
+              style: TextStyle(color: textColor, fontWeight: FontWeight.w700),
               textAlignVertical: TextAlignVertical.center,
               decoration: InputDecoration(
                 isDense: true,

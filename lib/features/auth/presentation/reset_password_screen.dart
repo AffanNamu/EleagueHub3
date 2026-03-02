@@ -106,6 +106,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -123,11 +124,17 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.password, size: 44, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.password,
+                      size: 44,
+                      color: cs.primary,
+                    ),
                     const SizedBox(height: 10),
                     Text(
                       'Enter the code/link from your email',
-                      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 6),
@@ -136,7 +143,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                           ? 'Paste the password reset link (or code) you received from Firebase.'
                           : 'We sent a reset email to ${widget.emailHint}. Paste the reset link (or code) here.',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.72),
+                        color: cs.onSurface.withOpacity(0.72),
                         height: 1.35,
                       ),
                       textAlign: TextAlign.center,
@@ -163,9 +170,16 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                       obscureText: _obscureNew,
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
-                        tooltip: _obscureNew ? 'Show password' : 'Hide password',
-                        onPressed: _submitting ? null : () => setState(() => _obscureNew = !_obscureNew),
-                        icon: Icon(_obscureNew ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                        tooltip:
+                            _obscureNew ? 'Show password' : 'Hide password',
+                        onPressed: _submitting
+                            ? null
+                            : () => setState(() => _obscureNew = !_obscureNew),
+                        icon: Icon(
+                          _obscureNew
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
                       ),
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.newPassword],
@@ -178,9 +192,17 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                       obscureText: _obscureConfirm,
                       prefixIcon: const Icon(Icons.lock_reset),
                       suffixIcon: IconButton(
-                        tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
-                        onPressed: _submitting ? null : () => setState(() => _obscureConfirm = !_obscureConfirm),
-                        icon: Icon(_obscureConfirm ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                        tooltip:
+                            _obscureConfirm ? 'Show password' : 'Hide password',
+                        onPressed: _submitting
+                            ? null
+                            : () =>
+                                setState(() => _obscureConfirm = !_obscureConfirm),
+                        icon: Icon(
+                          _obscureConfirm
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
                       ),
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => _reset(),
@@ -191,17 +213,21 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                       child: FilledButton(
                         onPressed: _submitting ? null : _reset,
                         child: _submitting
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: cs.onPrimary,
+                                ),
                               )
                             : const Text('Update password'),
                       ),
                     ),
                     const SizedBox(height: 8),
                     TextButton(
-                      onPressed: _submitting ? null : () => context.go('/forgot-password'),
+                      onPressed:
+                          _submitting ? null : () => context.go('/forgot-password'),
                       child: const Text('Resend reset email'),
                     ),
                   ],

@@ -157,9 +157,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final dividerColor = theme.colorScheme.onSurface.withOpacity(0.14);
-    final orTextColor = theme.colorScheme.onSurface.withOpacity(0.60);
+    final dividerColor = cs.onSurface.withOpacity(0.14);
+    final orTextColor = cs.onSurface.withOpacity(0.60);
 
     return WillPopScope(
       onWillPop: _confirmExitApp,
@@ -179,7 +180,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       Icon(
                         Icons.sports_esports,
                         size: 56,
-                        color: theme.colorScheme.primary,
+                        color: cs.primary,
                       ),
                       const SizedBox(height: 12),
                       Text(
@@ -190,9 +191,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _isRegister ? l10n.authLoginSubtitleRegister : l10n.authLoginSubtitleSignIn,
+                        _isRegister
+                            ? l10n.authLoginSubtitleRegister
+                            : l10n.authLoginSubtitleSignIn,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withOpacity(0.72),
+                          color: cs.onSurface.withOpacity(0.72),
                           height: 1.35,
                         ),
                         textAlign: TextAlign.center,
@@ -238,12 +241,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         label: l10n.authLoginPasswordLabel,
                         enabled: !_submitting,
                         prefixIcon: const Icon(Icons.lock_outline),
-                        textInputAction: _isRegister ? TextInputAction.next : TextInputAction.done,
+                        textInputAction:
+                            _isRegister ? TextInputAction.next : TextInputAction.done,
                         autofillHints: const [AutofillHints.password],
                         suffixIcon: IconButton(
-                          tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                          onPressed: _submitting ? null : () => setState(() => _obscurePassword = !_obscurePassword),
-                          icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                          tooltip:
+                              _obscurePassword ? 'Show password' : 'Hide password',
+                          onPressed: _submitting
+                              ? null
+                              : () => setState(
+                                    () => _obscurePassword = !_obscurePassword,
+                                  ),
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
                         ),
                         onSubmitted: (_) => _isRegister ? null : _signInEmail(),
                       ),
@@ -258,9 +271,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           textInputAction: TextInputAction.done,
                           autofillHints: const [AutofillHints.newPassword],
                           suffixIcon: IconButton(
-                            tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
-                            onPressed: _submitting ? null : () => setState(() => _obscureConfirm = !_obscureConfirm),
-                            icon: Icon(_obscureConfirm ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                            tooltip:
+                                _obscureConfirm ? 'Show password' : 'Hide password',
+                            onPressed: _submitting
+                                ? null
+                                : () => setState(
+                                      () => _obscureConfirm = !_obscureConfirm,
+                                    ),
+                            icon: Icon(
+                              _obscureConfirm
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
                           ),
                           onSubmitted: (_) => _registerEmail(),
                         ),
@@ -270,10 +292,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: _submitting ? null : () => context.go('/forgot-password'),
+                            onPressed: _submitting
+                                ? null
+                                : () => context.go('/forgot-password'),
                             child: Text(
                               'Forgot password?',
-                              style: TextStyle(color: theme.colorScheme.primary),
+                              style: TextStyle(color: cs.primary),
                             ),
                           ),
                         ),
@@ -281,14 +305,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
-                          onPressed: _submitting ? null : (_isRegister ? _registerEmail : _signInEmail),
+                          onPressed: _submitting
+                              ? null
+                              : (_isRegister ? _registerEmail : _signInEmail),
                           child: _submitting
-                              ? const SizedBox(
+                              ? SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: cs.onPrimary,
+                                  ),
                                 )
-                              : Text(_isRegister ? l10n.authLoginCreateAccount : l10n.authLoginSignIn),
+                              : Text(
+                                  _isRegister
+                                      ? l10n.authLoginCreateAccount
+                                      : l10n.authLoginSignIn,
+                                ),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -299,8 +332,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   _isRegister = !_isRegister;
                                 }),
                         child: Text(
-                          _isRegister ? l10n.authLoginToggleToSignIn : l10n.authLoginToggleToRegister,
-                          style: TextStyle(color: theme.colorScheme.primary),
+                          _isRegister
+                              ? l10n.authLoginToggleToSignIn
+                              : l10n.authLoginToggleToRegister,
+                          style: TextStyle(color: cs.primary),
                         ),
                       ),
                     ],

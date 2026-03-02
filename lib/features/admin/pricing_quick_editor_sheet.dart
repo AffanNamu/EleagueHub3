@@ -73,7 +73,10 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
     return;
@@ -98,7 +101,10 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
     return;
@@ -127,10 +133,15 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
       final on = cs.onSurface;
       final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
+      final isLight = theme.brightness == Brightness.light;
+
       bool busy = false;
       String? error;
 
       Widget field(String label, TextEditingController c) {
+        final fill = isLight ? Colors.white.withOpacity(0.52) : on.withOpacity(0.06);
+        final border = isLight ? Colors.white.withOpacity(0.72) : on.withOpacity(0.12);
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: TextField(
@@ -140,18 +151,18 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
             decoration: InputDecoration(
               labelText: label,
               filled: true,
-              fillColor: on.withOpacity(0.06),
+              fillColor: fill,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: on.withOpacity(0.12)),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: border),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: on.withOpacity(0.12)),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: border),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: cs.primary.withOpacity(0.55)),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: cs.primary.withOpacity(0.65), width: 1.4),
               ),
             ),
           ),
@@ -183,23 +194,25 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
           await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
           final now = DateTime.now().millisecondsSinceEpoch;
 
-          await docRef.set(
-            <String, dynamic>{
-              'usd': <String, dynamic>{
-                'accessFee': ua,
-                'createLeagueFee': uc,
-                'couponUnit': uu,
-              },
-              'ngn': <String, dynamic>{
-                'accessFee': na,
-                'createLeagueFee': nc,
-                'couponUnit': nu,
-              },
-              'updatedAtMs': now,
-              'updatedBy': uid,
-            },
-            SetOptions(merge: true),
-          ).timeout(const Duration(seconds: 15));
+          await docRef
+              .set(
+                <String, dynamic>{
+                  'usd': <String, dynamic>{
+                    'accessFee': ua,
+                    'createLeagueFee': uc,
+                    'couponUnit': uu,
+                  },
+                  'ngn': <String, dynamic>{
+                    'accessFee': na,
+                    'createLeagueFee': nc,
+                    'couponUnit': nu,
+                  },
+                  'updatedAtMs': now,
+                  'updatedBy': uid,
+                },
+                SetOptions(merge: true),
+              )
+              .timeout(const Duration(seconds: 15));
 
           saved = true;
           if (ctx.mounted) Navigator.of(ctx).pop();
@@ -210,6 +223,10 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
           });
         }
       }
+
+      final outlineSide = BorderSide(
+        color: isLight ? Colors.white.withOpacity(0.72) : on.withOpacity(0.18),
+      );
 
       return SafeArea(
         child: Padding(
@@ -264,7 +281,6 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                             ],
                           ),
                           const SizedBox(height: 12),
-
                           Align(
                             alignment: AlignmentDirectional.centerStart,
                             child: Text(
@@ -276,7 +292,6 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                           field('USD Access Fee', usdAccessFee),
                           field('USD Create League Fee', usdCreateFee),
                           field('USD Coupon Unit', usdCouponUnit),
-
                           const SizedBox(height: 8),
                           Align(
                             alignment: AlignmentDirectional.centerStart,
@@ -289,7 +304,6 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                           field('NGN Access Fee', ngnAccessFee),
                           field('NGN Create League Fee', ngnCreateFee),
                           field('NGN Coupon Unit', ngnCouponUnit),
-
                           if ((error ?? '').trim().isNotEmpty) ...[
                             const SizedBox(height: 10),
                             Container(
@@ -306,7 +320,6 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                               ),
                             ),
                           ],
-
                           const SizedBox(height: 12),
                           SizedBox(
                             width: double.infinity,
@@ -327,6 +340,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                             width: double.infinity,
                             child: OutlinedButton(
                               onPressed: busy ? null : () => Navigator.of(ctx).pop(),
+                              style: OutlinedButton.styleFrom(side: outlineSide, foregroundColor: on.withOpacity(0.90)),
                               child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w900)),
                             ),
                           ),

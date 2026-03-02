@@ -93,7 +93,7 @@ class ReactiveAnnouncementsList extends StatelessWidget {
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
               child: Glass(
-                borderRadius: 15,
+                borderRadius: 18,
                 padding: const EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -101,26 +101,38 @@ class ReactiveAnnouncementsList extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          title.toUpperCase(),
-                          style: TextStyle(
-                            color: cs.primary,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 13,
-                            letterSpacing: 0.4,
+                        Expanded(
+                          child: Text(
+                            title.toUpperCase(),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.primary,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                              letterSpacing: 0.4,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
+                        const SizedBox(width: 10),
                         Text(
                           time,
-                          style: TextStyle(color: cs.onSurface.withOpacity(0.45), fontSize: 10, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: cs.onSurface.withOpacity(0.45),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 6),
                     Text(
                       message,
-                      style: TextStyle(color: cs.onSurface.withOpacity(0.72), fontSize: 14, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        color: cs.onSurface.withOpacity(0.72),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        height: 1.25,
+                      ),
                     ),
                   ],
                 ),

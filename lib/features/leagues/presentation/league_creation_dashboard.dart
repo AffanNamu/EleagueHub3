@@ -92,6 +92,37 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     super.dispose();
   }
 
+  bool get _isLight => Theme.of(context).brightness == Brightness.light;
+
+  Color _panelFill(ThemeData theme) {
+    if (theme.brightness == Brightness.light) {
+      // Premium frosted sub-surface inside Glass.
+      return Colors.white.withOpacity(0.40);
+    }
+    return theme.colorScheme.onSurface.withOpacity(0.04);
+  }
+
+  Color _panelBorder(ThemeData theme, {Color? accent}) {
+    final cs = theme.colorScheme;
+    if (theme.brightness == Brightness.light) {
+      final a = accent ?? cs.primary;
+      return Color.alphaBlend(a.withOpacity(0.12), Colors.white.withOpacity(0.78));
+    }
+    return cs.onSurface.withOpacity(0.10);
+  }
+
+  List<BoxShadow>? _panelShadow(ThemeData theme, {Color? tint}) {
+    if (theme.brightness != Brightness.light) return null;
+    final c = tint ?? const Color(0xFFB4D2FF);
+    return <BoxShadow>[
+      BoxShadow(
+        color: c.withOpacity(0.20),
+        blurRadius: 28,
+        offset: const Offset(0, 16),
+      ),
+    ];
+  }
+
   LeagueFormat get _format {
     final type = _type;
     if (type == null) return LeagueFormat.classic;
@@ -434,6 +465,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     if (_createdLeague != null) {
       final league = _createdLeague!;
+      final qrColor = theme.brightness == Brightness.dark ? Colors.white : Colors.black;
+
       return GlassScaffold(
         appBar: AppBar(
           title: Text(l10n.tr('league_create_created_title')),
@@ -460,13 +493,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                         data: league.qrPayload,
                         version: QrVersions.auto,
                         gapless: true,
-                        eyeStyle: const QrEyeStyle(
+                        eyeStyle: QrEyeStyle(
                           eyeShape: QrEyeShape.square,
-                          color: Colors.black,
+                          color: qrColor,
                         ),
-                        dataModuleStyle: const QrDataModuleStyle(
+                        dataModuleStyle: QrDataModuleStyle(
                           dataModuleShape: QrDataModuleShape.square,
-                          color: Colors.black,
+                          color: qrColor,
                         ),
                       ),
                     ),
@@ -778,22 +811,23 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     required int index,
     required int current,
   }) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final active = index == current;
     final done = index < current;
 
     final Color borderColor = active
-        ? cs.primary.withOpacity(0.75)
+        ? cs.primary.withOpacity(0.70)
         : done
             ? cs.primary.withOpacity(0.40)
-            : cs.onSurface.withOpacity(0.14);
+            : (_isLight ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.14));
 
     final Color bgColor = active
         ? cs.primary.withOpacity(0.14)
         : done
             ? cs.onSurface.withOpacity(0.06)
-            : cs.onSurface.withOpacity(0.04);
+            : (_isLight ? Colors.white.withOpacity(0.28) : cs.onSurface.withOpacity(0.04));
 
     final Color iconColor = active
         ? cs.primary
@@ -813,6 +847,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         color: bgColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor),
+        boxShadow: _panelShadow(theme, tint: cs.primary),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -903,7 +938,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                   ),
                   selected: _maxTeams == n,
                   selectedColor: cs.primary.withOpacity(0.18),
-                  backgroundColor: cs.onSurface.withOpacity(0.06),
+                  backgroundColor: _isLight ? Colors.white.withOpacity(0.34) : cs.onSurface.withOpacity(0.06),
+                  side: BorderSide(
+                    color: _maxTeams == n
+                        ? cs.primary.withOpacity(0.35)
+                        : (_isLight ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.12)),
+                  ),
                   labelStyle: TextStyle(
                     color: _maxTeams == n ? cs.primary : cs.onSurface.withOpacity(0.72),
                     fontWeight: _maxTeams == n ? FontWeight.w900 : FontWeight.w800,
@@ -926,11 +966,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     required String subtitle,
     required IconData icon,
   }) {
-    final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
     final selected = _type == type;
+
+    final fill = selected ? cs.primary.withOpacity(0.14) : _panelFill(theme);
+    final border = selected ? _panelBorder(theme, accent: cs.primary) : _panelBorder(theme);
 
     return InkWell(
       onTap: () => _setType(type),
@@ -939,10 +981,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          color: selected ? cs.primary.withOpacity(0.14) : cs.onSurface.withOpacity(0.04),
+          color: fill,
           border: Border.all(
-            color: selected ? cs.primary.withOpacity(0.70) : cs.onSurface.withOpacity(0.12),
+            color: selected ? cs.primary.withOpacity(0.55) : border,
           ),
+          boxShadow: _panelShadow(theme, tint: cs.primary),
         ),
         child: Row(
           children: [
@@ -951,9 +994,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               height: 46,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                color: selected ? cs.primary.withOpacity(0.18) : cs.onSurface.withOpacity(0.06),
+                color: selected ? cs.primary.withOpacity(0.18) : (_isLight ? Colors.white.withOpacity(0.36) : cs.onSurface.withOpacity(0.06)),
                 border: Border.all(
-                  color: selected ? cs.primary.withOpacity(0.70) : cs.onSurface.withOpacity(0.12),
+                  color: selected ? cs.primary.withOpacity(0.55) : (_isLight ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.12)),
                 ),
               ),
               child: Icon(icon, color: selected ? cs.primary : cs.onSurface.withOpacity(0.72)),
@@ -988,11 +1031,12 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
-                color: selected ? cs.primary : cs.onSurface.withOpacity(0.06),
+                color: selected ? cs.primary : (_isLight ? Colors.white.withOpacity(0.36) : cs.onSurface.withOpacity(0.06)),
                 borderRadius: BorderRadius.circular(999),
+                border: selected ? null : Border.all(color: _isLight ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.12)),
               ),
               child: Text(
-                selected ? l10n.tr('common_selected') : l10n.tr('common_select'),
+                selected ? context.l10n.tr('common_selected') : context.l10n.tr('common_select'),
                 style: TextStyle(
                   color: selected ? cs.onPrimary : cs.onSurface.withOpacity(0.72),
                   fontWeight: FontWeight.w900,
@@ -1008,8 +1052,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _stepLeagueDetails(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     return Column(
       key: key,
@@ -1096,6 +1139,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     final selected = _privacy == value;
 
+    final fill = selected ? cs.primary.withOpacity(0.14) : _panelFill(theme);
+    final border = selected ? _panelBorder(theme, accent: cs.primary) : _panelBorder(theme);
+
     return InkWell(
       onTap: () => setState(() => _privacy = value),
       borderRadius: BorderRadius.circular(18),
@@ -1103,10 +1149,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          color: selected ? cs.primary.withOpacity(0.14) : cs.onSurface.withOpacity(0.04),
+          color: fill,
           border: Border.all(
-            color: selected ? cs.primary.withOpacity(0.70) : cs.onSurface.withOpacity(0.12),
+            color: selected ? cs.primary.withOpacity(0.55) : border,
           ),
+          boxShadow: _panelShadow(theme),
         ),
         child: Row(
           children: [
@@ -1293,8 +1340,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
-              color: cs.onSurface.withOpacity(0.04),
-              border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+              color: _panelFill(theme),
+              border: Border.all(color: _panelBorder(theme)),
+              boxShadow: _panelShadow(theme),
             ),
             child: CheckboxListTile.adaptive(
               value: _homeAwayEnabled,
@@ -1328,8 +1376,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: cs.onSurface.withOpacity(0.04),
-            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+            color: _panelFill(theme),
+            border: Border.all(color: _panelBorder(theme)),
+            boxShadow: _panelShadow(theme),
           ),
           child: SwitchListTile.adaptive(
             value: _creatorWillParticipate,
@@ -1432,6 +1481,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             borderRadius: BorderRadius.circular(12),
             color: cs.primary.withOpacity(0.14),
             border: Border.all(color: cs.primary.withOpacity(0.35)),
+            boxShadow: _panelShadow(theme, tint: cs.primary),
           ),
           child: Icon(icon, size: 18, color: cs.primary),
         ),
@@ -1462,8 +1512,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        color: cs.onSurface.withOpacity(0.04),
-        border: Border.all(color: a.withOpacity(0.35)),
+        color: _panelFill(theme),
+        border: Border.all(color: _panelBorder(theme, accent: a)),
+        boxShadow: _panelShadow(theme, tint: a),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1501,11 +1552,16 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   Widget _buildFooterActions(BuildContext context) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final isLast = _step == 4;
 
     final backLabel = _step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back');
+
+    final outlineSide = BorderSide(
+      color: theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.18),
+    );
 
     // IMPORTANT:
     // On the last step we show ONLY a back button here.
@@ -1522,7 +1578,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                     },
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+                side: outlineSide,
                 foregroundColor: cs.onSurface.withOpacity(0.80),
               ),
               child: Text(
@@ -1552,7 +1608,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                   },
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
-              side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+              side: outlineSide,
               foregroundColor: cs.onSurface.withOpacity(0.80),
             ),
             child: Text(
@@ -1819,6 +1875,11 @@ class _OptionalImageField extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    final previewFill =
+        theme.brightness == Brightness.light ? Colors.white.withOpacity(0.40) : cs.onSurface.withOpacity(0.06);
+    final previewBorder =
+        theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.14);
+
     // SECURITY: Never render controller.text as visible UI anywhere in this widget.
     // This prevents Cloudinary URL exposure while still keeping controller value
     // for backend submission and for the thumbnail preview.
@@ -1833,9 +1894,18 @@ class _OptionalImageField extends StatelessWidget {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: cs.onSurface.withOpacity(0.06),
+            color: previewFill,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+            border: Border.all(color: previewBorder),
+            boxShadow: theme.brightness == Brightness.light
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: const Color(0xFFB4D2FF).withOpacity(0.18),
+                      blurRadius: 18,
+                      offset: const Offset(0, 12),
+                    ),
+                  ]
+                : null,
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
@@ -1845,8 +1915,10 @@ class _OptionalImageField extends StatelessWidget {
                     ? Image.network(
                         raw,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            Icon(Icons.image_outlined, color: cs.onSurface.withOpacity(0.55)),
+                        errorBuilder: (_, __, ___) => Icon(
+                          Icons.image_outlined,
+                          color: cs.onSurface.withOpacity(0.55),
+                        ),
                       )
                     : Icon(Icons.image_outlined, color: cs.onSurface.withOpacity(0.55))),
           ),

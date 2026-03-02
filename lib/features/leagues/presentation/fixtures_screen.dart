@@ -72,8 +72,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   bool _isOrganizer = false;
 
   // Fixtures selection mode (WhatsApp style)
-  final ValueNotifier<Set<String>> _selectedFixtureIds =
-      ValueNotifier<Set<String>>(<String>{});
+  final ValueNotifier<Set<String>> _selectedFixtureIds = ValueNotifier<Set<String>>(<String>{});
   bool _isSharingFixtures = false;
 
   // ===== Premium Share-as-image rendering =====
@@ -98,8 +97,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
-  bool get _isSuperAdmin =>
-      (FirebaseAuth.instance.currentUser?.uid.trim() ?? '') == _superAdminUid;
+  bool get _isSuperAdmin => (FirebaseAuth.instance.currentUser?.uid.trim() ?? '') == _superAdminUid;
 
   /// Admin-only: selection mode & share.
   /// Uses existing organizer guard + super admin. (No new backend role assumptions.)
@@ -136,9 +134,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     }
 
     final savedGroupRaw = _prefs.getString(_lastGroupKey(widget.leagueId));
-    _selectedGroup = (savedGroupRaw == null || savedGroupRaw.trim().isEmpty)
-        ? null
-        : savedGroupRaw.trim();
+    _selectedGroup = (savedGroupRaw == null || savedGroupRaw.trim().isEmpty) ? null : savedGroupRaw.trim();
 
     // ignore: discarded_futures
     _loadInitialData();
@@ -188,27 +184,35 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     return g;
   }
 
-  Color _baseSnackBg(ThemeData theme) {
-    return theme.brightness == Brightness.dark
-        ? const Color(0xFF101522)
-        : const Color(0xFF0F172A);
+  Color _snackBg(ThemeData theme) {
+    if (theme.brightness == Brightness.dark) return const Color(0xFF101522);
+
+    // Premium frosted toast for light theme (matches glass system).
+    // Slightly tinted so it looks "iOS-like" over the gradient background.
+    final cs = theme.colorScheme;
+    final base = const Color(0xF2FFFFFF); // near-white, opaque enough for readability
+    return Color.alphaBlend(cs.primary.withOpacity(0.10), base);
+  }
+
+  Color _snackFg(ThemeData theme) {
+    if (theme.brightness == Brightness.dark) return Colors.white;
+    return theme.colorScheme.onSurface.withOpacity(0.92);
   }
 
   void _snack(String msg) {
     if (!mounted) return;
 
     final theme = Theme.of(context);
-    final bg = _baseSnackBg(theme);
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
-        backgroundColor: bg,
+        backgroundColor: _snackBg(theme),
         content: Text(
           msg,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          style: TextStyle(color: _snackFg(theme), fontWeight: FontWeight.w700, height: 1.2),
         ),
       ),
     );
@@ -267,18 +271,14 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
   }
 
   Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
-    final clean = ids
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e))
-        .toList(growable: false);
+    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
     if (clean.isEmpty) return const <String, String>{};
 
     final out = <String, String>{};
 
     const chunkSize = 10; // whereIn limit
     for (var i = 0; i < clean.length; i += chunkSize) {
-      final chunk =
-          clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
 
       final snap = await _firestore
           .collection('users')
@@ -323,8 +323,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
     }
   }
 
-  Map<String, String> _mergePreferExisting(
-      Map<String, String> base, Map<String, String> incoming) {
+  Map<String, String> _mergePreferExisting(Map<String, String> base, Map<String, String> incoming) {
     if (incoming.isEmpty) return base;
     final out = <String, String>{...base};
     incoming.forEach((k, v) {
@@ -349,9 +348,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
       final out = <String, String>{};
       for (final d in snap.docs) {
         final data = d.data();
-        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty)
-            ? (data['id'] as String).trim()
-            : d.id;
+        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? (data['id'] as String).trim() : d.id;
 
         final candidate = (data['teamImageUrl'] as String?)?.trim() ?? '';
         if (id.isNotEmpty && candidate.isNotEmpty) out[id] = candidate;
@@ -469,14 +466,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-      final league =
-          await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+      final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
       // branding loads in background (safe + non-blocking)
       unawaited(_loadLeagueBrandingBestEffort(leagueObject: league));
 
       final teams = await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
-      final allMatches =
-          await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+      final allMatches = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
       final format = league?.format ?? LeagueFormat.classic;
 
@@ -524,8 +519,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         membership = null;
       }
 
-      final isOrganizer =
-          membership?.role == LeagueRole.organizer || (league?.organizerUid.trim() == authUid);
+      final isOrganizer = membership?.role == LeagueRole.organizer || (league?.organizerUid.trim() == authUid);
 
       final localImages = <String, String>{};
       for (final t in teams) {
@@ -591,8 +585,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-      final league =
-          await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+      final league = await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
       if (league == null) {
         _snack(l10n.tr('fixtures_league_not_found'));
         return;
@@ -608,18 +601,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
         return;
       }
 
-      final existingMatches =
-          await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+      final existingMatches = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
 
       int currentMaxRound = 0;
       if (existingMatches.isNotEmpty) {
-        currentMaxRound =
-            existingMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+        currentMaxRound = existingMatches.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
       }
 
       if (currentMaxRound > 0) {
-        final currentRoundMatches =
-            existingMatches.where((m) => m.roundNumber == currentMaxRound).toList();
+        final currentRoundMatches = existingMatches.where((m) => m.roundNumber == currentMaxRound).toList();
         final anyUnplayed = currentRoundMatches.any((m) => !m.isPlayed);
         if (anyUnplayed) {
           _snack(
@@ -797,8 +787,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Future<String> _writePngToTempFile(Uint8List bytes) async {
     final tmp = Directory.systemTemp.path;
-    final fileName =
-        'fixtures_share_${widget.leagueId}_${DateTime.now().millisecondsSinceEpoch}.png';
+    final fileName = 'fixtures_share_${widget.leagueId}_${DateTime.now().millisecondsSinceEpoch}.png';
     final outPath = p.join(tmp, fileName);
 
     final f = File(outPath);
@@ -830,11 +819,14 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
     if (!allowGlobal) return _ShareTarget.leagueChat;
 
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final sheetBg = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.94) : cs.surface;
 
     final picked = await showModalBottomSheet<_ShareTarget>(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: sheetBg,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
@@ -1090,9 +1082,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
             actions: [
               IconButton(
                 tooltip: 'Share',
-                onPressed: (!_canAdminSelectFixtures || _isSharingFixtures)
-                    ? null
-                    : _shareSelectedFixturesToLeagueChat,
+                onPressed: (!_canAdminSelectFixtures || _isSharingFixtures) ? null : _shareSelectedFixturesToLeagueChat,
                 icon: _isSharingFixtures
                     ? SizedBox(
                         width: 18,
@@ -1116,7 +1106,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
@@ -1132,10 +1123,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                     child: RefreshIndicator(
                       onRefresh: _loadInitialData,
                       color: cs.primary,
+                      backgroundColor: theme.brightness == Brightness.light ? Colors.white.withOpacity(0.92) : cs.surface,
                       child: Column(
                         children: [
-                          if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty)
-                            _buildGroupSelector(),
+                          if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
                           if (_totalRounds > 0) _buildRoundSelector(_totalRounds),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1242,10 +1233,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final unselectedBg = cs.onBackground.withOpacity(0.06);
-    final unselectedBorder = cs.onBackground.withOpacity(0.14);
+    final unselectedBg = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.30) : cs.onBackground.withOpacity(0.06);
+    final unselectedBorder = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.70) : cs.onBackground.withOpacity(0.14);
     final unselectedText = cs.onBackground.withOpacity(0.78);
 
     final bool allSelected = _selectedGroup == null;
@@ -1266,13 +1258,22 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                 color: allSelected ? cs.primary : unselectedBg,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(color: allSelected ? cs.primary : unselectedBorder),
+                boxShadow: theme.brightness == Brightness.light
+                    ? <BoxShadow>[
+                        BoxShadow(
+                          color: const Color(0xFFB4D2FF).withOpacity(0.14),
+                          blurRadius: 18,
+                          offset: const Offset(0, 12),
+                        ),
+                      ]
+                    : null,
               ),
               alignment: Alignment.center,
               child: Text(
                 l10n.tr('admin_score_all_groups'),
                 style: TextStyle(
                   color: allSelected ? cs.onPrimary : unselectedText,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w900,
                   fontSize: 12,
                 ),
               ),
@@ -1291,13 +1292,22 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                       color: isSelected ? cs.primary : unselectedBg,
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(color: isSelected ? cs.primary : unselectedBorder),
+                      boxShadow: theme.brightness == Brightness.light
+                          ? <BoxShadow>[
+                              BoxShadow(
+                                color: const Color(0xFFB4D2FF).withOpacity(0.14),
+                                blurRadius: 18,
+                                offset: const Offset(0, 12),
+                              ),
+                            ]
+                          : null,
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       _groupDisplayName(l10n, group),
                       style: TextStyle(
                         color: isSelected ? cs.onPrimary : unselectedText,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w900,
                         fontSize: 12,
                       ),
                     ),
@@ -1312,10 +1322,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
 
   Widget _buildRoundSelector(int totalRounds) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
-    final unselectedBg = cs.onBackground.withOpacity(0.06);
-    final unselectedBorder = cs.onBackground.withOpacity(0.14);
+    final unselectedBg = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.30) : cs.onBackground.withOpacity(0.06);
+    final unselectedBorder = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.70) : cs.onBackground.withOpacity(0.14);
     final unselectedText = cs.onBackground.withOpacity(0.78);
 
     if (totalRounds > 0 && _selectedRound > totalRounds) {
@@ -1345,13 +1356,22 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                 color: isSelected ? cs.primary : unselectedBg,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: isSelected ? cs.primary : unselectedBorder),
+                boxShadow: theme.brightness == Brightness.light
+                    ? <BoxShadow>[
+                        BoxShadow(
+                          color: const Color(0xFFB4D2FF).withOpacity(0.14),
+                          blurRadius: 18,
+                          offset: const Offset(0, 12),
+                        ),
+                      ]
+                    : null,
               ),
               alignment: Alignment.center,
               child: Text(
                 '${l10n.tr('admin_score_round_prefix')}$round',
                 style: TextStyle(
                   color: isSelected ? cs.onPrimary : unselectedText,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w900,
                   fontSize: 13,
                 ),
               ),
@@ -1433,6 +1453,15 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
               color: selected ? cs.primary.withOpacity(0.95) : cs.onSurface.withOpacity(0.0),
               width: 2,
             ),
+            boxShadow: (theme.brightness == Brightness.light && selected)
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: const Color(0xFFB4D2FF).withOpacity(0.18),
+                      blurRadius: 22,
+                      offset: const Offset(0, 14),
+                    ),
+                  ]
+                : null,
           ),
           child: Stack(
             children: [
@@ -1451,7 +1480,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                             style: TextStyle(
                               color: cs.onSurface.withOpacity(0.55),
                               fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
@@ -1467,7 +1496,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                                   homeName,
                                   textAlign: TextAlign.end,
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w800,
                                     color: cs.onSurface,
                                   ),
                                   overflow: TextOverflow.ellipsis,
@@ -1509,7 +1538,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen> {
                                   awayName,
                                   textAlign: TextAlign.start,
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w800,
                                     color: cs.onSurface,
                                   ),
                                   overflow: TextOverflow.ellipsis,
@@ -1591,19 +1620,23 @@ class _TeamThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
     final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
 
+    final fill = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.40) : cs.onSurface.withOpacity(0.06);
+    final border = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.14);
+
     return Container(
       width: 22,
       height: 22,
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
+        color: fill,
         shape: BoxShape.circle,
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(color: border),
       ),
       child: ClipOval(
         child: has
@@ -1614,12 +1647,10 @@ class _TeamThumb extends StatelessWidget {
                 filterQuality: FilterQuality.low,
                 cacheWidth: 64,
                 cacheHeight: 64,
-                errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined,
-                    size: 14, color: cs.onSurface.withOpacity(0.55)),
+                errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(Icons.emoji_events_outlined,
-                      size: 14, color: cs.onSurface.withOpacity(0.55));
+                  return Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55));
                 },
               )
             : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
@@ -1664,7 +1695,11 @@ class _ShareCaptureOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final statusFill = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.92) : cs.surface.withOpacity(0.90);
+    final statusBorder = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.18);
 
     return IgnorePointer(
       ignoring: true,
@@ -1686,9 +1721,18 @@ class _ShareCaptureOverlay extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: cs.surface.withOpacity(0.90),
+                      color: statusFill,
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: cs.onSurface.withOpacity(0.18)),
+                      border: Border.all(color: statusBorder),
+                      boxShadow: theme.brightness == Brightness.light
+                          ? <BoxShadow>[
+                              BoxShadow(
+                                color: const Color(0xFFB4D2FF).withOpacity(0.18),
+                                blurRadius: 22,
+                                offset: const Offset(0, 14),
+                              ),
+                            ]
+                          : null,
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1732,8 +1776,7 @@ class _FixturesShareCard extends StatelessWidget {
     final cs = theme.colorScheme;
 
     // IMPORTANT: OPAQUE base color so PNG is readable regardless of background.
-    final base =
-        theme.brightness == Brightness.dark ? const Color(0xFF0B1220) : const Color(0xFFFFFFFF);
+    final base = theme.brightness == Brightness.dark ? const Color(0xFF0B1220) : const Color(0xFFFFFFFF);
 
     // Pre-blended opaque gradient colors (no transparency in final PNG).
     final g1 = Color.alphaBlend(cs.primary.withOpacity(0.14), base);
@@ -1755,8 +1798,7 @@ class _FixturesShareCard extends StatelessWidget {
     final shown = sorted.take(maxItems).toList(growable: false);
     final extra = math.max(0, sorted.length - shown.length);
 
-    final subtitle = payload.leagueFormat == LeagueFormat.uclGroup &&
-            (payload.selectedGroup ?? '').trim().isNotEmpty
+    final subtitle = payload.leagueFormat == LeagueFormat.uclGroup && (payload.selectedGroup ?? '').trim().isNotEmpty
         ? (payload.selectedGroup ?? '').trim()
         : '';
 
@@ -1821,10 +1863,7 @@ class _FixturesShareCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w900,
-                            color: (theme.brightness == Brightness.dark
-                                    ? Colors.white
-                                    : const Color(0xFF0B1220))
-                                .withOpacity(0.78),
+                            color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220)).withOpacity(0.78),
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -1832,9 +1871,7 @@ class _FixturesShareCard extends StatelessWidget {
                           'Fixtures',
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
-                            color: theme.brightness == Brightness.dark
-                                ? Colors.white
-                                : const Color(0xFF0B1220),
+                            color: theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220),
                           ),
                         ),
                         if (subtitle.isNotEmpty)
@@ -1843,10 +1880,7 @@ class _FixturesShareCard extends StatelessWidget {
                             child: Text(
                               subtitle,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: (theme.brightness == Brightness.dark
-                                        ? Colors.white
-                                        : const Color(0xFF0B1220))
-                                    .withOpacity(0.75),
+                                color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220)).withOpacity(0.75),
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -1864,10 +1898,7 @@ class _FixturesShareCard extends StatelessWidget {
                     child: Text(
                       '${payload.matches.length} selected',
                       style: TextStyle(
-                        color: (theme.brightness == Brightness.dark
-                                ? Colors.white
-                                : const Color(0xFF0B1220))
-                            .withOpacity(0.85),
+                        color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220)).withOpacity(0.85),
                         fontWeight: FontWeight.w900,
                         fontSize: 12,
                       ),
@@ -1897,10 +1928,7 @@ class _FixturesShareCard extends StatelessWidget {
                 Text(
                   '+$extra more',
                   style: TextStyle(
-                    color: (theme.brightness == Brightness.dark
-                            ? Colors.white
-                            : const Color(0xFF0B1220))
-                        .withOpacity(0.70),
+                    color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220)).withOpacity(0.70),
                     fontWeight: FontWeight.w900,
                     fontSize: 12,
                   ),
@@ -1920,10 +1948,7 @@ class _FixturesShareCard extends StatelessWidget {
                     child: Text(
                       'Shared from fixtures',
                       style: TextStyle(
-                        color: (theme.brightness == Brightness.dark
-                                ? Colors.white
-                                : const Color(0xFF0B1220))
-                            .withOpacity(0.75),
+                        color: (theme.brightness == Brightness.dark ? Colors.white : const Color(0xFF0B1220)).withOpacity(0.75),
                         fontWeight: FontWeight.w800,
                         fontSize: 12,
                       ),

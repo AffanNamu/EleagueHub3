@@ -23,43 +23,53 @@ class FixtureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final t = theme.textTheme;
+
+    final titleColor = isPlayed ? cs.onSurface.withOpacity(0.45) : cs.onSurface;
+    final subtitleColor = isPlayed ? cs.onSurface.withOpacity(0.42) : cs.onSurface.withOpacity(0.70);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Glass(
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$home vs $away',
-                        style: t.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          color: isPlayed ? Colors.grey[400] : Colors.white,
+        borderRadius: 20,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$home vs $away',
+                          style: t.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: titleColor,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: t.bodySmall?.copyWith(
-                          color: isPlayed ? Colors.grey[500] : Colors.white70,
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: t.bodySmall?.copyWith(
+                            color: subtitleColor,
+                            fontWeight: FontWeight.w600,
+                            height: 1.2,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                trailing,
-              ],
+                  const SizedBox(width: 8),
+                  trailing,
+                ],
+              ),
             ),
           ),
         ),

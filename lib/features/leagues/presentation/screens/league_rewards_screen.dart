@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
 import '../../data/models/reward_model.dart';
@@ -59,12 +58,11 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
     final cs = theme.colorScheme;
     final isWide = MediaQuery.of(context).size.width > 600;
 
-    final body = Container(
-      decoration: BoxDecoration(
-        gradient: AppTheme.backgroundGradient(theme.brightness),
-      ),
-      child: SafeArea(
-        top: !widget.showAppBar,
+    final content = SafeArea(
+      top: true,
+      child: Padding(
+        // GlassScaffold renders behind the AppBar; ensure list content doesn't sit under it.
+        padding: EdgeInsets.only(top: widget.showAppBar ? kToolbarHeight : 0),
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: isWide ? 600 : 500),
@@ -76,7 +74,7 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
                 }
 
                 if (!snapshot.hasData) {
-                  return _LoadingState();
+                  return const _LoadingState();
                 }
 
                 final rewards = snapshot.data ?? const <RewardModel>[];
@@ -103,17 +101,15 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
       ),
     );
 
-    if (!widget.showAppBar) return body;
+    // Embedded usage: do not wrap in a Scaffold/background (parent handles it).
+    if (!widget.showAppBar) return content;
 
     return GlassScaffold(
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         title: Text(
           'Rewards',
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w900,
-            color: cs.onSurface,
           ),
         ),
         actions: <Widget>[
@@ -125,13 +121,16 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
               return IconButton(
                 tooltip: 'Manage Rewards',
                 onPressed: _openManageRewards,
-                icon: Icon(Icons.edit_outlined, color: cs.onSurface),
+                icon: Icon(
+                  Icons.edit_outlined,
+                  color: cs.onSurface,
+                ),
               );
             },
           ),
         ],
       ),
-      body: body,
+      body: content,
     );
   }
 }

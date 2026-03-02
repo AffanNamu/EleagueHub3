@@ -118,6 +118,37 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     super.dispose();
   }
 
+  bool get _isLight => Theme.of(context).brightness == Brightness.light;
+
+  Color _softPanelFill(ThemeData theme) {
+    if (theme.brightness == Brightness.light) {
+      // Airy, frosted sub-surface inside Glass cards.
+      return Colors.white.withOpacity(0.38);
+    }
+    return theme.colorScheme.onSurface.withOpacity(0.04);
+  }
+
+  Color _softPanelBorder(ThemeData theme, {Color? accent}) {
+    if (theme.brightness == Brightness.light) {
+      // Subtle white edge with slight accent tint.
+      final a = accent ?? theme.colorScheme.primary;
+      return Color.alphaBlend(a.withOpacity(0.14), Colors.white.withOpacity(0.70));
+    }
+    return theme.colorScheme.onSurface.withOpacity(0.10);
+  }
+
+  List<BoxShadow>? _softPanelShadow(ThemeData theme, {Color? tint}) {
+    if (theme.brightness != Brightness.light) return null;
+    final c = tint ?? const Color(0xFFB4D2FF);
+    return <BoxShadow>[
+      BoxShadow(
+        color: c.withOpacity(0.22),
+        blurRadius: 28,
+        offset: const Offset(0, 16),
+      ),
+    ];
+  }
+
   void _showSnack(String message) {
     if (!mounted) return;
     final msg = message.trim();
@@ -329,6 +360,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     if (_createdLeague != null) {
       final league = _createdLeague!;
+      final qrColor = theme.brightness == Brightness.dark ? Colors.white : Colors.black;
+
       return GlassScaffold(
         appBar: AppBar(
           title: Text(l10n.tr('league_create_created_title')),
@@ -355,13 +388,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                         data: league.qrPayload,
                         version: QrVersions.auto,
                         gapless: true,
-                        eyeStyle: const QrEyeStyle(
+                        eyeStyle: QrEyeStyle(
                           eyeShape: QrEyeShape.square,
-                          color: Colors.black,
+                          color: qrColor,
                         ),
-                        dataModuleStyle: const QrDataModuleStyle(
+                        dataModuleStyle: QrDataModuleStyle(
                           dataModuleShape: QrDataModuleShape.square,
-                          color: Colors.black,
+                          color: qrColor,
                         ),
                       ),
                     ),
@@ -695,7 +728,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     required int index,
     required int current,
   }) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final active = index == current;
     final done = index < current;
@@ -704,13 +738,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         ? cs.primary.withOpacity(0.75)
         : done
             ? cs.primary.withOpacity(0.40)
-            : cs.onSurface.withOpacity(0.14);
+            : (_isLight ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.14));
 
     final Color bgColor = active
         ? cs.primary.withOpacity(0.14)
         : done
             ? cs.onSurface.withOpacity(0.06)
-            : cs.onSurface.withOpacity(0.04);
+            : (_isLight ? Colors.white.withOpacity(0.30) : cs.onSurface.withOpacity(0.04));
 
     final Color iconColor = active
         ? cs.primary
@@ -730,6 +764,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         color: bgColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor),
+        boxShadow: _softPanelShadow(theme, tint: cs.primary),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -768,11 +803,19 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     Widget formatChip(LeagueFormat fmt, String label) {
       final selected = _format == fmt;
+
+      final unselectedBg = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.34) : cs.onSurface.withOpacity(0.06);
+
       return ChoiceChip(
         selected: selected,
         label: Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
         selectedColor: cs.primary.withOpacity(0.18),
-        backgroundColor: cs.onSurface.withOpacity(0.06),
+        backgroundColor: unselectedBg,
+        side: BorderSide(
+          color: selected
+              ? cs.primary.withOpacity(0.35)
+              : (theme.brightness == Brightness.light ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.12)),
+        ),
         labelStyle: TextStyle(
           color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
           fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
@@ -870,8 +913,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: cs.onSurface.withOpacity(0.04),
-            border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+            color: _softPanelFill(theme),
+            border: Border.all(color: _softPanelBorder(theme)),
+            boxShadow: _softPanelShadow(theme),
           ),
           child: Column(
             children: [
@@ -1047,9 +1091,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Widget _buildFooterActions(BuildContext context) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     final isLast = _step == 2;
+
+    final outlineSide = BorderSide(
+      color: theme.brightness == Brightness.light ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.18),
+    );
 
     return Row(
       children: [
@@ -1058,7 +1107,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             onPressed: _submitting ? null : _backOrClose,
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
-              side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
+              side: outlineSide,
               foregroundColor: cs.onSurface.withOpacity(0.80),
             ),
             child: Text(
@@ -1135,6 +1184,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             borderRadius: BorderRadius.circular(12),
             color: cs.primary.withOpacity(0.14),
             border: Border.all(color: cs.primary.withOpacity(0.35)),
+            boxShadow: _softPanelShadow(theme, tint: cs.primary),
           ),
           child: Icon(icon, size: 18, color: cs.primary),
         ),
@@ -1165,8 +1215,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        color: cs.onSurface.withOpacity(0.04),
-        border: Border.all(color: a.withOpacity(0.35)),
+        color: _softPanelFill(theme),
+        border: Border.all(color: _softPanelBorder(theme, accent: a)),
+        boxShadow: _softPanelShadow(theme, tint: a),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1353,6 +1404,9 @@ class _OptionalImageField extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    final previewFill = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.40) : cs.onSurface.withOpacity(0.06);
+    final previewBorder = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.14);
+
     // IMPORTANT:
     // - Never render controller.text anywhere (prevents URL exposure).
     // - Rebuild when controller changes (upload/clear) without needing parent setState.
@@ -1367,9 +1421,18 @@ class _OptionalImageField extends StatelessWidget {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: cs.onSurface.withOpacity(0.06),
+            color: previewFill,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+            border: Border.all(color: previewBorder),
+            boxShadow: theme.brightness == Brightness.light
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: const Color(0xFFB4D2FF).withOpacity(0.18),
+                      blurRadius: 18,
+                      offset: const Offset(0, 12),
+                    ),
+                  ]
+                : null,
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
