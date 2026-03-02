@@ -1564,7 +1564,7 @@ class _LiveBadgeState extends State<_LiveBadge>
     final color = widget.isLive ? cs.error : onSurface.withOpacity(0.55);
 
     return AnimatedBuilder(
-      listenable: _pulse,
+      animation: _pulse,
       builder: (context, child) {
         final opacity = widget.isLive ? 0.7 + (_pulse.value * 0.3) : 1.0;
         return Opacity(opacity: opacity, child: child);
