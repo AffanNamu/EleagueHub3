@@ -174,7 +174,8 @@ class _AdminKnockoutScoreMgmtScreenState
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
     final accent = cs.primary;
-    _toast(msg, bg: Color.alphaBlend(accent.withOpacity(0.16), baseBg), fg: accent);
+    _toast(msg,
+        bg: Color.alphaBlend(accent.withOpacity(0.16), baseBg), fg: accent);
   }
 
   void _toastWarn(String msg) {
@@ -188,7 +189,8 @@ class _AdminKnockoutScoreMgmtScreenState
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.14), baseBg), fg: cs.error);
+    _toast(msg,
+        bg: Color.alphaBlend(cs.error.withOpacity(0.14), baseBg), fg: cs.error);
   }
 
   void _toastFromError(Object error) {
@@ -198,7 +200,8 @@ class _AdminKnockoutScoreMgmtScreenState
   String _pairKey(String a, String b) => (a.compareTo(b) < 0) ? '$a|$b' : '$b|$a';
 
   bool _isFinished(KnockoutMatch m) {
-    final done = (m.status == MatchStatus.played || m.status == MatchStatus.completed);
+    final done =
+        (m.status == MatchStatus.played || m.status == MatchStatus.completed);
     return done && m.homeScore != null && m.awayScore != null;
   }
 
@@ -438,6 +441,11 @@ class _AdminKnockoutScoreMgmtScreenState
       } else {
         all.add(updatedMatch);
       }
+
+      // NOTE (Admin Point Adjustment System):
+      // Knockout matches are stored under leagues/{leagueId}/knockout and do NOT affect
+      // classic/group/swiss league table aggregates (which are derived from leagues/{leagueId}/matches).
+      // Therefore, we do not update basePoints/finalPoints here.
 
       if (updatedMatch.roundName != 'Play-off') {
         final hId = updatedMatch.homeTeamId;
@@ -909,8 +917,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               ),
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: _isCompleted
                       ? primary.withOpacity(0.14)

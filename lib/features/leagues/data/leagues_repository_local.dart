@@ -12,6 +12,7 @@ import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
 import '../models/league.dart';
 import '../models/membership.dart';
+import '../models/point_adjustment.dart';
 import '../models/team.dart';
 
 enum LeagueJoinMode { participant, viewer }
@@ -130,20 +131,17 @@ class LocalLeaguesRepository {
         .timeout(const Duration(seconds: 12));
 
     if (!snap.exists) {
-      throw const UserFriendlyException(
-          "We couldn't find this league. Please refresh and try again.");
+      throw const UserFriendlyException("We couldn't find this league. Please refresh and try again.");
     }
 
     final data = snap.data() ?? <String, dynamic>{};
     final organizerUid = (data['organizerUid'] as String? ?? '').trim();
     final ownerUid = (data['ownerUid'] as String? ?? '').trim();
 
-    final ok = (organizerUid.isNotEmpty && organizerUid == authUid) ||
-        (ownerUid.isNotEmpty && ownerUid == authUid);
+    final ok = (organizerUid.isNotEmpty && organizerUid == authUid) || (ownerUid.isNotEmpty && ownerUid == authUid);
 
     if (!ok) {
-      throw const UserFriendlyException(
-          'You don\u2019t have permission to do that right now.');
+      throw const UserFriendlyException('You don\u2019t have permission to do that right now.');
     }
   }
 
@@ -221,9 +219,7 @@ class LocalLeaguesRepository {
   League _docToLeague(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
     final map = <String, dynamic>{...data};
-    map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty)
-        ? map['id']
-        : doc.id;
+    map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
     return League.fromRemoteMap(map);
   }
 
@@ -241,18 +237,14 @@ class LocalLeaguesRepository {
   }
 
   Future<Map<String, String>> _loadUserImageUrlsByUids(List<String> uids) async {
-    final ids = uids
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList(growable: false);
+    final ids = uids.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(growable: false);
     if (ids.isEmpty) return const <String, String>{};
 
     final out = <String, String>{};
 
     const chunkSize = 10;
     for (var i = 0; i < ids.length; i += chunkSize) {
-      final chunk = ids.sublist(
-          i, (i + chunkSize > ids.length) ? ids.length : i + chunkSize);
+      final chunk = ids.sublist(i, (i + chunkSize > ids.length) ? ids.length : i + chunkSize);
 
       final snap = await _firestore
           .collection('users')
@@ -285,8 +277,7 @@ class LocalLeaguesRepository {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      final leagues =
-          snapshot.docs.map((d) => _docToLeague(d)).toList(growable: false);
+      final leagues = snapshot.docs.map((d) => _docToLeague(d)).toList(growable: false);
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
@@ -334,11 +325,8 @@ class LocalLeaguesRepository {
       final authUid = _requireAuthUid();
       await _requireOnline();
 
-      final leagueId =
-          league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
-      final fixedCode = league.code.trim().isNotEmpty
-          ? league.code.trim().toUpperCase()
-          : await _generateUniqueJoinCode();
+      final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
+      final fixedCode = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
 
       final fixed = league.copyWith(
         id: leagueId,
@@ -348,8 +336,7 @@ class LocalLeaguesRepository {
       );
 
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
-      final organizerMembershipRef =
-          leagueRef.collection('memberships').doc(authUid);
+      final organizerMembershipRef = leagueRef.collection('memberships').doc(authUid);
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -387,8 +374,7 @@ class LocalLeaguesRepository {
 
       await batch.commit().timeout(const Duration(seconds: 25));
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'saving league');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving league');
     }
   }
 
@@ -398,23 +384,16 @@ class LocalLeaguesRepository {
 
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
 
-      Future<void> deleteAllDocsIn(String sub,
-          {bool bestEffort = false}) async {
+      Future<void> deleteAllDocsIn(String sub, {bool bestEffort = false}) async {
         try {
           final col = leagueRef.collection(sub);
-          final snap = await col
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 30));
+          final snap = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 30));
           if (snap.docs.isEmpty) return;
 
           const chunkSize = 8;
           for (var i = 0; i < snap.docs.length; i += chunkSize) {
             final batch = _firestore.batch();
-            final chunk = snap.docs.sublist(
-                i,
-                (i + chunkSize > snap.docs.length)
-                    ? snap.docs.length
-                    : i + chunkSize);
+            final chunk = snap.docs.sublist(i, (i + chunkSize > snap.docs.length) ? snap.docs.length : i + chunkSize);
             for (final d in chunk) {
               batch.delete(d.reference);
             }
@@ -433,11 +412,11 @@ class LocalLeaguesRepository {
       await deleteAllDocsIn('space', bestEffort: true);
       await deleteAllDocsIn('couponCodes', bestEffort: true);
       await deleteAllDocsIn('couponConfig', bestEffort: true);
+      await deleteAllDocsIn('pointAdjustments', bestEffort: true);
 
       await leagueRef.delete().timeout(const Duration(seconds: 20));
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'deleting league');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'deleting league');
     }
   }
 
@@ -450,11 +429,8 @@ class LocalLeaguesRepository {
       await _requireOnline();
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      final leagueId =
-          league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
-      final code = league.code.trim().isNotEmpty
-          ? league.code.trim().toUpperCase()
-          : await _generateUniqueJoinCode();
+      final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
+      final code = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
 
       final stored = league.copyWith(
         id: leagueId,
@@ -465,8 +441,7 @@ class LocalLeaguesRepository {
       );
 
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
-      final organizerMembershipRef =
-          leagueRef.collection('memberships').doc(authUid);
+      final organizerMembershipRef = leagueRef.collection('memberships').doc(authUid);
 
       final batch = _firestore.batch();
 
@@ -504,8 +479,7 @@ class LocalLeaguesRepository {
 
       return stored;
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'creating league');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'creating league');
     }
   }
 
@@ -532,8 +506,7 @@ class LocalLeaguesRepository {
           .timeout(const Duration(seconds: 20));
 
       if (query.docs.isEmpty) {
-        throw const UserFriendlyException(
-            "We couldn't find a league with that code.");
+        throw const UserFriendlyException("We couldn't find a league with that code.");
       }
 
       final leagueDoc = query.docs.first;
@@ -552,18 +525,12 @@ class LocalLeaguesRepository {
           .timeout(const Duration(seconds: 20));
 
       if (mode == LeagueJoinMode.participant) {
-        final membershipRef =
-            leagueRef.collection('memberships').doc(authUid);
+        final membershipRef = leagueRef.collection('memberships').doc(authUid);
 
-        final existing = await membershipRef
-            .get(const GetOptions(source: Source.server))
-            .timeout(const Duration(seconds: 12));
+        final existing = await membershipRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
 
-        final existingRoleIdx =
-            (existing.data()?['role'] as num?)?.toInt();
-        final existingRole = (existingRoleIdx != null &&
-                existingRoleIdx >= 0 &&
-                existingRoleIdx < LeagueRole.values.length)
+        final existingRoleIdx = (existing.data()?['role'] as num?)?.toInt();
+        final existingRole = (existingRoleIdx != null && existingRoleIdx >= 0 && existingRoleIdx < LeagueRole.values.length)
             ? LeagueRole.values[existingRoleIdx]
             : null;
 
@@ -582,19 +549,14 @@ class LocalLeaguesRepository {
             version: 1,
           );
 
-          await membershipRef
-              .set(membership.toRemoteMap(), SetOptions(merge: true))
-              .timeout(const Duration(seconds: 20));
+          await membershipRef.set(membership.toRemoteMap(), SetOptions(merge: true)).timeout(const Duration(seconds: 20));
         }
       }
 
-      final fresh = await leagueRef
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 20));
+      final fresh = await leagueRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
       return _docToLeague(fresh);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'joining league');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'joining league');
     }
   }
 
@@ -609,8 +571,7 @@ class LocalLeaguesRepository {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      final leagueIds =
-          leaguesSnap.docs.map((d) => d.id).toList(growable: false);
+      final leagueIds = leaguesSnap.docs.map((d) => d.id).toList(growable: false);
       if (leagueIds.isEmpty) return const <Membership>[];
 
       final all = await Future.wait(
@@ -624,18 +585,11 @@ class LocalLeaguesRepository {
 
           return snap.docs.map((d) {
             final map = <String, dynamic>{...d.data()};
-            map['id'] = (map['id'] is String &&
-                    (map['id'] as String).trim().isNotEmpty)
-                ? map['id']
-                : d.id;
-            map['leagueId'] =
-                (map['leagueId'] as String?) ?? leagueId;
+            map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+            map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
             map['userId'] = (map['userId'] as String?) ?? '';
-            map['role'] = (map['role'] as num?)?.toInt() ??
-                LeagueRole.member.index;
-            map['updatedAtMs'] =
-                (map['updatedAtMs'] as num?)?.toInt() ??
-                    DateTime.now().millisecondsSinceEpoch;
+            map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+            map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
             map['version'] = (map['version'] as num?)?.toInt() ?? 1;
             return Membership.fromRemoteMap(map);
           }).toList();
@@ -644,8 +598,7 @@ class LocalLeaguesRepository {
 
       return all.expand((x) => x).toList(growable: false);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'listing memberships');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'listing memberships');
     }
   }
 
@@ -669,21 +622,12 @@ class LocalLeaguesRepository {
           .timeout(const Duration(seconds: 12));
 
       if (direct.exists) {
-        final map = <String, dynamic>{
-          ...(direct.data() ?? <String, dynamic>{})
-        };
-        map['id'] = (map['id'] is String &&
-                (map['id'] as String).trim().isNotEmpty)
-            ? map['id']
-            : direct.id;
-        map['leagueId'] =
-            (map['leagueId'] as String?) ?? leagueId;
+        final map = <String, dynamic>{...(direct.data() ?? <String, dynamic>{})};
+        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : direct.id;
+        map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
         map['userId'] = (map['userId'] as String?) ?? uid;
-        map['role'] = (map['role'] as num?)?.toInt() ??
-            LeagueRole.member.index;
-        map['updatedAtMs'] =
-            (map['updatedAtMs'] as num?)?.toInt() ??
-                DateTime.now().millisecondsSinceEpoch;
+        map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+        map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
         map['version'] = (map['version'] as num?)?.toInt() ?? 1;
         return Membership.fromRemoteMap(map);
       }
@@ -701,22 +645,15 @@ class LocalLeaguesRepository {
 
       final doc = snap.docs.first;
       final map = <String, dynamic>{...doc.data()};
-      map['id'] = (map['id'] is String &&
-              (map['id'] as String).trim().isNotEmpty)
-          ? map['id']
-          : doc.id;
+      map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : doc.id;
       map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
       map['userId'] = (map['userId'] as String?) ?? uid;
-      map['role'] =
-          (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
-      map['updatedAtMs'] =
-          (map['updatedAtMs'] as num?)?.toInt() ??
-              DateTime.now().millisecondsSinceEpoch;
+      map['role'] = (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+      map['updatedAtMs'] = (map['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
       map['version'] = (map['version'] as num?)?.toInt() ?? 1;
       return Membership.fromRemoteMap(map);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'getting membership');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'getting membership');
     }
   }
 
@@ -733,16 +670,10 @@ class LocalLeaguesRepository {
         throw const UserFriendlyException('Please select a valid user.');
       }
 
-      final membershipRef = _firestore
-          .collection('leagues')
-          .doc(leagueId)
-          .collection('memberships')
-          .doc(uid);
+      final membershipRef = _firestore.collection('leagues').doc(leagueId).collection('memberships').doc(uid);
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      final existing = await membershipRef
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 12));
+      final existing = await membershipRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
 
       if (!existing.exists) {
         final membership = Membership(
@@ -755,9 +686,7 @@ class LocalLeaguesRepository {
           version: 1,
         );
 
-        await membershipRef
-            .set(membership.toRemoteMap(), SetOptions(merge: true))
-            .timeout(const Duration(seconds: 20));
+        await membershipRef.set(membership.toRemoteMap(), SetOptions(merge: true)).timeout(const Duration(seconds: 20));
         return;
       }
 
@@ -775,10 +704,418 @@ class LocalLeaguesRepository {
           )
           .timeout(const Duration(seconds: 20));
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'assigning team to membership');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'assigning team to membership');
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // REAL-TIME WATCHERS (snapshot listeners)
+  // ---------------------------------------------------------------------------
+
+  Stream<List<Team>> watchTeams(String leagueId) {
+    try {
+      _requireAuthUid();
+
+      return _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('teams')
+          .snapshots(includeMetadataChanges: true)
+          .map((snap) {
+        return snap.docs.map((d) {
+          final map = <String, dynamic>{...d.data()};
+          map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+          map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+          return Team.fromRemoteMap(map);
+        }).toList(growable: false);
+      });
+    } catch (_) {
+      return const Stream<List<Team>>.empty();
+    }
+  }
+
+  Stream<List<FixtureMatch>> watchMatches(String leagueId) {
+    try {
+      _requireAuthUid();
+
+      return _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('matches')
+          .snapshots(includeMetadataChanges: true)
+          .map((snap) {
+        return snap.docs.map((d) {
+          final map = <String, dynamic>{...d.data()};
+          map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
+          map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+          return FixtureMatch.fromJson(map);
+        }).toList(growable: false);
+      });
+    } catch (_) {
+      return const Stream<List<FixtureMatch>>.empty();
+    }
+  }
+
+  Stream<Map<String, int>> watchTeamAdminAdjustmentsByTeamId(String leagueId) {
+    try {
+      _requireAuthUid();
+
+      return _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('teams')
+          .snapshots(includeMetadataChanges: true)
+          .map((snap) {
+        final out = <String, int>{};
+        for (final d in snap.docs) {
+          final data = d.data();
+          final adj = (data['adminAdjustment'] as num?)?.toInt() ?? 0;
+          out[d.id] = adj;
+        }
+        return out;
+      });
+    } catch (_) {
+      return const Stream<Map<String, int>>.empty();
+    }
+  }
+
+  Stream<List<PointAdjustment>> watchPointAdjustments({
+    required String leagueId,
+    int limit = 200,
+  }) {
+    try {
+      _requireAuthUid();
+
+      var q = _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('pointAdjustments')
+          .orderBy('createdAt', descending: true);
+
+      if (limit > 0) {
+        q = q.limit(limit);
+      }
+
+      return q.snapshots(includeMetadataChanges: true).map((snap) {
+        return snap.docs.map((d) => PointAdjustment.fromDoc(d)).toList(growable: false);
+      });
+    } catch (_) {
+      return const Stream<List<PointAdjustment>>.empty();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEAM AGGREGATES (backfill + transactional updates)
+  // ---------------------------------------------------------------------------
+
+  bool _statusLooksPlayed(dynamic rawStatus) {
+    if (rawStatus is String) {
+      final s = rawStatus.trim().toLowerCase();
+      return s == 'completed' || s == 'played';
+    }
+
+    // Legacy support: some deployments may store status as an enum index.
+    if (rawStatus is num) {
+      final idx = rawStatus.toInt();
+      // Best-effort mapping: treat any non-zero index as played-ish.
+      // This is only used for backfill/delta and is safe because scores must exist too.
+      return idx > 0;
+    }
+
+    return false;
+  }
+
+  bool _matchPlayedFromMap(Map<String, dynamic> m) {
+    final hs = (m['homeScore'] as num?)?.toInt();
+    final as = (m['awayScore'] as num?)?.toInt();
+    if (hs == null || as == null) return false;
+    return _statusLooksPlayed(m['status']);
+  }
+
+  int _pointsFor(int scored, int conceded) {
+    if (scored > conceded) return 3;
+    if (scored == conceded) return 1;
+    return 0;
+  }
+
+  /// Ensures team documents have correct aggregate fields:
+  /// basePoints, goalDifference, goalsFor, adminAdjustment, finalPoints.
+  ///
+  /// This is a production backfill/migration helper for older leagues that existed
+  /// before the Admin Point Adjustment System.
+  ///
+  /// SECURITY:
+  /// - Requires organizer/admin (client-side) and must be allowed by Firestore rules.
+  Future<void> ensureTeamAggregatesBackfilled(String leagueId) async {
+    try {
+      await _requireOrganizerOrThrow(leagueId);
+
+      _requireAuthUid();
+      await _requireOnline();
+
+      final teamsSnap = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('teams')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      if (teamsSnap.docs.isEmpty) return;
+
+      bool needsBackfill = false;
+      for (final d in teamsSnap.docs) {
+        final data = d.data();
+        final hasBase = data['basePoints'] is int || data['basePoints'] is num;
+        final hasAdj = data['adminAdjustment'] is int || data['adminAdjustment'] is num;
+        final hasFinal = data['finalPoints'] is int || data['finalPoints'] is num;
+        final hasGd = data['goalDifference'] is int || data['goalDifference'] is num;
+        final hasGf = data['goalsFor'] is int || data['goalsFor'] is num;
+
+        if (!hasBase || !hasAdj || !hasFinal || !hasGd || !hasGf) {
+          needsBackfill = true;
+          break;
+        }
+      }
+
+      if (!needsBackfill) return;
+
+      final matchesSnap = await _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('matches')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 25));
+
+      final basePointsByTeam = <String, int>{};
+      final gdByTeam = <String, int>{};
+      final gfByTeam = <String, int>{};
+
+      for (final d in matchesSnap.docs) {
+        final m = d.data();
+        if (!_matchPlayedFromMap(m)) continue;
+
+        final homeId = (m['homeTeamId'] as String? ?? '').trim();
+        final awayId = (m['awayTeamId'] as String? ?? '').trim();
+        if (homeId.isEmpty || awayId.isEmpty) continue;
+
+        final hs = (m['homeScore'] as num?)!.toInt();
+        final as = (m['awayScore'] as num?)!.toInt();
+
+        final homePts = _pointsFor(hs, as);
+        final awayPts = _pointsFor(as, hs);
+
+        basePointsByTeam[homeId] = (basePointsByTeam[homeId] ?? 0) + homePts;
+        basePointsByTeam[awayId] = (basePointsByTeam[awayId] ?? 0) + awayPts;
+
+        gfByTeam[homeId] = (gfByTeam[homeId] ?? 0) + hs;
+        gfByTeam[awayId] = (gfByTeam[awayId] ?? 0) + as;
+
+        gdByTeam[homeId] = (gdByTeam[homeId] ?? 0) + (hs - as);
+        gdByTeam[awayId] = (gdByTeam[awayId] ?? 0) + (as - hs);
+      }
+
+      const chunkSize = 400; // below 500 write limit
+      final docs = teamsSnap.docs;
+
+      for (var i = 0; i < docs.length; i += chunkSize) {
+        final batch = _firestore.batch();
+        final chunk = docs.sublist(i, (i + chunkSize > docs.length) ? docs.length : i + chunkSize);
+
+        for (final td in chunk) {
+          final data = td.data();
+
+          final teamId = td.id;
+          final base = basePointsByTeam[teamId] ?? 0;
+          final adj = (data['adminAdjustment'] as num?)?.toInt() ?? 0;
+
+          final gd = gdByTeam[teamId] ?? 0;
+          final gf = gfByTeam[teamId] ?? 0;
+
+          batch.set(
+            td.reference,
+            <String, dynamic>{
+              'basePoints': base,
+              'adminAdjustment': adj,
+              'finalPoints': base + adj,
+              'goalDifference': gd,
+              'goalsFor': gf,
+              'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+            },
+            SetOptions(merge: true),
+          );
+        }
+
+        await batch.commit().timeout(const Duration(seconds: 25));
+      }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'backfilling team aggregates');
+    }
+  }
+
+  /// Transactional score update that also updates team aggregates:
+  /// - basePoints
+  /// - goalsFor
+  /// - goalDifference
+  /// - finalPoints = basePoints + adminAdjustment
+  ///
+  /// This keeps Admin Point Adjustments correct, because adjustments rely on basePoints in the team doc.
+  ///
+  /// SECURITY:
+  /// - Requires organizer/admin.
+  /// - Firestore rules must enforce finalPoints invariant.
+  Future<void> updateMatchScoreAndUpdateTeamAggregates({
+    required String leagueId,
+    required String matchId,
+    required int homeScore,
+    required int awayScore,
+  }) async {
+    try {
+      await _requireOrganizerOrThrow(leagueId);
+
+      _requireAuthUid();
+      await _requireOnline();
+
+      // Backfill once if needed (older leagues) so delta math is correct.
+      await ensureTeamAggregatesBackfilled(leagueId);
+
+      final matchRef = _firestore.collection('leagues').doc(leagueId).collection('matches').doc(matchId.trim());
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final hsNew = homeScore < 0 ? 0 : homeScore;
+      final asNew = awayScore < 0 ? 0 : awayScore;
+
+      await _firestore.runTransaction((txn) async {
+        final matchSnap = await txn.get(matchRef);
+        if (!matchSnap.exists) {
+          throw const UserFriendlyException("We couldn't find this match. Please refresh and try again.");
+        }
+
+        final matchData = (matchSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+
+        final homeId = (matchData['homeTeamId'] as String? ?? '').trim();
+        final awayId = (matchData['awayTeamId'] as String? ?? '').trim();
+        if (homeId.isEmpty || awayId.isEmpty) {
+          throw const UserFriendlyException("This match is missing team information. Please refresh and try again.");
+        }
+
+        final hsOld = (matchData['homeScore'] as num?)?.toInt();
+        final asOld = (matchData['awayScore'] as num?)?.toInt();
+        final statusOld = matchData['status'];
+
+        final oldPlayed = (hsOld != null && asOld != null) && _statusLooksPlayed(statusOld);
+        final newPlayed = true; // we force completed when saving score
+
+        // Old contributions (if previously played)
+        final oldHomePts = oldPlayed ? _pointsFor(hsOld!, asOld!) : 0;
+        final oldAwayPts = oldPlayed ? _pointsFor(asOld!, hsOld!) : 0;
+
+        final oldHomeGf = oldPlayed ? hsOld! : 0;
+        final oldAwayGf = oldPlayed ? asOld! : 0;
+
+        final oldHomeGd = oldPlayed ? (hsOld! - asOld!) : 0;
+        final oldAwayGd = oldPlayed ? (asOld! - hsOld!) : 0;
+
+        // New contributions
+        final newHomePts = newPlayed ? _pointsFor(hsNew, asNew) : 0;
+        final newAwayPts = newPlayed ? _pointsFor(asNew, hsNew) : 0;
+
+        final newHomeGf = newPlayed ? hsNew : 0;
+        final newAwayGf = newPlayed ? asNew : 0;
+
+        final newHomeGd = newPlayed ? (hsNew - asNew) : 0;
+        final newAwayGd = newPlayed ? (asNew - hsNew) : 0;
+
+        final deltaHomePts = newHomePts - oldHomePts;
+        final deltaAwayPts = newAwayPts - oldAwayPts;
+
+        final deltaHomeGf = newHomeGf - oldHomeGf;
+        final deltaAwayGf = newAwayGf - oldAwayGf;
+
+        final deltaHomeGd = newHomeGd - oldHomeGd;
+        final deltaAwayGd = newAwayGd - oldAwayGd;
+
+        final homeRef = _firestore.collection('leagues').doc(leagueId).collection('teams').doc(homeId);
+        final awayRef = _firestore.collection('leagues').doc(leagueId).collection('teams').doc(awayId);
+
+        final homeSnap = await txn.get(homeRef);
+        final awaySnap = await txn.get(awayRef);
+
+        if (!homeSnap.exists || !awaySnap.exists) {
+          throw const UserFriendlyException("We couldn't find one of the teams for this match. Please refresh and try again.");
+        }
+
+        final homeData = (homeSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final awayData = (awaySnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+
+        final homeBase = (homeData['basePoints'] as num?)?.toInt() ?? 0;
+        final awayBase = (awayData['basePoints'] as num?)?.toInt() ?? 0;
+
+        final homeAdj = (homeData['adminAdjustment'] as num?)?.toInt() ?? 0;
+        final awayAdj = (awayData['adminAdjustment'] as num?)?.toInt() ?? 0;
+
+        final homeGd = (homeData['goalDifference'] as num?)?.toInt() ?? 0;
+        final awayGd = (awayData['goalDifference'] as num?)?.toInt() ?? 0;
+
+        final homeGf = (homeData['goalsFor'] as num?)?.toInt() ?? 0;
+        final awayGf = (awayData['goalsFor'] as num?)?.toInt() ?? 0;
+
+        final nextHomeBase = max(0, homeBase + deltaHomePts);
+        final nextAwayBase = max(0, awayBase + deltaAwayPts);
+
+        final nextHomeGf = max(0, homeGf + deltaHomeGf);
+        final nextAwayGf = max(0, awayGf + deltaAwayGf);
+
+        final nextHomeGd = homeGd + deltaHomeGd;
+        final nextAwayGd = awayGd + deltaAwayGd;
+
+        // Update match (merge, preserve schema fields like roundNumber/sortIndex/version).
+        txn.set(
+          matchRef,
+          <String, dynamic>{
+            'homeScore': hsNew,
+            'awayScore': asNew,
+            'status': 'completed',
+            'updatedAtMs': nowMs,
+          },
+          SetOptions(merge: true),
+        );
+
+        // Update team aggregates (merge).
+        // Include adminAdjustment explicitly to satisfy the invariant rules even on older docs.
+        txn.set(
+          homeRef,
+          <String, dynamic>{
+            'basePoints': nextHomeBase,
+            'adminAdjustment': homeAdj,
+            'finalPoints': nextHomeBase + homeAdj,
+            'goalDifference': nextHomeGd,
+            'goalsFor': nextHomeGf,
+            'updatedAtMs': nowMs,
+          },
+          SetOptions(merge: true),
+        );
+
+        txn.set(
+          awayRef,
+          <String, dynamic>{
+            'basePoints': nextAwayBase,
+            'adminAdjustment': awayAdj,
+            'finalPoints': nextAwayBase + awayAdj,
+            'goalDifference': nextAwayGd,
+            'goalsFor': nextAwayGf,
+            'updatedAtMs': nowMs,
+          },
+          SetOptions(merge: true),
+        );
+      }).timeout(const Duration(seconds: 25));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'updating score');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEAMS
+  // ---------------------------------------------------------------------------
 
   Future<List<Team>> getTeams(String leagueId) async {
     try {
@@ -794,10 +1131,7 @@ class LocalLeaguesRepository {
 
       final baseTeams = snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
-        map['id'] = (map['id'] is String &&
-                (map['id'] as String).trim().isNotEmpty)
-            ? map['id']
-            : d.id;
+        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
         map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
         return Team.fromRemoteMap(map);
       }).toList(growable: false);
@@ -821,8 +1155,7 @@ class LocalLeaguesRepository {
         return t;
       }).toList(growable: false);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'loading teams');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'loading teams');
     }
   }
 
@@ -833,25 +1166,39 @@ class LocalLeaguesRepository {
       final authUid = _requireAuthUid();
       await _requireOnline();
 
-      final col = _firestore
-          .collection('leagues')
-          .doc(leagueId)
-          .collection('teams');
+      final col = _firestore.collection('leagues').doc(leagueId).collection('teams');
 
-      final existing = await col
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 20));
+      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+
+      // Preserve points/adjustment aggregates for teams that already exist.
+      // This prevents accidental loss of admin adjustments and computed basePoints
+      // when organizer uses "Manage Teams" after matches have been played.
+      final existingAgg = <String, Map<String, int>>{};
+      for (final d in existing.docs) {
+        final data = d.data();
+        final id = d.id;
+
+        final base = (data['basePoints'] as num?)?.toInt();
+        final adj = (data['adminAdjustment'] as num?)?.toInt();
+        final gd = (data['goalDifference'] as num?)?.toInt();
+        final gf = (data['goalsFor'] as num?)?.toInt();
+
+        if (base != null || adj != null || gd != null || gf != null) {
+          existingAgg[id] = <String, int>{
+            'basePoints': base ?? 0,
+            'adminAdjustment': adj ?? 0,
+            'goalDifference': gd ?? 0,
+            'goalsFor': gf ?? 0,
+          };
+        }
+      }
 
       const chunkSize = 8;
 
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(
-              i,
-              (i + chunkSize > existing.docs.length)
-                  ? existing.docs.length
-                  : i + chunkSize);
+          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
           for (final d in chunk) {
             batch.delete(d.reference);
           }
@@ -861,23 +1208,32 @@ class LocalLeaguesRepository {
 
       for (var i = 0; i < allTeams.length; i += chunkSize) {
         final batch = _firestore.batch();
-        final chunk = allTeams.sublist(
-            i,
-            (i + chunkSize > allTeams.length)
-                ? allTeams.length
-                : i + chunkSize);
+        final chunk = allTeams.sublist(i, (i + chunkSize > allTeams.length) ? allTeams.length : i + chunkSize);
 
         for (final t in chunk) {
           final id = t.id.trim().isEmpty ? _uuid.v4() : t.id.trim();
 
-          final inferredOwnerId = (t.ownerId.trim().isNotEmpty)
-              ? t.ownerId.trim()
-              : (_looksLikeFirebaseUid(id) ? id : authUid);
+          final inferredOwnerId = (t.ownerId.trim().isNotEmpty) ? t.ownerId.trim() : (_looksLikeFirebaseUid(id) ? id : authUid);
 
-          final data = t
-              .copyWith(
-                  id: id, leagueId: leagueId, ownerId: inferredOwnerId)
-              .toRemoteMap();
+          final preserved = existingAgg[id];
+          final preservedBase = preserved?['basePoints'] ?? 0;
+          final preservedAdj = preserved?['adminAdjustment'] ?? 0;
+          final preservedGd = preserved?['goalDifference'] ?? 0;
+          final preservedGf = preserved?['goalsFor'] ?? 0;
+
+          // Ensure required team-point fields exist (schema requirement).
+          // SECURITY NOTE:
+          // - Firestore rules should prevent non-admins from changing these.
+          // - finalPoints must satisfy invariant: basePoints + adminAdjustment.
+          final data = <String, dynamic>{
+            ...t.copyWith(id: id, leagueId: leagueId, ownerId: inferredOwnerId).toRemoteMap(),
+            'basePoints': preservedBase,
+            'adminAdjustment': preservedAdj,
+            'finalPoints': preservedBase + preservedAdj,
+            'goalDifference': preservedGd,
+            'goalsFor': preservedGf,
+            'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+          };
 
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
@@ -891,16 +1247,10 @@ class LocalLeaguesRepository {
         if (!_looksLikeFirebaseUid(uid)) continue;
 
         try {
-          final membershipRef = _firestore
-              .collection('leagues')
-              .doc(leagueId)
-              .collection('memberships')
-              .doc(uid);
+          final membershipRef = _firestore.collection('leagues').doc(leagueId).collection('memberships').doc(uid);
 
           final now = DateTime.now().millisecondsSinceEpoch;
-          final existingMembership = await membershipRef
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 12));
+          final existingMembership = await membershipRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
 
           if (!existingMembership.exists) {
             final membership = Membership(
@@ -912,14 +1262,10 @@ class LocalLeaguesRepository {
               updatedAtMs: now,
               version: 1,
             );
-            await membershipRef
-                .set(membership.toRemoteMap(), SetOptions(merge: true))
-                .timeout(const Duration(seconds: 20));
+            await membershipRef.set(membership.toRemoteMap(), SetOptions(merge: true)).timeout(const Duration(seconds: 20));
           } else {
-            final data =
-                existingMembership.data() ?? <String, dynamic>{};
-            final currentVersion =
-                (data['version'] as num?)?.toInt() ?? 1;
+            final data = existingMembership.data() ?? <String, dynamic>{};
+            final currentVersion = (data['version'] as num?)?.toInt() ?? 1;
             await membershipRef
                 .set(
                   {
@@ -937,10 +1283,83 @@ class LocalLeaguesRepository {
         }
       }
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'saving teams');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving teams');
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // ADMIN POINT ADJUSTMENT (repository write path)
+  // ---------------------------------------------------------------------------
+
+  Future<void> createPointAdjustment({
+    required String leagueId,
+    required String teamId,
+    required PointAdjustmentType type,
+    required int points,
+    required String reason,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      await _requireOrganizerOrThrow(leagueId);
+
+      final p = points;
+      if (p <= 0) throw const UserFriendlyException('Points must be greater than 0.');
+
+      final r = reason.trim();
+      if (r.isEmpty) throw const UserFriendlyException('A reason is required.');
+
+      // Backfill once if needed so basePoints exists and is correct before adjustment math.
+      await ensureTeamAggregatesBackfilled(leagueId);
+
+      final delta = type == PointAdjustmentType.addition ? p : -p;
+
+      final leagueRef = _firestore.collection('leagues').doc(leagueId);
+      final teamRef = leagueRef.collection('teams').doc(teamId);
+      final adjRef = leagueRef.collection('pointAdjustments').doc();
+
+      await _firestore.runTransaction((txn) async {
+        final teamSnap = await txn.get(teamRef);
+        if (!teamSnap.exists) {
+          throw const UserFriendlyException("We couldn't find this team. Please refresh and try again.");
+        }
+
+        final teamData = (teamSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final basePoints = (teamData['basePoints'] as num?)?.toInt() ?? 0;
+        final currentAdj = (teamData['adminAdjustment'] as num?)?.toInt() ?? 0;
+
+        final newAdj = currentAdj + delta;
+        final newFinal = basePoints + newAdj;
+
+        txn.set(adjRef, <String, dynamic>{
+          'teamId': teamId,
+          'type': type.toFirestoreString(),
+          'points': p,
+          'reason': r,
+          'adjustedBy': uid,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        // IMPORTANT:
+        // We set basePoints explicitly to satisfy the invariant rules even for older team docs.
+        txn.set(
+          teamRef,
+          <String, dynamic>{
+            'basePoints': basePoints,
+            'adminAdjustment': newAdj,
+            'finalPoints': newFinal,
+            'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+          },
+          SetOptions(merge: true),
+        );
+      }).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'creating point adjustment');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // MATCHES / KNOCKOUT
+  // ---------------------------------------------------------------------------
 
   Future<List<FixtureMatch>> getMatches(String leagueId) async {
     try {
@@ -956,85 +1375,58 @@ class LocalLeaguesRepository {
 
       return snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
-        map['id'] = (map['id'] is String &&
-                (map['id'] as String).trim().isNotEmpty)
-            ? map['id']
-            : d.id;
+        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
         map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
         return FixtureMatch.fromJson(map);
       }).toList(growable: false);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'loading matches');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'loading matches');
     }
   }
 
-  Future<void> saveMatches(
-      String leagueId, List<FixtureMatch> matches) async {
+  Future<void> saveMatches(String leagueId, List<FixtureMatch> matches) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
 
       _requireAuthUid();
       await _requireOnline();
 
-      final col = _firestore
-          .collection('leagues')
-          .doc(leagueId)
-          .collection('matches');
+      final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
 
       const chunkSize = 8;
       for (var i = 0; i < matches.length; i += chunkSize) {
         final batch = _firestore.batch();
-        final chunk = matches.sublist(
-            i,
-            (i + chunkSize > matches.length)
-                ? matches.length
-                : i + chunkSize);
+        final chunk = matches.sublist(i, (i + chunkSize > matches.length) ? matches.length : i + chunkSize);
 
         for (final m in chunk) {
           final id = m.id.trim().isEmpty ? _uuid.v4() : m.id.trim();
-          final data = <String, dynamic>{
-            ...m.toJson(),
-            'id': id,
-            'leagueId': leagueId
-          };
+          final data = <String, dynamic>{...m.toJson(), 'id': id, 'leagueId': leagueId};
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
 
         await batch.commit().timeout(const Duration(seconds: 30));
       }
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'saving matches');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving matches');
     }
   }
 
-  Future<void> replaceMatches(
-      String leagueId, List<FixtureMatch> matches) async {
+  Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
 
       _requireAuthUid();
       await _requireOnline();
 
-      final col = _firestore
-          .collection('leagues')
-          .doc(leagueId)
-          .collection('matches');
-      final existing = await col
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 20));
+      final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
+      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
 
       const chunkSize = 8;
 
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(
-              i,
-              (i + chunkSize > existing.docs.length)
-                  ? existing.docs.length
-                  : i + chunkSize);
+          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
           for (final d in chunk) {
             batch.delete(d.reference);
           }
@@ -1044,8 +1436,7 @@ class LocalLeaguesRepository {
 
       await saveMatches(leagueId, matches);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'replacing matches');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'replacing matches');
     }
   }
 
@@ -1063,10 +1454,7 @@ class LocalLeaguesRepository {
 
       final list = snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
-        map['id'] = (map['id'] is String &&
-                (map['id'] as String).trim().isNotEmpty)
-            ? map['id']
-            : d.id;
+        map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty) ? map['id'] : d.id;
         map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
         return KnockoutMatch.fromJson(map);
       }).toList(growable: false);
@@ -1094,8 +1482,7 @@ class LocalLeaguesRepository {
           final bn = (b.nextMatchId ?? '');
           final c1 = an.compareTo(bn);
           if (c1 != 0) return c1;
-          final c2 = (a.isSecondLeg ? 1 : 0)
-              .compareTo(b.isSecondLeg ? 1 : 0);
+          final c2 = (a.isSecondLeg ? 1 : 0).compareTo(b.isSecondLeg ? 1 : 0);
           if (c2 != 0) return c2;
         }
         return a.id.compareTo(b.id);
@@ -1103,38 +1490,27 @@ class LocalLeaguesRepository {
 
       return sorted;
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'loading knockout');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'loading knockout');
     }
   }
 
-  Future<void> saveKnockoutMatches(
-      String leagueId, List<KnockoutMatch> matches) async {
+  Future<void> saveKnockoutMatches(String leagueId, List<KnockoutMatch> matches) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
 
       _requireAuthUid();
       await _requireOnline();
 
-      final col = _firestore
-          .collection('leagues')
-          .doc(leagueId)
-          .collection('knockout');
+      final col = _firestore.collection('leagues').doc(leagueId).collection('knockout');
 
-      final existing = await col
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 20));
+      final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
 
       const chunkSize = 8;
 
       if (existing.docs.isNotEmpty) {
         for (var i = 0; i < existing.docs.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(
-              i,
-              (i + chunkSize > existing.docs.length)
-                  ? existing.docs.length
-                  : i + chunkSize);
+          final chunk = existing.docs.sublist(i, (i + chunkSize > existing.docs.length) ? existing.docs.length : i + chunkSize);
           for (final d in chunk) {
             batch.delete(d.reference);
           }
@@ -1144,25 +1520,18 @@ class LocalLeaguesRepository {
 
       for (var i = 0; i < matches.length; i += chunkSize) {
         final batch = _firestore.batch();
-        final chunk = matches.sublist(
-            i,
-            (i + chunkSize > matches.length)
-                ? matches.length
-                : i + chunkSize);
+        final chunk = matches.sublist(i, (i + chunkSize > matches.length) ? matches.length : i + chunkSize);
 
         for (final m in chunk) {
-          final id =
-              m.id.trim().isNotEmpty ? m.id.trim() : _uuid.v4();
-          final data =
-              m.copyWith(id: id, leagueId: leagueId).toJson();
+          final id = m.id.trim().isNotEmpty ? m.id.trim() : _uuid.v4();
+          final data = m.copyWith(id: id, leagueId: leagueId).toJson();
           batch.set(col.doc(id), data, SetOptions(merge: true));
         }
 
         await batch.commit().timeout(const Duration(seconds: 30));
       }
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'),
-          context: 'saving knockout');
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving knockout');
     }
   }
 }

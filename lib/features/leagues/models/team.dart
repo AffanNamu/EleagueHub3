@@ -17,6 +17,26 @@ class Team {
   /// For classic and Swiss formats: usually null.
   final String? groupId;
 
+  /// Points derived from match results only (no admin adjustments).
+  /// Required Firestore schema field: basePoints
+  final int basePoints;
+
+  /// Net admin adjustments (can be negative).
+  /// Required Firestore schema field: adminAdjustment
+  final int adminAdjustment;
+
+  /// Final points used for ordering standings: basePoints + adminAdjustment
+  /// Required Firestore schema field: finalPoints
+  final int finalPoints;
+
+  /// Cached goal difference for scalable ordering/queries.
+  /// Required Firestore schema field: goalDifference
+  final int goalDifference;
+
+  /// Cached goals for for scalable ordering/queries.
+  /// Required Firestore schema field: goalsFor
+  final int goalsFor;
+
   final int updatedAtMs;
   final int version;
 
@@ -29,6 +49,11 @@ class Team {
     this.groupId,
     this.teamImageUrl = '',
     this.ownerId = '',
+    this.basePoints = 0,
+    this.adminAdjustment = 0,
+    this.finalPoints = 0,
+    this.goalDifference = 0,
+    this.goalsFor = 0,
   });
 
   Map<String, dynamic> toJson() => toRemoteMap();
@@ -44,6 +69,17 @@ class Team {
 
         'teamImageUrl': teamImageUrl,
         'groupId': groupId,
+
+        // Required points schema fields (safe defaults).
+        // SECURITY NOTE:
+        // - Firestore rules should enforce finalPoints == basePoints + adminAdjustment.
+        // - Client must keep this invariant on any write that touches these fields.
+        'basePoints': basePoints,
+        'adminAdjustment': adminAdjustment,
+        'finalPoints': finalPoints == (basePoints + adminAdjustment) ? finalPoints : (basePoints + adminAdjustment),
+        'goalDifference': goalDifference,
+        'goalsFor': goalsFor,
+
         'updatedAtMs': updatedAtMs,
         'version': version,
       };
@@ -63,6 +99,16 @@ class Team {
     final ownerIdRaw = (map['ownerId'] as String?)?.trim() ?? '';
     final ownerId = ownerIdRaw.isNotEmpty ? ownerIdRaw : id;
 
+    final basePoints = (map['basePoints'] as num?)?.toInt() ?? 0;
+    final adminAdjustment = (map['adminAdjustment'] as num?)?.toInt() ?? 0;
+
+    // If finalPoints isn't present (older docs), compute it.
+    final computedFinal = basePoints + adminAdjustment;
+    final finalPoints = (map['finalPoints'] as num?)?.toInt() ?? computedFinal;
+
+    final goalDifference = (map['goalDifference'] as num?)?.toInt() ?? 0;
+    final goalsFor = (map['goalsFor'] as num?)?.toInt() ?? 0;
+
     return Team(
       id: id,
       leagueId: leagueId,
@@ -70,8 +116,13 @@ class Team {
       ownerId: ownerId,
       groupId: map['groupId'] as String?, // old data has no key -> null
       teamImageUrl: teamImageUrl,
-      updatedAtMs: (map['updatedAtMs'] as num).toInt(),
-      version: (map['version'] as num).toInt(),
+      basePoints: basePoints,
+      adminAdjustment: adminAdjustment,
+      finalPoints: finalPoints,
+      goalDifference: goalDifference,
+      goalsFor: goalsFor,
+      updatedAtMs: (map['updatedAtMs'] as num?)?.toInt() ?? 0,
+      version: (map['version'] as num?)?.toInt() ?? 1,
     );
   }
 
@@ -82,9 +133,18 @@ class Team {
     String? groupId,
     String? teamImageUrl,
     String? ownerId,
+    int? basePoints,
+    int? adminAdjustment,
+    int? finalPoints,
+    int? goalDifference,
+    int? goalsFor,
     int? updatedAtMs,
     int? version,
   }) {
+    final nextBase = basePoints ?? this.basePoints;
+    final nextAdj = adminAdjustment ?? this.adminAdjustment;
+    final nextFinal = finalPoints ?? (nextBase + nextAdj);
+
     return Team(
       id: id ?? this.id,
       leagueId: leagueId ?? this.leagueId,
@@ -92,6 +152,11 @@ class Team {
       groupId: groupId ?? this.groupId,
       teamImageUrl: teamImageUrl ?? this.teamImageUrl,
       ownerId: ownerId ?? this.ownerId,
+      basePoints: nextBase,
+      adminAdjustment: nextAdj,
+      finalPoints: nextFinal,
+      goalDifference: goalDifference ?? this.goalDifference,
+      goalsFor: goalsFor ?? this.goalsFor,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
       version: version ?? this.version,
     );

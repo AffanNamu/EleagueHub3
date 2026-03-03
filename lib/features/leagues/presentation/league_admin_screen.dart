@@ -30,6 +30,7 @@ import '../models/league.dart';
 import '../models/league_announcement.dart';
 import '../models/league_format.dart';
 import '../models/league_space.dart';
+import '../models/point_adjustment.dart';
 import '../models/team.dart';
 import 'add_teams_screen.dart';
 import 'league_participants_screen.dart';
@@ -146,6 +147,27 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     return ro == auth || rw == auth;
   }
 
+  bool _canAdjustPoints(League league) {
+    // SECURITY (client-side guard):
+    // - This screen only enables the action for the organizer/owner.
+    // - Production enforcement MUST be done using Firestore Security Rules so that
+    //   non-admins cannot write to /pointAdjustments nor modify team aggregates.
+    //
+    // NOTE:
+    // - Your requirement says "Only ADMIN role can create adjustments".
+    // - In this codebase, organizer/owner is treated as the admin authority.
+    // - When you paste your admin-role service/rules wiring, we’ll upgrade this
+    //   to check the real ADMIN role (membership role / app admins list).
+    final authUid = _currentAuthUid.trim();
+    if (authUid.isEmpty) return false;
+    return _isRulesOwnerForLeague(
+      league,
+      authUid: authUid,
+      remoteOrganizerUid: _remoteOrganizerUid,
+      remoteOwnerUid: _remoteOwnerUid,
+    );
+  }
+
   String _couponSubtitleFromLeague(League league) {
     if (!league.couponsEnabled) return 'Not enabled';
     final pct = league.couponDiscountPercent;
@@ -191,6 +213,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     return minGroups[rnd.nextInt(minGroups.length)];
   }
 
+  String _fmtYmdHm(DateTime dt) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    final d = dt.toLocal();
+    return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -217,9 +245,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       await _requireOnline();
 
-      league =
-          await _repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
-      space = await _spaceRepo.getSpace(widget.leagueId).timeout(const Duration(seconds: 10));
+      league = await _repo
+          .getLeagueById(widget.leagueId)
+          .timeout(const Duration(seconds: 20));
+      space = await _spaceRepo
+          .getSpace(widget.leagueId)
+          .timeout(const Duration(seconds: 10));
 
       try {
         final snap = await _firestore
@@ -424,6 +455,450 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     } finally {
       if (mounted) setState(() => _processingUpgradePayment = false);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Admin Point Adjustments sheet (Add/Deduct + Audit history)
+  // ---------------------------------------------------------------------------
+
+  void _showPointAdjustmentsSheet() {
+    final league = _league;
+    if (league == null) return;
+
+    final authUid = _authUidOrRedirect();
+    if (authUid == null) return;
+
+    final isOwnerByRules = _isRulesOwnerForLeague(
+      league,
+      authUid: authUid,
+      remoteOrganizerUid: _remoteOrganizerUid,
+      remoteOwnerUid: _remoteOwnerUid,
+    );
+
+    if (!isOwnerByRules) {
+      _snack('Only the organizer/admin can adjust points.');
+      return;
+    }
+
+    final teamsFuture = _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
+
+    final pointsCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
+        String? selectedTeamId;
+        PointAdjustmentType type = PointAdjustmentType.addition;
+        bool submitting = false;
+        String? errorText;
+
+        final adjustmentsQuery = FirebaseFirestore.instance
+            .collection('leagues')
+            .doc(league.id)
+            .collection('pointAdjustments')
+            .orderBy('createdAt', descending: true)
+            .limit(200);
+
+        return StatefulBuilder(
+          builder: (ctx, setStateSheet) {
+            Future<void> submit(List<Team> teams) async {
+              if (submitting) return;
+
+              final teamId = (selectedTeamId ?? '').trim();
+              if (teamId.isEmpty) {
+                setStateSheet(() => errorText = 'Please select a team.');
+                return;
+              }
+
+              final p = int.tryParse(pointsCtrl.text.trim()) ?? 0;
+              if (p <= 0) {
+                setStateSheet(() => errorText = 'Points must be greater than 0.');
+                return;
+              }
+
+              final reason = reasonCtrl.text.trim();
+              if (reason.isEmpty) {
+                setStateSheet(() => errorText = 'Reason is required.');
+                return;
+              }
+
+              setStateSheet(() {
+                submitting = true;
+                errorText = null;
+              });
+
+              try {
+                await _requireOnline();
+
+                // Writes:
+                // - leagues/{leagueId}/pointAdjustments/{adjustmentId}  (immutable audit log)
+                // - leagues/{leagueId}/teams/{teamId} aggregate updates (adminAdjustment/finalPoints)
+                //
+                // SECURITY:
+                // - Must be enforced in Firestore Security Rules:
+                //   - only ADMIN can create pointAdjustments
+                //   - deny update/delete of pointAdjustments (audit trail)
+                //   - prevent direct finalPoints tampering (invariant enforcement)
+                await _repo
+                    .createPointAdjustment(
+                      leagueId: league.id,
+                      teamId: teamId,
+                      type: type,
+                      points: p,
+                      reason: reason,
+                    )
+                    .timeout(const Duration(seconds: 25));
+
+                final teamName = teams
+                    .firstWhere(
+                      (t) => t.id == teamId,
+                      orElse: () => Team(id: teamId, leagueId: league.id, name: teamId),
+                    )
+                    .name;
+
+                if (!ctx.mounted) return;
+                pointsCtrl.clear();
+                reasonCtrl.clear();
+
+                final sign = type == PointAdjustmentType.addition ? '+' : '-';
+                _snack('Adjusted $teamName: $sign$p pts');
+              } catch (e) {
+                setStateSheet(() => errorText = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+              } finally {
+                setStateSheet(() => submitting = false);
+              }
+            }
+
+            Widget typeChip(PointAdjustmentType t, String label) {
+              final selected = type == t;
+              return ChoiceChip(
+                label: Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
+                selected: selected,
+                onSelected: submitting
+                    ? null
+                    : (_) => setStateSheet(() {
+                          type = t;
+                          errorText = null;
+                        }),
+                selectedColor: cs.primary.withOpacity(0.18),
+                backgroundColor: cs.onSurface.withOpacity(0.06),
+                labelStyle: TextStyle(
+                  color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
+                  fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+                ),
+              );
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
+                    .add(const EdgeInsets.all(16)),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 620),
+                    child: Glass(
+                      borderRadius: 28,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Admin Point Adjustments',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: onSurface,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              league.name,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: onSurface.withOpacity(0.70),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+
+                            FutureBuilder<List<Team>>(
+                              future: teamsFuture,
+                              builder: (context, snap) {
+                                if (snap.hasError) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    child: Text(
+                                      UserFriendlyError.toMessage(snap.error as Object),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: cs.error,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  );
+                                }
+
+                                if (!snap.hasData) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    child: Center(child: CircularProgressIndicator(color: cs.primary)),
+                                  );
+                                }
+
+                                final teams = snap.data!;
+                                if (teams.isEmpty) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    child: Text(
+                                      'No teams yet. Add teams first.',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: onSurface.withOpacity(0.70),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  );
+                                }
+
+                                selectedTeamId ??= teams.first.id;
+
+                                final teamNameById = <String, String>{
+                                  for (final t in teams) t.id: t.name,
+                                };
+
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        typeChip(PointAdjustmentType.addition, 'Add'),
+                                        const SizedBox(width: 10),
+                                        typeChip(PointAdjustmentType.deduction, 'Deduct'),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String>(
+                                      value: selectedTeamId,
+                                      items: teams
+                                          .map(
+                                            (t) => DropdownMenuItem<String>(
+                                              value: t.id,
+                                              child: Text(
+                                                t.name,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(growable: false),
+                                      onChanged: submitting
+                                          ? null
+                                          : (v) => setStateSheet(() {
+                                                selectedTeamId = v;
+                                                errorText = null;
+                                              }),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Team',
+                                        prefixIcon: Icon(Icons.shield_outlined),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    TextField(
+                                      controller: pointsCtrl,
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: const <TextInputFormatter>[
+                                        FilteringTextInputFormatter.digitsOnly
+                                      ],
+                                      decoration: const InputDecoration(
+                                        labelText: 'Points',
+                                        prefixIcon: Icon(Icons.exposure_plus_1_outlined),
+                                        hintText: 'e.g. 3',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    TextField(
+                                      controller: reasonCtrl,
+                                      maxLines: 3,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Reason (required)',
+                                        prefixIcon: Icon(Icons.notes_outlined),
+                                        hintText: 'Explain why this adjustment is being applied',
+                                      ),
+                                    ),
+                                    if (errorText != null) ...[
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        errorText!,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: cs.error,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            onPressed: submitting ? null : () => Navigator.of(ctx).pop(),
+                                            child: const Text('Close'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: FilledButton.icon(
+                                            onPressed: submitting ? null : () => submit(teams),
+                                            icon: submitting
+                                                ? SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: cs.onPrimary,
+                                                    ),
+                                                  )
+                                                : const Icon(Icons.check_circle_outline),
+                                            label: const Text('Apply'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Divider(color: onSurface.withOpacity(0.12)),
+                                    Text(
+                                      'Adjustment History (Audit Log)',
+                                      style: theme.textTheme.titleSmall?.copyWith(
+                                        color: onSurface,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(maxHeight: 320),
+                                      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                        stream: adjustmentsQuery.snapshots(includeMetadataChanges: true),
+                                        builder: (context, snap2) {
+                                          if (snap2.hasError) {
+                                            return Center(
+                                              child: Text(
+                                                UserFriendlyError.toMessage(snap2.error as Object),
+                                                style: theme.textTheme.bodyMedium?.copyWith(
+                                                  color: cs.error,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            );
+                                          }
+                                          if (!snap2.hasData) {
+                                            return Center(child: CircularProgressIndicator(color: cs.primary));
+                                          }
+
+                                          final docs = snap2.data!.docs;
+                                          if (docs.isEmpty) {
+                                            return Center(
+                                              child: Text(
+                                                'No adjustments yet.',
+                                                style: theme.textTheme.bodySmall?.copyWith(
+                                                  color: onSurface.withOpacity(0.70),
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            );
+                                          }
+
+                                          return ListView.separated(
+                                            itemCount: docs.length,
+                                            separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
+                                            itemBuilder: (context, i) {
+                                              final d = docs[i].data();
+
+                                              final teamId = (d['teamId'] as String?)?.trim() ?? '';
+                                              final typeRaw = (d['type'] as String?)?.trim() ?? '';
+                                              final points = (d['points'] as num?)?.toInt() ?? 0;
+                                              final reason = (d['reason'] as String?)?.trim() ?? '';
+                                              final adjustedBy = (d['adjustedBy'] as String?)?.trim() ?? '';
+                                              final createdAt = d['createdAt'];
+
+                                              final adjType = PointAdjustmentType.fromFirestoreString(typeRaw) ??
+                                                  PointAdjustmentType.addition;
+
+                                              final sign = adjType == PointAdjustmentType.addition ? '+' : '-';
+                                              final color = adjType == PointAdjustmentType.addition
+                                                  ? const Color(0xFF22C55E)
+                                                  : cs.error;
+
+                                              DateTime? when;
+                                              if (createdAt is Timestamp) {
+                                                when = createdAt.toDate();
+                                              }
+
+                                              final title = '${teamNameById[teamId] ?? teamId}  $sign$points';
+                                              final subtitleParts = <String>[
+                                                if (reason.isNotEmpty) reason,
+                                                if (when != null) _fmtYmdHm(when),
+                                                if (adjustedBy.isNotEmpty) 'by $adjustedBy',
+                                              ];
+
+                                              return ListTile(
+                                                dense: true,
+                                                contentPadding: EdgeInsets.zero,
+                                                leading: Icon(
+                                                  adjType == PointAdjustmentType.addition
+                                                      ? Icons.add_circle_outline
+                                                      : Icons.remove_circle_outline,
+                                                  color: color,
+                                                ),
+                                                title: Text(
+                                                  title,
+                                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                                    color: onSurface,
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                                subtitle: Text(
+                                                  subtitleParts.join(' • '),
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: theme.textTheme.bodySmall?.copyWith(
+                                                    color: onSurface.withOpacity(0.65),
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      pointsCtrl.dispose();
+      reasonCtrl.dispose();
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1534,6 +2009,16 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             onTap: _showCouponCodesSheet,
           ),
         if (league != null) _buildRewardsTile(context, league),
+
+        if (league != null && _canAdjustPoints(league))
+          _buildSettingsTile(
+            context,
+            Icons.exposure_outlined,
+            'Point Adjustments',
+            'Add/deduct points with a required reason (audit logged)',
+            onTap: _showPointAdjustmentsSheet,
+          ),
+
         _buildSettingsTile(
           context,
           Icons.group_add,

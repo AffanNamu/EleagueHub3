@@ -2,28 +2,39 @@ import '../../models/fixture_match.dart';
 import '../../models/team.dart';
 import 'standings.dart';
 
-/// Computes league/group tables from played matches.
+/// Computes league/group tables from played matches and applies admin adjustments.
 ///
 /// IMPORTANT INVARIANT:
 /// - Only matches where [FixtureMatch.isPlayed] is true are counted.
 ///   (Your FixtureMatch.isPlayed must guarantee scores are non-null.)
 ///
-/// Tie-breakers applied (deterministic):
-/// 1) Points (descending)
-/// 2) Head-to-head points (descending) between the tied teams
-/// 3) Goal Difference (descending)
-/// 4) Goals For (descending)
-/// 5) TeamId (ascending) as stable final fallback
+/// STANDINGS RULE (production requirement):
+/// Sorting priority:
+/// 1) finalPoints DESC  (base points + adminAdjustment)
+/// 2) goalDifference DESC
+/// 3) goalsFor DESC
+/// 4) teamId ASC (stable deterministic fallback)
 ///
-/// Note:
-/// - Head-to-head is points-only (no H2H goal difference mini-league).
+/// NOTE:
+/// - Historical head-to-head tie-break logic is intentionally disabled to match
+///   the required production rule. The helper remains for reference and to allow
+///   future feature-flag reintroduction without rewriting it.
 class StandingsCalculator {
+  // Keep for potential future use; requirement currently does NOT use H2H.
+  static const bool _useHeadToHeadTieBreaker = false;
+
   static List<StandingsRow> calculate({
     required List<Team> teams,
     required List<FixtureMatch> matches,
+    Map<String, int> adminAdjustmentsByTeamId = const <String, int>{},
   }) {
     final rows = <String, StandingsRow>{
-      for (final t in teams) t.id: StandingsRow.empty(teamId: t.id, teamName: t.name),
+      for (final t in teams)
+        t.id: StandingsRow.empty(
+          teamId: t.id,
+          teamName: t.name,
+          adminAdjustment: adminAdjustmentsByTeamId[t.id] ?? 0,
+        ),
     };
 
     // Update rows from played matches
@@ -55,7 +66,7 @@ class StandingsCalculator {
       rows[m.awayTeamId] = a;
     }
 
-    final list = rows.values.toList();
+    final list = rows.values.toList(growable: false);
 
     int headToHeadCompare(String aTeamId, String bTeamId) {
       int aPoints = 0;
@@ -95,19 +106,25 @@ class StandingsCalculator {
     }
 
     list.sort((a, b) {
-      final pts = b.pts.compareTo(a.pts);
-      if (pts != 0) return pts;
+      // 1) finalPoints DESC
+      final fp = b.finalPoints.compareTo(a.finalPoints);
+      if (fp != 0) return fp;
 
-      final h2h = headToHeadCompare(a.teamId, b.teamId);
-      if (h2h != 0) return h2h;
+      // (Disabled per requirements; left for future reintroduction)
+      if (_useHeadToHeadTieBreaker) {
+        final h2h = headToHeadCompare(a.teamId, b.teamId);
+        if (h2h != 0) return h2h;
+      }
 
+      // 2) Goal Difference DESC
       final gd = b.gd.compareTo(a.gd);
       if (gd != 0) return gd;
 
+      // 3) Goals For DESC
       final gf = b.gf.compareTo(a.gf);
       if (gf != 0) return gf;
 
-      // Stable deterministic fallback (must match StandingsEngine fallback)
+      // 4) Stable deterministic fallback
       return a.teamId.compareTo(b.teamId);
     });
 

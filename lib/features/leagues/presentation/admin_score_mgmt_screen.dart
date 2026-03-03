@@ -378,12 +378,19 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
       unawaited(_refreshTeamImagesBestEffort(teams: teams));
 
-      // Also ensure user images for match ids (in case a team doc is missing)
+      // Ensure user images for match ids (in case a team doc is missing)
       final matchIds = <String>[
         for (final m in matches) m.homeTeamId,
         for (final m in matches) m.awayTeamId,
       ];
       unawaited(_ensureUserImagesForTeamIds(matchIds));
+
+      // Production correctness:
+      // Ensure team aggregate fields are backfilled for older leagues so:
+      // - basePoints is correct for admin point adjustments
+      // - finalPoints invariant holds for secured team writes
+      // Best-effort; if it fails, score editing still works but adjustments might be blocked by rules.
+      unawaited(_repo.ensureTeamAggregatesBackfilled(widget.leagueId));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -404,14 +411,17 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     setState(() => _savingMatchIds.add(match.id));
 
     try {
-      final updatedMatch = match.copyWith(
-        homeScore: hScore,
-        awayScore: aScore,
-        status: MatchStatus.completed,
-        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
-      );
-
-      await _repo.saveMatches(widget.leagueId, [updatedMatch]).timeout(const Duration(seconds: 25));
+      // Production-ready write:
+      // - Updates match score AND team aggregates (basePoints/GD/GF/finalPoints) in a single transaction.
+      // - This keeps admin point adjustments correct because they rely on basePoints.
+      await _repo
+          .updateMatchScoreAndUpdateTeamAggregates(
+            leagueId: widget.leagueId,
+            matchId: match.id,
+            homeScore: hScore,
+            awayScore: aScore,
+          )
+          .timeout(const Duration(seconds: 25));
 
       if (!mounted) return;
       _toastOk(l10n.tr('admin_score_toast_score_updated'));

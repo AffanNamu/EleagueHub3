@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../core/services/connectivity_service.dart';
+import '../models/point_adjustment.dart';
 
 /// User-safe exception: if UI accidentally shows `$e`, it will still be a friendly message.
 class UserFriendlyException implements Exception {
@@ -37,8 +38,47 @@ class AdminService {
     return uid;
   }
 
+  Future<void> _requireOnline() async {
+    await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+  }
+
+  /// Server-authoritative organizer/owner check.
+  ///
+  /// SECURITY NOTE:
+  /// - This is a *client-side guard* only. Production security must be enforced
+  ///   with Firestore Security Rules (see firestore.rules.example).
+  /// - Your app also has app-level ADMIN role logic; when you paste those files,
+  ///   we will upgrade this to check ADMIN role explicitly (as required).
+  Future<void> _requireLeagueAdminOrThrow(String leagueId) async {
+    final authUid = _requireAuthUid();
+    await _requireOnline();
+
+    final snap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    if (!snap.exists) {
+      throw const UserFriendlyException("We couldn't find this league. Please refresh and try again.");
+    }
+
+    final data = snap.data() ?? <String, dynamic>{};
+    final organizerUid = (data['organizerUid'] as String? ?? '').trim();
+    final ownerUid = (data['ownerUid'] as String? ?? '').trim();
+
+    final ok = (organizerUid.isNotEmpty && organizerUid == authUid) || (ownerUid.isNotEmpty && ownerUid == authUid);
+    if (!ok) {
+      throw const UserFriendlyException('You don\u2019t have permission to do that right now.');
+    }
+  }
+
   CollectionReference<Map<String, dynamic>> _matchesCol(String leagueId) {
     return _firestore.collection('leagues').doc(leagueId).collection('matches');
+  }
+
+  CollectionReference<Map<String, dynamic>> _pointAdjustmentsCol(String leagueId) {
+    return _firestore.collection('leagues').doc(leagueId).collection('pointAdjustments');
   }
 
   /// Legacy signature kept for compatibility with older call sites.
@@ -71,7 +111,7 @@ class AdminService {
   }) async {
     try {
       _requireAuthUid();
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await _requireOnline();
 
       final h = homeScore < 0 ? 0 : homeScore;
       final a = awayScore < 0 ? 0 : awayScore;
@@ -93,6 +133,81 @@ class AdminService {
     } catch (e) {
       if (e is UserFriendlyException) rethrow;
       throw const UserFriendlyException("We couldn't update the score right now. Please try again.");
+    }
+  }
+
+  /// ADMIN POINT ADJUSTMENT (production-ready write path):
+  ///
+  /// - Creates an immutable audit-log document in:
+  ///     leagues/{leagueId}/pointAdjustments/{adjustmentId}
+  /// - Updates the team aggregate fields:
+  ///     adminAdjustment, finalPoints
+  ///
+  /// SECURITY CONSIDERATIONS:
+  /// - Must be protected by Firestore rules so only ADMIN can create adjustments.
+  /// - Rules should also enforce: finalPoints == basePoints + adminAdjustment
+  ///   to prevent arbitrary finalPoints overwrites.
+  Future<void> createPointAdjustment({
+    required String leagueId,
+    required String teamId,
+    required PointAdjustmentType type,
+    required int points,
+    required String reason,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      await _requireLeagueAdminOrThrow(leagueId);
+
+      final p = points;
+      if (p <= 0) {
+        throw const UserFriendlyException('Points must be greater than 0.');
+      }
+
+      final r = reason.trim();
+      if (r.isEmpty) {
+        throw const UserFriendlyException('A reason is required.');
+      }
+
+      final delta = type == PointAdjustmentType.addition ? p : -p;
+
+      final leagueRef = _firestore.collection('leagues').doc(leagueId);
+      final teamRef = leagueRef.collection('teams').doc(teamId);
+      final adjRef = _pointAdjustmentsCol(leagueId).doc();
+
+      await _firestore.runTransaction((txn) async {
+        final teamSnap = await txn.get(teamRef);
+        if (!teamSnap.exists) {
+          throw const UserFriendlyException("We couldn't find this team. Please refresh and try again.");
+        }
+
+        final teamData = (teamSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final basePoints = (teamData['basePoints'] as num?)?.toInt() ?? 0;
+        final currentAdj = (teamData['adminAdjustment'] as num?)?.toInt() ?? 0;
+
+        final newAdj = currentAdj + delta;
+        final newFinal = basePoints + newAdj;
+
+        // Immutable audit log.
+        txn.set(adjRef, <String, dynamic>{
+          'teamId': teamId,
+          'type': type.toFirestoreString(),
+          'points': p,
+          'reason': r,
+          'adjustedBy': uid,
+          // Use server time; rules can enforce createdAt == request.time.
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        // Aggregate fields for scalable standings rendering.
+        txn.set(teamRef, <String, dynamic>{
+          'adminAdjustment': newAdj,
+          'finalPoints': newFinal,
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        }, SetOptions(merge: true));
+      }).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      if (e is UserFriendlyException) rethrow;
+      throw const UserFriendlyException("We couldn't adjust points right now. Please try again.");
     }
   }
 

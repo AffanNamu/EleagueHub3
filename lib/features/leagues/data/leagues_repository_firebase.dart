@@ -20,8 +20,7 @@ class UserFriendlyException implements Exception {
 }
 
 class LeaguesRepositoryFirebase {
-  LeaguesRepositoryFirebase({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  LeaguesRepositoryFirebase({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
   final Uuid _uuid = const Uuid();
@@ -139,6 +138,12 @@ class LeaguesRepositoryFirebase {
   /// - organizerUid/ownerUid = auth uid
   /// - memberIds contains auth uid
   /// - memberships/{authUid} exists (needed by membership-based rules, chatroom)
+  ///
+  /// SECURITY NOTE:
+  /// - In production, pair this with Firestore Security Rules enforcing:
+  ///   - Only league admins can modify admin-only fields
+  ///   - Admin Point Adjustment writes go to pointAdjustments and aggregate fields
+  ///   - Prevent direct finalPoints overwrite unless invariant holds
   Future<void> saveLeague(League league) async {
     try {
       final authUid = _requireAuthUid();

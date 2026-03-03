@@ -105,7 +105,10 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
   }
 
   Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
-    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    final clean = ids
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e))
+        .toList(growable: false);
     if (clean.isEmpty) return const <String, String>{};
 
     final out = <String, String>{};
@@ -113,7 +116,10 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
     // whereIn limit 10
     const chunkSize = 10;
     for (var i = 0; i < clean.length; i += chunkSize) {
-      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+      final chunk = clean.sublist(
+        i,
+        (i + chunkSize > clean.length) ? clean.length : i + chunkSize,
+      );
 
       final snap = await FirebaseFirestore.instance
           .collection('users')
@@ -147,7 +153,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
 
       for (final d in snap.docs) {
         final data = d.data();
-        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? (data['id'] as String).trim() : d.id;
+        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty)
+            ? (data['id'] as String).trim()
+            : d.id;
         teamIds.add(id);
 
         final url = _bestEffortUrlFromMap(data);
@@ -280,8 +288,12 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
       _ensureUserImagesForTeamIds(ids);
     });
 
-    final chipFill = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.34) : cs.onSurface.withOpacity(0.04);
-    final chipBorder = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.10);
+    final chipFill = theme.brightness == Brightness.light
+        ? Colors.white.withOpacity(0.34)
+        : cs.onSurface.withOpacity(0.04);
+    final chipBorder = theme.brightness == Brightness.light
+        ? Colors.white.withOpacity(0.70)
+        : cs.onSurface.withOpacity(0.10);
 
     return Container(
       height: 28,
@@ -297,13 +309,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
 
           // Avoid exposing Firebase UID in UI (tooltip/label) if teamName is missing.
           final bool idLooksUid = _looksLikeFirebaseUid(id);
-          final displayLabel = name.isNotEmpty
-              ? name
-              : (idLooksUid ? 'TEAM' : id);
+          final displayLabel = name.isNotEmpty ? name : (idLooksUid ? 'TEAM' : id);
 
-          final tooltipLabel = name.isNotEmpty
-              ? name
-              : (idLooksUid ? 'Team' : id);
+          final tooltipLabel = name.isNotEmpty ? name : (idLooksUid ? 'Team' : id);
 
           return Tooltip(
             message: tooltipLabel,
@@ -379,7 +387,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
         child: RefreshIndicator(
           onRefresh: _refresh,
           color: cs.primary,
-          backgroundColor: theme.brightness == Brightness.light ? Colors.white.withOpacity(0.92) : cs.surface,
+          backgroundColor: theme.brightness == Brightness.light
+              ? Colors.white.withOpacity(0.92)
+              : cs.surface,
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 700),
@@ -405,7 +415,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                           data: (league) {
                             switch (league.format) {
                               case LeagueFormat.uclGroup:
-                                final groupedAsync = ref.watch(leagueGroupedStandingsProvider(widget.id));
+                                final groupedAsync = ref.watch(
+                                  leagueGroupedStandingsProvider(widget.id),
+                                );
                                 return groupedAsync.when(
                                   loading: () => Center(
                                     child: CircularProgressIndicator(color: cs.primary),
@@ -431,12 +443,16 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
 
                                     final groupKeys = groupMap.keys.toList()..sort();
 
-                                    final invalidGroupCount = !(groupKeys.length == 4 || groupKeys.length == 8);
-                                    final invalidGroupSizes = groupKeys.any((g) => (groupMap[g]?.length ?? 0) != 4);
+                                    final invalidGroupCount =
+                                        !(groupKeys.length == 4 || groupKeys.length == 8);
+                                    final invalidGroupSizes = groupKeys.any(
+                                      (g) => (groupMap[g]?.length ?? 0) != 4,
+                                    );
 
                                     return ListView.builder(
                                       padding: const EdgeInsets.only(bottom: 8),
-                                      itemCount: groupKeys.length + ((invalidGroupCount || invalidGroupSizes) ? 1 : 0),
+                                      itemCount: groupKeys.length +
+                                          ((invalidGroupCount || invalidGroupSizes) ? 1 : 0),
                                       itemBuilder: (context, index) {
                                         if ((invalidGroupCount || invalidGroupSizes) && index == 0) {
                                           return Padding(
@@ -453,7 +469,8 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                           );
                                         }
 
-                                        final adjIndex = (invalidGroupCount || invalidGroupSizes) ? index - 1 : index;
+                                        final adjIndex =
+                                            (invalidGroupCount || invalidGroupSizes) ? index - 1 : index;
 
                                         final groupId = groupKeys[adjIndex];
                                         final rows = groupMap[groupId] ?? const <StandingsRow>[];
@@ -487,7 +504,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
                                 );
 
                               case LeagueFormat.uclSwiss:
-                                final standingsAsync = ref.watch(leagueStandingsProvider(widget.id));
+                                final standingsAsync = ref.watch(
+                                  leagueStandingsProvider(widget.id),
+                                );
                                 return standingsAsync.when(
                                   loading: () => Center(
                                     child: CircularProgressIndicator(color: cs.primary),
@@ -603,7 +622,9 @@ class _LeagueStandingsScreenState extends ConsumerState<LeagueStandingsScreen> {
 
                               case LeagueFormat.classic:
                               default:
-                                final standingsAsync = ref.watch(leagueStandingsProvider(widget.id));
+                                final standingsAsync = ref.watch(
+                                  leagueStandingsProvider(widget.id),
+                                );
                                 return standingsAsync.when(
                                   loading: () => Center(
                                     child: CircularProgressIndicator(color: cs.primary),
@@ -683,7 +704,11 @@ Widget _swissLegendDynamic({
         ),
       );
 
-  final labelStyle = TextStyle(color: cs.onSurface.withOpacity(0.55), fontSize: 11, fontWeight: FontWeight.w600);
+  final labelStyle = TextStyle(
+    color: cs.onSurface.withOpacity(0.55),
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+  );
 
   if (teamCount == 36) {
     return Row(
@@ -772,10 +797,12 @@ class _TeamThumb extends StatelessWidget {
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
     final d = has ? _cloudinaryOptimizedUrl(raw, width: 64, height: 64) : '';
 
-    final fill =
-        theme.brightness == Brightness.light ? Colors.white.withOpacity(0.40) : cs.onSurface.withOpacity(0.06);
-    final border =
-        theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.14);
+    final fill = theme.brightness == Brightness.light
+        ? Colors.white.withOpacity(0.40)
+        : cs.onSurface.withOpacity(0.06);
+    final border = theme.brightness == Brightness.light
+        ? Colors.white.withOpacity(0.72)
+        : cs.onSurface.withOpacity(0.14);
 
     return Container(
       width: 18,
@@ -794,14 +821,25 @@ class _TeamThumb extends StatelessWidget {
                 filterQuality: FilterQuality.low,
                 cacheWidth: 64,
                 cacheHeight: 64,
-                errorBuilder: (_, __, ___) =>
-                    Icon(Icons.emoji_events_outlined, size: 12, color: cs.onSurface.withOpacity(0.55)),
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.emoji_events_outlined,
+                  size: 12,
+                  color: cs.onSurface.withOpacity(0.55),
+                ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(Icons.emoji_events_outlined, size: 12, color: cs.onSurface.withOpacity(0.55));
+                  return Icon(
+                    Icons.emoji_events_outlined,
+                    size: 12,
+                    color: cs.onSurface.withOpacity(0.55),
+                  );
                 },
               )
-            : Icon(Icons.emoji_events_outlined, size: 12, color: cs.onSurface.withOpacity(0.55)),
+            : Icon(
+                Icons.emoji_events_outlined,
+                size: 12,
+                color: cs.onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }

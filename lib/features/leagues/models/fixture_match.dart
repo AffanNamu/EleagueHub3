@@ -72,21 +72,46 @@ class FixtureMatch {
         'version': version,
       };
 
+  static int? _intOrNull(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return null;
+  }
+
+  static int _intOrZero(dynamic v) => _intOrNull(v) ?? 0;
+
+  static MatchStatus _parseStatus(dynamic raw) {
+    if (raw is String) {
+      return MatchStatus.values.firstWhere(
+        (e) => e.name == raw,
+        orElse: () => MatchStatus.scheduled,
+      );
+    }
+
+    // Backward compatibility: if old deployments stored status as an enum index (int).
+    if (raw is num) {
+      final idx = raw.toInt();
+      if (idx >= 0 && idx < MatchStatus.values.length) {
+        return MatchStatus.values[idx];
+      }
+    }
+
+    return MatchStatus.scheduled;
+  }
+
   factory FixtureMatch.fromJson(Map<String, dynamic> json) => FixtureMatch(
-        id: json['id'] as String,
-        leagueId: json['leagueId'] as String,
+        id: (json['id'] as String?) ?? '',
+        leagueId: (json['leagueId'] as String?) ?? '',
         groupId: json['groupId'] as String?,
-        roundNumber: (json['roundNumber'] as num).toInt(),
-        homeTeamId: json['homeTeamId'] as String,
-        awayTeamId: json['awayTeamId'] as String,
-        homeScore: json['homeScore'] as int?,
-        awayScore: json['awayScore'] as int?,
-        status: MatchStatus.values.firstWhere(
-          (e) => e.name == json['status'],
-          orElse: () => MatchStatus.scheduled,
-        ),
-        sortIndex: (json['sortIndex'] as num).toInt(),
-        updatedAtMs: (json['updatedAtMs'] as num).toInt(),
-        version: (json['version'] as num).toInt(),
+        roundNumber: _intOrZero(json['roundNumber']),
+        homeTeamId: (json['homeTeamId'] as String?) ?? '',
+        awayTeamId: (json['awayTeamId'] as String?) ?? '',
+        homeScore: _intOrNull(json['homeScore']),
+        awayScore: _intOrNull(json['awayScore']),
+        status: _parseStatus(json['status']),
+        sortIndex: _intOrZero(json['sortIndex']),
+        updatedAtMs: _intOrZero(json['updatedAtMs']),
+        version: _intOrZero(json['version']),
       );
 }
