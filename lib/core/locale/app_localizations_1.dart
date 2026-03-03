@@ -89,16 +89,16 @@ const Map<String, Map<String, String>> appLocalizationsPart1 = {
 
     'home_tab_home': 'Home',
     'home_tab_leagues': 'Leagues',
-    'home_tab_live': 'Live',
+    'home_tab_live': 'Global',
     'home_tab_marketplace': 'Marketplace',
     'home_tab_profile': 'Profile',
     'home_settings_tooltip': 'Settings',
 
     'home_welcome_back': 'Welcome back',
-    'home_mvp_description': 'This is the MVP foundation. Explore Leagues, Live, and Marketplace with mock data.',
+    'home_mvp_description': 'Your arena is ready. Host leagues, join live battles, and compete with the world.',
     'home_announcements_title': 'Announcements',
 
-    'home_announcement_1_title': 'Welcome to EleagueHub',
+    'home_announcement_1_title': 'Welcome to eSportyic',
     'home_announcement_1_message': 'Create leagues, add teams, and share fixtures offline.',
     'home_announcement_1_time': 'Just now',
 
