@@ -537,15 +537,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               try {
                 await _requireOnline();
 
-                // Writes:
-                // - leagues/{leagueId}/pointAdjustments/{adjustmentId}  (immutable audit log)
-                // - leagues/{leagueId}/teams/{teamId} aggregate updates (adminAdjustment/finalPoints)
-                //
-                // SECURITY:
-                // - Must be enforced in Firestore Security Rules:
-                //   - only ADMIN can create pointAdjustments
-                //   - deny update/delete of pointAdjustments (audit trail)
-                //   - prevent direct finalPoints tampering (invariant enforcement)
                 await _repo
                     .createPointAdjustment(
                       leagueId: league.id,
@@ -559,7 +550,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 final teamName = teams
                     .firstWhere(
                       (t) => t.id == teamId,
-                      orElse: () => Team(id: teamId, leagueId: league.id, name: teamId),
+                      orElse: () => Team(
+                        id: teamId,
+                        leagueId: league.id,
+                        name: teamId,
+                        updatedAtMs: 0,
+                        version: 1,
+                      ),
                     )
                     .name;
 
@@ -714,8 +711,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     TextField(
                                       controller: pointsCtrl,
                                       keyboardType: TextInputType.number,
-                                      inputFormatters: const <TextInputFormatter>[
-                                        FilteringTextInputFormatter.digitsOnly
+                                      inputFormatters: <TextInputFormatter>[
+                                        FilteringTextInputFormatter.digitsOnly,
                                       ],
                                       decoration: const InputDecoration(
                                         labelText: 'Points',
