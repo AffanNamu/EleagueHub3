@@ -5,13 +5,27 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: android-release-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+
     env:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
       ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+
+      # Pin Flutter for reproducible production builds
+      FLUTTER_CHANNEL: stable
+      FLUTTER_VERSION: 3.24.5
+
+      # Make caches deterministic and local to the workspace
+      PUB_CACHE: ${{ github.workspace }}/.pub-cache
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
 
     steps:
       - uses: actions/checkout@v4
@@ -23,22 +37,67 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.5'
-          channel: 'stable'
-          cache: true
-
-      - name: Resolve Flutter SDK path (FLUTTER_ROOT)
+      - name: Install Linux deps for Flutter
         run: |
-          FLUTTER_BIN="$(which flutter)"
-          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
-          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xz-utils \
+            unzip \
+            curl \
+            git \
+            libglu1-mesa
+          sudo apt-get clean
+
+      # Avoid GitHub API flakiness by NOT using subosito/flutter-action.
+      # Instead download Flutter directly from Google's official storage and cache it.
+      - name: Cache Flutter SDK
+        id: cache-flutter
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-${{ runner.os }}-${{ env.FLUTTER_CHANNEL }}-${{ env.FLUTTER_VERSION }}
+
+      - name: Download Flutter SDK (direct, with retries)
+        if: steps.cache-flutter.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+
+          FLUTTER_ROOT_BASE="${{ runner.temp }}/flutter"
+          mkdir -p "${FLUTTER_ROOT_BASE}"
+
+          TARBALL="flutter_linux_${FLUTTER_VERSION}-${FLUTTER_CHANNEL}.tar.xz"
+          URL="https://storage.googleapis.com/flutter_infra_release/releases/${FLUTTER_CHANNEL}/linux/${TARBALL}"
+
+          echo "Downloading Flutter from: ${URL}"
+          cd "${{ runner.temp }}"
+
+          curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
+            -o "${TARBALL}" "${URL}"
+
+          tar -xJf "${TARBALL}" -C "${FLUTTER_ROOT_BASE}"
+
+      - name: Add Flutter to PATH
+        run: |
+          set -euo pipefail
+          echo "${{ runner.temp }}/flutter/flutter/bin" >> "$GITHUB_PATH"
+          echo "FLUTTER_ROOT=${{ runner.temp }}/flutter/flutter" >> "$GITHUB_ENV"
+
+      - name: Flutter sanity check
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter config --no-analytics
+          flutter doctor -v
 
       - name: Write android/local.properties
         run: |
-          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+          set -euo pipefail
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "${SDK_DIR}" ]; then
+            echo "ERROR: ANDROID_SDK_ROOT/ANDROID_HOME not set on runner."
+            exit 1
+          fi
           echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
           echo "sdk.dir=${SDK_DIR}" >> android/local.properties
 
@@ -55,22 +114,39 @@ jobs:
           data = base64.b64decode(b64, validate=False)
           out = pathlib.Path.home() / ".android" / "debug.keystore"
           out.write_bytes(data)
+          print("Wrote:", out)
           PY
 
-      - name: Verify keystore is valid
+      - name: Verify keystore is valid (best-effort)
         run: |
-          echo "Keystore size: $(wc -c < ~/.android/debug.keystore) bytes"
-          keytool -list -v \
-            -alias androiddebugkey \
-            -keystore ~/.android/debug.keystore \
-            -storepass android \
-            -keypass android | grep -E "SHA1:|SHA-1:" || true
+          set -euo pipefail
+          if [ -f ~/.android/debug.keystore ]; then
+            echo "Keystore size: $(wc -c < ~/.android/debug.keystore) bytes"
+            keytool -list -v \
+              -alias androiddebugkey \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -keypass android | grep -E "SHA1:|SHA-1:" || true
+          else
+            echo "No debug.keystore found (skipping)."
+          fi
+
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          set -euo pipefail
+          flutter pub get
 
       - name: Clean old launcher icons
         run: |
+          set -euo pipefail
           rm -rf android/app/src/main/res/mipmap-*
           rm -f android/app/src/main/res/drawable/ic_launcher*
           rm -rf android/app/src/main/res/drawable-anydpi*
@@ -78,26 +154,60 @@ jobs:
 
       - name: Download new launcher icon
         run: |
+          set -euo pipefail
           mkdir -p assets
-          curl -L -o assets/icon.png "https://drive.google.com/uc?export=download&id=1tsB5ZVBNWke_wlrCuKiOiXMrGSPEqZZd"
+          # Retry because Google Drive endpoints can be flaky.
+          curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
+            -o assets/icon.png "https://drive.google.com/uc?export=download&id=1tsB5ZVBNWke_wlrCuKiOiXMrGSPEqZZd"
 
       - name: Generate launcher icons
-        run: flutter pub run flutter_launcher_icons
+        run: |
+          set -euo pipefail
+          flutter pub run flutter_launcher_icons
 
       - name: Build RELEASE APK
         run: |
+          set -euo pipefail
           flutter build apk --release --no-tree-shake-icons \
             --dart-define=CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
             --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET="${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
 
-      - name: Verify APK is signed
+      - name: Verify APK is signed (best-effort)
         run: |
+          set -euo pipefail
+
           APK="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK not found at $APK"
+            exit 1
+          fi
+
           echo "APK size: $(wc -c < "$APK") bytes"
-          $ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools/ | tail -1)/apksigner verify --print-certs "$APK" || echo "WARNING: APK signature verification failed"
+
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "${SDK_DIR}" ]; then
+            echo "WARNING: ANDROID_SDK_ROOT/ANDROID_HOME not set; cannot run apksigner."
+            exit 0
+          fi
+
+          if [ ! -d "${SDK_DIR}/build-tools" ]; then
+            echo "WARNING: build-tools directory not found; cannot run apksigner."
+            exit 0
+          fi
+
+          BUILD_TOOLS_VER="$(ls "${SDK_DIR}/build-tools" | sort -V | tail -1)"
+          APKSIGNER="${SDK_DIR}/build-tools/${BUILD_TOOLS_VER}/apksigner"
+
+          if [ ! -f "${APKSIGNER}" ]; then
+            echo "WARNING: apksigner not found at ${APKSIGNER}"
+            exit 0
+          fi
+
+          "${APKSIGNER}" verify --print-certs "$APK" || echo "WARNING: APK signature verification failed"
 
       - name: Show build outputs
         run: |
+          set -euo pipefail
           ls -la build/app/outputs/flutter-apk || true
 
       - name: Upload RELEASE APK artifact
