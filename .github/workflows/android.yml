@@ -9,6 +9,10 @@ concurrency:
   group: android-release-apk-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege: workflow only needs read access to repository contents.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,7 +32,56 @@ jobs:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
 
     steps:
-      - uses: actions/checkout@v4
+      # NOTE:
+      # actions/checkout uses git under the hood. During GitHub incidents it can fail with 500/502.
+      # This manual checkout adds stronger retries/backoff to reduce flaky CI failures.
+      - name: Checkout (manual git with retries/backoff)
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          echo "Repo: ${REPO}"
+          echo "SHA : ${SHA}"
+
+          export GIT_TERMINAL_PROMPT=0
+
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            echo "Checkout attempt ${i}/6..."
+
+            # Clean workspace (but keep workflow working directory).
+            find . -mindepth 1 -maxdepth 1 \
+              ! -name ".git" \
+              -exec rm -rf {} + || true
+            rm -rf .git || true
+
+            git init -q
+            git config gc.auto 0
+
+            # Use token auth to avoid rate limits and private repo issues.
+            git remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
+
+            # Fetch exact commit (most reliable) with retries.
+            if git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${SHA}"; then
+              git checkout --detach -q FETCH_HEAD
+              echo "Checked out: $(git rev-parse HEAD)"
+              ok=1
+              break
+            fi
+
+            sleep_for=$((i * 15))
+            echo "Checkout failed; sleeping ${sleep_for}s before retry..."
+            sleep "${sleep_for}"
+          done
+
+          if [ "${ok}" -ne 1 ]; then
+            echo "ERROR: Failed to checkout repository after multiple attempts. This is usually a GitHub outage (500/502)."
+            exit 1
+          fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
