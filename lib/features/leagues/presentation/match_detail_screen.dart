@@ -19,6 +19,7 @@ import '../../highlights/domain/match_highlight.dart';
 import '../../highlights/logic/highlight_upload_controller.dart';
 import '../../live/data/local_discovery.dart';
 import '../data/leagues_repository_local.dart';
+import '../models/enums.dart';
 import '../models/fixture_match.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
@@ -56,6 +57,13 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   bool _canUploadHighlight = false;
 
   String get _liveMatchId => widget.matchId;
+
+  bool _matchFinishedForHighlights(FixtureMatch m) {
+    // IMPORTANT:
+    // FixtureMatch.isPlayed also requires scores.
+    // For highlight eligibility, we consider the match finished when status is completed/played.
+    return m.status == MatchStatus.completed || m.status == MatchStatus.played || m.isPlayed;
+  }
 
   String _homeName(BuildContext context) {
     final l10n = context.l10n;
@@ -114,7 +122,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               userId: uid,
             );
 
-      final results = await Future.wait([matchesFuture, teamsFuture, membershipFuture]).timeout(const Duration(seconds: 25));
+      final results = await Future.wait([matchesFuture, teamsFuture, membershipFuture])
+          .timeout(const Duration(seconds: 25));
       final matches = results[0] as List<FixtureMatch>;
       final teams = results[1] as List<Team>;
       final membership = results[2] as Membership?;
@@ -127,10 +136,13 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         }
       }
 
-      final myTeamId = (membership?.teamId ?? '').trim().isEmpty ? null : (membership?.teamId ?? '').trim();
+      final myTeamIdRaw = (membership?.teamId ?? '').trim();
+      final myTeamId = myTeamIdRaw.isEmpty ? null : myTeamIdRaw;
+
+      final isFinished = (m != null) ? _matchFinishedForHighlights(m) : false;
 
       final canUpload = (m != null) &&
-          m.isPlayed && // equivalent to FINISHED gate in this app
+          isFinished &&
           (myTeamId != null) &&
           (myTeamId == m.homeTeamId.trim() || myTeamId == m.awayTeamId.trim());
 
@@ -138,7 +150,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
       setState(() {
         _match = m;
         _teamsById = {for (final t in teams) t.id: t};
-        _status = (m?.isPlayed ?? false) ? 'Completed' : 'Pending';
+        _status = (m != null && _matchFinishedForHighlights(m)) ? 'Completed' : 'Pending';
         _membership = membership;
         _myTeamId = myTeamId;
         _canUploadHighlight = canUpload;
@@ -181,7 +193,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     }
 
     await ConnectivityService.instance.initialize();
-    final ok = await ConnectivityService.instance.recheckConnection(timeout: const Duration(seconds: 4));
+    final ok = await ConnectivityService.instance
+        .recheckConnection(timeout: const Duration(seconds: 4));
     if (!ok) {
       _showSnack(UserFriendlyError.toMessage(SocketException('offline')));
       return false;
@@ -285,7 +298,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
     final ok = await launchUrl(
       u,
-      mode: LaunchMode.externalApplication, // cheaper than embedding a player; avoids extra packages
+      mode: LaunchMode.externalApplication,
     );
 
     if (!ok) {
@@ -373,8 +386,11 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                                     final m = _match!;
                                     await uploadCtrl.uploadHighlightForMatch(m);
                                     if (!mounted) return;
-                                    if (ref.read(highlightUploadControllerProvider).stage == HighlightUploadStage.failed) {
-                                      _showSnack(ref.read(highlightUploadControllerProvider).message);
+                                    if (ref.read(highlightUploadControllerProvider).stage ==
+                                        HighlightUploadStage.failed) {
+                                      _showSnack(ref
+                                          .read(highlightUploadControllerProvider)
+                                          .message);
                                     }
                                   },
                             onOpenUrl: _openHighlightUrl,
@@ -516,7 +532,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                     )
                   : const Icon(Icons.play_circle_fill),
               label: Text(
-                _busy ? l10n.tr('match_detail_opening').toUpperCase() : l10n.tr('match_detail_open_host_live').toUpperCase(),
+                _busy
+                    ? l10n.tr('match_detail_opening').toUpperCase()
+                    : l10n.tr('match_detail_open_host_live').toUpperCase(),
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
@@ -546,9 +564,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     final cs = theme.colorScheme;
 
     final match = _match;
-    final isFinished = match?.isPlayed == true;
+    final isFinished = match != null && _matchFinishedForHighlights(match);
 
-    // STRICT UI VISIBILITY RULE (spec):
+    // STRICT UI VISIBILITY RULE:
     // - only visible if match finished AND membership.teamId is home/away.
     final showUpload = _canUploadHighlight && isFinished;
 
@@ -640,6 +658,25 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                 ),
                 textAlign: TextAlign.center,
               ),
+            )
+          else if (!showUpload)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              decoration: BoxDecoration(
+                color: cs.onSurface.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+              ),
+              child: Text(
+                'Only home/away team members can upload highlights.',
+                style: TextStyle(
+                  color: cs.onSurface.withOpacity(0.70),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+                textAlign: TextAlign.center,
+              ),
             ),
 
           if (showUpload && uploadState.stage != HighlightUploadStage.idle) ...[
@@ -692,14 +729,18 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                       fit: StackFit.expand,
                       children: [
                         CircularProgressIndicator(
-                          value: (uploadState.progress01 <= 0 || uploadState.progress01 > 1) ? null : uploadState.progress01,
+                          value: (uploadState.progress01 <= 0 || uploadState.progress01 > 1)
+                              ? null
+                              : uploadState.progress01,
                           strokeWidth: 4,
                           color: uploadState.stage == HighlightUploadStage.failed ? cs.error : cs.primary,
                           backgroundColor: cs.onSurface.withOpacity(0.08),
                         ),
                         Center(
                           child: Text(
-                            uploadState.progress01 <= 0 ? '' : '${(uploadState.progress01 * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                            uploadState.progress01 <= 0
+                                ? ''
+                                : '${(uploadState.progress01 * 100).clamp(0, 100).toStringAsFixed(0)}%',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w900,
@@ -762,7 +803,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                       highlight: h,
                       teamName: _teamsById[h.teamId]?.name ?? 'Team',
                       isMine: (h.uploadedBy.trim().isNotEmpty) &&
-                          (h.uploadedBy.trim() == (FirebaseAuth.instance.currentUser?.uid ?? '').trim()),
+                          (h.uploadedBy.trim() ==
+                              (FirebaseAuth.instance.currentUser?.uid ?? '').trim()),
                       onOpen: h.secureUrl.trim().isEmpty ? null : () => onOpenUrl(h.secureUrl),
                     ),
                     const SizedBox(height: 10),
@@ -800,7 +842,7 @@ class _HighlightCard extends StatelessWidget {
 
     Color statusColor() {
       if (status == MatchHighlight.statusApproved) return cs.primary;
-      if (status == MatchHighlight.statusProcessing) return const Color(0xFFF59E0B); // amber-ish
+      if (status == MatchHighlight.statusProcessing) return const Color(0xFFF59E0B);
       return cs.onSurface.withOpacity(0.55);
     }
 
@@ -1019,13 +1061,25 @@ class _TeamThumb extends StatelessWidget {
                 filterQuality: FilterQuality.low,
                 cacheWidth: 64,
                 cacheHeight: 64,
-                errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.emoji_events_outlined,
+                  size: 14,
+                  color: cs.onSurface.withOpacity(0.55),
+                ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55));
+                  return Icon(
+                    Icons.emoji_events_outlined,
+                    size: 14,
+                    color: cs.onSurface.withOpacity(0.55),
+                  );
                 },
               )
-            : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+            : Icon(
+                Icons.emoji_events_outlined,
+                size: 14,
+                color: cs.onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }

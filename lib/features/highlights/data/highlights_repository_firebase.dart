@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../leagues/models/enums.dart';
 import '../../leagues/models/fixture_match.dart';
 import '../../leagues/models/membership.dart';
 import '../domain/match_highlight.dart';
@@ -99,9 +100,12 @@ class HighlightsRepositoryFirebase {
 
     // Backfill expected fields for older docs.
     final map = <String, dynamic>{...data};
-    map['id'] = (map['id'] as String?)?.trim().isNotEmpty == true ? map['id'] : doc.id;
-    map['leagueId'] = (map['leagueId'] as String?)?.trim().isNotEmpty == true ? map['leagueId'] : lid;
-    map['userId'] = (map['userId'] as String?)?.trim().isNotEmpty == true ? map['userId'] : uid;
+    map['id'] =
+        (map['id'] as String?)?.trim().isNotEmpty == true ? map['id'] : doc.id;
+    map['leagueId'] =
+        (map['leagueId'] as String?)?.trim().isNotEmpty == true ? map['leagueId'] : lid;
+    map['userId'] =
+        (map['userId'] as String?)?.trim().isNotEmpty == true ? map['userId'] : uid;
 
     try {
       return Membership.fromRemoteMap(map);
@@ -110,10 +114,23 @@ class HighlightsRepositoryFirebase {
     }
   }
 
+  bool _isMatchFinishedForHighlights(FixtureMatch match) {
+    // IMPORTANT:
+    // Your FixtureMatch.isPlayed requires BOTH:
+    // - status == completed/played
+    // - homeScore/awayScore not null
+    //
+    // For highlight upload, we treat a match as "finished" if status indicates completion,
+    // even if scores are missing (because your product requirement is "after FINISHED").
+    return match.status == MatchStatus.completed ||
+        match.status == MatchStatus.played ||
+        match.isPlayed;
+  }
+
   /// Determines if user can upload highlight for this match.
   ///
   /// REQUIREMENTS:
-  /// - match must be FINISHED (in your model: isPlayed == true)
+  /// - match must be FINISHED (here: status completed/played, not strictly requiring scores)
   /// - user must be a league member
   /// - user must belong to a team participating in the match
   /// - teamId must match membership.teamId
@@ -122,9 +139,11 @@ class HighlightsRepositoryFirebase {
   }) async {
     final uid = _requireUid();
 
-    // Match finished gate (your app's equivalent of match.status == FINISHED).
-    if (!match.isPlayed) {
-      throw const HighlightsUserFriendlyException('Highlights can only be uploaded after the match is finished.');
+    // Match finished gate.
+    if (!_isMatchFinishedForHighlights(match)) {
+      throw const HighlightsUserFriendlyException(
+        'Highlights can only be uploaded after the match is finished.',
+      );
     }
 
     final membership = await _loadMembershipServer(
@@ -133,17 +152,24 @@ class HighlightsRepositoryFirebase {
     );
 
     if (membership == null) {
-      throw const HighlightsUserFriendlyException('You must be a league member to upload highlights.');
+      throw const HighlightsUserFriendlyException(
+        'You must be a league member to upload highlights.',
+      );
     }
 
     final teamId = (membership.teamId ?? '').trim();
     if (teamId.isEmpty) {
-      throw const HighlightsUserFriendlyException('You must be assigned to a team to upload highlights.');
+      throw const HighlightsUserFriendlyException(
+        'You must be assigned to a team to upload highlights.',
+      );
     }
 
-    final isParticipant = teamId == match.homeTeamId.trim() || teamId == match.awayTeamId.trim();
+    final isParticipant =
+        teamId == match.homeTeamId.trim() || teamId == match.awayTeamId.trim();
     if (!isParticipant) {
-      throw const HighlightsUserFriendlyException('Only teams that played this match can upload highlights.');
+      throw const HighlightsUserFriendlyException(
+        'Only teams that played this match can upload highlights.',
+      );
     }
 
     return teamId;
@@ -182,14 +208,14 @@ class HighlightsRepositoryFirebase {
   ///
   /// IMPORTANT:
   /// - createdAt MUST be written on create to support `orderBy('createdAt')` queries reliably.
-  /// - We set createdAt/updatedAt via server timestamps here (repository responsibility).
   Future<String> getOrCreateUploadingHighlight({
     required FixtureMatch match,
   }) async {
     final uid = _requireUid();
     final teamId = await requireUploadTeamIdOrThrow(match: match);
 
-    final existing = await fetchExistingHighlightForTeam(matchId: match.id, teamId: teamId);
+    final existing =
+        await fetchExistingHighlightForTeam(matchId: match.id, teamId: teamId);
 
     // Folder per spec:
     // match_highlights/{leagueId}/{matchId}/{teamId}
@@ -207,11 +233,12 @@ class HighlightsRepositoryFirebase {
       // If the team already uploaded (PROCESSING/APPROVED), block new uploads.
       final hasUrl = existing.secureUrl.trim().isNotEmpty;
       if (hasUrl && !existing.isUploading) {
-        throw const HighlightsUserFriendlyException('Your team has already uploaded a highlight for this match.');
+        throw const HighlightsUserFriendlyException(
+          'Your team has already uploaded a highlight for this match.',
+        );
       }
 
-      // If existing is UPLOADING (or url missing), treat as retry/resume.
-      // Ensure fields remain consistent (merge).
+      // Retry/resume: merge minimal fields.
       await _highlightsCol(match.id)
           .doc(existing.id)
           .set(
@@ -223,7 +250,6 @@ class HighlightsRepositoryFirebase {
               'cloudinaryPublicId': '$cloudFolder/${existing.id}',
               'status': MatchHighlight.statusUploading,
               'updatedAt': FieldValue.serverTimestamp(),
-              // do NOT touch createdAt on retry
             },
             SetOptions(merge: true),
           )
@@ -235,16 +261,13 @@ class HighlightsRepositoryFirebase {
     final ref = _highlightsCol(match.id).doc(); // auto id
     final highlightId = ref.id;
 
-    // Stable public id leaf = highlightId.
-    final plannedPublicId = highlightId;
-
     final doc = MatchHighlight(
       id: highlightId,
       matchId: match.id,
       leagueId: match.leagueId,
       teamId: teamId,
       uploadedBy: uid,
-      cloudinaryPublicId: '$cloudFolder/$plannedPublicId',
+      cloudinaryPublicId: '$cloudFolder/$highlightId',
       secureUrl: '',
       thumbnailUrl: '',
       duration: 0,
@@ -311,7 +334,6 @@ class HighlightsRepositoryFirebase {
   }) async {
     _requireUid();
 
-    // Minimal failure marking: keep doc but clear URLs.
     final ref = _highlightsCol(matchId).doc(highlightId);
 
     await ref
