@@ -55,9 +55,6 @@ dependencies:
   # Local temp/cache for compressed video outputs
   path_provider: ^2.1.5
 
-  # On-device video probe + compression (cost control; avoids Cloudinary transformations)
-  ffmpeg_kit_flutter_min_gpl: ^6.0.3
-
   # Payments
   flutterwave_standard: ^1.0.9
 

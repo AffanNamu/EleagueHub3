@@ -2,11 +2,6 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-
-        // Required for ffmpeg-kit artifacts used by ffmpeg_kit_flutter_min_gpl.
-        // Without this, CI often fails with:
-        // "Could not find com.arthenica:ffmpeg-kit-min-gpl:<version>"
-        maven { url "https://maven.arthenica.com" }
     }
 }
 

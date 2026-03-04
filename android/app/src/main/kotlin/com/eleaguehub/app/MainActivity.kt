@@ -26,6 +26,12 @@ class MainActivity : FlutterActivity() {
 
         FlutterEngineHolder.setBinaryMessenger(flutterEngine.dartExecutor.binaryMessenger)
 
+        // Register highlights compression channels (Android Media3 Transformer).
+        HighlightCompressionEngine.register(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger
+        )
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             LOCAL_LIVE_CHANNEL

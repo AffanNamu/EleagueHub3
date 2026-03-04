@@ -2,12 +2,11 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart';
-import 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Probe info extracted via FFprobe (no network required).
+/// Probe info extracted natively (no network required).
 class VideoProbeInfo {
   final double durationSeconds;
   final int width;
@@ -45,7 +44,7 @@ class CompressedVideoResult {
 
 /// Ultra-low-cost highlight compression policy:
 /// - Hard caps duration (reject if over limit)
-/// - Forces H.264 + AAC
+/// - Forces H.264 + AAC (native Android transcode)
 /// - Downscales to <= 720p (and may go lower to respect 15MB cap)
 /// - Targets a bitrate computed from size cap so we don't exceed free-tier storage/bandwidth
 ///
@@ -63,6 +62,9 @@ class VideoCompressionService {
   /// A small overhead budget for container + moov atom etc.
   static const int containerOverheadKbps = 48;
 
+  static const MethodChannel _ch = MethodChannel('highlight_compression');
+  static const EventChannel _progressCh = EventChannel('highlight_compression_progress');
+
   /// Probes duration + dimensions.
   Future<VideoProbeInfo> probe(String inputPath) async {
     final p = inputPath.trim();
@@ -72,59 +74,45 @@ class VideoCompressionService {
 
     final f = File(p);
     if (!await f.exists()) {
-      throw StateError('Video file not found.');
-    }
-
-    final session = await FFprobeKit.getMediaInformation(p);
-    final info = session.getMediaInformation();
-
-    if (info == null) {
-      throw StateError('Could not read video information.');
-    }
-
-    final durationRaw = (info.getDuration() ?? '').trim();
-    final durationSeconds = double.tryParse(durationRaw) ?? 0;
-
-    int width = 0;
-    int height = 0;
-
-    final streams = info.getStreams() ?? <dynamic>[];
-    Map<String, dynamic>? videoProps;
-
-    for (final s in streams) {
-      try {
-        final type = (s.getType() ?? '').toString().toLowerCase();
-        if (type != 'video') continue;
-
-        final props = (s.getAllProperties() ?? <String, dynamic>{}).cast<String, dynamic>();
-        videoProps = props;
-        break;
-      } catch (_) {
-        continue;
+      // Some pickers can return content:// URIs (no direct file path).
+      // If it's a content URI, skip this exists check.
+      if (!p.startsWith('content://') && !p.startsWith('file://')) {
+        throw StateError('Video file not found.');
       }
     }
 
-    if (videoProps != null) {
-      width = _intFrom(videoProps['width']);
-      height = _intFrom(videoProps['height']);
-
-      if (width <= 0) width = _intFrom(videoProps['coded_width']);
-      if (height <= 0) height = _intFrom(videoProps['coded_height']);
+    if (!Platform.isAndroid) {
+      throw UnsupportedError('Video probing is currently implemented for Android only.');
     }
 
-    final format = info.getFormat();
+    final res = await _ch.invokeMethod<dynamic>(
+      'probe',
+      <String, dynamic>{'inputPath': p},
+    );
+
+    if (res is! Map) {
+      throw StateError('Probe failed: invalid response.');
+    }
+
+    final map = res.cast<dynamic, dynamic>();
+
+    final duration = (map['durationSeconds'] is num) ? (map['durationSeconds'] as num).toDouble() : 0.0;
+    final width = (map['width'] is num) ? (map['width'] as num).toInt() : 0;
+    final height = (map['height'] is num) ? (map['height'] as num).toInt() : 0;
+    final format = (map['format'] as String?)?.trim();
+    final fmt = (format != null && format.isNotEmpty) ? format : null;
 
     return VideoProbeInfo(
-      durationSeconds: durationSeconds.isFinite ? durationSeconds : 0,
+      durationSeconds: duration.isFinite ? duration : 0.0,
       width: max(0, width),
       height: max(0, height),
-      format: format?.trim().isEmpty == true ? null : format?.trim(),
+      format: fmt,
     );
   }
 
   /// Compresses a selected video to meet highlight constraints.
   ///
-  /// [onProgress] emits 0..1 based on encoded time / duration.
+  /// [onProgress] emits 0..1 best-effort (native progress polling).
   Future<CompressedVideoResult> compressHighlight({
     required String inputPath,
     int maxDurationSec = maxDurationSeconds,
@@ -135,8 +123,9 @@ class VideoCompressionService {
     final input = inputPath.trim();
     if (input.isEmpty) throw StateError('Video path is empty.');
 
-    final inputFile = File(input);
-    if (!await inputFile.exists()) throw StateError('Video file not found.');
+    if (!Platform.isAndroid) {
+      throw UnsupportedError('Highlight compression is currently implemented for Android only.');
+    }
 
     final inputInfo = await probe(input);
 
@@ -154,81 +143,54 @@ class VideoCompressionService {
     final tmpDir = await getTemporaryDirectory();
     final outPath = '${tmpDir.path}/highlight_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
+    // Compute a total bitrate ceiling from maxBytes & duration:
     final dur = inputInfo.durationSeconds;
     final maxTotalKbps = ((maxBytes * 8) / dur / 1000).floor();
 
+    // Keep audio fixed, allocate remainder to video.
     var videoKbps = max(250, maxTotalKbps - audioBitrateKbps - containerOverheadKbps);
+
+    // Conservative clamp for mobile stability.
     videoKbps = videoKbps.clamp(350, 2200);
 
+    // If bitrate is low, downscale more (still <=720p max).
     final effectiveMaxHeight = (videoKbps < 900) ? 540 : maxHeight;
 
-    final vf = "scale=-2:'min(ih\\,$effectiveMaxHeight)',setsar=1";
+    final taskId = '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1 << 20)}';
 
-    final cmd = [
-      '-y',
-      '-i',
-      _q(input),
-      '-vf',
-      _q(vf),
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-pix_fmt',
-      'yuv420p',
-      '-profile:v',
-      'main',
-      '-b:v',
-      '${videoKbps}k',
-      '-maxrate',
-      '${(videoKbps * 1.20).round()}k',
-      '-bufsize',
-      '${(videoKbps * 2.00).round()}k',
-      '-c:a',
-      'aac',
-      '-b:a',
-      '${audioBitrateKbps}k',
-      '-ac',
-      '2',
-      '-ar',
-      '44100',
-      '-movflags',
-      '+faststart',
-      _q(outPath),
-    ].join(' ');
+    StreamSubscription<dynamic>? sub;
+    if (onProgress != null) {
+      try {
+        sub = _progressCh.receiveBroadcastStream().listen((event) {
+          if (event is! Map) return;
+          final m = event.cast<dynamic, dynamic>();
+          if (m['taskId']?.toString() != taskId) return;
 
-    double lastProgress = 0;
+          final p = (m['progress01'] is num) ? (m['progress01'] as num).toDouble() : 0.0;
+          if (p.isNaN || !p.isFinite) return;
+          onProgress(p.clamp(0.0, 1.0));
+        });
+      } catch (_) {
+        // If event channel fails, compression still works; UI can show indeterminate progress.
+      }
+    }
 
     try {
-      final completer = Completer<void>();
-
-      await FFmpegKit.executeAsync(
-        cmd,
-        (session) async {
-          final rc = await session.getReturnCode();
-          if (ReturnCode.isSuccess(rc)) {
-            completer.complete();
-          } else {
-            final logs = await session.getAllLogsAsString();
-            completer.completeError(
-              StateError('Compression failed. ${_bestEffortLogHint(logs)}'),
-            );
-          }
-        },
-        null,
-        (stats) {
-          final tMs = stats.getTime();
-          if (tMs <= 0) return;
-
-          final p = (tMs / (dur * 1000)).clamp(0.0, 1.0);
-          if (p <= lastProgress) return;
-          lastProgress = p;
-
-          if (onProgress != null) onProgress(p);
+      final res = await _ch.invokeMethod<dynamic>(
+        'compress',
+        <String, dynamic>{
+          'taskId': taskId,
+          'inputPath': input,
+          'outputPath': outPath,
+          'maxHeight': effectiveMaxHeight,
+          'videoBitrateKbps': videoKbps,
+          'audioBitrateKbps': audioBitrateKbps,
         },
       );
 
-      await completer.future.timeout(const Duration(minutes: 6));
+      if (res is! Map) {
+        throw StateError('Compression failed: invalid response.');
+      }
 
       final outFile = File(outPath);
       if (!await outFile.exists()) {
@@ -240,6 +202,7 @@ class VideoCompressionService {
         throw StateError('Compression failed: output is empty.');
       }
 
+      // HARD policy check: never upload a file over cap.
       if (outBytes > maxBytes) {
         try {
           await outFile.delete();
@@ -262,6 +225,15 @@ class VideoCompressionService {
         videoBitrateKbps: videoKbps,
         audioBitrateKbps: audioBitrateKbps,
       );
+    } on PlatformException catch (e) {
+      // Best-effort cleanup.
+      try {
+        final out = File(outPath);
+        if (await out.exists()) await out.delete();
+      } catch (_) {}
+
+      final msg = (e.message ?? '').trim();
+      throw StateError(msg.isNotEmpty ? msg : 'Compression failed.');
     } on TimeoutException {
       try {
         final out = File(outPath);
@@ -269,32 +241,16 @@ class VideoCompressionService {
       } catch (_) {}
       throw StateError('Compression timed out. Please try again.');
     } catch (e) {
+      // Best-effort cleanup.
       try {
         final out = File(outPath);
         if (await out.exists()) await out.delete();
       } catch (_) {}
       rethrow;
+    } finally {
+      try {
+        await sub?.cancel();
+      } catch (_) {}
     }
-  }
-
-  static int _intFrom(dynamic v) {
-    if (v == null) return 0;
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    if (v is String) return int.tryParse(v.trim()) ?? 0;
-    return 0;
-  }
-
-  static String _q(String s) {
-    final v = s.replaceAll('"', '\\"');
-    return '"$v"';
-  }
-
-  static String _bestEffortLogHint(String? raw) {
-    final s = (raw ?? '').trim();
-    if (s.isEmpty) return '';
-    final lines = s.split('\n').where((l) => l.trim().isNotEmpty).toList();
-    if (lines.isEmpty) return '';
-    return lines.length <= 3 ? lines.join(' ') : lines.sublist(max(0, lines.length - 3)).join(' ');
   }
 }
