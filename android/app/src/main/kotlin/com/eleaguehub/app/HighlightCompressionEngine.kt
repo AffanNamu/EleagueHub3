@@ -8,7 +8,6 @@ import android.os.Looper
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.effect.ScaleAndRotateTransformation
-import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
@@ -40,6 +39,18 @@ import kotlin.math.min
  *
  * - EventChannel: "highlight_compression_progress"
  *   emits { taskId, progress01 } best-effort.
+ *
+ * IMPORTANT API COMPATIBILITY NOTE:
+ * - Media3 Transformer APIs evolve quickly.
+ * - In some versions, DefaultEncoderFactory exposes only video encoder settings
+ *   (no setRequestedAudioEncoderSettings / AudioEncoderSettings).
+ * - To keep CI stable, we avoid APIs that are not present in Media3 1.3.x and
+ *   rely on:
+ *   - H.264 video + AAC audio mime types (TransformationRequest)
+ *   - Scaling effect to enforce <=720p
+ *   - Best-effort: video bitrate may not be honored on every device
+ *   - Audio bitrate is best-effort (device encoder defaults); we still pass the
+ *     requested value back to Dart for logging/UI, but it may not be enforced.
  */
 object HighlightCompressionEngine {
 
@@ -191,11 +202,13 @@ object HighlightCompressionEngine {
 
             val mediaItem = MediaItem.fromUri(toUri(inputPath))
 
+            // Force codecs (best-effort; device encoders decide final details)
             val transformationRequest = TransformationRequest.Builder()
                 .setVideoMimeType(MimeTypes.VIDEO_H264)
                 .setAudioMimeType(MimeTypes.AUDIO_AAC)
                 .build()
 
+            // Enforce scaling (<=720p, may be lower).
             val videoEffect = ScaleAndRotateTransformation.Builder()
                 .setScale(scale.toFloat(), scale.toFloat())
                 .build()
@@ -204,34 +217,16 @@ object HighlightCompressionEngine {
                 .setEffects(Effects(emptyList(), listOf(videoEffect)))
                 .build()
 
-            // Encoder settings (best-effort). Not all devices honor bitrate precisely.
-            val encoderFactory = try {
-                val bpsV = max(100_000, videoKbps * 1000)
-                val bpsA = max(64_000, audioKbps * 1000)
-
-                // DefaultEncoderFactory has evolved; keep this minimal and defensive.
-                DefaultEncoderFactory.Builder(context)
-                    .setRequestedVideoEncoderSettings(
-                        androidx.media3.transformer.VideoEncoderSettings.Builder()
-                            .setBitrate(bpsV)
-                            .build()
-                    )
-                    .setRequestedAudioEncoderSettings(
-                        androidx.media3.transformer.AudioEncoderSettings.Builder()
-                            .setBitrate(bpsA)
-                            .build()
-                    )
-                    .build()
-            } catch (_: Throwable) {
-                null
-            }
-
             val listener = object : Transformer.Listener {
-                override fun onCompleted(composition: androidx.media3.transformer.Composition, exportResult: ExportResult) {
+                override fun onCompleted(
+                    composition: androidx.media3.transformer.Composition,
+                    exportResult: ExportResult
+                ) {
                     cleanupAfterFinish()
 
                     try {
-                        val bytes = outFile.length().toInt()
+                        val bytesLong = outFile.length()
+                        val bytes = if (bytesLong > Int.MAX_VALUE.toLong()) Int.MAX_VALUE else bytesLong.toInt()
                         emitProgress(taskId, 1.0)
                         result.success(
                             hashMapOf<String, Any?>(
@@ -239,6 +234,7 @@ object HighlightCompressionEngine {
                                 "outputBytes" to bytes,
                                 "usedMaxHeight" to targetH,
                                 "usedVideoBitrateKbps" to videoKbps,
+                                // NOTE: audio bitrate is best-effort; we return what was requested.
                                 "usedAudioBitrateKbps" to audioKbps
                             )
                         )
@@ -263,15 +259,11 @@ object HighlightCompressionEngine {
                 }
             }
 
-            val builder = Transformer.Builder(context)
+            val transformer = Transformer.Builder(context)
                 .setTransformationRequest(transformationRequest)
                 .addListener(listener)
+                .build()
 
-            if (encoderFactory != null) {
-                builder.setEncoderFactory(encoderFactory)
-            }
-
-            val transformer = builder.build()
             activeTransformer = transformer
 
             // Start progress polling (best-effort).
@@ -290,17 +282,13 @@ object HighlightCompressionEngine {
     }
 
     private fun startProgressPolling(taskId: String, transformer: Transformer) {
-        val running = AtomicBoolean(true)
-
         fun poll() {
             val curTask = activeTaskId
-            if (!running.get() || curTask == null || curTask != taskId) return
+            if (curTask == null || curTask != taskId) return
 
             try {
                 val holder = ProgressHolder()
-                val state = transformer.getProgress(holder)
-                // PROGRESS_STATE_AVAILABLE = 1 in Media3, but we don't rely on exact numbers.
-                // If progress is available, holder.progress is 0..100.
+                transformer.getProgress(holder)
                 val p = holder.progress.toDouble() / 100.0
                 if (p.isFinite() && p > 0) emitProgress(taskId, p)
             } catch (_: Throwable) {
