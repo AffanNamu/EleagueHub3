@@ -100,12 +100,9 @@ class HighlightsRepositoryFirebase {
 
     // Backfill expected fields for older docs.
     final map = <String, dynamic>{...data};
-    map['id'] =
-        (map['id'] as String?)?.trim().isNotEmpty == true ? map['id'] : doc.id;
-    map['leagueId'] =
-        (map['leagueId'] as String?)?.trim().isNotEmpty == true ? map['leagueId'] : lid;
-    map['userId'] =
-        (map['userId'] as String?)?.trim().isNotEmpty == true ? map['userId'] : uid;
+    map['id'] = (map['id'] as String?)?.trim().isNotEmpty == true ? map['id'] : doc.id;
+    map['leagueId'] = (map['leagueId'] as String?)?.trim().isNotEmpty == true ? map['leagueId'] : lid;
+    map['userId'] = (map['userId'] as String?)?.trim().isNotEmpty == true ? map['userId'] : uid;
 
     try {
       return Membership.fromRemoteMap(map);
@@ -116,30 +113,25 @@ class HighlightsRepositoryFirebase {
 
   bool _isMatchFinishedForHighlights(FixtureMatch match) {
     // IMPORTANT:
-    // Your FixtureMatch.isPlayed requires BOTH:
-    // - status == completed/played
-    // - homeScore/awayScore not null
-    //
-    // For highlight upload, we treat a match as "finished" if status indicates completion,
-    // even if scores are missing (because your product requirement is "after FINISHED").
-    return match.status == MatchStatus.completed ||
-        match.status == MatchStatus.played ||
-        match.isPlayed;
+    // FixtureMatch.isPlayed requires scores not null.
+    // For highlight eligibility we consider "finished" when status indicates completion.
+    return match.status == MatchStatus.completed || match.status == MatchStatus.played || match.isPlayed;
   }
 
   /// Determines if user can upload highlight for this match.
   ///
   /// REQUIREMENTS:
-  /// - match must be FINISHED (here: status completed/played, not strictly requiring scores)
+  /// - match must be FINISHED (here: status completed/played; NOT strictly requiring scores)
   /// - user must be a league member
-  /// - user must belong to a team participating in the match
-  /// - teamId must match membership.teamId
+  /// - membership.teamId must be set
+  /// - membership.teamId must be homeTeamId or awayTeamId
+  ///
+  /// This method is also used by UI to explain why upload is hidden.
   Future<String> requireUploadTeamIdOrThrow({
     required FixtureMatch match,
   }) async {
     final uid = _requireUid();
 
-    // Match finished gate.
     if (!_isMatchFinishedForHighlights(match)) {
       throw const HighlightsUserFriendlyException(
         'Highlights can only be uploaded after the match is finished.',
@@ -159,16 +151,20 @@ class HighlightsRepositoryFirebase {
 
     final teamId = (membership.teamId ?? '').trim();
     if (teamId.isEmpty) {
+      // This is the #1 real-world reason the upload button is hidden.
+      // It means the user joined the league but was never assigned to a team.
       throw const HighlightsUserFriendlyException(
-        'You must be assigned to a team to upload highlights.',
+        'Your account is not assigned to a team in this league. Ask the organizer to assign your membership to the home or away team.',
       );
     }
 
-    final isParticipant =
-        teamId == match.homeTeamId.trim() || teamId == match.awayTeamId.trim();
+    final homeId = match.homeTeamId.trim();
+    final awayId = match.awayTeamId.trim();
+    final isParticipant = teamId == homeId || teamId == awayId;
+
     if (!isParticipant) {
       throw const HighlightsUserFriendlyException(
-        'Only teams that played this match can upload highlights.',
+        'Only home/away team members can upload highlights for this match.',
       );
     }
 
@@ -198,13 +194,9 @@ class HighlightsRepositoryFirebase {
 
   /// Creates an optimistic highlight document (UPLOADING) BEFORE upload.
   ///
-  /// This enables:
-  /// - optimistic UI (user sees "uploading" immediately)
-  /// - idempotency (highlightId becomes stable public_id suffix)
-  ///
-  /// ABUSE PREVENTION:
-  /// - "one highlight per team per match" enforced here.
-  /// - retries reuse existing UPLOADING highlight doc (no duplicates).
+  /// Enables:
+  /// - optimistic UI
+  /// - idempotent uploads (stable highlightId)
   ///
   /// IMPORTANT:
   /// - createdAt MUST be written on create to support `orderBy('createdAt')` queries reliably.
@@ -214,8 +206,7 @@ class HighlightsRepositoryFirebase {
     final uid = _requireUid();
     final teamId = await requireUploadTeamIdOrThrow(match: match);
 
-    final existing =
-        await fetchExistingHighlightForTeam(matchId: match.id, teamId: teamId);
+    final existing = await fetchExistingHighlightForTeam(matchId: match.id, teamId: teamId);
 
     // Folder per spec:
     // match_highlights/{leagueId}/{matchId}/{teamId}
@@ -230,7 +221,7 @@ class HighlightsRepositoryFirebase {
         );
       }
 
-      // If the team already uploaded (PROCESSING/APPROVED), block new uploads.
+      // If already uploaded (PROCESSING/APPROVED), block new uploads.
       final hasUrl = existing.secureUrl.trim().isNotEmpty;
       if (hasUrl && !existing.isUploading) {
         throw const HighlightsUserFriendlyException(
@@ -250,6 +241,7 @@ class HighlightsRepositoryFirebase {
               'cloudinaryPublicId': '$cloudFolder/${existing.id}',
               'status': MatchHighlight.statusUploading,
               'updatedAt': FieldValue.serverTimestamp(),
+              // Do NOT touch createdAt on retry.
             },
             SetOptions(merge: true),
           )

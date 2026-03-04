@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -54,14 +55,18 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   Membership? _membership;
   String? _myTeamId;
+
   bool _canUploadHighlight = false;
+
+  /// If upload is hidden, we show a reason (helps users/admin fix membership/team assignment).
+  String? _uploadEligibilityMessage;
 
   String get _liveMatchId => widget.matchId;
 
   bool _matchFinishedForHighlights(FixtureMatch m) {
     // IMPORTANT:
-    // FixtureMatch.isPlayed also requires scores.
-    // For highlight eligibility, we consider the match finished when status is completed/played.
+    // FixtureMatch.isPlayed requires scores.
+    // For highlight eligibility, we consider status completed/played as finished.
     return m.status == MatchStatus.completed || m.status == MatchStatus.played || m.isPlayed;
   }
 
@@ -108,6 +113,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     setState(() {
       _loading = true;
       _loadError = null;
+      _uploadEligibilityMessage = null;
     });
 
     try {
@@ -136,30 +142,57 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         }
       }
 
-      final myTeamIdRaw = (membership?.teamId ?? '').trim();
-      final myTeamId = myTeamIdRaw.isEmpty ? null : myTeamIdRaw;
-
       final isFinished = (m != null) ? _matchFinishedForHighlights(m) : false;
 
-      final canUpload = (m != null) &&
+      // Local membership-derived teamId (may be empty).
+      final myTeamIdRaw = (membership?.teamId ?? '').trim();
+      final myTeamIdLocal = myTeamIdRaw.isEmpty ? null : myTeamIdRaw;
+
+      // Initial local gate.
+      bool canUpload = (m != null) &&
           isFinished &&
-          (myTeamId != null) &&
-          (myTeamId == m.homeTeamId.trim() || myTeamId == m.awayTeamId.trim());
+          (myTeamIdLocal != null) &&
+          (myTeamIdLocal == m.homeTeamId.trim() || myTeamIdLocal == m.awayTeamId.trim());
+
+      String? eligibilityMsg;
+
+      // If match is finished but local gate says no, ask the highlights repo (server-authoritative)
+      // for an explanation. This also avoids confusion when user thinks they are "home"
+      // but their membership.teamId is not set/mismatched.
+      if (m != null && isFinished && !canUpload) {
+        try {
+          final teamId = await _highlightsRepo.requireUploadTeamIdOrThrow(match: m);
+          canUpload = true;
+          // Prefer repo result (authoritative).
+          _myTeamId = teamId;
+          eligibilityMsg = null;
+        } catch (e) {
+          eligibilityMsg = (e is HighlightsUserFriendlyException)
+              ? e.message
+              : UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+        }
+      }
 
       if (!mounted) return;
+
       setState(() {
         _match = m;
         _teamsById = {for (final t in teams) t.id: t};
+
         _status = (m != null && _matchFinishedForHighlights(m)) ? 'Completed' : 'Pending';
+
         _membership = membership;
-        _myTeamId = myTeamId;
+        _myTeamId = _myTeamId ?? myTeamIdLocal;
+
         _canUploadHighlight = canUpload;
+        _uploadEligibilityMessage = eligibilityMsg;
+
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = UserFriendlyError.toMessage(e);
+        _loadError = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
         _loading = false;
       });
     }
@@ -193,8 +226,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     }
 
     await ConnectivityService.instance.initialize();
-    final ok = await ConnectivityService.instance
-        .recheckConnection(timeout: const Duration(seconds: 4));
+    final ok = await ConnectivityService.instance.recheckConnection(timeout: const Duration(seconds: 4));
     if (!ok) {
       _showSnack(UserFriendlyError.toMessage(SocketException('offline')));
       return false;
@@ -283,7 +315,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         },
       );
     } catch (e) {
-      _showSnack(UserFriendlyError.toMessage(e));
+      _showSnack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -388,9 +420,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                                     if (!mounted) return;
                                     if (ref.read(highlightUploadControllerProvider).stage ==
                                         HighlightUploadStage.failed) {
-                                      _showSnack(ref
-                                          .read(highlightUploadControllerProvider)
-                                          .message);
+                                      _showSnack(ref.read(highlightUploadControllerProvider).message);
                                     }
                                   },
                             onOpenUrl: _openHighlightUrl,
@@ -532,9 +562,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                     )
                   : const Icon(Icons.play_circle_fill),
               label: Text(
-                _busy
-                    ? l10n.tr('match_detail_opening').toUpperCase()
-                    : l10n.tr('match_detail_open_host_live').toUpperCase(),
+                _busy ? l10n.tr('match_detail_opening').toUpperCase() : l10n.tr('match_detail_open_host_live').toUpperCase(),
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
@@ -566,8 +594,6 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     final match = _match;
     final isFinished = match != null && _matchFinishedForHighlights(match);
 
-    // STRICT UI VISIBILITY RULE:
-    // - only visible if match finished AND membership.teamId is home/away.
     final showUpload = _canUploadHighlight && isFinished;
 
     final busy = uploadState.stage == HighlightUploadStage.compressing ||
@@ -600,6 +626,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           return '';
       }
     }
+
+    final eligibilityMsg = _uploadEligibilityMessage?.trim();
 
     return Glass(
       padding: const EdgeInsets.all(16),
@@ -669,7 +697,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                 border: Border.all(color: cs.onSurface.withOpacity(0.12)),
               ),
               child: Text(
-                'Only home/away team members can upload highlights.',
+                (eligibilityMsg != null && eligibilityMsg.isNotEmpty)
+                    ? eligibilityMsg
+                    : 'Only home/away team members can upload highlights.',
                 style: TextStyle(
                   color: cs.onSurface.withOpacity(0.70),
                   fontWeight: FontWeight.w700,
@@ -678,6 +708,18 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                 textAlign: TextAlign.center,
               ),
             ),
+
+          if (kDebugMode && match != null && isFinished && !showUpload) ...[
+            const SizedBox(height: 8),
+            Text(
+              'debug: myTeamId=${_myTeamId ?? ''}  homeTeamId=${match.homeTeamId}  awayTeamId=${match.awayTeamId}  uid=${FirebaseAuth.instance.currentUser?.uid ?? ''}',
+              style: TextStyle(
+                color: cs.onSurface.withOpacity(0.45),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
 
           if (showUpload && uploadState.stage != HighlightUploadStage.idle) ...[
             const SizedBox(height: 10),
@@ -729,18 +771,14 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                       fit: StackFit.expand,
                       children: [
                         CircularProgressIndicator(
-                          value: (uploadState.progress01 <= 0 || uploadState.progress01 > 1)
-                              ? null
-                              : uploadState.progress01,
+                          value: (uploadState.progress01 <= 0 || uploadState.progress01 > 1) ? null : uploadState.progress01,
                           strokeWidth: 4,
                           color: uploadState.stage == HighlightUploadStage.failed ? cs.error : cs.primary,
                           backgroundColor: cs.onSurface.withOpacity(0.08),
                         ),
                         Center(
                           child: Text(
-                            uploadState.progress01 <= 0
-                                ? ''
-                                : '${(uploadState.progress01 * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                            uploadState.progress01 <= 0 ? '' : '${(uploadState.progress01 * 100).clamp(0, 100).toStringAsFixed(0)}%',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w900,
@@ -803,8 +841,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                       highlight: h,
                       teamName: _teamsById[h.teamId]?.name ?? 'Team',
                       isMine: (h.uploadedBy.trim().isNotEmpty) &&
-                          (h.uploadedBy.trim() ==
-                              (FirebaseAuth.instance.currentUser?.uid ?? '').trim()),
+                          (h.uploadedBy.trim() == (FirebaseAuth.instance.currentUser?.uid ?? '').trim()),
                       onOpen: h.secureUrl.trim().isEmpty ? null : () => onOpenUrl(h.secureUrl),
                     ),
                     const SizedBox(height: 10),
@@ -1061,25 +1098,13 @@ class _TeamThumb extends StatelessWidget {
                 filterQuality: FilterQuality.low,
                 cacheWidth: 64,
                 cacheHeight: 64,
-                errorBuilder: (_, __, ___) => Icon(
-                  Icons.emoji_events_outlined,
-                  size: 14,
-                  color: cs.onSurface.withOpacity(0.55),
-                ),
+                errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(
-                    Icons.emoji_events_outlined,
-                    size: 14,
-                    color: cs.onSurface.withOpacity(0.55),
-                  );
+                  return Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55));
                 },
               )
-            : Icon(
-                Icons.emoji_events_outlined,
-                size: 14,
-                color: cs.onSurface.withOpacity(0.55),
-              ),
+            : Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
       ),
     );
   }
