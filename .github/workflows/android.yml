@@ -83,12 +83,34 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare deterministic cache directories (prevents cache warnings)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${PUB_CACHE}"
+          mkdir -p "${GRADLE_USER_HOME}"
+          mkdir -p "${{ runner.temp }}/flutter"
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
+          # NOTE:
+          # We intentionally do NOT use setup-java's built-in Gradle caching because:
+          # - you override GRADLE_USER_HOME to workspace/.gradle
+          # - setup-java caches ~/.gradle by default
+          # - this mismatch often causes "path does not exist" warnings and ineffective caching.
+
+      - name: Cache Gradle (workspace GRADLE_USER_HOME)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/caches
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle-wrapper.properties', '**/*.gradle*', '**/settings.gradle*') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: Install Linux deps for Flutter
         run: |
@@ -184,7 +206,7 @@ jobs:
             echo "No debug.keystore found (skipping)."
           fi
 
-      - name: Cache Pub packages
+      - name: Cache Pub packages (workspace PUB_CACHE)
         uses: actions/cache@v4
         with:
           path: ${{ env.PUB_CACHE }}
