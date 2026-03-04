@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
@@ -13,9 +14,13 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../highlights/data/highlights_repository_firebase.dart';
+import '../../highlights/domain/match_highlight.dart';
+import '../../highlights/logic/highlight_upload_controller.dart';
 import '../../live/data/local_discovery.dart';
 import '../data/leagues_repository_local.dart';
 import '../models/fixture_match.dart';
+import '../models/membership.dart';
 import '../models/team.dart';
 
 class MatchDetailScreen extends ConsumerStatefulWidget {
@@ -34,6 +39,8 @@ class MatchDetailScreen extends ConsumerStatefulWidget {
 
 class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   late final LocalLeaguesRepository _repo;
+  late final HighlightsRepositoryFirebase _highlightsRepo;
+  late final Stream<List<MatchHighlight>> _highlightsStream;
 
   bool _busy = false;
   bool _loading = true;
@@ -43,6 +50,10 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   FixtureMatch? _match;
   Map<String, Team> _teamsById = {};
+
+  Membership? _membership;
+  String? _myTeamId;
+  bool _canUploadHighlight = false;
 
   String get _liveMatchId => widget.matchId;
 
@@ -79,6 +90,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   void initState() {
     super.initState();
     _repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+    _highlightsRepo = HighlightsRepositoryFirebase();
+    _highlightsStream = _highlightsRepo.watchHighlightsForMatch(widget.matchId);
     _loadMatch();
   }
 
@@ -93,9 +106,18 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
       final matchesFuture = _repo.getMatches(widget.leagueId);
       final teamsFuture = _repo.getTeams(widget.leagueId);
 
-      final results = await Future.wait([matchesFuture, teamsFuture]).timeout(const Duration(seconds: 25));
+      final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+      final membershipFuture = uid.isEmpty
+          ? Future<Membership?>.value(null)
+          : _repo.getMembership(
+              leagueId: widget.leagueId,
+              userId: uid,
+            );
+
+      final results = await Future.wait([matchesFuture, teamsFuture, membershipFuture]).timeout(const Duration(seconds: 25));
       final matches = results[0] as List<FixtureMatch>;
       final teams = results[1] as List<Team>;
+      final membership = results[2] as Membership?;
 
       FixtureMatch? m;
       for (final x in matches) {
@@ -105,11 +127,21 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         }
       }
 
+      final myTeamId = (membership?.teamId ?? '').trim().isEmpty ? null : (membership?.teamId ?? '').trim();
+
+      final canUpload = (m != null) &&
+          m.isPlayed && // equivalent to FINISHED gate in this app
+          (myTeamId != null) &&
+          (myTeamId == m.homeTeamId.trim() || myTeamId == m.awayTeamId.trim());
+
       if (!mounted) return;
       setState(() {
         _match = m;
         _teamsById = {for (final t in teams) t.id: t};
         _status = (m?.isPlayed ?? false) ? 'Completed' : 'Pending';
+        _membership = membership;
+        _myTeamId = myTeamId;
+        _canUploadHighlight = canUpload;
         _loading = false;
       });
     } catch (e) {
@@ -244,12 +276,32 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     }
   }
 
+  Future<void> _openHighlightUrl(String url) async {
+    final u = Uri.tryParse(url.trim());
+    if (u == null) {
+      _showSnack('Invalid video URL.');
+      return;
+    }
+
+    final ok = await launchUrl(
+      u,
+      mode: LaunchMode.externalApplication, // cheaper than embedding a player; avoids extra packages
+    );
+
+    if (!ok) {
+      _showSnack('Could not open video.');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final cs = Theme.of(context).colorScheme;
 
     final isWide = MediaQuery.of(context).size.width > 600;
+
+    final uploadState = ref.watch(highlightUploadControllerProvider);
+    final uploadCtrl = ref.read(highlightUploadControllerProvider.notifier);
 
     return GlassScaffold(
       appBar: AppBar(
@@ -311,6 +363,22 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                           _buildHeader(context),
                           const SizedBox(height: 16),
                           _buildLiveSection(context),
+                          const SizedBox(height: 16),
+                          _buildHighlightsSection(
+                            context,
+                            uploadState: uploadState,
+                            onUploadTap: (_match == null)
+                                ? null
+                                : () async {
+                                    final m = _match!;
+                                    await uploadCtrl.uploadHighlightForMatch(m);
+                                    if (!mounted) return;
+                                    if (ref.read(highlightUploadControllerProvider).stage == HighlightUploadStage.failed) {
+                                      _showSnack(ref.read(highlightUploadControllerProvider).message);
+                                    }
+                                  },
+                            onOpenUrl: _openHighlightUrl,
+                          ),
                         ],
                       ),
           ),
@@ -467,6 +535,420 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
       ),
     );
   }
+
+  Widget _buildHighlightsSection(
+    BuildContext context, {
+    required HighlightUploadState uploadState,
+    required VoidCallback? onUploadTap,
+    required Future<void> Function(String url) onOpenUrl,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final match = _match;
+    final isFinished = match?.isPlayed == true;
+
+    // STRICT UI VISIBILITY RULE (spec):
+    // - only visible if match finished AND membership.teamId is home/away.
+    final showUpload = _canUploadHighlight && isFinished;
+
+    final busy = uploadState.stage == HighlightUploadStage.compressing ||
+        uploadState.stage == HighlightUploadStage.uploading ||
+        uploadState.stage == HighlightUploadStage.preparingDoc ||
+        uploadState.stage == HighlightUploadStage.probing ||
+        uploadState.stage == HighlightUploadStage.picking ||
+        uploadState.stage == HighlightUploadStage.finishing;
+
+    String stageLabel() {
+      switch (uploadState.stage) {
+        case HighlightUploadStage.compressing:
+          return 'Compressing…';
+        case HighlightUploadStage.uploading:
+          return 'Uploading…';
+        case HighlightUploadStage.preparingDoc:
+          return 'Preparing…';
+        case HighlightUploadStage.probing:
+          return 'Checking…';
+        case HighlightUploadStage.picking:
+          return 'Selecting…';
+        case HighlightUploadStage.finishing:
+          return 'Finalizing…';
+        case HighlightUploadStage.done:
+          return 'Uploaded';
+        case HighlightUploadStage.failed:
+          return 'Upload failed';
+        case HighlightUploadStage.idle:
+        default:
+          return '';
+      }
+    }
+
+    return Glass(
+      padding: const EdgeInsets.all(16),
+      borderRadius: 20,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.video_library_outlined, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Highlights',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              if (showUpload)
+                FilledButton.icon(
+                  onPressed: busy ? null : onUploadTap,
+                  icon: busy
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary),
+                        )
+                      : const Icon(Icons.upload, size: 18),
+                  label: const Text(
+                    'Upload',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          if (!isFinished)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              decoration: BoxDecoration(
+                color: cs.onSurface.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+              ),
+              child: Text(
+                'Highlights can be uploaded after the match is completed.',
+                style: TextStyle(
+                  color: cs.onSurface.withOpacity(0.70),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+
+          if (showUpload && uploadState.stage != HighlightUploadStage.idle) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: cs.onSurface.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          stageLabel(),
+                          style: TextStyle(
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (uploadState.message.trim().isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            uploadState.message.trim(),
+                            style: TextStyle(
+                              color: uploadState.stage == HighlightUploadStage.failed
+                                  ? cs.error
+                                  : cs.onSurface.withOpacity(0.70),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 46,
+                    height: 46,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CircularProgressIndicator(
+                          value: (uploadState.progress01 <= 0 || uploadState.progress01 > 1) ? null : uploadState.progress01,
+                          strokeWidth: 4,
+                          color: uploadState.stage == HighlightUploadStage.failed ? cs.error : cs.primary,
+                          backgroundColor: cs.onSurface.withOpacity(0.08),
+                        ),
+                        Center(
+                          child: Text(
+                            uploadState.progress01 <= 0 ? '' : '${(uploadState.progress01 * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              color: cs.onSurface.withOpacity(0.75),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 12),
+
+          StreamBuilder<List<MatchHighlight>>(
+            stream: _highlightsStream,
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.4, color: cs.primary),
+                    ),
+                  ),
+                );
+              }
+
+              final items = snap.data ?? const <MatchHighlight>[];
+              if (items.isEmpty) {
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: cs.onSurface.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+                  ),
+                  child: Text(
+                    'No highlights yet.',
+                    style: TextStyle(
+                      color: cs.onSurface.withOpacity(0.70),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }
+
+              return Column(
+                children: [
+                  for (final h in items) ...[
+                    _HighlightCard(
+                      highlight: h,
+                      teamName: _teamsById[h.teamId]?.name ?? 'Team',
+                      isMine: (h.uploadedBy.trim().isNotEmpty) &&
+                          (h.uploadedBy.trim() == (FirebaseAuth.instance.currentUser?.uid ?? '').trim()),
+                      onOpen: h.secureUrl.trim().isEmpty ? null : () => onOpenUrl(h.secureUrl),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HighlightCard extends StatelessWidget {
+  const _HighlightCard({
+    required this.highlight,
+    required this.teamName,
+    required this.isMine,
+    required this.onOpen,
+  });
+
+  final MatchHighlight highlight;
+  final String teamName;
+  final bool isMine;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final status = highlight.status;
+    final hasUrl = highlight.secureUrl.trim().isNotEmpty;
+
+    Color statusColor() {
+      if (status == MatchHighlight.statusApproved) return cs.primary;
+      if (status == MatchHighlight.statusProcessing) return const Color(0xFFF59E0B); // amber-ish
+      return cs.onSurface.withOpacity(0.55);
+    }
+
+    String statusLabel() {
+      if (status == MatchHighlight.statusApproved) return 'APPROVED';
+      if (status == MatchHighlight.statusProcessing) return 'PROCESSING';
+      return 'UPLOADING';
+    }
+
+    return InkWell(
+      onTap: hasUrl ? onOpen : null,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: cs.onSurface.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+        ),
+        child: Row(
+          children: [
+            _Thumb(url: highlight.thumbnailUrl),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    teamName,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: statusColor().withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: statusColor().withOpacity(0.22)),
+                        ),
+                        child: Text(
+                          statusLabel(),
+                          style: TextStyle(
+                            color: statusColor(),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 10,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                      if (isMine) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          'Yours',
+                          style: TextStyle(
+                            color: cs.onSurface.withOpacity(0.55),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (hasUrl) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Tap to play',
+                      style: TextStyle(
+                        color: cs.primary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Video will appear when upload finishes.',
+                      style: TextStyle(
+                        color: cs.onSurface.withOpacity(0.55),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              hasUrl ? Icons.play_circle_fill : Icons.cloud_upload_outlined,
+              color: hasUrl ? cs.primary : cs.onSurface.withOpacity(0.45),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Thumb extends StatelessWidget {
+  const _Thumb({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final u = url.trim();
+
+    return Container(
+      width: 64,
+      height: 48,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: cs.onSurface.withOpacity(0.06),
+        border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: u.isEmpty
+          ? Center(
+              child: Icon(Icons.video_file_outlined, color: cs.onSurface.withOpacity(0.55), size: 18),
+            )
+          : Image.network(
+              u,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.low,
+              errorBuilder: (_, __, ___) => Center(
+                child: Icon(Icons.video_file_outlined, color: cs.onSurface.withOpacity(0.55), size: 18),
+              ),
+              loadingBuilder: (context, child, event) {
+                if (event == null) return child;
+                return Center(
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary.withOpacity(0.85)),
+                  ),
+                );
+              },
+            ),
+    );
+  }
 }
 
 class _TeamThumb extends StatelessWidget {
@@ -537,8 +1019,7 @@ class _TeamThumb extends StatelessWidget {
                 filterQuality: FilterQuality.low,
                 cacheWidth: 64,
                 cacheHeight: 64,
-                errorBuilder: (_, __, ___) =>
-                    Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
+                errorBuilder: (_, __, ___) => Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55)),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
                   return Icon(Icons.emoji_events_outlined, size: 14, color: cs.onSurface.withOpacity(0.55));

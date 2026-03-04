@@ -89,13 +89,6 @@ service cloud.firestore {
         || isOrganizerByMembership(leagueId);
     }
 
-    // Admin role for point adjustments:
-    // - This enforces "only ADMIN can create adjustments".
-    // - In this project, "admin" maps to canManageLeague(leagueId) (super admin / owner / organizer role).
-    function isLeagueAdmin(leagueId) {
-      return canManageLeague(leagueId);
-    }
-
     function canReadLeague(leagueId) {
       let ld = leagueDoc(leagueId);
       return isSuperAdmin()
@@ -126,62 +119,220 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // ADMIN POINT ADJUSTMENTS (helpers)
+    // MATCH HIGHLIGHTS (matches/{matchId}/highlights/{highlightId})
+    //
+    // IMPORTANT SECURITY NOTE:
+    // - This ruleset protects Firestore metadata writes ONLY.
+    // - Cloudinary upload is protected separately by SIGNED upload:
+    //   signature must be generated server-side after verifying the same conditions.
     // =========================================================================
 
-    function hasAnyPointField(d) {
-      return ('basePoints' in d) || ('adminAdjustment' in d) || ('finalPoints' in d);
+    function membershipDoc(leagueId, uid) {
+      return get(/databases/$(database)/documents/leagues/$(leagueId)/memberships/$(uid));
     }
 
-    // SECURITY INVARIANT:
-    // Prevent direct "finalPoints" tampering by requiring:
-    // finalPoints == basePoints + adminAdjustment
-    //
-    // This is secure because even if a malicious client tries to overwrite finalPoints,
-    // the request is denied unless it matches the invariant.
-    function teamPointsInvariantHolds(d) {
-      // If any point field exists, require all three and correct types.
-      return (!hasAnyPointField(d))
-        || (
-          ('basePoints' in d) && ('adminAdjustment' in d) && ('finalPoints' in d)
-          && (d.basePoints is int)
-          && (d.adminAdjustment is int)
-          && (d.finalPoints is int)
-          && (d.finalPoints == (d.basePoints + d.adminAdjustment))
+    function leagueMatchDoc(leagueId, matchId) {
+      return get(/databases/$(database)/documents/leagues/$(leagueId)/matches/$(matchId));
+    }
+
+    function matchIsFinished(matchDoc) {
+      return matchDoc.exists()
+        && (
+          (('isPlayed' in matchDoc.data) && (matchDoc.data.isPlayed is bool) && (matchDoc.data.isPlayed == true))
+          || (('status' in matchDoc.data) && (matchDoc.data.status is string) && (matchDoc.data.status == 'FINISHED'))
+          || (('matchStatus' in matchDoc.data) && (matchDoc.data.matchStatus is string) && (matchDoc.data.matchStatus == 'FINISHED'))
         );
     }
 
-    function teamGdAndGfTypesOk(d) {
-      return (!('goalDifference' in d) || (d.goalDifference is int))
-        && (!('goalsFor' in d) || (d.goalsFor is int));
+    function matchHasTeams(matchDoc) {
+      return matchDoc.exists()
+        && ('homeTeamId' in matchDoc.data)
+        && (matchDoc.data.homeTeamId is string)
+        && (matchDoc.data.homeTeamId.size() > 0)
+        && ('awayTeamId' in matchDoc.data)
+        && (matchDoc.data.awayTeamId is string)
+        && (matchDoc.data.awayTeamId.size() > 0);
     }
 
-    function validPointAdjustmentCreate(adjustmentId, leagueId) {
+    function isParticipantTeam(matchDoc, teamId) {
+      return matchHasTeams(matchDoc)
+        && (
+          (matchDoc.data.homeTeamId == teamId)
+          || (matchDoc.data.awayTeamId == teamId)
+        );
+    }
+
+    function highlightHasOnlyAllowedKeys() {
+      return request.resource.data.keys().hasOnly([
+        'matchId',
+        'leagueId',
+        'teamId',
+        'uploadedBy',
+        'cloudinaryPublicId',
+        'secureUrl',
+        'thumbnailUrl',
+        'duration',
+        'size',
+        'format',
+        'status',
+        'createdAt',
+        'updatedAt'
+      ]);
+    }
+
+    function highlightFieldsAreValid(matchId, highlightId) {
+      let d = request.resource.data;
+
+      // Hard caps for free-tier protection (metadata sanity checks).
+      // Real enforcement is client-side compression + Cloudinary signed endpoint constraints.
+      let maxBytes = 15 * 1024 * 1024; // 15MB
+      let maxSeconds = 180; // 3 minutes
+
+      return highlightHasOnlyAllowedKeys()
+        && (d.matchId is string)
+        && (d.matchId == matchId)
+        && (d.leagueId is string)
+        && (d.leagueId.size() > 0)
+        && (d.leagueId.size() <= 200)
+        && (d.teamId is string)
+        && (d.teamId.size() > 0)
+        && (d.teamId.size() <= 200)
+        && (d.uploadedBy is string)
+        && (d.uploadedBy == request.auth.uid)
+
+        // Enforce Cloudinary public_id path to stop clients from writing arbitrary folders.
+        // Expected: match_highlights/{leagueId}/{matchId}/{teamId}/{highlightId}
+        && (d.cloudinaryPublicId is string)
+        && (d.cloudinaryPublicId == ('match_highlights/' + d.leagueId + '/' + matchId + '/' + d.teamId + '/' + highlightId))
+        && (d.cloudinaryPublicId.size() <= 600)
+
+        && (d.secureUrl is string)
+        && (d.secureUrl.size() <= 2000)
+        && (d.thumbnailUrl is string)
+        && (d.thumbnailUrl.size() <= 2000)
+
+        && (d.duration is int || d.duration is float)
+        && (d.duration >= 0)
+        && (d.duration <= maxSeconds)
+
+        && (d.size is int)
+        && (d.size >= 0)
+        && (d.size <= maxBytes)
+
+        && (d.format is string)
+        && (d.format.size() <= 10)
+
+        && (d.status is string)
+        && (d.status in ['UPLOADING', 'PROCESSING', 'APPROVED'])
+
+        // timestamps are optional/loose to avoid breaking existing docs, but must be timestamps if present
+        && (!('createdAt' in d) || d.createdAt == null || (d.createdAt is timestamp))
+        && (!('updatedAt' in d) || d.updatedAt == null || (d.updatedAt is timestamp));
+    }
+
+    function highlightUploaderIsLeagueParticipant(matchId, highlightId) {
+      let d = request.resource.data;
+
+      // Must be in league
+      let mem = membershipDoc(d.leagueId, request.auth.uid);
+
+      // Must reference a finished match under the same league (authoritative league match doc)
+      let md = leagueMatchDoc(d.leagueId, matchId);
+
       return signedIn()
-        && isLeagueAdmin(leagueId)
-        // Only allow these exact fields to keep the audit schema clean/immutable.
-        && request.resource.data.keys().hasOnly([
-          'teamId',
-          'type',
-          'points',
-          'reason',
-          'adjustedBy',
-          'createdAt'
-        ])
-        && (request.resource.data.teamId is string)
-        && (request.resource.data.teamId.size() > 0)
-        // Ensure adjustment references a real team doc in this league.
-        && exists(/databases/$(database)/documents/leagues/$(leagueId)/teams/$(request.resource.data.teamId))
-        && (request.resource.data.type is string)
-        && (request.resource.data.type in ['ADDITION', 'DEDUCTION'])
-        && (request.resource.data.points is int)
-        && (request.resource.data.points > 0)
-        && (request.resource.data.reason is string)
-        && (request.resource.data.reason.size() >= 3)
-        && (request.resource.data.adjustedBy is string)
-        && (request.resource.data.adjustedBy == request.auth.uid)
-        // When client writes FieldValue.serverTimestamp(), rules see request.time.
-        && (request.resource.data.createdAt == request.time);
+        && mem.exists()
+        && ('teamId' in mem.data)
+        && (mem.data.teamId is string)
+        && (mem.data.teamId == d.teamId)
+
+        && matchIsFinished(md)
+        && isParticipantTeam(md, d.teamId);
+    }
+
+    function highlightCreateIsValid(matchId, highlightId) {
+      let d = request.resource.data;
+
+      return highlightFieldsAreValid(matchId, highlightId)
+        && highlightUploaderIsLeagueParticipant(matchId, highlightId)
+
+        // Create must start as UPLOADING with empty URLs (optimistic UI doc).
+        && (d.status == 'UPLOADING')
+        && (d.secureUrl == '')
+        && (d.thumbnailUrl == '')
+        && (d.duration == 0 || d.duration == 0.0)
+        && (d.size == 0)
+        && (d.format == '')
+
+        // createdAt/updatedAt: allow unset/null or server timestamp (evaluates as timestamp)
+        && (!('createdAt' in d) || d.createdAt == null || (d.createdAt is timestamp))
+        && (!('updatedAt' in d) || d.updatedAt == null || (d.updatedAt is timestamp));
+    }
+
+    function highlightUploaderUpdateIsValid(matchId, highlightId) {
+      let d = request.resource.data;
+
+      // Identity fields MUST NOT change.
+      let identityUnchanged =
+        (d.matchId == resource.data.matchId)
+        && (d.leagueId == resource.data.leagueId)
+        && (d.teamId == resource.data.teamId)
+        && (d.uploadedBy == resource.data.uploadedBy)
+        && (d.cloudinaryPublicId == resource.data.cloudinaryPublicId);
+
+      // uploader must remain same user
+      let isUploader = signedIn()
+        && ('uploadedBy' in resource.data)
+        && (resource.data.uploadedBy is string)
+        && (resource.data.uploadedBy == request.auth.uid);
+
+      // still must be league participant + match finished (defense-in-depth)
+      let md = leagueMatchDoc(resource.data.leagueId, matchId);
+      let mem = membershipDoc(resource.data.leagueId, request.auth.uid);
+
+      let stillAllowed =
+        mem.exists()
+        && ('teamId' in mem.data)
+        && (mem.data.teamId is string)
+        && (mem.data.teamId == resource.data.teamId)
+        && matchIsFinished(md)
+        && isParticipantTeam(md, resource.data.teamId);
+
+      // Allowed uploader transitions:
+      // - UPLOADING (urls empty)  -> PROCESSING (urls set, duration/size/format set)
+      // - PROCESSING may be re-set idempotently (same data) on retry/merge
+      // - UPLOADING may be restored (markUploadFailed clears urls)
+      let uploadingStateOk =
+        (d.status == 'UPLOADING')
+        && (d.secureUrl == '')
+        && (d.thumbnailUrl == '')
+        && (d.size == 0)
+        && (d.duration == 0 || d.duration == 0.0)
+        && (d.format == '' || d.format == 'mp4'); // allow '' during uploading; tolerate mp4 if client writes it early
+
+      let processingStateOk =
+        (d.status == 'PROCESSING')
+        && (d.secureUrl.size() > 10)
+        && (d.thumbnailUrl.size() > 10)
+        && (d.size > 0)
+        && (d.duration > 0)
+        && (d.format == 'mp4');
+
+      return highlightFieldsAreValid(matchId, highlightId)
+        && identityUnchanged
+        && isUploader
+        && stillAllowed
+        && (uploadingStateOk || processingStateOk);
+    }
+
+    function highlightModeratorUpdateIsValid(matchId, highlightId) {
+      // League managers can approve highlights (moderation).
+      // Keep this extremely strict to prevent edits to URLs/metadata by admins.
+      return signedIn()
+        && canManageLeague(resource.data.leagueId)
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt'])
+        && (request.resource.data.status is string)
+        && (request.resource.data.status in ['PROCESSING', 'APPROVED'])
+        && (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt == null || (request.resource.data.updatedAt is timestamp));
     }
 
     // =========================================================================
@@ -289,11 +440,11 @@ service cloud.firestore {
         )
         && (
           !('replyToSenderName' in request.resource.data)
-          || ((request.resource.data.replyToSenderName is string && request.resource.data.replyToSenderName.size() <= 80))
+          || ((request.resource.data.replyToSenderName is string) && (request.resource.data.replyToSenderName.size() <= 80))
         )
         && (
           !('replyToText' in request.resource.data)
-          || ((request.resource.data.replyToText is string && request.resource.data.replyToText.size() <= 4000))
+          || ((request.resource.data.replyToText is string) && (request.resource.data.replyToText.size() <= 4000))
         )
         && (
           !('replyToType' in request.resource.data)
@@ -606,6 +757,14 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // =========================================================================
+      // FCM TOKENS (FIXED + RELAXED)
+      //
+      // Allows a signed-in user to store their own FCM tokens at:
+      // users/{uid}/fcmTokens/{token}
+      //
+      // This is required for diagnostics and future token-based fanout.
+      // =========================================================================
       match /fcmTokens/{tokenId} {
         allow get, list: if signedIn() && request.auth.uid == userId;
 
@@ -613,6 +772,7 @@ service cloud.firestore {
           && request.auth.uid == userId
           && (request.resource.data.token is string)
           && (request.resource.data.token == tokenId)
+          // allow any extra fields for forward compatibility
           && (!('platform' in request.resource.data) || (request.resource.data.platform is string))
           && (!('updatedAt' in request.resource.data) || (request.resource.data.updatedAt is timestamp))
           && (!('updatedAtMs' in request.resource.data) || (request.resource.data.updatedAtMs is int));
@@ -673,34 +833,18 @@ service cloud.firestore {
         allow delete: if canManageLeague(leagueId);
       }
 
-      // TEAMS (UPDATED):
-      // - Read is restricted to users who can read the league (private/public logic).
-      // - Writes are admin-only and enforce the points invariant:
-      //   finalPoints == basePoints + adminAdjustment
       match /teams/{teamId} {
-        allow read: if canReadLeague(leagueId);
-
-        allow create, update, delete: if isLeagueAdmin(leagueId)
-          && teamPointsInvariantHolds(request.resource.data)
-          && teamGdAndGfTypesOk(request.resource.data);
-      }
-
-      // ADMIN POINT ADJUSTMENTS (NEW):
-      // - Immutable audit log (create only; no update/delete).
-      // - Only ADMIN can create.
-      match /pointAdjustments/{adjustmentId} {
-        allow read: if canReadLeague(leagueId);
-        allow create: if validPointAdjustmentCreate(adjustmentId, leagueId);
-        allow update, delete: if false;
+        allow read: if signedIn();
+        allow write: if canManageLeague(leagueId);
       }
 
       match /matches/{matchId} {
-        allow read: if canReadLeague(leagueId);
+        allow read: if signedIn();
         allow write: if canManageLeague(leagueId);
       }
 
       match /knockout/{matchId} {
-        allow read: if canReadLeague(leagueId);
+        allow read: if signedIn();
         allow write: if canManageLeague(leagueId);
       }
 
@@ -737,7 +881,7 @@ service cloud.firestore {
       }
 
       match /announcements/{annId} {
-        allow read: if canReadLeague(leagueId);
+        allow read: if signedIn();
         allow write: if canManageLeague(leagueId);
       }
 
@@ -888,6 +1032,46 @@ service cloud.firestore {
 
       match /coupons/{couponId} {
         allow read, write: if false;
+      }
+    }
+
+    // =========================================================================
+    // TOP-LEVEL MATCHES (for highlights metadata only)
+    // matches/{matchId}/highlights/{highlightId}
+    // =========================================================================
+    match /matches/{matchId} {
+      // Parent doc not used by the highlights system. Keep locked down.
+      allow get, list, create, update, delete: if false;
+
+      match /highlights/{highlightId} {
+        // Reads: only signed-in users who can read the league.
+        // (If you want public unauthenticated viewing for public leagues, relax here carefully.)
+        allow get, list: if signedIn()
+          && ('leagueId' in resource.data)
+          && (resource.data.leagueId is string)
+          && canReadLeague(resource.data.leagueId);
+
+        // Create: strict metadata validation + membership + match finished + participant team.
+        allow create: if signedIn()
+          && highlightCreateIsValid(matchId, highlightId);
+
+        // Update:
+        // - uploader can move UPLOADING <-> PROCESSING with strict constraints
+        // - league managers can only change status (e.g. approve)
+        allow update: if signedIn()
+          && (
+            highlightUploaderUpdateIsValid(matchId, highlightId)
+            || highlightModeratorUpdateIsValid(matchId, highlightId)
+          );
+
+        // Delete: uploader can delete only their own UPLOADING doc (optional cleanup).
+        allow delete: if signedIn()
+          && ('uploadedBy' in resource.data)
+          && (resource.data.uploadedBy is string)
+          && (resource.data.uploadedBy == request.auth.uid)
+          && ('status' in resource.data)
+          && (resource.data.status is string)
+          && (resource.data.status == 'UPLOADING');
       }
     }
 

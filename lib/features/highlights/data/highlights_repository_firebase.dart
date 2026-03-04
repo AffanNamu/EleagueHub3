@@ -1,0 +1,313 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../leagues/models/fixture_match.dart';
+import '../../leagues/models/membership.dart';
+import '../domain/match_highlight.dart';
+
+class UserFriendlyException implements Exception {
+  final String message;
+  const UserFriendlyException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// Firebase/Firestore repository for match highlights.
+///
+/// Firestore structure (REQUIRED):
+/// matches/{matchId}/highlights/{highlightId}
+///
+/// Notes:
+/// - We intentionally store highlights under a top-level `matches` collection
+///   as per specification, independent of your `leagues/{leagueId}/matches`.
+/// - The highlight document includes leagueId/matchId/teamId for security rules.
+class HighlightsRepositoryFirebase {
+  HighlightsRepositoryFirebase({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance;
+
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
+
+  /// Cache streams by matchId to avoid recreating streams inside build().
+  final Map<String, Stream<List<MatchHighlight>>> _highlightsStreamCache = {};
+
+  String _requireUid() {
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      throw const UserFriendlyException('Please sign in and try again.');
+    }
+    return uid;
+  }
+
+  CollectionReference<Map<String, dynamic>> _highlightsCol(String matchId) {
+    final mid = matchId.trim();
+    if (mid.isEmpty) throw const UserFriendlyException('Invalid match id.');
+    return _firestore.collection('matches').doc(mid).collection('highlights');
+  }
+
+  /// Watches highlights for a match.
+  /// Stream is cached per matchId (performance requirement).
+  Stream<List<MatchHighlight>> watchHighlightsForMatch(String matchId) {
+    final key = matchId.trim();
+    if (key.isEmpty) return const Stream<List<MatchHighlight>>.empty();
+
+    final cached = _highlightsStreamCache[key];
+    if (cached != null) return cached;
+
+    final stream = _highlightsCol(key)
+        .orderBy('createdAt', descending: true)
+        .snapshots(includeMetadataChanges: true)
+        .map((snap) {
+      return snap.docs.map((d) => MatchHighlight.fromDoc(d)).toList(growable: false);
+    });
+
+    _highlightsStreamCache[key] = stream;
+    return stream;
+  }
+
+  /// Loads membership server-side (authoritative).
+  Future<Membership?> _loadMembershipServer({
+    required String leagueId,
+    required String userId,
+  }) async {
+    final lid = leagueId.trim();
+    final uid = userId.trim();
+    if (lid.isEmpty || uid.isEmpty) return null;
+
+    final doc = await _firestore
+        .collection('leagues')
+        .doc(lid)
+        .collection('memberships')
+        .doc(uid)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    if (!doc.exists) return null;
+    final data = doc.data();
+    if (data == null) return null;
+
+    // Backfill expected fields for older docs.
+    final map = <String, dynamic>{...data};
+    map['id'] = (map['id'] as String?)?.trim().isNotEmpty == true ? map['id'] : doc.id;
+    map['leagueId'] = (map['leagueId'] as String?)?.trim().isNotEmpty == true ? map['leagueId'] : lid;
+    map['userId'] = (map['userId'] as String?)?.trim().isNotEmpty == true ? map['userId'] : uid;
+
+    try {
+      return Membership.fromRemoteMap(map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Determines if user can upload highlight for this match.
+  ///
+  /// REQUIREMENTS:
+  /// - match must be FINISHED (in your model: isPlayed == true)
+  /// - user must be a league member
+  /// - user must belong to a team participating in the match
+  /// - teamId must match membership.teamId
+  Future<String> requireUploadTeamIdOrThrow({
+    required FixtureMatch match,
+  }) async {
+    final uid = _requireUid();
+
+    // Match finished gate (your app's equivalent of match.status == FINISHED).
+    if (!match.isPlayed) {
+      throw const UserFriendlyException('Highlights can only be uploaded after the match is finished.');
+    }
+
+    final membership = await _loadMembershipServer(
+      leagueId: match.leagueId,
+      userId: uid,
+    );
+
+    if (membership == null) {
+      throw const UserFriendlyException('You must be a league member to upload highlights.');
+    }
+
+    final teamId = (membership.teamId ?? '').trim();
+    if (teamId.isEmpty) {
+      throw const UserFriendlyException('You must be assigned to a team to upload highlights.');
+    }
+
+    final isParticipant = teamId == match.homeTeamId.trim() || teamId == match.awayTeamId.trim();
+    if (!isParticipant) {
+      throw const UserFriendlyException('Only teams that played this match can upload highlights.');
+    }
+
+    return teamId;
+  }
+
+  /// Returns the existing highlight (if any) for a team in this match.
+  ///
+  /// We keep this cheap to minimize reads. Used for dedupe/idempotency.
+  Future<MatchHighlight?> fetchExistingHighlightForTeam({
+    required String matchId,
+    required String teamId,
+  }) async {
+    final mid = matchId.trim();
+    final tid = teamId.trim();
+    if (mid.isEmpty || tid.isEmpty) return null;
+
+    final snap = await _highlightsCol(mid)
+        .where('teamId', isEqualTo: tid)
+        .limit(1)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    if (snap.docs.isEmpty) return null;
+    return MatchHighlight.fromDoc(snap.docs.first);
+  }
+
+  /// Creates an optimistic highlight document (UPLOADING) BEFORE upload.
+  ///
+  /// This enables:
+  /// - optimistic UI (user sees "uploading" immediately)
+  /// - idempotency (highlightId becomes stable public_id suffix)
+  ///
+  /// ABUSE PREVENTION:
+  /// - "one highlight per team per match" enforced here.
+  /// - retries reuse existing UPLOADING highlight doc (no duplicates).
+  Future<String> getOrCreateUploadingHighlight({
+    required FixtureMatch match,
+  }) async {
+    final uid = _requireUid();
+    final teamId = await requireUploadTeamIdOrThrow(match: match);
+
+    final existing = await fetchExistingHighlightForTeam(matchId: match.id, teamId: teamId);
+
+    // Folder per spec:
+    // match_highlights/{leagueId}/{matchId}/{teamId}
+    final cloudFolder = 'match_highlights/${match.leagueId}/${match.id}/$teamId';
+
+    if (existing != null) {
+      // If the team already uploaded (PROCESSING/APPROVED), block new uploads.
+      final hasUrl = existing.secureUrl.trim().isNotEmpty;
+      if (hasUrl && !existing.isUploading) {
+        throw const UserFriendlyException('Your team has already uploaded a highlight for this match.');
+      }
+
+      // If existing is UPLOADING (or url missing), treat as retry/resume.
+      // Ensure fields remain consistent (merge).
+      await _highlightsCol(match.id)
+          .doc(existing.id)
+          .set(
+            <String, dynamic>{
+              'matchId': match.id,
+              'leagueId': match.leagueId,
+              'teamId': teamId,
+              'uploadedBy': uid,
+              'cloudinaryPublicId': '$cloudFolder/${existing.id}',
+              'status': MatchHighlight.statusUploading,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 12));
+
+      return existing.id;
+    }
+
+    final ref = _highlightsCol(match.id).doc(); // auto id
+    final highlightId = ref.id;
+
+    final plannedPublicId = highlightId;
+
+    final doc = MatchHighlight(
+      id: highlightId,
+      matchId: match.id,
+      leagueId: match.leagueId,
+      teamId: teamId,
+      uploadedBy: uid,
+      cloudinaryPublicId: '$cloudFolder/$plannedPublicId',
+      secureUrl: '',
+      thumbnailUrl: '',
+      duration: 0,
+      size: 0,
+      format: '',
+      status: MatchHighlight.statusUploading,
+      createdAt: null,
+      updatedAt: null,
+    );
+
+    await ref
+        .set(
+          doc.toFirestoreMap(),
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    return highlightId;
+  }
+
+  /// Updates doc after Cloudinary upload succeeds.
+  ///
+  /// We intentionally move to PROCESSING (not APPROVED) to support moderation flows.
+  Future<void> markUploadSucceeded({
+    required String matchId,
+    required String highlightId,
+    required String cloudinaryPublicId,
+    required String secureUrl,
+    required String thumbnailUrl,
+    required double duration,
+    required int size,
+    required String format,
+  }) async {
+    _requireUid();
+
+    final ref = _highlightsCol(matchId).doc(highlightId);
+
+    await ref
+        .set(
+          <String, dynamic>{
+            'cloudinaryPublicId': cloudinaryPublicId,
+            'secureUrl': secureUrl,
+            'thumbnailUrl': thumbnailUrl,
+            'duration': duration,
+            'size': size,
+            'format': format,
+            'status': MatchHighlight.statusProcessing,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 15));
+  }
+
+  Future<void> markUploadFailed({
+    required String matchId,
+    required String highlightId,
+  }) async {
+    _requireUid();
+
+    // Minimal failure marking: keep doc but clear URLs.
+    final ref = _highlightsCol(matchId).doc(highlightId);
+
+    await ref
+        .set(
+          <String, dynamic>{
+            'secureUrl': '',
+            'thumbnailUrl': '',
+            'status': MatchHighlight.statusUploading,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 15));
+  }
+
+  /// Uploader can delete their own uploading highlight to retry cleanly.
+  Future<void> deleteHighlight({
+    required String matchId,
+    required String highlightId,
+  }) async {
+    _requireUid();
+    await _highlightsCol(matchId).doc(highlightId).delete().timeout(const Duration(seconds: 12));
+  }
+}
