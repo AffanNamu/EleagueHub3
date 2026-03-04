@@ -62,9 +62,14 @@ class CloudinarySignedVideoUploadService {
     String? signEndpoint,
   })  : _dio = dio ?? Dio(),
         _auth = auth ?? FirebaseAuth.instance,
-        _cloudName = (cloudName ?? const String.fromEnvironment('CLOUDINARY_CLOUD_NAME')).trim(),
-        _apiKey = (apiKey ?? const String.fromEnvironment('CLOUDINARY_API_KEY')).trim(),
-        _signEndpoint = (signEndpoint ?? const String.fromEnvironment('CLOUDINARY_SIGN_ENDPOINT')).trim();
+        _cloudName =
+            (cloudName ?? const String.fromEnvironment('CLOUDINARY_CLOUD_NAME'))
+                .trim(),
+        _apiKey =
+            (apiKey ?? const String.fromEnvironment('CLOUDINARY_API_KEY')).trim(),
+        _signEndpoint =
+            (signEndpoint ?? const String.fromEnvironment('CLOUDINARY_SIGN_ENDPOINT'))
+                .trim();
 
   final Dio _dio;
   final FirebaseAuth _auth;
@@ -81,7 +86,8 @@ class CloudinarySignedVideoUploadService {
       throw StateError('Cloudinary api key missing (CLOUDINARY_API_KEY).');
     }
     if (_signEndpoint.isEmpty) {
-      throw StateError('Cloudinary sign endpoint missing (CLOUDINARY_SIGN_ENDPOINT).');
+      throw StateError(
+          'Cloudinary sign endpoint missing (CLOUDINARY_SIGN_ENDPOINT).');
     }
   }
 
@@ -90,11 +96,16 @@ class CloudinarySignedVideoUploadService {
     if (user == null) {
       throw StateError('Please sign in and try again.');
     }
-    final t = (await user.getIdToken()).trim();
-    if (t.isEmpty) {
+
+    // firebase_auth versions vary: some expose getIdToken() as Future<String?>.
+    // Keep this code compatible with nullable return types.
+    final String raw = (await user.getIdToken()) ?? '';
+    final token = raw.trim();
+
+    if (token.isEmpty) {
       throw StateError('Authentication token unavailable. Please try again.');
     }
-    return t;
+    return token;
   }
 
   bool _isSafeHighlightsFolder(String folder) {
@@ -120,6 +131,7 @@ class CloudinarySignedVideoUploadService {
     if (s.isEmpty) return false;
     if (s.contains('/')) return false;
     if (s.contains('..')) return false;
+    if (s.contains('\\')) return false;
     return true;
   }
 
@@ -128,14 +140,14 @@ class CloudinarySignedVideoUploadService {
   }) async {
     _requireConfigured();
 
-    // Keep signer request small and explicit.
-    // NOTE: worker should also enforce the same restriction server-side.
     final folder = (params['folder'] ?? '').toString().trim();
     final publicId = (params['public_id'] ?? '').toString().trim();
 
     if (folder.isEmpty) throw StateError('Upload folder is required.');
     if (!_isSafeHighlightsFolder(folder)) {
-      throw StateError('Invalid highlight folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}.');
+      throw StateError(
+        'Invalid highlight folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}.',
+      );
     }
     if (!_isSafePublicIdLeaf(publicId)) {
       throw StateError('Invalid publicId.');
@@ -144,6 +156,7 @@ class CloudinarySignedVideoUploadService {
     // Signer must be authenticated using Firebase ID token.
     final idToken = await _requireFirebaseIdToken();
 
+    // Keep signer request small and explicit.
     final payload = <String, dynamic>{
       'params': params,
     };
@@ -156,7 +169,6 @@ class CloudinarySignedVideoUploadService {
             headers: <String, String>{
               'content-type': 'application/json',
               // REQUIRED for your worker verification logic:
-              // It verifies Firebase ID token signature and then checks Firestore.
               'authorization': 'Bearer $idToken',
             },
             responseType: ResponseType.json,
@@ -185,8 +197,12 @@ class CloudinarySignedVideoUploadService {
     // Allow signer to override apiKey/cloudName (useful for multi-env),
     // but default to local env.
     return <String, dynamic>{
-      'cloudName': (map['cloudName'] as String?)?.trim().isNotEmpty == true ? (map['cloudName'] as String).trim() : _cloudName,
-      'apiKey': (map['apiKey'] as String?)?.trim().isNotEmpty == true ? (map['apiKey'] as String).trim() : _apiKey,
+      'cloudName': (map['cloudName'] as String?)?.trim().isNotEmpty == true
+          ? (map['cloudName'] as String).trim()
+          : _cloudName,
+      'apiKey': (map['apiKey'] as String?)?.trim().isNotEmpty == true
+          ? (map['apiKey'] as String).trim()
+          : _apiKey,
       'timestamp': ts,
       'signature': signature,
     };
@@ -221,7 +237,9 @@ class CloudinarySignedVideoUploadService {
     final folderSafe = folder.trim();
     if (folderSafe.isEmpty) throw StateError('Upload folder is required.');
     if (!_isSafeHighlightsFolder(folderSafe)) {
-      throw StateError('Invalid highlight folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}.');
+      throw StateError(
+        'Invalid highlight folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}.',
+      );
     }
 
     final pid = publicId.trim();
@@ -251,7 +269,6 @@ class CloudinarySignedVideoUploadService {
       'file': await MultipartFile.fromFile(
         p,
         filename: '${pid.isEmpty ? 'highlight' : pid}.mp4',
-        // We intentionally omit contentType to avoid extra deps and because Cloudinary accepts it.
       ),
 
       // Required signed upload fields
