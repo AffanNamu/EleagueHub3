@@ -7,9 +7,14 @@ import '../../leagues/models/fixture_match.dart';
 import '../../leagues/models/membership.dart';
 import '../domain/match_highlight.dart';
 
-class UserFriendlyException implements Exception {
+/// Highlights-specific user-facing exception.
+///
+/// NOTE:
+/// This is intentionally NOT named `UserFriendlyException` to avoid clashing with
+/// other modules that also define `UserFriendlyException` (e.g. ConnectivityService).
+class HighlightsUserFriendlyException implements Exception {
   final String message;
-  const UserFriendlyException(this.message);
+  const HighlightsUserFriendlyException(this.message);
 
   @override
   String toString() => message;
@@ -40,14 +45,14 @@ class HighlightsRepositoryFirebase {
   String _requireUid() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
-      throw const UserFriendlyException('Please sign in and try again.');
+      throw const HighlightsUserFriendlyException('Please sign in and try again.');
     }
     return uid;
   }
 
   CollectionReference<Map<String, dynamic>> _highlightsCol(String matchId) {
     final mid = matchId.trim();
-    if (mid.isEmpty) throw const UserFriendlyException('Invalid match id.');
+    if (mid.isEmpty) throw const HighlightsUserFriendlyException('Invalid match id.');
     return _firestore.collection('matches').doc(mid).collection('highlights');
   }
 
@@ -119,7 +124,7 @@ class HighlightsRepositoryFirebase {
 
     // Match finished gate (your app's equivalent of match.status == FINISHED).
     if (!match.isPlayed) {
-      throw const UserFriendlyException('Highlights can only be uploaded after the match is finished.');
+      throw const HighlightsUserFriendlyException('Highlights can only be uploaded after the match is finished.');
     }
 
     final membership = await _loadMembershipServer(
@@ -128,17 +133,17 @@ class HighlightsRepositoryFirebase {
     );
 
     if (membership == null) {
-      throw const UserFriendlyException('You must be a league member to upload highlights.');
+      throw const HighlightsUserFriendlyException('You must be a league member to upload highlights.');
     }
 
     final teamId = (membership.teamId ?? '').trim();
     if (teamId.isEmpty) {
-      throw const UserFriendlyException('You must be assigned to a team to upload highlights.');
+      throw const HighlightsUserFriendlyException('You must be assigned to a team to upload highlights.');
     }
 
     final isParticipant = teamId == match.homeTeamId.trim() || teamId == match.awayTeamId.trim();
     if (!isParticipant) {
-      throw const UserFriendlyException('Only teams that played this match can upload highlights.');
+      throw const HighlightsUserFriendlyException('Only teams that played this match can upload highlights.');
     }
 
     return teamId;
@@ -174,6 +179,10 @@ class HighlightsRepositoryFirebase {
   /// ABUSE PREVENTION:
   /// - "one highlight per team per match" enforced here.
   /// - retries reuse existing UPLOADING highlight doc (no duplicates).
+  ///
+  /// IMPORTANT:
+  /// - createdAt MUST be written on create to support `orderBy('createdAt')` queries reliably.
+  /// - We set createdAt/updatedAt via server timestamps here (repository responsibility).
   Future<String> getOrCreateUploadingHighlight({
     required FixtureMatch match,
   }) async {
@@ -187,10 +196,18 @@ class HighlightsRepositoryFirebase {
     final cloudFolder = 'match_highlights/${match.leagueId}/${match.id}/$teamId';
 
     if (existing != null) {
+      // If someone else on the team started the upload, don't try to "take over" the doc,
+      // because Firestore rules enforce uploadedBy == auth.uid.
+      if (existing.uploadedBy.trim().isNotEmpty && existing.uploadedBy.trim() != uid) {
+        throw const HighlightsUserFriendlyException(
+          'A teammate already started uploading this highlight. Please wait or ask them to finish.',
+        );
+      }
+
       // If the team already uploaded (PROCESSING/APPROVED), block new uploads.
       final hasUrl = existing.secureUrl.trim().isNotEmpty;
       if (hasUrl && !existing.isUploading) {
-        throw const UserFriendlyException('Your team has already uploaded a highlight for this match.');
+        throw const HighlightsUserFriendlyException('Your team has already uploaded a highlight for this match.');
       }
 
       // If existing is UPLOADING (or url missing), treat as retry/resume.
@@ -206,6 +223,7 @@ class HighlightsRepositoryFirebase {
               'cloudinaryPublicId': '$cloudFolder/${existing.id}',
               'status': MatchHighlight.statusUploading,
               'updatedAt': FieldValue.serverTimestamp(),
+              // do NOT touch createdAt on retry
             },
             SetOptions(merge: true),
           )
@@ -217,6 +235,7 @@ class HighlightsRepositoryFirebase {
     final ref = _highlightsCol(match.id).doc(); // auto id
     final highlightId = ref.id;
 
+    // Stable public id leaf = highlightId.
     final plannedPublicId = highlightId;
 
     final doc = MatchHighlight(
@@ -236,9 +255,15 @@ class HighlightsRepositoryFirebase {
       updatedAt: null,
     );
 
+    final map = doc.toFirestoreMap();
+
+    // Ensure createdAt exists for reliable ordering and feed queries.
+    map['createdAt'] = FieldValue.serverTimestamp();
+    map['updatedAt'] = FieldValue.serverTimestamp();
+
     await ref
         .set(
-          doc.toFirestoreMap(),
+          map,
           SetOptions(merge: true),
         )
         .timeout(const Duration(seconds: 15));

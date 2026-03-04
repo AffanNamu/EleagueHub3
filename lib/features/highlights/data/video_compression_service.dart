@@ -58,8 +58,6 @@ class VideoCompressionService {
   static const int maxOutputHeight = 720;
 
   /// Audio policy: keep AAC at 128kbps when possible (requirement).
-  /// NOTE: For very long clips near the duration limit, a strict 15MB cap implies
-  /// a low total bitrate. We keep audio at 128k and reduce video bitrate and/or resolution.
   static const int audioBitrateKbps = 128;
 
   /// A small overhead budget for container + moov atom etc.
@@ -110,7 +108,6 @@ class VideoCompressionService {
       width = _intFrom(videoProps['width']);
       height = _intFrom(videoProps['height']);
 
-      // Some sources store as strings.
       if (width <= 0) width = _intFrom(videoProps['coded_width']);
       if (height <= 0) height = _intFrom(videoProps['coded_height']);
     }
@@ -128,7 +125,6 @@ class VideoCompressionService {
   /// Compresses a selected video to meet highlight constraints.
   ///
   /// [onProgress] emits 0..1 based on encoded time / duration.
-  /// This is non-blocking UI friendly (FFmpeg runs async).
   Future<CompressedVideoResult> compressHighlight({
     required String inputPath,
     int maxDurationSec = maxDurationSeconds,
@@ -158,35 +154,16 @@ class VideoCompressionService {
     final tmpDir = await getTemporaryDirectory();
     final outPath = '${tmpDir.path}/highlight_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
-    // Compute a total bitrate ceiling from maxBytes & duration:
-    // maxBytes * 8 (bits) / durationSeconds => bits/sec => /1000 => kbps.
     final dur = inputInfo.durationSeconds;
     final maxTotalKbps = ((maxBytes * 8) / dur / 1000).floor();
 
-    // Keep audio fixed to requirement, and allocate remainder to video.
-    // Clamp video bitrate for sanity and device encode stability.
     var videoKbps = max(250, maxTotalKbps - audioBitrateKbps - containerOverheadKbps);
-
-    // "Requirement target" says ~1500-2500kbps, but 15MB hard cap usually forces lower.
-    // We still cap to avoid runaway output sizes.
     videoKbps = videoKbps.clamp(350, 2200);
 
-    // If the computed bitrate is low, downscale more aggressively to maintain acceptable quality.
-    // This still respects "720p max" (can be lower).
     final effectiveMaxHeight = (videoKbps < 900) ? 540 : maxHeight;
 
-    // Scale filter:
-    // - If input height > effectiveMaxHeight, scale down preserving aspect ratio.
-    // - Ensure even dimensions (H.264 requirement).
     final vf = "scale=-2:'min(ih\\,$effectiveMaxHeight)',setsar=1";
 
-    // Encoding:
-    // - H.264 + AAC
-    // - veryfast preset: good mobile tradeoff
-    // - yuv420p for compatibility
-    // - faststart for quicker playback start
-    //
-    // IMPORTANT: avoid fancy flags that create extra derived assets on Cloudinary.
     final cmd = [
       '-y',
       '-i',
@@ -234,16 +211,12 @@ class VideoCompressionService {
           } else {
             final logs = await session.getAllLogsAsString();
             completer.completeError(
-              StateError(
-                'Compression failed. ${_bestEffortLogHint(logs)}',
-              ),
+              StateError('Compression failed. ${_bestEffortLogHint(logs)}'),
             );
           }
         },
         null,
         (stats) {
-          // stats.getTime() returns milliseconds of processed output.
-          // Use input duration as denominator for progress.
           final tMs = stats.getTime();
           if (tMs <= 0) return;
 
@@ -267,7 +240,6 @@ class VideoCompressionService {
         throw StateError('Compression failed: output is empty.');
       }
 
-      // HARD policy check: never upload a file over cap.
       if (outBytes > maxBytes) {
         try {
           await outFile.delete();
@@ -291,14 +263,12 @@ class VideoCompressionService {
         audioBitrateKbps: audioBitrateKbps,
       );
     } on TimeoutException {
-      // Best-effort cleanup.
       try {
         final out = File(outPath);
         if (await out.exists()) await out.delete();
       } catch (_) {}
       throw StateError('Compression timed out. Please try again.');
     } catch (e) {
-      // Best-effort cleanup.
       try {
         final out = File(outPath);
         if (await out.exists()) await out.delete();
@@ -316,16 +286,13 @@ class VideoCompressionService {
   }
 
   static String _q(String s) {
-    // Minimal quoting for FFmpeg command lines.
-    // Android paths can include spaces.
     final v = s.replaceAll('"', '\\"');
     return '"$v"';
   }
 
-  static String _bestEffortLogHint(String raw) {
-    final s = raw.trim();
+  static String _bestEffortLogHint(String? raw) {
+    final s = (raw ?? '').trim();
     if (s.isEmpty) return '';
-    // Avoid returning massive logs to UI.
     final lines = s.split('\n').where((l) => l.trim().isNotEmpty).toList();
     if (lines.isEmpty) return '';
     return lines.length <= 3 ? lines.join(' ') : lines.sublist(max(0, lines.length - 3)).join(' ');

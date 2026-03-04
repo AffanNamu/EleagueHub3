@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
-import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/connectivity_service.dart' as conn;
 import '../../../core/services/safe_video_picker.dart';
 import '../../leagues/models/fixture_match.dart';
 import '../data/cloudinary_signed_video_upload_service.dart';
@@ -38,16 +38,12 @@ class HighlightUploadState {
   /// Local compressed file path (best-effort, may be deleted on completion).
   final String? compressedPath;
 
-  /// Match id being uploaded (useful for UI/diagnostics).
-  final String? matchId;
-
   const HighlightUploadState({
     required this.stage,
     required this.progress01,
     required this.message,
     required this.highlightId,
     required this.compressedPath,
-    required this.matchId,
   });
 
   factory HighlightUploadState.idle() => const HighlightUploadState(
@@ -56,7 +52,6 @@ class HighlightUploadState {
         message: '',
         highlightId: null,
         compressedPath: null,
-        matchId: null,
       );
 
   HighlightUploadState copyWith({
@@ -65,7 +60,6 @@ class HighlightUploadState {
     String? message,
     String? highlightId,
     String? compressedPath,
-    String? matchId,
   }) {
     return HighlightUploadState(
       stage: stage ?? this.stage,
@@ -73,17 +67,12 @@ class HighlightUploadState {
       message: message ?? this.message,
       highlightId: highlightId ?? this.highlightId,
       compressedPath: compressedPath ?? this.compressedPath,
-      matchId: matchId ?? this.matchId,
     );
   }
 }
 
-/// NOT autoDispose:
-/// - Required for "background upload handling" inside the app.
-/// - If user navigates away from MatchDetailScreen, upload continues.
-/// - If you want per-session reset, call [HighlightUploadController.reset()].
 final highlightUploadControllerProvider =
-    StateNotifierProvider<HighlightUploadController, HighlightUploadState>(
+    StateNotifierProvider.autoDispose<HighlightUploadController, HighlightUploadState>(
   (ref) => HighlightUploadController(
     highlights: HighlightsRepositoryFirebase(),
     compression: VideoCompressionService(),
@@ -109,74 +98,80 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
   final FirebaseAuth _auth;
 
   CancelToken? _cancelToken;
-  bool _disposed = false;
+
+  void cancel() {
+    _cancelToken?.cancel('User cancelled');
+    _cancelToken = null;
+    state = HighlightUploadState.idle();
+  }
 
   bool get isBusy =>
       state.stage != HighlightUploadStage.idle &&
       state.stage != HighlightUploadStage.done &&
       state.stage != HighlightUploadStage.failed;
 
-  void reset() {
-    cancel();
-    if (_disposed) return;
-    state = HighlightUploadState.idle();
-  }
-
-  void cancel() {
-    _cancelToken?.cancel('User cancelled');
-    _cancelToken = null;
-  }
-
   Future<void> uploadHighlightForMatch(FixtureMatch match) async {
     if (isBusy) return;
 
     final uid = (_auth.currentUser?.uid ?? '').trim();
     if (uid.isEmpty) {
-      _set(stage: HighlightUploadStage.failed, message: 'Please sign in and try again.');
+      state = state.copyWith(
+        stage: HighlightUploadStage.failed,
+        message: 'Please sign in and try again.',
+      );
       return;
     }
-
-    final matchId = match.id.trim();
-    if (matchId.isEmpty) {
-      _set(stage: HighlightUploadStage.failed, message: 'Invalid match.');
-      return;
-    }
-
-    _set(matchId: matchId);
 
     try {
-      _set(stage: HighlightUploadStage.picking, message: 'Select highlight video...', progress01: 0);
+      state = state.copyWith(
+        stage: HighlightUploadStage.picking,
+        message: 'Select highlight video...',
+        progress01: 0,
+      );
 
       final pick = await SafeVideoPicker.pickVideo();
       if (pick.wasCancelled) {
-        _setIdle();
+        state = HighlightUploadState.idle();
         return;
       }
       if (!pick.isSuccess) {
-        _set(stage: HighlightUploadStage.failed, message: pick.errorMessage ?? 'Failed to select video.');
+        state = state.copyWith(
+          stage: HighlightUploadStage.failed,
+          message: pick.errorMessage ?? 'Failed to select video.',
+        );
         return;
       }
 
       final pf = pick.file!;
       final path = (pf.path ?? '').trim();
       if (path.isEmpty) {
-        _set(stage: HighlightUploadStage.failed, message: 'Selected video path is not available.');
+        state = state.copyWith(
+          stage: HighlightUploadStage.failed,
+          message: 'Selected video path is not available.',
+        );
         return;
       }
 
       // Network gate (prevents wasted compression if completely offline).
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await conn.ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-      _set(stage: HighlightUploadStage.probing, message: 'Checking video...', progress01: 0.02);
+      state = state.copyWith(
+        stage: HighlightUploadStage.probing,
+        message: 'Checking video...',
+        progress01: 0.02,
+      );
 
       // Probe early to enforce duration limit BEFORE creating doc.
       final info = await _compression.probe(path);
       if (info.durationSeconds <= 0) {
-        _set(stage: HighlightUploadStage.failed, message: 'Could not read video duration. Please choose a different clip.');
+        state = state.copyWith(
+          stage: HighlightUploadStage.failed,
+          message: 'Could not read video duration. Please choose a different clip.',
+        );
         return;
       }
       if (info.durationSeconds > VideoCompressionService.maxDurationSeconds) {
-        _set(
+        state = state.copyWith(
           stage: HighlightUploadStage.failed,
           message:
               'Video is too long (${info.durationSeconds.toStringAsFixed(0)}s). Max is ${VideoCompressionService.maxDurationSeconds}s.',
@@ -185,24 +180,31 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
       }
 
       // Create/reuse UPLOADING Firestore doc for optimistic UI.
-      _set(stage: HighlightUploadStage.preparingDoc, message: 'Preparing upload...', progress01: 0.05);
+      state = state.copyWith(
+        stage: HighlightUploadStage.preparingDoc,
+        message: 'Preparing upload...',
+        progress01: 0.05,
+      );
 
       final highlightId = await _highlights.getOrCreateUploadingHighlight(match: match);
-      _set(highlightId: highlightId);
+      state = state.copyWith(highlightId: highlightId);
 
       // Compress locally (non-blocking) to enforce 720p/15MB policy BEFORE upload.
-      _set(stage: HighlightUploadStage.compressing, message: 'Compressing...', progress01: 0.08);
+      state = state.copyWith(
+        stage: HighlightUploadStage.compressing,
+        message: 'Compressing...',
+        progress01: 0.08,
+      );
 
       final compressed = await _compression.compressHighlight(
         inputPath: path,
         onProgress: (p) {
-          // Map 0..1 into 0.08..0.55
           final mapped = 0.08 + (p.clamp(0.0, 1.0) * 0.47);
-          _set(progress01: mapped);
+          state = state.copyWith(progress01: mapped);
         },
       );
 
-      _set(
+      state = state.copyWith(
         compressedPath: compressed.outputPath,
         message: 'Uploading...',
         stage: HighlightUploadStage.uploading,
@@ -229,14 +231,21 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
             if (total <= 0) return;
             final p = (sent / total).clamp(0.0, 1.0);
 
-            // Map upload progress into 0.56..0.95
+            // Map upload progress into 0.56..0.95 portion.
             final mapped = 0.56 + (p * 0.39);
-            _set(progress01: mapped, message: 'Uploading... ${(p * 100).toStringAsFixed(0)}%');
+            state = state.copyWith(
+              progress01: mapped,
+              message: 'Uploading... ${(p * 100).toStringAsFixed(0)}%',
+            );
           },
         ),
       );
 
-      _set(stage: HighlightUploadStage.finishing, message: 'Finalizing...', progress01: 0.96);
+      state = state.copyWith(
+        stage: HighlightUploadStage.finishing,
+        message: 'Finalizing...',
+        progress01: 0.96,
+      );
 
       final thumbnailUrl = CloudinarySignedVideoUploadService.buildLightweightThumbnailUrl(
         secureVideoUrl: res.secureUrl,
@@ -262,15 +271,14 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
       } catch (_) {}
 
       _cancelToken = null;
-      _set(stage: HighlightUploadStage.done, message: 'Uploaded', progress01: 1.0);
+      state = state.copyWith(stage: HighlightUploadStage.done, message: 'Uploaded', progress01: 1.0);
     } catch (e) {
       _cancelToken = null;
 
-      final err = e is Object ? e : Exception('unknown');
-      final msg = _friendly(err);
-      _set(stage: HighlightUploadStage.failed, message: msg);
+      final msg = _friendly(e is Object ? e : Exception('unknown'));
+      state = state.copyWith(stage: HighlightUploadStage.failed, message: msg);
 
-      // Keep doc in UPLOADING state so user can retry without duplicates.
+      // If doc was created, keep it in UPLOADING state so user can retry without duplicates.
       final hid = state.highlightId;
       if (hid != null && hid.trim().isNotEmpty) {
         try {
@@ -280,52 +288,36 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
     }
   }
 
-  void _setIdle() {
-    if (_disposed) return;
-    state = HighlightUploadState.idle();
-  }
-
-  void _set({
-    HighlightUploadStage? stage,
-    double? progress01,
-    String? message,
-    String? highlightId,
-    String? compressedPath,
-    String? matchId,
-  }) {
-    if (_disposed) return;
-    state = state.copyWith(
-      stage: stage,
-      progress01: progress01,
-      message: message,
-      highlightId: highlightId,
-      compressedPath: compressedPath,
-      matchId: matchId,
-    );
-  }
-
   String _friendly(Object e) {
-    if (e is UserFriendlyException) return e.message;
+    if (e is HighlightsUserFriendlyException) return e.message;
+    if (e is conn.UserFriendlyException) return e.message;
+
     if (e is SocketException) return 'Your network appears to be offline. Please try again.';
     if (e is TimeoutException) return 'Your internet connection seems unstable. Please try again.';
     if (e is DioException && CancelToken.isCancel(e)) return 'Upload cancelled.';
+
     return UserFriendlyError.toMessage(e);
   }
 
   bool _isRetryable(Object e) {
     if (e is DioException && CancelToken.isCancel(e)) return false;
+
+    final lower = e.toString().toLowerCase();
+    if (lower.contains('cancel')) return false;
+
     if (e is SocketException) return true;
     if (e is TimeoutException) return true;
 
-    final s = e.toString().toLowerCase();
-    if (s.contains('timeout')) return true;
-    if (s.contains('network')) return true;
-    if (s.contains('unavailable')) return true;
+    if (lower.contains('timeout')) return true;
+    if (lower.contains('network')) return true;
+    if (lower.contains('unavailable')) return true;
 
-    // Signed endpoint or Cloudinary transient errors often appear as 5xx.
-    if (s.contains('upload failed (500)') || s.contains('upload failed (502)') || s.contains('upload failed (503)')) {
+    if (lower.contains('upload failed (500)') ||
+        lower.contains('upload failed (502)') ||
+        lower.contains('upload failed (503)')) {
       return true;
     }
+
     return false;
   }
 
@@ -341,11 +333,8 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
       } catch (e) {
         final err = e is Object ? e : Exception('unknown');
 
-        if (err is DioException && CancelToken.isCancel(err)) rethrow;
-
         if (attempt >= maxAttempts || !_isRetryable(err)) rethrow;
 
-        // Exponential backoff with upper bound to prevent infinite loops.
         await Future<void>.delayed(delay);
         delay = Duration(seconds: (delay.inSeconds * 2).clamp(2, 8));
       }
@@ -354,7 +343,6 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
 
   @override
   void dispose() {
-    _disposed = true;
     _cancelToken?.cancel('Disposed');
     _cancelToken = null;
     super.dispose();

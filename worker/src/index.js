@@ -303,6 +303,7 @@ async function _verifyFirebaseIdToken(env, request) {
     uid: payload.sub,
     email: typeof payload.email === "string" ? payload.email : null,
     payload,
+    token,
   };
 }
 
@@ -311,6 +312,12 @@ async function _verifyFirebaseIdToken(env, request) {
 // - Signature: sha1(sorted_params + api_secret)
 // - This endpoint returns signature + timestamp + public api_key
 // - Requires env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+//
+// SECURITY (highlights):
+// - This endpoint now validates that the user is allowed to upload highlights by
+//   reading Firestore as the user (using the same Firebase ID token).
+// - Zero-budget strategy: no Admin SDK required; reads are authorized by your
+//   Firestore security rules.
 // ============================================================================
 
 function _sanitizeCloudinaryPathPart(s) {
@@ -319,18 +326,7 @@ function _sanitizeCloudinaryPathPart(s) {
     .replace(/\s+/g, "_")
     .replace(/[^a-zA-Z0-9_\-\/:.]/g, "_")
     .replace(/\/{2,}/g, "/")
-    .slice(0, 180);
-}
-
-function _sanitizeCloudinaryTagList(s) {
-  // Cloudinary tags are comma-separated.
-  return String(s || "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .map((t) => t.replace(/[^a-zA-Z0-9_\-:.]/g, "_").slice(0, 40))
-    .slice(0, 10)
-    .join(",");
+    .slice(0, 240);
 }
 
 async function _sha1Hex(str) {
@@ -352,6 +348,93 @@ function _cloudinaryStringToSign(params) {
 
   // IMPORTANT: must be key=value joined by &
   return entries.map(([k, v]) => `${k}=${v}`).join("&");
+}
+
+function _firestoreApiBase(env) {
+  const projectId = String(env.FIREBASE_PROJECT_ID || "").trim();
+  if (!projectId) throw new Error("Worker missing FIREBASE_PROJECT_ID env var");
+  return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
+}
+
+async function _firestoreGetDoc(env, idToken, path) {
+  const url = `${_firestoreApiBase(env)}/${path.replace(/^\/+/, "")}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${idToken}`,
+    },
+  });
+
+  if (res.status === 404) return { ok: false, status: 404, doc: null };
+  if (!res.ok) {
+    const txt = await res.text();
+    return { ok: false, status: res.status, error: txt || `Firestore GET failed ${res.status}` };
+  }
+
+  const doc = await res.json();
+  return { ok: true, status: 200, doc };
+}
+
+function _fsString(doc, field) {
+  const v = doc && doc.fields && doc.fields[field];
+  if (!v) return "";
+  if (typeof v.stringValue === "string") return v.stringValue;
+  return "";
+}
+
+function _fsBool(doc, field) {
+  const v = doc && doc.fields && doc.fields[field];
+  if (!v) return null;
+  if (typeof v.booleanValue === "boolean") return v.booleanValue;
+  return null;
+}
+
+function _parseMatchHighlightsFolder(folder) {
+  // expected: match_highlights/{leagueId}/{matchId}/{teamId}
+  const f = String(folder || "").trim().replace(/^\/+/, "");
+  const parts = f.split("/").filter(Boolean);
+  if (parts.length !== 4) return null;
+  if (parts[0] !== "match_highlights") return null;
+  return { leagueId: parts[1], matchId: parts[2], teamId: parts[3], folder: f };
+}
+
+// Best-effort in-memory rate limiter (resets on worker restart).
+// Prevents basic signature spamming to protect free tier.
+const _rate = {
+  // key -> { count, resetAtMs }
+  map: new Map(),
+};
+function _rateKey(uid, leagueId, matchId) {
+  return `${uid}::${leagueId}::${matchId}`;
+}
+function _checkRate(uid, leagueId, matchId) {
+  const now = Date.now();
+  const key = _rateKey(uid, leagueId, matchId);
+  const windowMs = 60 * 60 * 1000; // 1 hour
+  const max = 6; // allow a few retries (compression/upload retries etc)
+
+  const cur = _rate.map.get(key);
+  if (!cur || now > cur.resetAtMs) {
+    _rate.map.set(key, { count: 1, resetAtMs: now + windowMs });
+    return { ok: true };
+  }
+
+  if (cur.count >= max) {
+    return { ok: false, error: "Rate limit exceeded. Please try again later." };
+  }
+
+  cur.count += 1;
+  _rate.map.set(key, cur);
+  return { ok: true };
+}
+
+function _isSafeCloudinaryPublicIdLeaf(publicId) {
+  const s = String(publicId || "").trim();
+  if (!s) return false;
+  if (s.includes("/")) return false;
+  // Keep it strict: Firestore highlightId is usually URL-safe / alnum-ish.
+  // Allow dash/underscore only.
+  return /^[A-Za-z0-9_-]{6,200}$/.test(s);
 }
 
 export default {
@@ -384,11 +467,6 @@ export default {
         return jsonResponse({ error: "userId required" }, 400);
       }
 
-      // Backward compatible:
-      // - leagueId -> roomName: league_<leagueId>
-      // - matchId  -> roomName: match_<matchId>
-      // - callId   -> roomName: call_<callId>
-      // - explicit roomName also supported
       if (!roomName) {
         return jsonResponse(
           { error: "One of leagueId, matchId, callId, or roomName is required" },
@@ -461,22 +539,12 @@ export default {
 
       try {
         if (action === "mute") {
-          const out = await mutePublishedTrack(
-            env,
-            roomName,
-            targetUserId,
-            true
-          );
+          const out = await mutePublishedTrack(env, roomName, targetUserId, true);
           return jsonResponse({ ok: true, action, out });
         }
 
         if (action === "unmute") {
-          const out = await mutePublishedTrack(
-            env,
-            roomName,
-            targetUserId,
-            false
-          );
+          const out = await mutePublishedTrack(env, roomName, targetUserId, false);
           return jsonResponse({ ok: true, action, out });
         }
 
@@ -515,29 +583,87 @@ export default {
         return jsonResponse({ error: "Invalid JSON" }, 400);
       }
 
-      const nowSec = Math.floor(Date.now() / 1000);
+      // Support both payload shapes:
+      // - { params: { folder, public_id, overwrite, timestamp } }
+      // - { folder, public_id, overwrite, timestamp }
+      const paramsIn = body && body.params && typeof body.params === "object" ? body.params : body;
 
-      // Allow client to request a signature for controlled params only.
-      // Folder MUST be under eleaguehub/ to reduce abuse.
-      const folder = _sanitizeCloudinaryPathPart(body.folder || "").replace(/^\/+/, "");
-      if (!folder || !folder.startsWith("eleaguehub/")) {
-        return jsonResponse({ error: "Invalid folder (must start with eleaguehub/)" }, 400);
+      const folderRaw = _sanitizeCloudinaryPathPart(paramsIn.folder || "").replace(/^\/+/, "");
+      const parsed = _parseMatchHighlightsFolder(folderRaw);
+
+      // Only highlights are supported here (tight abuse control).
+      if (!parsed) {
+        return jsonResponse(
+          { error: "Invalid folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}" },
+          400
+        );
       }
 
-      // public_id is optional; Cloudinary can auto-generate if omitted.
-      const publicId = _sanitizeCloudinaryPathPart(body.publicId || body.public_id || "").replace(/^\/+/, "");
+      const publicId = _sanitizeCloudinaryPathPart(paramsIn.public_id || paramsIn.publicId || "").replace(/^\/+/, "");
+      if (!_isSafeCloudinaryPublicIdLeaf(publicId)) {
+        return jsonResponse({ error: "Invalid public_id" }, 400);
+      }
 
-      const tags = _sanitizeCloudinaryTagList(body.tags || "");
+      // Enforce overwrite and block any extra transformation/tag usage (cost control).
+      const overwrite = paramsIn.overwrite === true || String(paramsIn.overwrite).toLowerCase() === "true";
+      if (!overwrite) {
+        return jsonResponse({ error: "overwrite must be true" }, 400);
+      }
+      if (paramsIn.transformation || paramsIn.tags || paramsIn.eager || paramsIn.streaming_profile) {
+        return jsonResponse({ error: "Transformations/tags are not allowed for highlights" }, 400);
+      }
 
-      // Optional transformation (string). Keep it short to avoid abuse.
-      const transformation = String(body.transformation || "").trim().slice(0, 500);
+      // Rate limit per uid+match (best effort).
+      const rl = _checkRate(verified.uid, parsed.leagueId, parsed.matchId);
+      if (!rl.ok) {
+        return jsonResponse({ error: rl.error }, 429);
+      }
 
-      // Build params to sign
+      // ---- Firestore authorization checks (zero-budget) ----
+      // We read as the user using the same Firebase ID token. Reads are authorized by your Firestore rules.
+      const membershipPath = `leagues/${parsed.leagueId}/memberships/${verified.uid}`;
+      const matchPath = `leagues/${parsed.leagueId}/matches/${parsed.matchId}`;
+
+      const memRes = await _firestoreGetDoc(env, verified.token, membershipPath);
+      if (!memRes.ok) {
+        return jsonResponse({ error: "Not allowed (membership not found)" }, 403);
+      }
+
+      const memTeamId = _fsString(memRes.doc, "teamId");
+      if (!memTeamId || memTeamId !== parsed.teamId) {
+        return jsonResponse({ error: "Not allowed (team mismatch)" }, 403);
+      }
+
+      const matchRes = await _firestoreGetDoc(env, verified.token, matchPath);
+      if (!matchRes.ok) {
+        return jsonResponse({ error: "Not allowed (match not found)" }, 403);
+      }
+
+      const isPlayed = _fsBool(matchRes.doc, "isPlayed");
+      const status = _fsString(matchRes.doc, "status");
+      const matchStatus = _fsString(matchRes.doc, "matchStatus");
+
+      const finished = (isPlayed === true) || status === "FINISHED" || matchStatus === "FINISHED";
+      if (!finished) {
+        return jsonResponse({ error: "Not allowed (match not finished)" }, 403);
+      }
+
+      const homeTeamId = _fsString(matchRes.doc, "homeTeamId");
+      const awayTeamId = _fsString(matchRes.doc, "awayTeamId");
+
+      const isParticipant = (memTeamId === homeTeamId) || (memTeamId === awayTeamId);
+      if (!isParticipant) {
+        return jsonResponse({ error: "Not allowed (team did not participate)" }, 403);
+      }
+
+      // Use server timestamp (do not trust client time).
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      // Build params to sign (minimal set).
       const paramsToSign = {
-        folder,
-        ...(publicId ? { public_id: publicId } : {}),
-        ...(tags ? { tags } : {}),
-        ...(transformation ? { transformation } : {}),
+        folder: parsed.folder,
+        public_id: publicId,
+        overwrite: "true",
         timestamp: nowSec,
       };
 
@@ -551,7 +677,9 @@ export default {
         apiKey,
         timestamp: nowSec,
         signature,
-        uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+
+        // FYI only; client can ignore.
+        uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`,
         params: paramsToSign,
       });
     }

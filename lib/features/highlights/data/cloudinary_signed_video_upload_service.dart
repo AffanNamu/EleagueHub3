@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 /// Result of a Cloudinary video upload.
 /// Fields chosen to populate Firestore highlight metadata.
@@ -24,12 +25,21 @@ class CloudinaryVideoUploadResult {
 
 /// Signed Cloudinary video uploader with progress support.
 ///
-/// WHY SIGNED UPLOAD (preferred):
+/// WHY SIGNED UPLOAD (required for highlights in zero-budget mode):
 /// - Prevents abuse: clients cannot upload arbitrary assets without a server signature.
 /// - NEVER embed Cloudinary API secret in the app.
 /// - Signature must be generated server-side (Cloudflare Worker / Firebase Function / tiny endpoint).
 ///
-/// EXPECTED SIGN ENDPOINT CONTRACT (recommended):
+/// SIGN ENDPOINT (your Cloudflare Worker):
+/// - Must require Firebase ID token:
+///   Authorization: Bearer <Firebase ID token>
+/// - Should validate:
+///   - league membership
+///   - match finished
+///   - team participated
+///   - rate limits
+///
+/// EXPECTED SIGN ENDPOINT CONTRACT:
 /// POST {signEndpoint}
 /// body: { "params": { "timestamp": 123, "folder": "...", "public_id": "...", "overwrite": true } }
 /// response JSON:
@@ -41,24 +51,24 @@ class CloudinaryVideoUploadResult {
 /// }
 ///
 /// SECURITY COMMENT:
-/// - The signer must authenticate the user (Firebase ID token) and verify:
-///   - user is a league member
-///   - match is finished
-///   - user team participated
-///   - rate limits (per uid/team/match) to protect free tier
-/// - Then it returns the signature for ONLY the allowed folder/public_id.
+/// - The signer must validate the user and only sign the allowed folder/public_id.
+/// - This client additionally enforces folder/public_id shape to reduce accidental misuse.
 class CloudinarySignedVideoUploadService {
   CloudinarySignedVideoUploadService({
     Dio? dio,
+    FirebaseAuth? auth,
     String? cloudName,
     String? apiKey,
     String? signEndpoint,
   })  : _dio = dio ?? Dio(),
+        _auth = auth ?? FirebaseAuth.instance,
         _cloudName = (cloudName ?? const String.fromEnvironment('CLOUDINARY_CLOUD_NAME')).trim(),
         _apiKey = (apiKey ?? const String.fromEnvironment('CLOUDINARY_API_KEY')).trim(),
         _signEndpoint = (signEndpoint ?? const String.fromEnvironment('CLOUDINARY_SIGN_ENDPOINT')).trim();
 
   final Dio _dio;
+  final FirebaseAuth _auth;
+
   final String _cloudName;
   final String _apiKey;
   final String _signEndpoint;
@@ -75,12 +85,65 @@ class CloudinarySignedVideoUploadService {
     }
   }
 
+  Future<String> _requireFirebaseIdToken() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('Please sign in and try again.');
+    }
+    final t = (await user.getIdToken()).trim();
+    if (t.isEmpty) {
+      throw StateError('Authentication token unavailable. Please try again.');
+    }
+    return t;
+  }
+
+  bool _isSafeHighlightsFolder(String folder) {
+    // Strict folder strategy per spec:
+    // match_highlights/{leagueId}/{matchId}/{teamId}
+    final f = folder.trim();
+    if (!f.startsWith('match_highlights/')) return false;
+
+    // avoid weird injection / accidental absolute paths
+    if (f.contains('..')) return false;
+    if (f.contains('\\')) return false;
+
+    // Must have exactly 4 segments.
+    final parts = f.split('/').where((p) => p.trim().isNotEmpty).toList(growable: false);
+    if (parts.length != 4) return false;
+
+    return true;
+  }
+
+  bool _isSafePublicIdLeaf(String publicId) {
+    // highlightId should be a leaf, not a path.
+    final s = publicId.trim();
+    if (s.isEmpty) return false;
+    if (s.contains('/')) return false;
+    if (s.contains('..')) return false;
+    return true;
+  }
+
   Future<Map<String, dynamic>> _signParams({
     required Map<String, dynamic> params,
   }) async {
     _requireConfigured();
 
     // Keep signer request small and explicit.
+    // NOTE: worker should also enforce the same restriction server-side.
+    final folder = (params['folder'] ?? '').toString().trim();
+    final publicId = (params['public_id'] ?? '').toString().trim();
+
+    if (folder.isEmpty) throw StateError('Upload folder is required.');
+    if (!_isSafeHighlightsFolder(folder)) {
+      throw StateError('Invalid highlight folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}.');
+    }
+    if (!_isSafePublicIdLeaf(publicId)) {
+      throw StateError('Invalid publicId.');
+    }
+
+    // Signer must be authenticated using Firebase ID token.
+    final idToken = await _requireFirebaseIdToken();
+
     final payload = <String, dynamic>{
       'params': params,
     };
@@ -90,8 +153,11 @@ class CloudinarySignedVideoUploadService {
           _signEndpoint,
           data: jsonEncode(payload),
           options: Options(
-            headers: const <String, String>{
+            headers: <String, String>{
               'content-type': 'application/json',
+              // REQUIRED for your worker verification logic:
+              // It verifies Firebase ID token signature and then checks Firestore.
+              'authorization': 'Bearer $idToken',
             },
             responseType: ResponseType.json,
             sendTimeout: const Duration(seconds: 10),
@@ -154,9 +220,12 @@ class CloudinarySignedVideoUploadService {
 
     final folderSafe = folder.trim();
     if (folderSafe.isEmpty) throw StateError('Upload folder is required.');
+    if (!_isSafeHighlightsFolder(folderSafe)) {
+      throw StateError('Invalid highlight folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}.');
+    }
 
     final pid = publicId.trim();
-    if (pid.isEmpty) throw StateError('publicId is required.');
+    if (!_isSafePublicIdLeaf(pid)) throw StateError('publicId is required.');
 
     final bytes = await f.length();
     if (bytes <= 0) throw StateError('Video file is empty.');
