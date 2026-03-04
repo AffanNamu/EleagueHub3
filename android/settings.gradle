@@ -26,6 +26,8 @@ pluginManagement {
     repositories {
         google()
         mavenCentral()
+        // Required for ffmpeg-kit artifacts in some environments
+        maven { url "https://maven.arthenica.com" }
         gradlePluginPortal()
     }
 
