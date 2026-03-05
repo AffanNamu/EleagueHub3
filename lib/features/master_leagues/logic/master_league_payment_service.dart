@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutterwave_standard/flutterwave.dart';
@@ -84,6 +85,18 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
   @override
   String get providerName => 'flutterwave';
 
+  Locale _effectiveLocale(BuildContext context) {
+    // Stronger fallback than maybeLocaleOf(context) alone.
+    return Localizations.maybeLocaleOf(context) ?? WidgetsBinding.instance.platformDispatcher.locale;
+  }
+
+  String _paymentOptionsForCurrency(String currency) {
+    final c = currency.trim().toUpperCase();
+    // USSD/banktransfer are typically NGN flows.
+    if (c == 'NGN') return 'card,ussd,banktransfer';
+    return 'card';
+  }
+
   String _toFlutterwaveAmount(double v) {
     final rounded = double.parse(v.toStringAsFixed(2));
     final intVal = rounded.toInt();
@@ -93,7 +106,7 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
 
   double _roundMoney(String currency, double v) {
     final c = currency.trim().toUpperCase();
-    if (c == 'NGN') return v.roundToDouble();
+    if (c == 'NGN') return v.roundToDouble(); // no decimals
     return double.parse(v.toStringAsFixed(2));
   }
 
@@ -103,6 +116,11 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (authUid.trim().isNotEmpty) return authUid.trim();
     return 'anonymous';
+  }
+
+  bool _isChargeSuccessful(ChargeResponse response) {
+    final status = (response.status ?? '').toString().trim().toLowerCase();
+    return response.success == true || status == 'successful';
   }
 
   @override
@@ -118,16 +136,30 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
     try {
       FlutterwaveConfig.assertConfigured();
 
-      final price = await MasterLeaguePricingService().getMasterLeaguePriceForLocale(
-        Localizations.maybeLocaleOf(context),
-      );
+      final pricing = MasterLeaguePricingService();
+
+      // First attempt: use effective locale
+      final loc = _effectiveLocale(context);
+      var price = await pricing.getMasterLeaguePriceForLocale(loc);
+
+      // If device is Nigeria but currency came back non-NGN, try again forcing countryCode=NG
+      // (This helps when locale is "en" without country code or resolver is strict.)
+      final cc = (loc.countryCode ?? '').trim().toUpperCase();
+      if (cc == 'NG' && price != null && price.currency.trim().toUpperCase() != 'NGN') {
+        final forced = Locale(loc.languageCode.isNotEmpty ? loc.languageCode : 'en', 'NG');
+        final priceNg = await pricing.getMasterLeaguePriceForLocale(forced);
+        if (priceNg != null) price = priceNg;
+      }
 
       if (price == null) {
         throw StateError("Master League price isn't configured yet. Please try again later.");
       }
 
       currencyUsed = price.currency.trim().toUpperCase();
-      final rawAmount = (price.amount is int) ? (price.amount as int).toDouble() : (price.amount as num).toDouble();
+
+      final rawAmount = (price.amount is int)
+          ? (price.amount as int).toDouble()
+          : (price.amount as num).toDouble();
 
       final rounded = _roundMoney(currencyUsed, rawAmount);
       if (rounded <= 0) {
@@ -174,20 +206,25 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         txRef: txRef,
         amount: totalAmount,
         customer: customer,
-        paymentOptions: 'card,ussd,banktransfer',
 
-        // FIX: Customization() is not const in flutterwave_standard, so don't use `const`.
+        // IMPORTANT: match payment options to currency
+        paymentOptions: _paymentOptionsForCurrency(currencyUsed),
+
         customization: Customization(
           title: 'EleagueHub',
           description: 'Master League access (3 months)',
         ),
-
         isTestMode: FlutterwaveConfig.isTestMode,
       );
 
       final ChargeResponse response = await flutterwave.charge(context);
 
-      if (response.success == true) {
+      debugPrint(
+        'Flutterwave charge result: success=${response.success} status=${response.status} '
+        'txRef=${response.txRef} transactionId=${response.transactionId} message=${response.message}',
+      );
+
+      if (_isChargeSuccessful(response)) {
         final now = DateTime.now().millisecondsSinceEpoch;
         final receipt = (response.transactionId != null && '${response.transactionId}'.trim().isNotEmpty)
             ? 'FLW-${response.transactionId}'
@@ -217,6 +254,10 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         );
       }
 
+      final msg = (response.message?.toString().trim().isNotEmpty ?? false)
+          ? response.message!.toString().trim()
+          : 'Payment cancelled or not successful';
+
       await AppAnalyticsService.instance.logPaymentResult(
         kind: 'master_league',
         leagueId: '',
@@ -226,13 +267,13 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         currency: currencyUsed,
         amount: totalAmount,
         receiptId: null,
-        errorMessage: 'Payment cancelled or not successful',
+        errorMessage: msg,
         userId: effectiveUserId,
       );
 
       return MasterLeaguePaymentResult.failed(
         provider: providerName,
-        errorMessage: 'Payment cancelled or not successful',
+        errorMessage: msg,
         currency: currencyUsed,
         totalAmount: totalAmount,
       );
