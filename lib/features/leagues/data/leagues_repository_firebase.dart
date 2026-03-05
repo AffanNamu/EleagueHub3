@@ -27,6 +27,9 @@ class LeaguesRepositoryFirebase {
 
   CollectionReference<Map<String, dynamic>> get _leaguesCol => _firestore.collection('leagues');
 
+  // Master League System
+  CollectionReference<Map<String, dynamic>> get _masterLeaguesCol => _firestore.collection('master_leagues');
+
   String _requireAuthUid() {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
@@ -86,6 +89,31 @@ class LeaguesRepositoryFirebase {
     return League.fromRemoteMap(map);
   }
 
+  // Master League System: client-side validation
+  Future<void> _requireMasterLeagueOwnerOrThrow({
+    required String masterLeagueId,
+    required String authUid,
+  }) async {
+    final id = masterLeagueId.trim();
+    if (id.isEmpty) return;
+
+    final snap = await _masterLeaguesCol
+        .doc(id)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    if (!snap.exists) {
+      throw const UserFriendlyException("We couldn't find that Master League. Please refresh and try again.");
+    }
+
+    final data = snap.data() ?? <String, dynamic>{};
+    final ownerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+
+    if (ownerId.isEmpty || ownerId != authUid) {
+      throw const UserFriendlyException('Only the Master League owner can create competitions inside it.');
+    }
+  }
+
   Future<List<League>> getAllLeagues() async {
     try {
       final uid = _requireAuthUid();
@@ -125,7 +153,10 @@ class LeaguesRepositoryFirebase {
     try {
       _requireAuthUid();
 
-      final doc = await _leaguesCol.doc(id).get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+      final doc = await _leaguesCol
+          .doc(id)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
 
       if (!doc.exists) return null;
       return _snapToLeague(doc);
@@ -139,11 +170,9 @@ class LeaguesRepositoryFirebase {
   /// - memberIds contains auth uid
   /// - memberships/{authUid} exists (needed by membership-based rules, chatroom)
   ///
-  /// SECURITY NOTE:
-  /// - In production, pair this with Firestore Security Rules enforcing:
-  ///   - Only league admins can modify admin-only fields
-  ///   - Admin Point Adjustment writes go to pointAdjustments and aggregate fields
-  ///   - Prevent direct finalPoints overwrite unless invariant holds
+  /// Master League System:
+  /// - If `league.masterLeagueId` is set, validate that current user owns
+  ///   `master_leagues/{masterLeagueId}` (client-side guard; still enforce via rules).
   Future<void> saveLeague(League league) async {
     try {
       final authUid = _requireAuthUid();
@@ -157,6 +186,11 @@ class LeaguesRepositoryFirebase {
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
 
+      final masterLeagueId = fixed.masterLeagueId.trim();
+      if (masterLeagueId.isNotEmpty) {
+        await _requireMasterLeagueOwnerOrThrow(masterLeagueId: masterLeagueId, authUid: authUid);
+      }
+
       final leagueRef = _leaguesCol.doc(id);
       final membershipRef = leagueRef.collection('memberships').doc(authUid);
 
@@ -164,16 +198,23 @@ class LeaguesRepositoryFirebase {
 
       final batch = _firestore.batch();
 
+      final leagueData = <String, dynamic>{
+        ...fixed.toJson(),
+        'organizerUid': authUid,
+        'ownerUid': authUid,
+        'ownerId': authUid,
+        'memberIds': FieldValue.arrayUnion([authUid]),
+        'updatedAtMs': now,
+      };
+
+      // Canonical storage:
+      // - if empty: delete field so standalone leagues don't store it.
+      // - if set: store string id.
+      leagueData['masterLeagueId'] = masterLeagueId.isEmpty ? FieldValue.delete() : masterLeagueId;
+
       batch.set(
         leagueRef,
-        {
-          ...fixed.toJson(),
-          'organizerUid': authUid,
-          'ownerUid': authUid,
-          'ownerId': authUid,
-          'memberIds': FieldValue.arrayUnion([authUid]),
-          'updatedAtMs': now,
-        },
+        leagueData,
         SetOptions(merge: true),
       );
 

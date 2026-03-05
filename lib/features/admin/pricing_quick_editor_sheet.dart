@@ -57,6 +57,9 @@ String _numToText(dynamic v) {
 ///
 /// This does NOT require "going to Firebase console". It still uses Firestore rules,
 /// so only allowed users can save.
+///
+/// Master League System:
+/// - Adds pricing key: `masterLeagueFee` under each currency block (usd/ngn)
 Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   if (uid.isEmpty) {
@@ -116,10 +119,12 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   final usdAccessFee = TextEditingController(text: _numToText(usd['accessFee']));
   final usdCreateFee = TextEditingController(text: _numToText(usd['createLeagueFee']));
   final usdCouponUnit = TextEditingController(text: _numToText(usd['couponUnit']));
+  final usdMasterLeagueFee = TextEditingController(text: _numToText(usd['masterLeagueFee']));
 
   final ngnAccessFee = TextEditingController(text: _numToText(ngn['accessFee']));
   final ngnCreateFee = TextEditingController(text: _numToText(ngn['createLeagueFee']));
   final ngnCouponUnit = TextEditingController(text: _numToText(ngn['couponUnit']));
+  final ngnMasterLeagueFee = TextEditingController(text: _numToText(ngn['masterLeagueFee']));
 
   bool saved = false;
 
@@ -138,7 +143,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
       bool busy = false;
       String? error;
 
-      Widget field(String label, TextEditingController c) {
+      Widget field(String label, TextEditingController c, {String? helper}) {
         final fill = isLight ? Colors.white.withOpacity(0.52) : on.withOpacity(0.06);
         final border = isLight ? Colors.white.withOpacity(0.72) : on.withOpacity(0.12);
 
@@ -150,6 +155,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
             keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
             decoration: InputDecoration(
               labelText: label,
+              helperText: helper,
               filled: true,
               fillColor: fill,
               border: OutlineInputBorder(
@@ -175,12 +181,21 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
         final ua = _parseNum(usdAccessFee.text);
         final uc = _parseNum(usdCreateFee.text);
         final uu = _parseNum(usdCouponUnit.text);
+        final uml = _parseNum(usdMasterLeagueFee.text);
 
         final na = _parseNum(ngnAccessFee.text);
         final nc = _parseNum(ngnCreateFee.text);
         final nu = _parseNum(ngnCouponUnit.text);
+        final nml = _parseNum(ngnMasterLeagueFee.text);
 
-        if (ua == null || uc == null || uu == null || na == null || nc == null || nu == null) {
+        if (ua == null ||
+            uc == null ||
+            uu == null ||
+            uml == null ||
+            na == null ||
+            nc == null ||
+            nu == null ||
+            nml == null) {
           setSheet(() => error = 'Enter valid numbers for all fields.');
           return;
         }
@@ -201,11 +216,13 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                     'accessFee': ua,
                     'createLeagueFee': uc,
                     'couponUnit': uu,
+                    'masterLeagueFee': uml,
                   },
                   'ngn': <String, dynamic>{
                     'accessFee': na,
                     'createLeagueFee': nc,
                     'couponUnit': nu,
+                    'masterLeagueFee': nml,
                   },
                   'updatedAtMs': now,
                   'updatedBy': uid,
@@ -292,6 +309,11 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                           field('USD Access Fee', usdAccessFee),
                           field('USD Create League Fee', usdCreateFee),
                           field('USD Coupon Unit', usdCouponUnit),
+                          field(
+                            'USD Master League Fee',
+                            usdMasterLeagueFee,
+                            helper: 'Premium unlock fee (pay once, create many competitions)',
+                          ),
                           const SizedBox(height: 8),
                           Align(
                             alignment: AlignmentDirectional.centerStart,
@@ -304,6 +326,11 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                           field('NGN Access Fee', ngnAccessFee),
                           field('NGN Create League Fee', ngnCreateFee),
                           field('NGN Coupon Unit', ngnCouponUnit),
+                          field(
+                            'NGN Master League Fee',
+                            ngnMasterLeagueFee,
+                            helper: 'Premium unlock fee (pay once, create many competitions)',
+                          ),
                           if ((error ?? '').trim().isNotEmpty) ...[
                             const SizedBox(height: 10),
                             Container(
@@ -360,9 +387,12 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   usdAccessFee.dispose();
   usdCreateFee.dispose();
   usdCouponUnit.dispose();
+  usdMasterLeagueFee.dispose();
+
   ngnAccessFee.dispose();
   ngnCreateFee.dispose();
   ngnCouponUnit.dispose();
+  ngnMasterLeagueFee.dispose();
 
   if (saved && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(

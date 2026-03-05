@@ -41,6 +41,9 @@ import '../../features/live/presentation/join_match_screen.dart';
 import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/marketplace/presentation/admin_marketplace_upload_screen.dart';
 import '../../features/marketplace/presentation/marketplace_screen.dart';
+import '../../features/master_leagues/presentation/create_master_league_screen.dart';
+import '../../features/master_leagues/presentation/master_league_details_screen.dart';
+import '../../features/master_leagues/presentation/master_leagues_list_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
 import '../services/app_admins_service.dart';
@@ -451,6 +454,24 @@ final appRouter = GoRouter(
               hostSide: hostSide,
             );
           },
+        ),
+
+        // ── Master Leagues (Premium container) ────────────────────────────
+        GoRoute(
+          path: 'master-leagues',
+          builder: (context, state) => const MasterLeaguesListScreen(),
+          routes: [
+            GoRoute(
+              path: 'create',
+              builder: (context, state) => const CreateMasterLeagueScreen(),
+            ),
+            GoRoute(
+              path: ':id',
+              builder: (context, state) => MasterLeagueDetailsScreen(
+                masterLeagueId: state.pathParameters['id']!,
+              ),
+            ),
+          ],
         ),
 
         // ── Leagues ──────────────────────────────────────────────────────

@@ -57,8 +57,7 @@ class LeagueFlipCard extends StatefulWidget {
   State<LeagueFlipCard> createState() => _LeagueFlipCardState();
 }
 
-class _LeagueFlipCardState extends State<LeagueFlipCard>
-    with SingleTickerProviderStateMixin {
+class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProviderStateMixin {
   static const double _outerRadius = 28;
 
   final RewardFirestoreService _rewardsService = RewardFirestoreService();
@@ -68,8 +67,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
   bool _showBack = false;
 
-  final Map<String, Future<String?>> _topRewardFutureCache =
-      <String, Future<String?>>{};
+  final Map<String, Future<String?>> _topRewardFutureCache = <String, Future<String?>>{};
 
   @override
   void initState() {
@@ -161,10 +159,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
     final map = _extractMap(widget.league);
 
-    if (map.containsKey('homeAwayEnabled') ||
-        map.containsKey('homeAndAwayEnabled')) {
-      return _boolFromAny(map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'],
-          fallback: false);
+    if (map.containsKey('homeAwayEnabled') || map.containsKey('homeAndAwayEnabled')) {
+      return _boolFromAny(map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'], fallback: false);
     }
 
     final settings = map['settings'];
@@ -178,14 +174,19 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
     return false;
   }
 
+  bool _isInsideMasterLeague() {
+    final map = _extractMap(widget.league);
+    final id = (map['masterLeagueId'] ?? '').toString().trim();
+    return id.isNotEmpty;
+  }
+
   String _deriveLeagueId() {
     final explicit = (widget.leagueId ?? '').trim();
     if (explicit.isNotEmpty) return explicit;
 
     final league = widget.league;
     final map = _extractMap(league);
-    final id =
-        (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '').toString().trim();
+    final id = (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '').toString().trim();
     if (id.isNotEmpty) return id;
 
     try {
@@ -285,9 +286,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final height = (constraints.hasBoundedHeight && constraints.maxHeight > 0)
-            ? constraints.maxHeight
-            : 220.0;
+        final height = (constraints.hasBoundedHeight && constraints.maxHeight > 0) ? constraints.maxHeight : 220.0;
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -301,8 +300,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
             tween: Tween<double>(begin: 0.985, end: 1.0),
             duration: const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
-            builder: (context, s, child) =>
-                Transform.scale(scale: s, child: child),
+            builder: (context, s, child) => Transform.scale(scale: s, child: child),
             child: AnimatedBuilder(
               animation: _anim,
               builder: (context, _) {
@@ -320,9 +318,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                 final scale = 1.0 + (0.018 * lift);
 
                 final isBackVisible = t >= 0.5;
-                final face = isBackVisible
-                    ? _backFace(context, t)
-                    : _frontFace(context, leagueId, t);
+                final face = isBackVisible ? _backFace(context, t) : _frontFace(context, leagueId, t);
 
                 // Premium shadow:
                 // - Light mode: soft blue glow (avoid harsh dark shadow)
@@ -332,9 +328,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     ? cs.primary.withValues(alpha: 0.10 + (0.18 * lift))
                     : Colors.black.withValues(alpha: shadowOpacity);
 
-                final effectiveBorderColor = isLight
-                    ? Colors.white.withValues(alpha: 0.22)
-                    : Colors.white.withValues(alpha: 0.10);
+                final effectiveBorderColor =
+                    isLight ? Colors.white.withValues(alpha: 0.22) : Colors.white.withValues(alpha: 0.10);
 
                 return Transform.translate(
                   offset: Offset(0, translateY),
@@ -359,9 +354,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           ..rotateY(diagonalTwist),
                         child: Transform(
                           alignment: Alignment.center,
-                          transform: isBackVisible
-                              ? (Matrix4.identity()..rotateX(math.pi))
-                              : Matrix4.identity(),
+                          transform: isBackVisible ? (Matrix4.identity()..rotateX(math.pi)) : Matrix4.identity(),
                           child: Glass(
                             borderRadius: _outerRadius,
                             padding: EdgeInsets.zero,
@@ -391,14 +384,12 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
     final distribution = _distribution();
     final subtitle = _subtitle();
 
-    final bool wantsRewardsUi = (widget.showRewardsBadge ||
-            widget.showRewardsPreview) &&
-        leagueId.trim().isNotEmpty;
+    final bool wantsRewardsUi = (widget.showRewardsBadge || widget.showRewardsPreview) && leagueId.trim().isNotEmpty;
 
-    final Future<String?>? topRewardFuture =
-        wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
+    final Future<String?>? topRewardFuture = wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
 
     final bool showHomeAway = _homeAwayEnabled();
+    final bool insideMasterLeague = _isInsideMasterLeague();
 
     final sheenPos = -1.35 + (2.70 * t);
     final sheenStrength = (math.sin(t * math.pi)).clamp(0.0, 1.0);
@@ -493,6 +484,21 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       ),
                     ),
                   ),
+                  if (insideMasterLeague)
+                    _MiniPill(
+                      icon: Icons.hub_rounded,
+                      label: 'Master',
+                      gradient: LinearGradient(
+                        colors: [
+                          cs.primary.withOpacity(0.92),
+                          cs.secondary.withOpacity(0.82),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      textColor: Colors.white.withValues(alpha: 0.94),
+                    ),
+                  if (insideMasterLeague && widget.showRewardsBadge && topRewardFuture != null) const SizedBox(width: 8),
                   if (widget.showRewardsBadge && topRewardFuture != null)
                     FutureBuilder<String?>(
                       future: topRewardFuture,
@@ -862,9 +868,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w900,
                           letterSpacing: 2.0,
-                          color: code.isEmpty
-                              ? cs.onSurface.withValues(alpha: 0.35)
-                              : cs.onSurface.withValues(alpha: 0.92),
+                          color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.35) : cs.onSurface.withValues(alpha: 0.92),
                         ),
                       ),
                     ),
@@ -872,8 +876,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap:
-                            code.isEmpty ? null : () => _copyInviteCode(context),
+                        onTap: code.isEmpty ? null : () => _copyInviteCode(context),
                         borderRadius: BorderRadius.circular(16),
                         child: Ink(
                           height: 44,
@@ -901,9 +904,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                 Icon(
                                   Icons.copy_rounded,
                                   size: 18,
-                                  color: code.isEmpty
-                                      ? cs.onSurface.withValues(alpha: 0.45)
-                                      : Colors.white,
+                                  color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.45) : Colors.white,
                                 ),
                                 const SizedBox(width: 10),
                                 Text(
@@ -911,9 +912,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                   style: theme.textTheme.labelLarge?.copyWith(
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: 0.8,
-                                    color: code.isEmpty
-                                        ? cs.onSurface.withValues(alpha: 0.45)
-                                        : Colors.white,
+                                    color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.45) : Colors.white,
                                   ),
                                 ),
                               ],
@@ -924,9 +923,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      code.isEmpty
-                          ? 'No invite code available for this league.'
-                          : 'Share this code with friends or let them scan the QR.',
+                      code.isEmpty ? 'No invite code available for this league.' : 'Share this code with friends or let them scan the QR.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: cs.onSurface.withValues(alpha: 0.68),
                         fontWeight: FontWeight.w700,
@@ -982,12 +979,10 @@ class _LeagueHeroTile extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url,
-      {required int width, required int height}) {
+  String _cloudinaryOptimizedUrl(String url, {required int width, required int height}) {
     final u = url.trim();
     if (u.isEmpty || u.startsWith('data:image')) return u;
-    final isCloudinary =
-        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1298,6 +1293,5 @@ class _NanoGridPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) =>
-      oldDelegate.color != color;
+  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) => oldDelegate.color != color;
 }

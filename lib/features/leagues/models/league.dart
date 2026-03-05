@@ -8,6 +8,14 @@ class League {
   final String id;
   final String name;
 
+  /// NEW (Premium Feature: Master League System)
+  /// If set, this league is a competition inside a Master League container.
+  ///
+  /// If empty, the league is a standalone league (backward compatible).
+  ///
+  /// Firestore: `masterLeagueId` (string)
+  final String masterLeagueId;
+
   /// Optional.
   /// Backward compatible: old stored/remote data may not include it.
   final String description;
@@ -73,6 +81,7 @@ class League {
   const League({
     required this.id,
     required this.name,
+    this.masterLeagueId = '',
     this.description = '',
     this.leagueImageUrl = '',
     this.sponsorImageUrl = '',
@@ -97,6 +106,8 @@ class League {
 
   bool get isPrivate => privacy == LeaguePrivacy.private;
 
+  bool get isInsideMasterLeague => masterLeagueId.trim().isNotEmpty;
+
   bool get hasLeagueImage => leagueImageUrl.trim().isNotEmpty;
   bool get hasSponsorImage => sponsorImageUrl.trim().isNotEmpty;
   bool get hasViewerCapacity => viewerCapacity > 0;
@@ -115,42 +126,51 @@ class League {
 
   /// IMPORTANT (online-only + rules):
   /// `isPrivate` must be a **bool** on Firestore, not 0/1.
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'description': description,
+  Map<String, dynamic> toJson() {
+    final map = <String, dynamic>{
+      'id': id,
+      'name': name,
 
-        // Media (optional)
-        'leagueImageUrl': leagueImageUrl,
-        'sponsorImageUrl': sponsorImageUrl,
+      // Master League System
+      // Only include when present; standalone leagues omit the field (backward compatible).
+      if (masterLeagueId.trim().isNotEmpty) 'masterLeagueId': masterLeagueId.trim(),
 
-        // Viewer capacity (optional paid add-on)
-        'viewerCapacity': viewerCapacity,
+      'description': description,
 
-        // Coupons (optional paid add-on)
-        'couponsEnabled': couponsEnabled,
-        'couponDiscountPercent': couponDiscountPercent,
-        'couponCount': couponCount,
+      // Media (optional)
+      'leagueImageUrl': leagueImageUrl,
+      'sponsorImageUrl': sponsorImageUrl,
 
-        // NEW: Home/Away matches toggle
-        'homeAwayEnabled': homeAwayEnabled,
+      // Viewer capacity (optional paid add-on)
+      'viewerCapacity': viewerCapacity,
 
-        'format': format.index,
-        'isPrivate': isPrivate, // bool (not 0/1)
-        'region': region,
-        'maxTeams': maxTeams,
-        'season': season,
+      // Coupons (optional paid add-on)
+      'couponsEnabled': couponsEnabled,
+      'couponDiscountPercent': couponDiscountPercent,
+      'couponCount': couponCount,
 
-        // Identity
-        'organizerUid': organizerUid, // Firebase UID authority
-        'organizerUserId': organizerUserId, // short/local id for UI/offline
+      // NEW: Home/Away matches toggle
+      'homeAwayEnabled': homeAwayEnabled,
 
-        'code': code,
-        'qrPayload': qrPayloadOverride,
-        'settings': settings.toMap(),
-        'updatedAtMs': updatedAtMs,
-        'version': version,
-      };
+      'format': format.index,
+      'isPrivate': isPrivate, // bool (not 0/1)
+      'region': region,
+      'maxTeams': maxTeams,
+      'season': season,
+
+      // Identity
+      'organizerUid': organizerUid, // Firebase UID authority
+      'organizerUserId': organizerUserId, // short/local id for UI/offline
+
+      'code': code,
+      'qrPayload': qrPayloadOverride,
+      'settings': settings.toMap(),
+      'updatedAtMs': updatedAtMs,
+      'version': version,
+    };
+
+    return map;
+  }
 
   /// Stored locally as a JSON string in SharedPreferences (legacy/offline-first).
   /// Online-only migration: should not be used for domain persistence.
@@ -229,6 +249,9 @@ class League {
     final id = (map['id'] as String?) ?? (map['leagueId'] as String?) ?? '';
     final name = (map['name'] as String?) ?? (map['leagueName'] as String?) ?? '';
 
+    // Master League System (optional)
+    final masterLeagueId = _stringFromAny(map['masterLeagueId']).trim();
+
     // New authoritative organizer UID (Firebase UID)
     String organizerUid = _stringFromAny(map['organizerUid']).trim();
 
@@ -257,6 +280,7 @@ class League {
     return League(
       id: id,
       name: name,
+      masterLeagueId: masterLeagueId,
       description: (map['description'] as String?) ?? '',
       leagueImageUrl: leagueImageUrl,
       sponsorImageUrl: sponsorImageUrl,
@@ -283,6 +307,7 @@ class League {
   League copyWith({
     String? id,
     String? name,
+    String? masterLeagueId,
     String? description,
     String? leagueImageUrl,
     String? sponsorImageUrl,
@@ -307,6 +332,7 @@ class League {
     return League(
       id: id ?? this.id,
       name: name ?? this.name,
+      masterLeagueId: masterLeagueId ?? this.masterLeagueId,
       description: description ?? this.description,
       leagueImageUrl: leagueImageUrl ?? this.leagueImageUrl,
       sponsorImageUrl: sponsorImageUrl ?? this.sponsorImageUrl,

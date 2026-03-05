@@ -32,6 +32,9 @@ import '../../legal/terms_of_service_screen.dart';
 import '../../leagues/data/services/reward_firestore_service.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
+import '../../master_leagues/logic/master_league_pricing_service.dart';
+import '../../master_leagues/logic/master_leagues_providers.dart';
+import '../../master_leagues/presentation/widgets/master_league_entry_tile.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -748,6 +751,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final muted = onSurface.withOpacity(0.55);
     final faint = onSurface.withOpacity(0.30);
 
+    final unlockedAsync = uid.isEmpty ? const AsyncValue<bool>.data(false) : ref.watch(masterLeagueUnlockedProvider);
+
+    final pricingSvc = MasterLeaguePricingService();
+    final priceStream = pricingSvc.watchMasterLeaguePriceForLocale(Localizations.maybeLocaleOf(context));
+
     return GlassScaffold(
       body: SafeArea(
         bottom: false,
@@ -992,6 +1000,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 const SizedBox(height: 18),
 
                 // ─────────────────────────────
+                // Master Leagues (NEW PREMIUM ENTRY POINT)
+                // ─────────────────────────────
+                SectionHeader('Master Leagues'),
+                const SizedBox(height: 12),
+                StreamBuilder<MasterLeaguePrice?>(
+                  stream: priceStream,
+                  builder: (context, priceSnap) {
+                    final priceText = (priceSnap.data?.display ?? '').trim();
+
+                    final unlocked = unlockedAsync.valueOrNull ?? false;
+                    final loading = unlockedAsync.isLoading;
+
+                    return MasterLeagueEntryTile(
+                      isSignedIn: uid.isNotEmpty,
+                      unlocked: unlocked,
+                      loading: loading,
+                      priceText: priceText,
+                      onOpen: () => context.push('/master-leagues'),
+                      onUnlock: () => context.push('/master-leagues/create'),
+                      onSignIn: () => context.go('/login'),
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 18),
+
+                // ─────────────────────────────
                 // League Overview (refined)
                 // ─────────────────────────────
                 SectionHeader(l10n.tr('profile_section_league_overview')),
@@ -1021,10 +1056,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         child: _StatCard(
                           icon: Icons.sports_rounded,
                           label: l10n.tr('profile_stat_format'),
-                          value: currentLeague.name
-                              .toUpperCase()
-                              .replaceAll('CLASSIC', 'CL')
-                              .replaceAll('SWISS', 'SW'),
+                          value: currentLeague.name.toUpperCase().replaceAll('CLASSIC', 'CL').replaceAll('SWISS', 'SW'),
                         ),
                       ),
                     ],
@@ -1073,11 +1105,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     borderRadius: 22,
                     padding: const EdgeInsets.all(14),
                     child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: FirebaseFirestore.instance
-                          .collection('leagues')
-                          .where('organizerUid', isEqualTo: uid)
-                          .limit(25)
-                          .snapshots(),
+                      stream: FirebaseFirestore.instance.collection('leagues').where('organizerUid', isEqualTo: uid).limit(25).snapshots(),
                       builder: (context, snap) {
                         if (snap.hasError) {
                           return Text(
@@ -1520,7 +1548,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 }
-
 
 // ─────────────────────────────────────────────
 // Super Admin Rewards Panel
@@ -2572,4 +2599,3 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
     );
   }
 }
-

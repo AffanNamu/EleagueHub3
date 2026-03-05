@@ -75,6 +75,10 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
   bool _creatorWillParticipate = false;
 
+  // Master League System (optional)
+  bool _extrasApplied = false;
+  String _masterLeagueId = '';
+
   static const Color _premiumAmber = Color(0xFFF59E0B);
 
   @override
@@ -84,12 +88,97 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_extrasApplied) return;
+    _extrasApplied = true;
+
+    // Read GoRouter extra (if coming from Master League "Create Competition").
+    Map<String, dynamic>? extra;
+    try {
+      final x = GoRouterState.of(context).extra;
+      if (x is Map) extra = x.cast<String, dynamic>();
+    } catch (_) {
+      extra = null;
+    }
+
+    if (extra == null) return;
+
+    final ml = (extra['masterLeagueId'] as String?)?.trim() ?? '';
+    final LeagueFormat? initialFormat = extra['initialFormat'] is LeagueFormat ? extra['initialFormat'] as LeagueFormat : null;
+
+    final String? typeString = (extra['type'] as String?)?.trim().toLowerCase();
+
+    LeagueCreationType? inferredType;
+    if (initialFormat != null) {
+      inferredType = _creationTypeFromFormat(initialFormat);
+    } else if (typeString != null && typeString.isNotEmpty) {
+      inferredType = _creationTypeFromString(typeString);
+    }
+
+    if (mounted) {
+      setState(() {
+        _masterLeagueId = ml;
+
+        if (inferredType != null) {
+          _type = inferredType;
+
+          // Preselect max teams defaults based on format.
+          final fmt = _format;
+          if (fmt == LeagueFormat.uclGroup) {
+            _selectedMaxTeams = 32;
+          } else if (fmt == LeagueFormat.uclSwiss) {
+            _selectedMaxTeams = 36;
+          } else {
+            _selectedMaxTeams = 20;
+          }
+
+          // Home/Away only applies to Classic + Group
+          if (!_supportsHomeAwayMatches) {
+            _homeAwayEnabled = false;
+          }
+
+          // Master League competitions should not require per-league payment.
+          if (_inMasterLeagueMode) {
+            _payment = null;
+          }
+
+          // If a competition type was chosen already, start at Details step.
+          _step = 1;
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _name.dispose();
     _description.dispose();
     _leagueImageUrl.dispose();
     _sponsorImageUrl.dispose();
     super.dispose();
+  }
+
+  bool get _inMasterLeagueMode => _masterLeagueId.trim().isNotEmpty;
+
+  LeagueCreationType _creationTypeFromFormat(LeagueFormat format) {
+    switch (format) {
+      case LeagueFormat.uclSwiss:
+        return LeagueCreationType.series;
+      case LeagueFormat.uclGroup:
+        return LeagueCreationType.group;
+      case LeagueFormat.classic:
+        return LeagueCreationType.classic;
+    }
+  }
+
+  LeagueCreationType? _creationTypeFromString(String raw) {
+    final s = raw.trim().toLowerCase();
+    if (s == 'classic') return LeagueCreationType.classic;
+    if (s == 'swiss' || s == 'series') return LeagueCreationType.series;
+    if (s == 'ucl' || s == 'group') return LeagueCreationType.group;
+    return null;
   }
 
   bool get _isLight => Theme.of(context).brightness == Brightness.light;
@@ -140,6 +229,8 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
   bool get _supportsHomeAwayMatches => _format == LeagueFormat.classic || _format == LeagueFormat.uclGroup;
 
   bool get _creationRequiresPayment {
+    // Master League competitions: included after premium unlock.
+    if (_inMasterLeagueMode) return false;
     return _format == LeagueFormat.uclGroup || _format == LeagueFormat.uclSwiss;
   }
 
@@ -214,8 +305,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     setState(() {
       _type = t;
 
-      if (t == LeagueCreationType.classic) {
+      // Master League competitions: no per-league payment.
+      if (_inMasterLeagueMode) {
         _payment = null;
+      } else {
+        if (t == LeagueCreationType.classic) {
+          _payment = null;
+        }
       }
 
       final fmt = _format;
@@ -320,11 +416,39 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     throw StateError("We couldn't create a join code. Please try again.");
   }
 
+  Future<void> _requireMasterLeagueOwnerOrThrow({
+    required String masterLeagueId,
+    required String organizerAuthUid,
+  }) async {
+    final id = masterLeagueId.trim();
+    if (id.isEmpty) return;
+
+    final snap = await _firestore
+        .collection('master_leagues')
+        .doc(id)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    if (!snap.exists) {
+      throw StateError("We couldn't find that Master League. Please refresh and try again.");
+    }
+
+    final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    final ownerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+
+    if (ownerId.isEmpty || ownerId != organizerAuthUid.trim()) {
+      throw StateError('Only the Master League owner can create competitions inside it.');
+    }
+  }
+
   /// FIXED: Uses WriteBatch so league doc + organizer membership doc
   /// are created atomically. This ensures:
   /// 1. Firestore rules can use getAfter() for the membership path
   /// 2. No partial state if one write fails
   /// 3. Matches the pattern used in LocalLeaguesRepository
+  ///
+  /// Master League System:
+  /// - If league.masterLeagueId is set, validate owner before creation.
   Future<League> _createLeagueOnline({
     required League league,
     required String organizerAuthUid,
@@ -334,6 +458,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     final uid = organizerAuthUid.trim();
     if (uid.isEmpty) throw FirebaseAuthException(code: 'unauthenticated');
+
+    final masterLeagueId = league.masterLeagueId.trim();
+    if (masterLeagueId.isNotEmpty) {
+      await _requireMasterLeagueOwnerOrThrow(masterLeagueId: masterLeagueId, organizerAuthUid: uid);
+    }
 
     final leagueId = league.id.trim().isNotEmpty ? league.id.trim() : _draftLeagueId;
     final leagueRef = _firestore.collection('leagues').doc(leagueId);
@@ -359,6 +488,11 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       // Use FieldValue.arrayUnion so merge works correctly on retries
       'memberIds': FieldValue.arrayUnion(<String>[uid]),
     };
+
+    // Ensure canonical masterLeagueId storage:
+    // - empty => remove field
+    // - set => store string
+    leaguePayload['masterLeagueId'] = masterLeagueId.isEmpty ? FieldValue.delete() : masterLeagueId;
 
     // ── Build membership payload ──
     final membership = Membership(
@@ -414,7 +548,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     if (authUid.trim().isEmpty) {
       return GlassScaffold(
         appBar: AppBar(
-          title: Text(l10n.tr('league_create_appbar_title')),
+          title: Text(_inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_appbar_title')),
           backgroundColor: Colors.transparent,
           elevation: 0,
         ),
@@ -469,7 +603,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
       return GlassScaffold(
         appBar: AppBar(
-          title: Text(l10n.tr('league_create_created_title')),
+          title: Text(_inMasterLeagueMode ? 'Competition Created' : l10n.tr('league_create_created_title')),
           backgroundColor: Colors.transparent,
           elevation: 0,
         ),
@@ -529,12 +663,30 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                               ),
                             ),
                           ],
+                          if (_inMasterLeagueMode) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              'This competition was created inside your Master League.',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.primary.withOpacity(0.95),
+                                height: 1.35,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           Row(
                             children: [
                               Expanded(
                                 child: FilledButton(
-                                  onPressed: () => context.go('/leagues'),
+                                  onPressed: () {
+                                    if (_inMasterLeagueMode) {
+                                      context.go('/master-leagues/${_masterLeagueId.trim()}');
+                                      return;
+                                    }
+                                    context.go('/leagues');
+                                  },
                                   child: Text(l10n.tr('league_create_done_upper')),
                                 ),
                               ),
@@ -572,7 +724,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Text(l10n.tr('league_create_appbar_title')),
+        title: Text(_inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -666,6 +818,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             ),
           ),
           const SizedBox(height: 12),
+          if (_inMasterLeagueMode)
+            _summaryRow(
+              Icons.hub_rounded,
+              'Master',
+              'Inside Master League',
+              valueColor: cs.primary,
+            ),
           _summaryRow(Icons.auto_awesome, l10n.tr('league_create_summary_type_label'), _typeLabel),
           _summaryRow(
             Icons.label,
@@ -690,7 +849,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
             l10n.tr('league_create_summary_creation_fee_label'),
             _creationRequiresPayment
                 ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
-                : l10n.tr('league_create_fee_free'),
+                : (_inMasterLeagueMode ? 'Included in Master League' : l10n.tr('league_create_fee_free')),
             valueColor: paymentColor,
           ),
           if (_couponsEnabled) ...[
@@ -703,7 +862,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           ],
           const SizedBox(height: 10),
           Text(
-            _creationRequiresPayment ? l10n.tr('league_create_fee_note_requires_payment') : l10n.tr('league_create_fee_note_free'),
+            _inMasterLeagueMode
+                ? 'Competitions inside a Master League are included after premium unlock.'
+                : (_creationRequiresPayment ? l10n.tr('league_create_fee_note_requires_payment') : l10n.tr('league_create_fee_note_free')),
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurface.withOpacity(0.60),
               height: 1.35,
@@ -774,8 +935,34 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_inMasterLeagueMode)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: cs.primary.withOpacity(0.10),
+              border: Border.all(color: cs.primary.withOpacity(0.25)),
+              boxShadow: _panelShadow(theme, tint: cs.primary),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.hub_rounded, color: cs.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Creating inside Master League',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.primary,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (_inMasterLeagueMode) const SizedBox(height: 12),
         Text(
-          l10n.tr('league_create_header_title'),
+          _inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_header_title'),
           style: theme.textTheme.titleLarge?.copyWith(
             color: cs.onSurface,
             fontWeight: FontWeight.w900,
@@ -894,7 +1081,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          l10n.tr('league_create_choose_type_help'),
+          _inMasterLeagueMode
+              ? 'Select the competition type for your Master League.'
+              : l10n.tr('league_create_choose_type_help'),
           style: theme.textTheme.bodyMedium?.copyWith(
             color: cs.onSurface.withOpacity(0.72),
             height: 1.35,
@@ -994,7 +1183,9 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
               height: 46,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                color: selected ? cs.primary.withOpacity(0.18) : (_isLight ? Colors.white.withOpacity(0.36) : cs.onSurface.withOpacity(0.06)),
+                color: selected
+                    ? cs.primary.withOpacity(0.18)
+                    : (_isLight ? Colors.white.withOpacity(0.36) : cs.onSurface.withOpacity(0.06)),
                 border: Border.all(
                   color: selected ? cs.primary.withOpacity(0.55) : (_isLight ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.12)),
                 ),
@@ -1205,8 +1396,10 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           const SizedBox(height: 10),
           _infoBanner(
             icon: Icons.verified,
-            title: l10n.tr('league_create_no_payment_required_title'),
-            subtitle: l10n.tr('league_create_no_payment_required_subtitle'),
+            title: _inMasterLeagueMode ? 'Included in Master League' : l10n.tr('league_create_no_payment_required_title'),
+            subtitle: _inMasterLeagueMode
+                ? 'No additional payment is required to create this competition.'
+                : l10n.tr('league_create_no_payment_required_subtitle'),
             accent: cs.primary,
           ),
         ],
@@ -1306,6 +1499,13 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           subtitle: _name.text.trim().isEmpty ? l10n.tr('league_create_league_name_not_set') : _name.text.trim(),
         ),
         const SizedBox(height: 10),
+        if (_inMasterLeagueMode)
+          _confirmRow(
+            Icons.hub_rounded,
+            'Master League',
+            'Inside Master League',
+            valueColor: cs.primary,
+          ),
         _confirmRow(
           Icons.lock,
           l10n.tr('league_create_confirm_privacy_label'),
@@ -1331,7 +1531,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
           l10n.tr('league_create_confirm_creation_fee_label'),
           _creationRequiresPayment
               ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
-              : l10n.tr('league_create_fee_free'),
+              : (_inMasterLeagueMode ? 'Included in Master League' : l10n.tr('league_create_fee_free')),
           valueColor: _creationRequiresPayment ? (_paymentCompleted ? cs.primary : _premiumAmber) : cs.primary,
         ),
         const SizedBox(height: 12),
@@ -1413,7 +1613,6 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
         const SizedBox(height: 12),
 
         // IMPORTANT: Single working "Create League" button is here.
-        // Footer no longer triggers creation (prevents double-create entry points).
         FilledButton(
           onPressed: (_submitting || !canCreate) ? null : () => _create(context),
           style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
@@ -1424,7 +1623,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
               : Text(
-                  l10n.tr('league_create_create_league_button_upper'),
+                  _inMasterLeagueMode ? 'CREATE COMPETITION' : l10n.tr('league_create_create_league_button_upper'),
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
         ),
@@ -1767,6 +1966,7 @@ class _LeagueCreationDashboardState extends ConsumerState<LeagueCreationDashboar
       final league = League(
         id: _draftLeagueId,
         name: _name.text.trim(),
+        masterLeagueId: _masterLeagueId.trim(),
         description: _description.text.trim(),
         leagueImageUrl: _leagueImageUrl.text.trim(),
         sponsorImageUrl: _sponsorImageUrl.text.trim(),

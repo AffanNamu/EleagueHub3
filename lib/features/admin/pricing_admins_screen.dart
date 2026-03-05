@@ -1,9 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
+import 'pricing_quick_editor_sheet.dart';
 
 class PricingAdminsScreen extends StatefulWidget {
   const PricingAdminsScreen({super.key});
@@ -95,6 +97,18 @@ class _PricingAdminsScreenState extends State<PricingAdminsScreen> {
         title: const Text('Pricing Admins'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Quick Edit Pricing',
+            onPressed: _saving ? null : () => showPricingQuickEditorSheet(context),
+            icon: const Icon(Icons.price_change_rounded),
+          ),
+          IconButton(
+            tooltip: 'Open Pricing Admin',
+            onPressed: () => context.push('/admin/pricing'),
+            icon: const Icon(Icons.open_in_new_rounded),
+          ),
+        ],
       ),
       body: SafeArea(
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -236,6 +250,15 @@ class _PricingAdminsScreenState extends State<PricingAdminsScreen> {
                               ),
                             ),
                           ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Tip: Use the price icon above to edit pricing (including Master League fee).',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.60),
+                            fontWeight: FontWeight.w600,
+                            height: 1.25,
+                          ),
+                        ),
                         const SizedBox(height: 6),
                         Text(
                           'Note: Some admins may be whitelisted in the app build and are not editable here.',

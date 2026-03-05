@@ -517,6 +517,18 @@ class _HomeTab extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _QuickActionCard(
+          icon: Icons.hub_rounded,
+          title: _trOr(l10n, 'home_quick_master_leagues_title', 'Master Leagues'),
+          subtitle: _trOr(l10n, 'home_quick_master_leagues_subtitle', 'Premium: create multiple competitions'),
+          gradient: [
+            cs.primary.withOpacity(0.22),
+            cs.secondary.withOpacity(0.06),
+          ],
+          onTap: () => context.push('/master-leagues'),
+          isWide: true,
+        ),
+        const SizedBox(height: 12),
+        _QuickActionCard(
           icon: Icons.headset_mic_rounded,
           title: _trOr(l10n, 'home_quick_voice_room_title', 'Voice Room'),
           subtitle: _trOr(l10n, 'home_quick_voice_room_subtitle', 'Create/Join with 8-digit code'),
@@ -543,6 +555,15 @@ class _HomeTab extends StatelessWidget {
           padding: const EdgeInsets.all(4),
           child: Column(
             children: [
+              _ExploreRow(
+                icon: Icons.hub_rounded,
+                title: _trOr(l10n, 'home_explore_master_leagues', 'Master Leagues'),
+                subtitle: _trOr(l10n, 'home_explore_master_leagues_sub', 'Premium container for multiple competitions'),
+                onTap: () => context.push('/master-leagues'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
+              ),
+              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
               _ExploreRow(
                 icon: Icons.forum_rounded,
                 title: _trOr(l10n, 'home_explore_global_chat', 'Global Chat'),

@@ -29,7 +29,22 @@ import '../models/league_settings.dart';
 import 'screens/edit_league_rewards_screen.dart';
 
 class LeagueCreateWizard extends ConsumerStatefulWidget {
-  const LeagueCreateWizard({super.key});
+  const LeagueCreateWizard({
+    super.key,
+    this.masterLeagueId = '',
+    this.initialFormat,
+  });
+
+  /// Master League System:
+  /// When set, the created league becomes a competition inside a Master League.
+  ///
+  /// Payment behavior:
+  /// - In Master League mode, competitions should NOT require per-league payment.
+  ///   (Users pay once when unlocking Master League).
+  final String masterLeagueId;
+
+  /// Optional initial format (used when creating from Master League "Create Competition").
+  final LeagueFormat? initialFormat;
 
   @override
   ConsumerState<LeagueCreateWizard> createState() => _LeagueCreateWizardState();
@@ -51,7 +66,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   bool _uploadingLeagueImage = false;
   bool _uploadingSponsorImage = false;
 
-  LeagueFormat _format = LeagueFormat.classic;
+  late LeagueFormat _format;
   LeaguePrivacy _privacy = LeaguePrivacy.private;
 
   // Existing flag used by settings/fixture generation
@@ -71,10 +86,19 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   static const Color _premiumAmber = Color(0xFFF59E0B);
 
+  bool get _inMasterLeagueMode => widget.masterLeagueId.trim().isNotEmpty;
+
   @override
   void initState() {
     super.initState();
     _draftLeagueId = _uuid.v4();
+    _format = widget.initialFormat ?? LeagueFormat.classic;
+
+    // Home/Away only for classic/group
+    if (!_supportsHomeAwayMatches) {
+      _homeAwayEnabled = false;
+      _doubleRoundRobin = false;
+    }
   }
 
   bool get _supportsHomeAwayMatches => _format == LeagueFormat.classic || _format == LeagueFormat.uclGroup;
@@ -91,6 +115,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   bool get _creationRequiresPayment {
+    // Master League competitions are free after Master League purchase.
+    if (_inMasterLeagueMode) return false;
     return _format == LeagueFormat.uclGroup || _format == LeagueFormat.uclSwiss;
   }
 
@@ -424,6 +450,18 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                               ),
                             ),
                           ],
+                          if (_inMasterLeagueMode) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              'This competition was created inside your Master League.',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.primary.withOpacity(0.95),
+                                height: 1.35,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           Row(
                             children: [
@@ -484,7 +522,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Text(l10n.tr('league_create_appbar_title')),
+        title: Text(_inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -610,6 +648,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             ),
           ),
           const SizedBox(height: 12),
+          if (_inMasterLeagueMode)
+            row(
+              Icons.hub_rounded,
+              'Master',
+              'Inside Master League',
+              color: cs.primary,
+            ),
           row(Icons.auto_awesome, l10n.tr('league_create_summary_type_label'), _format.displayName),
           row(
             Icons.label,
@@ -640,7 +685,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             l10n.tr('league_create_summary_creation_fee_label'),
             _creationRequiresPayment
                 ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
-                : l10n.tr('league_create_fee_free'),
+                : (_inMasterLeagueMode ? 'Included in Master League' : l10n.tr('league_create_fee_free')),
             color: paymentColor,
           ),
           if (_couponsEnabled) ...[
@@ -667,6 +712,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   String _unlockNote(AppLocalizations l10n) {
+    if (_inMasterLeagueMode) {
+      return 'Master League competitions are included after premium unlock.';
+    }
     return _creationRequiresPayment ? l10n.tr('league_create_fee_note_requires_payment') : l10n.tr('league_create_fee_note_free');
   }
 
@@ -685,7 +733,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          l10n.tr('league_create_header_title'),
+          _inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_header_title'),
           style: theme.textTheme.titleLarge?.copyWith(
             color: cs.onSurface,
             fontWeight: FontWeight.w900,
@@ -1030,6 +1078,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           subtitle: '${_format.displayName} • $_maxTeams teams • ${_privacy == LeaguePrivacy.private ? 'Private' : 'Public'}',
         ),
         const SizedBox(height: 10),
+        if (_inMasterLeagueMode)
+          _confirmRow(
+            Icons.hub_rounded,
+            'Master League',
+            'This competition will be inside your Master League',
+            valueColor: cs.primary,
+          ),
         if (_supportsHomeAwayMatches)
           _confirmRow(
             Icons.swap_horiz,
@@ -1303,6 +1358,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       final league = League(
         id: leagueId,
         name: _name.text.trim(),
+        masterLeagueId: widget.masterLeagueId.trim(),
         description: _description.text.trim(),
         leagueImageUrl: _leagueImageUrl.text.trim(),
         sponsorImageUrl: _sponsorImageUrl.text.trim(),
