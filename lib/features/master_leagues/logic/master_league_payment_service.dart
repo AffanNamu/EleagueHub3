@@ -175,10 +175,13 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         amount: totalAmount,
         customer: customer,
         paymentOptions: 'card,ussd,banktransfer',
-        customization: const Customization(
+
+        // FIX: Customization() is not const in flutterwave_standard, so don't use `const`.
+        customization: Customization(
           title: 'EleagueHub',
           description: 'Master League access (3 months)',
         ),
+
         isTestMode: FlutterwaveConfig.isTestMode,
       );
 
