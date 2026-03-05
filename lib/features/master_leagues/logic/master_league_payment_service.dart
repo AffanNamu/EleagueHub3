@@ -87,12 +87,20 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
 
   Locale _effectiveLocale(BuildContext context) {
     // Stronger fallback than maybeLocaleOf(context) alone.
-    return Localizations.maybeLocaleOf(context) ?? WidgetsBinding.instance.platformDispatcher.locale;
+    final base = Localizations.maybeLocaleOf(context) ?? WidgetsBinding.instance.platformDispatcher.locale;
+
+    // Respect your app’s forced-country behavior (Nigeria-first) from FlutterwaveConfig.
+    final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
+    if (forced.isNotEmpty) {
+      return Locale(base.languageCode.isNotEmpty ? base.languageCode : 'en', forced);
+    }
+
+    return base;
   }
 
   String _paymentOptionsForCurrency(String currency) {
     final c = currency.trim().toUpperCase();
-    // USSD/banktransfer are typically NGN flows.
+    // USSD/banktransfer are typically NGN flows; for USD keep it simple.
     if (c == 'NGN') return 'card,ussd,banktransfer';
     return 'card';
   }
@@ -138,16 +146,15 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
 
       final pricing = MasterLeaguePricingService();
 
-      // First attempt: use effective locale
+      // Use effective locale (with forced country code support).
       final loc = _effectiveLocale(context);
       var price = await pricing.getMasterLeaguePriceForLocale(loc);
 
-      // If device is Nigeria but currency came back non-NGN, try again forcing countryCode=NG
-      // (This helps when locale is "en" without country code or resolver is strict.)
+      // Extra Nigeria fallback (helps if locale comes back without a countryCode in some builds)
       final cc = (loc.countryCode ?? '').trim().toUpperCase();
       if (cc == 'NG' && price != null && price.currency.trim().toUpperCase() != 'NGN') {
-        final forced = Locale(loc.languageCode.isNotEmpty ? loc.languageCode : 'en', 'NG');
-        final priceNg = await pricing.getMasterLeaguePriceForLocale(forced);
+        final forcedNg = Locale(loc.languageCode.isNotEmpty ? loc.languageCode : 'en', 'NG');
+        final priceNg = await pricing.getMasterLeaguePriceForLocale(forcedNg);
         if (priceNg != null) price = priceNg;
       }
 
@@ -206,10 +213,7 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         txRef: txRef,
         amount: totalAmount,
         customer: customer,
-
-        // IMPORTANT: match payment options to currency
         paymentOptions: _paymentOptionsForCurrency(currencyUsed),
-
         customization: Customization(
           title: 'EleagueHub',
           description: 'Master League access (3 months)',
@@ -221,7 +225,7 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
 
       debugPrint(
         'Flutterwave charge result: success=${response.success} status=${response.status} '
-        'txRef=${response.txRef} transactionId=${response.transactionId} message=${response.message}',
+        'txRef=${response.txRef} transactionId=${response.transactionId}',
       );
 
       if (_isChargeSuccessful(response)) {
@@ -254,9 +258,8 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         );
       }
 
-      final msg = (response.message?.toString().trim().isNotEmpty ?? false)
-          ? response.message!.toString().trim()
-          : 'Payment cancelled or not successful';
+      final status = (response.status ?? '').toString().trim();
+      final msg = status.isNotEmpty ? 'Payment not successful (status: $status)' : 'Payment cancelled or not successful';
 
       await AppAnalyticsService.instance.logPaymentResult(
         kind: 'master_league',
