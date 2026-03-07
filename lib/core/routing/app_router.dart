@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/admin/developer_analytics_dashboard_screen.dart';
 import '../../features/admin/pricing_admin_screen.dart';
 import '../../features/admin/pricing_admins_screen.dart';
 import '../../features/auth/data/user_profile_repository.dart';
@@ -68,7 +69,6 @@ class AuthRouterRefresh extends ChangeNotifier {
         return;
       }
 
-      // Gate profile checks behind email verification for password accounts.
       if (needsEmailVerification) {
         _setProfileState(_ProfileState.unknown);
         notifyListeners();
@@ -131,16 +131,13 @@ class AuthRouterRefresh extends ChangeNotifier {
 
   bool get hasProfile => isSignedIn && !needsEmailVerification && _profileState == _ProfileState.exists;
 
-  /// Forces a user reload so router can pick up `emailVerified` changes.
   Future<void> refreshAuthUser() async {
     final u = FirebaseAuth.instance.currentUser;
     if (u == null) return;
 
     try {
       await u.reload().timeout(const Duration(seconds: 12));
-    } catch (_) {
-      // ignore: reload failures; UI can retry
-    }
+    } catch (_) {}
 
     _user = FirebaseAuth.instance.currentUser;
     notifyListeners();
@@ -261,16 +258,15 @@ final appRouter = GoRouter(
     final inBootstrap = loc == '/bootstrap';
     final inPricingAdmin = loc == '/admin/pricing';
     final inPricingAdmins = loc == '/admin/pricing-admins';
+    final inAnalyticsAdmin = loc == '/admin/analytics';
     final inMarketplaceAdminUpload = loc == '/admin/marketplace-upload';
     final inGlobalChatRequestsAdmin = loc == '/admin/global-chat-requests';
 
-    // Signed out: allow login + forgot/reset + verify (so deep-link verification can still be handled).
     if (!authRouterRefresh.isSignedIn) {
       if (inLogin || inForgot || inReset || inVerifyEmail) return null;
       return '/login';
     }
 
-    // Signed in but needs email verification: gate everything except verify screen.
     if (authRouterRefresh.needsEmailVerification) {
       if (inVerifyEmail) return null;
       return '/verify-email';
@@ -286,25 +282,19 @@ final appRouter = GoRouter(
       return '/onboarding';
     }
 
-    if (inPricingAdmin || inPricingAdmins) {
+    if (inPricingAdmin || inPricingAdmins || inAnalyticsAdmin) {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (!_isPricingAdminUidSync(uid)) {
-        return '/';
-      }
+      if (!_isPricingAdminUidSync(uid)) return '/';
     }
 
     if (inMarketplaceAdminUpload) {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (uid.trim() != _superAdminUid) {
-        return '/';
-      }
+      if (uid.trim() != _superAdminUid) return '/';
     }
 
     if (inGlobalChatRequestsAdmin) {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (uid.trim() != _superAdminUid) {
-        return '/';
-      }
+      if (uid.trim() != _superAdminUid) return '/';
     }
 
     if (authRouterRefresh.hasProfile) {
@@ -369,6 +359,12 @@ final appRouter = GoRouter(
       builder: (context, state) => const PricingAdminsScreen(),
     ),
 
+    // ── Developer Analytics Dashboard (pricing admins) ───────────────────
+    GoRoute(
+      path: '/admin/analytics',
+      builder: (context, state) => const DeveloperAnalyticsDashboardScreen(),
+    ),
+
     // ── Marketplace Admin Upload (super-admin only) ──────────────────────
     GoRoute(
       path: '/admin/marketplace-upload',
@@ -396,25 +392,21 @@ final appRouter = GoRouter(
           ],
         ),
 
-        // ── Marketplace ──────────────────────────────────────────────────
         GoRoute(
           path: 'marketplace',
           builder: (context, state) => const MarketplaceScreen(),
         ),
 
-        // ── Global Live ──────────────────────────────────────────────────
         GoRoute(
           path: 'global-live',
           builder: (context, state) => const GlobalLiveLeaguesScreen(),
         ),
 
-        // ── Global Chat ──────────────────────────────────────────────────
         GoRoute(
           path: 'global-chat',
           builder: (context, state) => const GlobalChatScreen(),
         ),
 
-        // ── Live ─────────────────────────────────────────────────────────
         GoRoute(
           path: 'live/join',
           builder: (context, state) => const JoinMatchScreen(),
@@ -456,7 +448,7 @@ final appRouter = GoRouter(
           },
         ),
 
-        // ── Master Leagues (Premium container) ────────────────────────────
+        // ── Master Leagues ───────────────────────────────────────────────
         GoRoute(
           path: 'master-leagues',
           builder: (context, state) => const MasterLeaguesListScreen(),
@@ -527,7 +519,6 @@ final appRouter = GoRouter(
               },
             ),
 
-            // League details is PUBLIC (everyone can view preview).
             GoRoute(
               path: ':id',
               builder: (context, state) => LeagueDetailScreen(
@@ -538,45 +529,35 @@ final appRouter = GoRouter(
                   path: 'standings',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: LeagueStandingsScreen(
-                      id: state.pathParameters['id']!,
-                    ),
+                    child: LeagueStandingsScreen(id: state.pathParameters['id']!),
                   ),
                 ),
                 GoRoute(
                   path: 'knockout',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: KnockoutBracketScreen(
-                      leagueId: state.pathParameters['id']!,
-                    ),
+                    child: KnockoutBracketScreen(leagueId: state.pathParameters['id']!),
                   ),
                 ),
                 GoRoute(
                   path: 'knockout-admin',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: AdminKnockoutScoreMgmtScreen(
-                      leagueId: state.pathParameters['id']!,
-                    ),
+                    child: AdminKnockoutScoreMgmtScreen(leagueId: state.pathParameters['id']!),
                   ),
                 ),
                 GoRoute(
                   path: 'space',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: LeagueSpaceRoomScreen(
-                      leagueId: state.pathParameters['id']!,
-                    ),
+                    child: LeagueSpaceRoomScreen(leagueId: state.pathParameters['id']!),
                   ),
                 ),
                 GoRoute(
                   path: 'chat',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: LeagueChatScreen(
-                      leagueId: state.pathParameters['id']!,
-                    ),
+                    child: LeagueChatScreen(leagueId: state.pathParameters['id']!),
                   ),
                 ),
               ],
@@ -586,18 +567,14 @@ final appRouter = GoRouter(
               path: ':leagueId/fixtures',
               builder: (context, state) => LeagueAccessGuard(
                 leagueId: state.pathParameters['leagueId']!,
-                child: FixturesScreen(
-                  leagueId: state.pathParameters['leagueId']!,
-                ),
+                child: FixturesScreen(leagueId: state.pathParameters['leagueId']!),
               ),
             ),
             GoRoute(
               path: ':leagueId/admin-scores',
               builder: (context, state) => LeagueAccessGuard(
                 leagueId: state.pathParameters['leagueId']!,
-                child: AdminScoreMgmtScreen(
-                  leagueId: state.pathParameters['leagueId']!,
-                ),
+                child: AdminScoreMgmtScreen(leagueId: state.pathParameters['leagueId']!),
               ),
             ),
             GoRoute(

@@ -31,7 +31,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // MASTER LEAGUES (Premium container)
+    // MASTER LEAGUES (Premium container) — helpers (MERGED UPDATE)
     // =========================================================================
     function masterLeagueDoc(masterLeagueId) {
       return get(/databases/$(database)/documents/master_leagues/$(masterLeagueId));
@@ -59,6 +59,35 @@ service cloud.firestore {
         && (
           (('ownerId' in ml.data) && (ml.data.ownerId is string) && (ml.data.ownerId == request.auth.uid))
           || (('memberIds' in ml.data) && (ml.data.memberIds is list) && (request.auth.uid in ml.data.memberIds))
+        );
+    }
+
+    // =========================================================================
+    // MASTER LEAGUE SUBSCRIPTION entitlement — helpers (MERGED UPDATE)
+    // users/{uid}/entitlements/master_league
+    // =========================================================================
+    function masterLeagueEntitlementDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)/entitlements/master_league);
+    }
+
+    function masterLeagueSubscriptionActive(uid) {
+      let ed = masterLeagueEntitlementDoc(uid);
+
+      // Backward compatible behavior:
+      // - If expiresAtMs is missing but active=true, treat as active.
+      return signedIn()
+        && (uid is string)
+        && (uid == request.auth.uid)
+        && ed.exists()
+        && ('active' in ed.data)
+        && (ed.data.active is bool)
+        && (ed.data.active == true)
+        && (
+          !('expiresAtMs' in ed.data)
+          || (
+            (ed.data.expiresAtMs is int)
+            && (ed.data.expiresAtMs > request.time.toMillis())
+          )
         );
     }
 
@@ -134,7 +163,7 @@ service cloud.firestore {
             || (('ownerId' in ld.data) && looksLikeFirebaseUid(ld.data.ownerId) && (ld.data.ownerId == request.auth.uid))
             || ((ld.data.memberIds is list) && (request.auth.uid in ld.data.memberIds))
 
-            // Master League System:
+            // Master League System (MERGED UPDATE):
             // If a league belongs to a Master League, allow Master League members to read it.
             || (
               ('masterLeagueId' in ld.data)
@@ -161,11 +190,6 @@ service cloud.firestore {
 
     // =========================================================================
     // MATCH HIGHLIGHTS (matches/{matchId}/highlights/{highlightId})
-    //
-    // IMPORTANT SECURITY NOTE:
-    // - This ruleset protects Firestore metadata writes ONLY.
-    // - Cloudinary upload is protected separately by SIGNED upload:
-    //   signature must be generated server-side after verifying the same conditions.
     // =========================================================================
 
     function membershipDoc(leagueId, uid) {
@@ -224,8 +248,6 @@ service cloud.firestore {
     function highlightFieldsAreValid(matchId, highlightId) {
       let d = request.resource.data;
 
-      // Hard caps for free-tier protection (metadata sanity checks).
-      // Real enforcement is client-side compression + Cloudinary signed endpoint constraints.
       let maxBytes = 15 * 1024 * 1024; // 15MB
       let maxSeconds = 180; // 3 minutes
 
@@ -241,7 +263,6 @@ service cloud.firestore {
         && (d.uploadedBy is string)
         && (d.uploadedBy == request.auth.uid)
 
-        // Enforce Cloudinary public_id path to stop clients from writing arbitrary folders.
         // Expected: match_highlights/{leagueId}/{matchId}/{teamId}/{highlightId}
         && (d.cloudinaryPublicId is string)
         && (d.cloudinaryPublicId == ('match_highlights/' + d.leagueId + '/' + matchId + '/' + d.teamId + '/' + highlightId))
@@ -266,7 +287,6 @@ service cloud.firestore {
         && (d.status is string)
         && (d.status in ['UPLOADING', 'PROCESSING', 'APPROVED'])
 
-        // timestamps are optional/loose to avoid breaking existing docs, but must be timestamps if present
         && (!('createdAt' in d) || d.createdAt == null || (d.createdAt is timestamp))
         && (!('updatedAt' in d) || d.updatedAt == null || (d.updatedAt is timestamp));
     }
@@ -274,10 +294,7 @@ service cloud.firestore {
     function highlightUploaderIsLeagueParticipant(matchId, highlightId) {
       let d = request.resource.data;
 
-      // Must be in league
       let mem = membershipDoc(d.leagueId, request.auth.uid);
-
-      // Must reference a finished match under the same league (authoritative league match doc)
       let md = leagueMatchDoc(d.leagueId, matchId);
 
       return signedIn()
@@ -296,7 +313,6 @@ service cloud.firestore {
       return highlightFieldsAreValid(matchId, highlightId)
         && highlightUploaderIsLeagueParticipant(matchId, highlightId)
 
-        // Create must start as UPLOADING with empty URLs (optimistic UI doc).
         && (d.status == 'UPLOADING')
         && (d.secureUrl == '')
         && (d.thumbnailUrl == '')
@@ -304,7 +320,6 @@ service cloud.firestore {
         && (d.size == 0)
         && (d.format == '')
 
-        // createdAt/updatedAt: allow unset/null or server timestamp (evaluates as timestamp)
         && (!('createdAt' in d) || d.createdAt == null || (d.createdAt is timestamp))
         && (!('updatedAt' in d) || d.updatedAt == null || (d.updatedAt is timestamp));
     }
@@ -312,7 +327,6 @@ service cloud.firestore {
     function highlightUploaderUpdateIsValid(matchId, highlightId) {
       let d = request.resource.data;
 
-      // Identity fields MUST NOT change.
       let identityUnchanged =
         (d.matchId == resource.data.matchId)
         && (d.leagueId == resource.data.leagueId)
@@ -320,13 +334,11 @@ service cloud.firestore {
         && (d.uploadedBy == resource.data.uploadedBy)
         && (d.cloudinaryPublicId == resource.data.cloudinaryPublicId);
 
-      // uploader must remain same user
       let isUploader = signedIn()
         && ('uploadedBy' in resource.data)
         && (resource.data.uploadedBy is string)
         && (resource.data.uploadedBy == request.auth.uid);
 
-      // still must be league participant + match finished (defense-in-depth)
       let md = leagueMatchDoc(resource.data.leagueId, matchId);
       let mem = membershipDoc(resource.data.leagueId, request.auth.uid);
 
@@ -338,17 +350,13 @@ service cloud.firestore {
         && matchIsFinished(md)
         && isParticipantTeam(md, resource.data.teamId);
 
-      // Allowed uploader transitions:
-      // - UPLOADING (urls empty)  -> PROCESSING (urls set, duration/size/format set)
-      // - PROCESSING may be re-set idempotently (same data) on retry/merge
-      // - UPLOADING may be restored (markUploadFailed clears urls)
       let uploadingStateOk =
         (d.status == 'UPLOADING')
         && (d.secureUrl == '')
         && (d.thumbnailUrl == '')
         && (d.size == 0)
         && (d.duration == 0 || d.duration == 0.0)
-        && (d.format == '' || d.format == 'mp4'); // allow '' during uploading; tolerate mp4 if client writes it early
+        && (d.format == '' || d.format == 'mp4');
 
       let processingStateOk =
         (d.status == 'PROCESSING')
@@ -366,8 +374,6 @@ service cloud.firestore {
     }
 
     function highlightModeratorUpdateIsValid(matchId, highlightId) {
-      // League managers can approve highlights (moderation).
-      // Keep this extremely strict to prevent edits to URLs/metadata by admins.
       return signedIn()
         && canManageLeague(resource.data.leagueId)
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt'])
@@ -485,7 +491,7 @@ service cloud.firestore {
         )
         && (
           !('replyToText' in request.resource.data)
-          || ((request.resource.data.replyToText is string) && (request.resource.data.replyToText.size() <= 4000))
+          || ((request.resource.data.replyToText is string && request.resource.data.replyToText.size() <= 4000))
         )
         && (
           !('replyToType' in request.resource.data)
@@ -799,7 +805,24 @@ service cloud.firestore {
       }
 
       // =========================================================================
-      // ENTITLEMENTS (Master League premium unlock)
+      // FCM TOKENS
+      // =========================================================================
+      match /fcmTokens/{tokenId} {
+        allow get, list: if signedIn() && request.auth.uid == userId;
+
+        allow create, update: if signedIn()
+          && request.auth.uid == userId
+          && (request.resource.data.token is string)
+          && (request.resource.data.token == tokenId)
+          && (!('platform' in request.resource.data) || (request.resource.data.platform is string))
+          && (!('updatedAt' in request.resource.data) || (request.resource.data.updatedAt is timestamp))
+          && (!('updatedAtMs' in request.resource.data) || (request.resource.data.updatedAtMs is int));
+
+        allow delete: if signedIn() && request.auth.uid == userId;
+      }
+
+      // =========================================================================
+      // ENTITLEMENTS (Master League premium unlock / subscription) (MERGED UPDATE)
       // users/{uid}/entitlements/master_league
       // =========================================================================
       match /entitlements/{entitlementId} {
@@ -809,43 +832,36 @@ service cloud.firestore {
           && request.auth.uid == userId
           && entitlementId == 'master_league'
           && request.resource.data.keys().hasOnly([
-            'active', 'purchasedAt', 'updatedAtMs'
+            'active',
+            'purchasedAt',
+            'expiresAtMs',
+            'lastReceiptId',
+            'lastProvider',
+            'lastPaidAtMs',
+            'updatedAtMs'
           ])
           && (request.resource.data.active is bool)
-          // Allow only enabling from client (server/admin can handle refunds separately).
           && (request.resource.data.active == true)
+          && (request.resource.data.expiresAtMs is int)
+          && (request.resource.data.expiresAtMs > request.time.toMillis())
+          && (
+            !resource.exists()
+            || !('expiresAtMs' in resource.data)
+            || !(resource.data.expiresAtMs is int)
+            || (request.resource.data.expiresAtMs >= resource.data.expiresAtMs)
+          )
           && (!('purchasedAt' in request.resource.data) || request.resource.data.purchasedAt == null || (request.resource.data.purchasedAt is timestamp))
-          && (!('updatedAtMs' in request.resource.data) || (request.resource.data.updatedAtMs is int));
+          && (!('updatedAtMs' in request.resource.data) || (request.resource.data.updatedAtMs is int))
+          && (!('lastPaidAtMs' in request.resource.data) || (request.resource.data.lastPaidAtMs is int))
+          && (!('lastReceiptId' in request.resource.data) || (request.resource.data.lastReceiptId is string && request.resource.data.lastReceiptId.size() <= 200))
+          && (!('lastProvider' in request.resource.data) || (request.resource.data.lastProvider is string && request.resource.data.lastProvider.size() <= 60));
 
         allow delete: if false;
-      }
-
-      // =========================================================================
-      // FCM TOKENS (FIXED + RELAXED)
-      //
-      // Allows a signed-in user to store their own FCM tokens at:
-      // users/{uid}/fcmTokens/{token}
-      //
-      // This is required for diagnostics and future token-based fanout.
-      // =========================================================================
-      match /fcmTokens/{tokenId} {
-        allow get, list: if signedIn() && request.auth.uid == userId;
-
-        allow create, update: if signedIn()
-          && request.auth.uid == userId
-          && (request.resource.data.token is string)
-          && (request.resource.data.token == tokenId)
-          // allow any extra fields for forward compatibility
-          && (!('platform' in request.resource.data) || (request.resource.data.platform is string))
-          && (!('updatedAt' in request.resource.data) || (request.resource.data.updatedAt is timestamp))
-          && (!('updatedAtMs' in request.resource.data) || (request.resource.data.updatedAtMs is int));
-
-        allow delete: if signedIn() && request.auth.uid == userId;
       }
     }
 
     // =========================================================================
-    // MASTER LEAGUES (Premium container)
+    // MASTER LEAGUES (Premium container) (MERGED UPDATE)
     // =========================================================================
     match /master_leagues/{masterLeagueId} {
       allow get: if signedIn()
@@ -855,12 +871,10 @@ service cloud.firestore {
           || (('memberIds' in resource.data) && (resource.data.memberIds is list) && (request.auth.uid in resource.data.memberIds))
         );
 
-      // IMPORTANT:
-      // Keeping list permissive to match existing app pattern (leagues list is also signedIn()).
-      // Your client queries are expected to filter by memberIds arrayContains.
       allow list: if signedIn();
 
       allow create: if signedIn()
+        && masterLeagueSubscriptionActive(request.auth.uid)
         && (request.resource.data.keys().hasOnly([
           'name', 'ownerId', 'createdAt', 'purchaseStatus', 'memberIds', 'updatedAtMs'
         ]))
@@ -878,15 +892,7 @@ service cloud.firestore {
       allow update: if signedIn()
         && (resource.data.ownerId is string)
         && (resource.data.ownerId == request.auth.uid)
-        && (request.resource.data.ownerId == resource.data.ownerId)
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-          'name', 'memberIds', 'purchaseStatus', 'updatedAtMs'
-        ])
-        && (request.resource.data.name is string)
-        && (request.resource.data.name.size() >= 1)
-        && (request.resource.data.name.size() <= 60)
-        && (!('memberIds' in request.resource.data) || (request.resource.data.memberIds is list))
-        && (!('updatedAtMs' in request.resource.data) || (request.resource.data.updatedAtMs is int));
+        && (request.resource.data.ownerId == resource.data.ownerId);
 
       allow delete: if signedIn()
         && (resource.data.ownerId is string)
@@ -898,34 +904,7 @@ service cloud.firestore {
     // =========================================================================
     match /leagues/{leagueId} {
 
-      allow get: if isSuperAdmin()
-        || (
-          signedIn()
-          && (
-            (('organizerUid' in resource.data) && (resource.data.organizerUid is string) && (resource.data.organizerUid == request.auth.uid))
-            || (('ownerUid' in resource.data) && (resource.data.ownerUid is string) && (resource.data.ownerUid == request.auth.uid))
-            || (('organizerUserId' in resource.data) && looksLikeFirebaseUid(resource.data.organizerUserId) && (resource.data.organizerUserId == request.auth.uid))
-            || (('ownerId' in resource.data) && looksLikeFirebaseUid(resource.data.ownerId) && (resource.data.ownerId == request.auth.uid))
-            || ((resource.data.memberIds is list) && (request.auth.uid in resource.data.memberIds))
-
-            // Master League System:
-            // Allow Master League members to read competitions.
-            || (
-              ('masterLeagueId' in resource.data)
-              && (resource.data.masterLeagueId is string)
-              && isMasterLeagueMember(resource.data.masterLeagueId)
-            )
-
-            || ((resource.data.isPrivate is bool) && (resource.data.isPrivate == false))
-            || ((resource.data.isPrivate is int) && (resource.data.isPrivate == 0))
-            || ((resource.data.privacy is string) && (
-              resource.data.privacy == 'public'
-              || resource.data.privacy == 'PUBLIC'
-              || resource.data.privacy == 'LeaguePrivacy.public'
-            ))
-            || (!('isPrivate' in resource.data) && !('privacy' in resource.data))
-          )
-        );
+      allow get: if canReadLeague(leagueId);
 
       allow list: if signedIn();
 
@@ -937,18 +916,16 @@ service cloud.firestore {
           !(request.resource.data.memberIds is list)
           || (request.auth.uid in request.resource.data.memberIds)
         )
-        // Master League System:
-        // If creating under a Master League, only the Master League owner can do it.
         && (
           !('masterLeagueId' in request.resource.data)
           || (
             (request.resource.data.masterLeagueId is string)
             && validMasterLeagueId(request.resource.data.masterLeagueId)
             && isMasterLeagueOwner(request.resource.data.masterLeagueId)
+            && masterLeagueSubscriptionActive(request.auth.uid)
           )
         );
 
-      // Keep your existing update behavior, but prevent members from changing masterLeagueId.
       allow update: if (
           isOwnerDirect()
           || (
@@ -956,18 +933,6 @@ service cloud.firestore {
             && (request.resource.data.memberIds is list)
             && (request.auth.uid in request.resource.data.memberIds)
             && !request.resource.data.diff(resource.data).changedKeys().hasAny(['masterLeagueId'])
-          )
-        )
-        // If masterLeagueId is present, enforce validity; if it is being changed, require owner + master league ownership.
-        && (
-          !('masterLeagueId' in request.resource.data)
-          || (
-            (request.resource.data.masterLeagueId is string)
-            && validMasterLeagueId(request.resource.data.masterLeagueId)
-            && (
-              !request.resource.data.diff(resource.data).changedKeys().hasAny(['masterLeagueId'])
-              || isMasterLeagueOwner(request.resource.data.masterLeagueId)
-            )
           )
         );
 
@@ -1184,34 +1149,25 @@ service cloud.firestore {
 
     // =========================================================================
     // TOP-LEVEL MATCHES (for highlights metadata only)
-    // matches/{matchId}/highlights/{highlightId}
     // =========================================================================
     match /matches/{matchId} {
-      // Parent doc not used by the highlights system. Keep locked down.
       allow get, list, create, update, delete: if false;
 
       match /highlights/{highlightId} {
-        // Reads: only signed-in users who can read the league.
-        // (If you want public unauthenticated viewing for public leagues, relax here carefully.)
         allow get, list: if signedIn()
           && ('leagueId' in resource.data)
           && (resource.data.leagueId is string)
           && canReadLeague(resource.data.leagueId);
 
-        // Create: strict metadata validation + membership + match finished + participant team.
         allow create: if signedIn()
           && highlightCreateIsValid(matchId, highlightId);
 
-        // Update:
-        // - uploader can move UPLOADING <-> PROCESSING with strict constraints
-        // - league managers can only change status (e.g. approve)
         allow update: if signedIn()
           && (
             highlightUploaderUpdateIsValid(matchId, highlightId)
             || highlightModeratorUpdateIsValid(matchId, highlightId)
           );
 
-        // Delete: uploader can delete only their own UPLOADING doc (optional cleanup).
         allow delete: if signedIn()
           && ('uploadedBy' in resource.data)
           && (resource.data.uploadedBy is string)
@@ -1316,6 +1272,138 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // =========================================================================
+    // NEW: app_config/pricing (single source of truth)
+    // =========================================================================
+    match /app_config/{docId} {
+      // keep pricing readable without auth (matches your existing app/pricing behavior)
+      allow get, list: if (docId == 'pricing');
+      allow create, update: if (docId == 'pricing') && isPricingAdmin();
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // NEW: payment_attempts (client-writable, limited)
+    // =========================================================================
+    match /payment_attempts/{attemptId} {
+
+      function validCurrency(c) {
+        return (c is string) && (c in ['NGN', 'USD']);
+      }
+
+      function validProvider(p) {
+        return (p is string) && (p in ['flutterwave', 'free']);
+      }
+
+      function validStatusForClient(s) {
+        return (s is string) && (s in ['initiated', 'pending_verification', 'cancelled', 'client_failed']);
+      }
+
+      allow get: if isPricingAdmin()
+        || (signedIn()
+            && resource != null
+            && ('userId' in resource.data)
+            && (resource.data.userId is string)
+            && (resource.data.userId == request.auth.uid));
+
+      allow list: if isPricingAdmin();
+
+      allow create: if signedIn()
+        && (request.resource.data.attemptId is string)
+        && (request.resource.data.attemptId == attemptId)
+        && (request.resource.data.userId is string)
+        && (request.resource.data.userId == request.auth.uid)
+        && (request.resource.data.provider is string)
+        && validProvider(request.resource.data.provider)
+        && validCurrency(request.resource.data.currency)
+        && (request.resource.data.amount is int || request.resource.data.amount is float)
+        && (request.resource.data.amount > 0)
+        && (request.resource.data.amountStr is string)
+        && (request.resource.data.amountStr.size() > 0)
+        && (request.resource.data.status is string)
+        && (request.resource.data.status == 'initiated')
+        && (request.resource.data.createdAtMs is int)
+        && (request.resource.data.updatedAtMs is int)
+        && (request.resource.data.items is list)
+        && request.resource.data.keys().hasOnly([
+          'attemptId',
+          'provider',
+          'currency',
+          'amount',
+          'amountStr',
+          'userId',
+          'leagueId',
+          'leagueName',
+          'masterLeagueId',
+          'couponCode',
+          'status',
+          'createdAtMs',
+          'updatedAtMs',
+          'items'
+        ]);
+
+      allow update: if signedIn()
+        && resource != null
+        && (resource.data.userId is string)
+        && (resource.data.userId == request.auth.uid)
+        && (request.resource.data.userId == resource.data.userId)
+        && (request.resource.data.attemptId == resource.data.attemptId)
+        // Prevent tampering with money/currency/items identity after create
+        && (request.resource.data.currency == resource.data.currency)
+        && (request.resource.data.amount == resource.data.amount)
+        && (request.resource.data.amountStr == resource.data.amountStr)
+        && (request.resource.data.items == resource.data.items)
+        && (request.resource.data.provider == resource.data.provider)
+        && (request.resource.data.leagueId == resource.data.leagueId)
+        && (request.resource.data.leagueName == resource.data.leagueName)
+        && (request.resource.data.masterLeagueId == resource.data.masterLeagueId)
+        && (request.resource.data.couponCode == resource.data.couponCode)
+        // Only allow client to change status + a few meta fields
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+          'providerTransactionId',
+          'txRef',
+          'errorMessage',
+          'updatedAtMs'
+        ])
+        && validStatusForClient(request.resource.data.status)
+        && (request.resource.data.updatedAtMs is int);
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // NEW: payments (server-only writes; reads for admins)
+    // =========================================================================
+    match /payments/{paymentId} {
+      allow get: if isPricingAdmin()
+        || (signedIn()
+            && resource != null
+            && ('userId' in resource.data)
+            && (resource.data.userId is string)
+            && (resource.data.userId == request.auth.uid));
+
+      allow list: if isPricingAdmin();
+
+      allow create, update, delete: if false;
+    }
+
+    // =========================================================================
+    // NEW: analytics_summary + revenue_by_day (server-only writes; admin reads)
+    // =========================================================================
+    match /analytics_summary/{docId} {
+      allow get, list: if isPricingAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /revenue_by_day/{dayId} {
+      allow get, list: if isPricingAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // =========================================================================
+    // RAW EVENTS (legacy) — still allowed
+    // =========================================================================
     match /analytics_events/{eventId} {
       allow create: if signedIn()
         && (request.resource.data.eventName is string)

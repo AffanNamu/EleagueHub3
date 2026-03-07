@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/config/flutterwave_config.dart';
 import '../../../core/services/app_analytics_service.dart';
+import '../../../core/services/payments/payment_models.dart';
+import '../../../core/services/payments/payments_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 
 final premiumPaymentServiceProvider = Provider<PremiumPaymentService>((ref) {
@@ -59,15 +61,6 @@ class PremiumPurchaseResult {
       );
 }
 
-/// Dedicated payment service for premium subscriptions.
-///
-/// Flow:
-///   1. Fetch plan from RemotePricingService (correct currency for locale).
-///   2. If premiumEnabled == false → return paid() immediately (free pass).
-///   3. Launch Flutterwave charge for plan.premiumFee.
-///   4. On Flutterwave success → write isPremium + premiumExpiresAtMs to
-///      Firestore using .update() so the Firestore UPDATE rule is satisfied.
-///   5. Log analytics attempt + result.
 class PremiumPaymentService {
   final Uuid _uuid = const Uuid();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -81,16 +74,15 @@ class PremiumPaymentService {
     return rounded.toStringAsFixed(2);
   }
 
-  /// Charge the user for premium and, on success, write the Firestore doc.
   Future<PremiumPurchaseResult> purchasePremium({
     required BuildContext context,
     required String userId,
   }) async {
-    try {
-      final plan = await RemotePricingService.instance
-          .getPlanForLocale(Localizations.maybeLocaleOf(context));
+    String attemptId = '';
 
-      // Super-admin kill-switch: premium feature disabled globally.
+    try {
+      final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+
       if (!plan.premiumEnabled) {
         final now = DateTime.now().millisecondsSinceEpoch;
         await _writePremiumToFirestore(
@@ -110,40 +102,47 @@ class PremiumPaymentService {
       FlutterwaveConfig.assertConfigured();
 
       final totalAmount = _toFlutterwaveAmount(plan.premiumFee);
-      final txRef =
-          'EH-PRM-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
-      // Analytics: attempt
+      attemptId = await PaymentsService.instance.createAttempt(
+        PaymentAttemptCreate(
+          provider: _providerName,
+          currency: plan.currency,
+          amount: plan.premiumFee,
+          amountStr: totalAmount,
+          userId: FirebaseAuth.instance.currentUser!.uid,
+          leagueId: '',
+          leagueName: 'App Unlock',
+          items: [
+            PaymentLineItem(
+              productType: 'appUnlock',
+              productSubType: 'premium_subscription',
+              quantity: 1,
+              amount: plan.premiumFee,
+            ),
+          ],
+        ),
+      );
+
       try {
         await AppAnalyticsService.instance.logPaymentAttempt(
-          kind: 'premium',
+          kind: 'appUnlock',
           leagueId: '',
-          leagueName: 'Premium Subscription',
+          leagueName: 'App Unlock',
           provider: _providerName,
           currency: plan.currency,
           amount: totalAmount,
           userId: userId,
         );
-      } catch (_) {
-        // best-effort
-      }
+      } catch (_) {}
+
+      final txRef = 'EH-PRM-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
       final authUser = FirebaseAuth.instance.currentUser;
-      final email = (authUser?.email?.trim().isNotEmpty ?? false)
-          ? authUser!.email!.trim()
-          : 'user_$userId@eleaguehub.app';
-      final phone = (authUser?.phoneNumber?.trim().isNotEmpty ?? false)
-          ? authUser!.phoneNumber!.trim()
-          : '0000000000';
-      final name = (authUser?.displayName?.trim().isNotEmpty ?? false)
-          ? authUser!.displayName!.trim()
-          : 'EleagueHub User';
+      final email = (authUser?.email?.trim().isNotEmpty ?? false) ? authUser!.email!.trim() : 'user_$userId@eleaguehub.app';
+      final phone = (authUser?.phoneNumber?.trim().isNotEmpty ?? false) ? authUser!.phoneNumber!.trim() : '0000000000';
+      final name = (authUser?.displayName?.trim().isNotEmpty ?? false) ? authUser!.displayName!.trim() : 'EleagueHub User';
 
-      final customer = Customer(
-        name: name,
-        phoneNumber: phone,
-        email: email,
-      );
+      final customer = Customer(name: name, phoneNumber: phone, email: email);
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -152,11 +151,10 @@ class PremiumPaymentService {
         txRef: txRef,
         amount: totalAmount,
         customer: customer,
-        paymentOptions: 'card,ussd,banktransfer',
+        paymentOptions: plan.currency.toUpperCase() == 'NGN' ? 'card,ussd,banktransfer' : 'card',
         customization: Customization(
-          title: 'EleagueHub Premium',
-          description:
-              'Premium subscription — ${plan.premiumDurationDays} days',
+          title: 'EleagueHub',
+          description: 'Premium subscription — ${plan.premiumDurationDays} days',
         ),
         isTestMode: FlutterwaveConfig.isTestMode,
       );
@@ -164,65 +162,37 @@ class PremiumPaymentService {
       final ChargeResponse response = await flutterwave.charge(context);
 
       if (response.success == true) {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        final receipt =
-            (response.transactionId != null &&
-                    '${response.transactionId}'.trim().isNotEmpty)
-                ? 'FLW-${response.transactionId}'
-                : (response.txRef?.trim().isNotEmpty ?? false)
-                    ? 'FLW-${response.txRef}'
-                    : 'FLW-$txRef';
+        final txId = (response.transactionId ?? '').toString().trim();
+        if (txId.isEmpty) {
+          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: 'Missing transactionId.');
+          return PremiumPurchaseResult.failed(provider: _providerName, errorMessage: 'Missing transaction id.');
+        }
 
-        // Write isPremium to Firestore BEFORE returning to caller.
+        final resolvedTxRef = (response.txRef?.trim().isNotEmpty ?? false) ? response.txRef!.trim() : txRef;
+
+        final recorded = await PaymentsService.instance.recordFlutterwaveClientSuccess(
+          attemptId: attemptId,
+          transactionId: txId,
+          txRef: resolvedTxRef,
+        );
+
         await _writePremiumToFirestore(
           userId: userId,
           durationDays: plan.premiumDurationDays,
-          receiptId: receipt,
+          receiptId: recorded.receiptId,
           provider: _providerName,
         );
 
-        // Analytics: success
-        try {
-          await AppAnalyticsService.instance.logPaymentResult(
-            kind: 'premium',
-            leagueId: '',
-            leagueName: 'Premium Subscription',
-            success: true,
-            provider: _providerName,
-            currency: plan.currency,
-            amount: totalAmount,
-            receiptId: receipt,
-            errorMessage: null,
-            userId: userId,
-          );
-        } catch (_) {
-          // best-effort
-        }
-
         return PremiumPurchaseResult.paid(
-          receiptId: receipt,
-          paidAtMs: now,
+          receiptId: recorded.receiptId,
+          paidAtMs: recorded.paidAtMs,
           provider: _providerName,
           premiumDurationDays: plan.premiumDurationDays,
         );
       }
 
-      // Payment cancelled / not successful.
-      try {
-        await AppAnalyticsService.instance.logPaymentResult(
-          kind: 'premium',
-          leagueId: '',
-          leagueName: 'Premium Subscription',
-          success: false,
-          provider: _providerName,
-          currency: plan.currency,
-          amount: totalAmount,
-          receiptId: null,
-          errorMessage: 'Payment cancelled or not successful',
-          userId: userId,
-        );
-      } catch (_) {
-        // best-effort
+      if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(attemptId: attemptId, reason: 'Payment cancelled or not successful');
       }
 
       return PremiumPurchaseResult.failed(
@@ -230,23 +200,10 @@ class PremiumPaymentService {
         errorMessage: 'Payment cancelled or not successful',
       );
     } catch (e) {
-      try {
-        final plan = await RemotePricingService.instance
-            .getPlanForLocale(Localizations.maybeLocaleOf(context));
-        await AppAnalyticsService.instance.logPaymentResult(
-          kind: 'premium',
-          leagueId: '',
-          leagueName: 'Premium Subscription',
-          success: false,
-          provider: _providerName,
-          currency: plan.currency,
-          amount: '0',
-          receiptId: null,
-          errorMessage: e.toString(),
-          userId: userId,
-        );
-      } catch (_) {
-        // best-effort
+      if (attemptId.isNotEmpty) {
+        try {
+          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: e.toString());
+        } catch (_) {}
       }
 
       return PremiumPurchaseResult.failed(
@@ -256,30 +213,18 @@ class PremiumPaymentService {
     }
   }
 
-  /// Write isPremium=true and premiumExpiresAtMs to the user's Firestore doc.
-  ///
-  /// Uses .update() so the Firestore UPDATE rule is evaluated (not CREATE).
-  /// The rule requires changedKeys to be exactly
-  /// ['isPremium', 'premiumExpiresAtMs', 'updatedAt'] and
-  /// premiumExpiresAtMs > request.time.toMillis() (future expiry).
   Future<void> _writePremiumToFirestore({
     required String userId,
     required int durationDays,
     required String receiptId,
     required String provider,
   }) async {
-    final expiresAt = DateTime.now()
-        .add(Duration(days: durationDays))
-        .millisecondsSinceEpoch;
+    final expiresAt = DateTime.now().add(Duration(days: durationDays)).millisecondsSinceEpoch;
 
-    await _firestore
-        .collection('users')
-        .doc(userId)
-        .update({
-          'isPremium': true,
-          'premiumExpiresAtMs': expiresAt,
-          'updatedAt': FieldValue.serverTimestamp(),
-        })
-        .timeout(const Duration(seconds: 20));
+    await _firestore.collection('users').doc(userId).update({
+      'isPremium': true,
+      'premiumExpiresAtMs': expiresAt,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }).timeout(const Duration(seconds: 20));
   }
 }

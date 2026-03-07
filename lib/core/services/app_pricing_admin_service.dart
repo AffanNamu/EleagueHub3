@@ -5,32 +5,34 @@ import 'remote_pricing_service.dart';
 class AppPricingAdminService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  DocumentReference<Map<String, dynamic>> get _doc =>
-      _firestore.collection('app').doc('pricing');
+  DocumentReference<Map<String, dynamic>> get _primaryDoc => _firestore.collection('app_config').doc('pricing');
+  DocumentReference<Map<String, dynamic>> get _legacyDoc => _firestore.collection('app').doc('pricing');
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _fetchDoc() async {
+    final primary = await _primaryDoc.get();
+    if (primary.exists) return primary;
+    return _legacyDoc.get();
+  }
 
   Future<Map<String, dynamic>> fetch() async {
-    final snap = await _doc.get();
+    final snap = await _fetchDoc();
     if (!snap.exists) {
       return {
         'ngn': _planToMap(RemotePricingPlan.defaultsNgn()),
         'usd': _planToMap(RemotePricingPlan.defaultsUsd()),
       };
     }
-    final data =
-        (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    final ngn =
-        (data['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    final usd =
-        (data['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
-    final mergedNgn = {
-      ..._planToMap(RemotePricingPlan.defaultsNgn()),
-      ...ngn,
-    };
-    final mergedUsd = {
-      ..._planToMap(RemotePricingPlan.defaultsUsd()),
-      ...usd,
-    };
+    final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    final ngn = (data['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final usd = (data['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+
+    final mergedNgn = {..._planToMap(RemotePricingPlan.defaultsNgn()), ..._normalizeKeys(ngn)};
+    final mergedUsd = {..._planToMap(RemotePricingPlan.defaultsUsd()), ..._normalizeKeys(usd)};
+
+    // Ensure masterLinkFee exists (default to legacy masterLeagueFee if present)
+    mergedNgn['masterLinkFee'] ??= (ngn['masterLinkFee'] ?? ngn['masterLeagueFee']);
+    mergedUsd['masterLinkFee'] ??= (usd['masterLinkFee'] ?? usd['masterLeagueFee']);
 
     return {
       'ngn': mergedNgn,
@@ -38,20 +40,29 @@ class AppPricingAdminService {
     };
   }
 
+  Map<String, dynamic> _normalizeKeys(Map<String, dynamic> src) {
+    // Accept older key names and map them into canonical schema.
+    final out = Map<String, dynamic>.from(src);
+
+    if (out.containsKey('createLeagueFee') && !out.containsKey('createFee')) {
+      out['createFee'] = out['createLeagueFee'];
+    }
+    return out;
+  }
+
   Future<void> save({
     required Map<String, dynamic> ngn,
     required Map<String, dynamic> usd,
   }) async {
-    Map<String, dynamic> _sanitize(
-        Map<String, dynamic> src, bool isUsd) {
-      double _toDouble(dynamic v, double fallback) {
+    Map<String, dynamic> sanitize(Map<String, dynamic> src, bool isUsd) {
+      double toDouble(dynamic v, double fallback) {
         if (v == null) return fallback;
         if (v is num) return v.toDouble();
         if (v is String) return double.tryParse(v.trim()) ?? fallback;
         return fallback;
       }
 
-      int _toInt(dynamic v, int fallback) {
+      int toInt(dynamic v, int fallback) {
         if (v == null) return fallback;
         if (v is int) return v;
         if (v is num) return v.toInt();
@@ -59,7 +70,7 @@ class AppPricingAdminService {
         return fallback;
       }
 
-      bool _toBool(dynamic v, bool fallback) {
+      bool toBool(dynamic v, bool fallback) {
         if (v == null) return fallback;
         if (v is bool) return v;
         if (v is num) return v.toInt() == 1;
@@ -71,39 +82,46 @@ class AppPricingAdminService {
         return fallback;
       }
 
-      final dft = isUsd
-          ? RemotePricingPlan.defaultsUsd()
-          : RemotePricingPlan.defaultsNgn();
+      final dft = isUsd ? RemotePricingPlan.defaultsUsd() : RemotePricingPlan.defaultsNgn();
 
       return <String, dynamic>{
-        'createFee': _toDouble(src['createFee'], dft.createLeagueFee),
-        'accessFee': _toDouble(src['accessFee'], dft.accessFee),
-        'couponUnit': _toDouble(src['couponUnit'], dft.couponUnit),
-        'couponThreshold': src['couponThreshold'] == null
-            ? null
-            : _toDouble(src['couponThreshold'], dft.couponThreshold ?? 0),
-        'couponDiscountPercent':
-            _toDouble(src['couponDiscountPercent'], dft.couponDiscountPercent),
-        'viewersEnabled': _toBool(src['viewersEnabled'], false),
-        // ── PREMIUM FIELDS ──────────────────────────────────────────────────
-        'premiumFee': _toDouble(src['premiumFee'], dft.premiumFee),
-        'premiumDurationDays':
-            _toInt(src['premiumDurationDays'], dft.premiumDurationDays),
-        'premiumEnabled': _toBool(src['premiumEnabled'], dft.premiumEnabled),
-        // ────────────────────────────────────────────────────────────────────
+        'createFee': toDouble(src['createFee'], dft.createLeagueFee),
+        'accessFee': toDouble(src['accessFee'], dft.accessFee),
+        'couponUnit': toDouble(src['couponUnit'], dft.couponUnit),
+        'couponThreshold': src['couponThreshold'] == null ? null : toDouble(src['couponThreshold'], dft.couponThreshold ?? 0),
+        'couponDiscountPercent': toDouble(src['couponDiscountPercent'], dft.couponDiscountPercent),
+        'viewersEnabled': toBool(src['viewersEnabled'], false),
+
+        // Premium fields
+        'premiumFee': toDouble(src['premiumFee'], dft.premiumFee),
+        'premiumDurationDays': toInt(src['premiumDurationDays'], dft.premiumDurationDays),
+        'premiumEnabled': toBool(src['premiumEnabled'], dft.premiumEnabled),
+
+        // MasterLink fee (separate product)
+        'masterLinkFee': toDouble(src['masterLinkFee'], isUsd ? 5.0 : 1500.0),
       };
     }
 
-    final ngnSan = _sanitize(ngn, false);
-    final usdSan = _sanitize(usd, true);
+    final ngnSan = sanitize(ngn, false);
+    final usdSan = sanitize(usd, true);
 
-    await _doc.set({
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Write new source of truth
+    await _primaryDoc.set({
       'ngn': ngnSan,
       'usd': usdSan,
+      'updatedAtMs': now,
+    }, SetOptions(merge: true));
+
+    // Optional mirror to legacy doc for older app builds still reading app/pricing
+    await _legacyDoc.set({
+      'ngn': ngnSan,
+      'usd': usdSan,
+      'updatedAtMs': now,
     }, SetOptions(merge: true));
   }
 
-  /// Single helper so NGN and USD maps are always identical in structure.
   Map<String, dynamic> _planToMap(RemotePricingPlan p) => {
         'createFee': p.createLeagueFee,
         'accessFee': p.accessFee,
@@ -114,5 +132,6 @@ class AppPricingAdminService {
         'premiumFee': p.premiumFee,
         'premiumDurationDays': p.premiumDurationDays,
         'premiumEnabled': p.premiumEnabled,
+        'masterLinkFee': 0, // admin should set
       };
 }

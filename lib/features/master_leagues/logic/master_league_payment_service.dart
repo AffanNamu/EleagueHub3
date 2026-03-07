@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/config/flutterwave_config.dart';
 import '../../../core/services/app_analytics_service.dart';
+import '../../../core/services/payments/payment_models.dart';
+import '../../../core/services/payments/payments_service.dart';
 import 'master_league_pricing_service.dart';
 
 final masterLeaguePaymentServiceProvider = Provider<MasterLeaguePaymentService>((ref) {
@@ -70,7 +72,6 @@ class MasterLeaguePaymentResult {
 }
 
 abstract class MasterLeaguePaymentService {
-  /// Collects the Master League subscription fee (3 months access).
   Future<MasterLeaguePaymentResult> purchaseMasterLeagueAccess({
     required BuildContext context,
     required String userId,
@@ -86,21 +87,17 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
   String get providerName => 'flutterwave';
 
   Locale _effectiveLocale(BuildContext context) {
-    // Stronger fallback than maybeLocaleOf(context) alone.
     final base = Localizations.maybeLocaleOf(context) ?? WidgetsBinding.instance.platformDispatcher.locale;
 
-    // Respect your app’s forced-country behavior (Nigeria-first) from FlutterwaveConfig.
     final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
     if (forced.isNotEmpty) {
       return Locale(base.languageCode.isNotEmpty ? base.languageCode : 'en', forced);
     }
-
     return base;
   }
 
   String _paymentOptionsForCurrency(String currency) {
     final c = currency.trim().toUpperCase();
-    // USSD/banktransfer are typically NGN flows; for USD keep it simple.
     if (c == 'NGN') return 'card,ussd,banktransfer';
     return 'card';
   }
@@ -114,7 +111,7 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
 
   double _roundMoney(String currency, double v) {
     final c = currency.trim().toUpperCase();
-    if (c == 'NGN') return v.roundToDouble(); // no decimals
+    if (c == 'NGN') return v.roundToDouble();
     return double.parse(v.toStringAsFixed(2));
   }
 
@@ -138,6 +135,7 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
   }) async {
     String currencyUsed = '';
     String totalAmount = '0';
+    String attemptId = '';
 
     final effectiveUserId = _resolveEffectiveUserId(userId);
 
@@ -145,41 +143,46 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
       FlutterwaveConfig.assertConfigured();
 
       final pricing = MasterLeaguePricingService();
-
-      // Use effective locale (with forced country code support).
       final loc = _effectiveLocale(context);
-      var price = await pricing.getMasterLeaguePriceForLocale(loc);
 
-      // Extra Nigeria fallback (helps if locale comes back without a countryCode in some builds)
-      final cc = (loc.countryCode ?? '').trim().toUpperCase();
-      if (cc == 'NG' && price != null && price.currency.trim().toUpperCase() != 'NGN') {
-        final forcedNg = Locale(loc.languageCode.isNotEmpty ? loc.languageCode : 'en', 'NG');
-        final priceNg = await pricing.getMasterLeaguePriceForLocale(forcedNg);
-        if (priceNg != null) price = priceNg;
-      }
-
+      final price = await pricing.getMasterLeaguePriceForLocale(loc);
       if (price == null) {
-        throw StateError("Master League price isn't configured yet. Please try again later.");
+        throw StateError("MasterLink price isn't configured yet. Please try again later.");
       }
 
       currencyUsed = price.currency.trim().toUpperCase();
 
-      final rawAmount = (price.amount is int)
-          ? (price.amount as int).toDouble()
-          : (price.amount as num).toDouble();
-
+      final rawAmount = (price.amount is int) ? (price.amount as int).toDouble() : (price.amount as num).toDouble();
       final rounded = _roundMoney(currencyUsed, rawAmount);
-      if (rounded <= 0) {
-        throw StateError("Master League price is invalid. Please contact support.");
-      }
+      if (rounded <= 0) throw StateError('MasterLink price is invalid. Please contact support.');
 
       totalAmount = _toFlutterwaveAmount(rounded);
 
-      // Analytics attempt (best-effort)
+      // Create attempt
+      attemptId = await PaymentsService.instance.createAttempt(
+        PaymentAttemptCreate(
+          provider: providerName,
+          currency: currencyUsed,
+          amount: rounded,
+          amountStr: totalAmount,
+          userId: FirebaseAuth.instance.currentUser!.uid,
+          leagueId: '',
+          leagueName: 'MasterLink',
+          items: [
+            PaymentLineItem(
+              productType: 'masterLink',
+              productSubType: 'masterlink_access',
+              quantity: 1,
+              amount: rounded,
+            ),
+          ],
+        ),
+      );
+
       await AppAnalyticsService.instance.logPaymentAttempt(
-        kind: 'master_league',
+        kind: 'masterLink',
         leagueId: '',
-        leagueName: 'Master League',
+        leagueName: 'MasterLink',
         provider: providerName,
         currency: currencyUsed,
         amount: totalAmount,
@@ -187,7 +190,6 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
       );
 
       final authUser = FirebaseAuth.instance.currentUser;
-
       final String email = (authUser?.email?.trim().isNotEmpty ?? false)
           ? authUser!.email!.trim()
           : 'user_$effectiveUserId@eleaguehub.app';
@@ -198,13 +200,9 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
           ? authUser!.displayName!.trim()
           : 'EleagueHub User';
 
-      final customer = Customer(
-        name: name,
-        phoneNumber: phone,
-        email: email,
-      );
+      final customer = Customer(name: name, phoneNumber: phone, email: email);
 
-      final txRef = 'EH-MLG-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+      final txRef = 'EH-MLK-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -216,7 +214,7 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         paymentOptions: _paymentOptionsForCurrency(currencyUsed),
         customization: Customization(
           title: 'EleagueHub',
-          description: 'Master League access (3 months)',
+          description: 'MasterLink access (3 months)',
         ),
         isTestMode: FlutterwaveConfig.isTestMode,
       );
@@ -229,29 +227,36 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
       );
 
       if (_isChargeSuccessful(response)) {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        final receipt = (response.transactionId != null && '${response.transactionId}'.trim().isNotEmpty)
-            ? 'FLW-${response.transactionId}'
-            : (response.txRef?.trim().isNotEmpty ?? false)
-                ? 'FLW-${response.txRef}'
-                : 'FLW-$txRef';
+        final txId = (response.transactionId ?? '').toString().trim();
+        if (txId.isEmpty) {
+          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: 'Missing transactionId.');
+          throw StateError('Payment success returned without transactionId.');
+        }
+
+        final resolvedTxRef = (response.txRef?.toString().trim().isNotEmpty ?? false) ? response.txRef!.toString().trim() : txRef;
+
+        final recorded = await PaymentsService.instance.recordFlutterwaveClientSuccess(
+          attemptId: attemptId,
+          transactionId: txId,
+          txRef: resolvedTxRef,
+        );
 
         await AppAnalyticsService.instance.logPaymentResult(
-          kind: 'master_league',
+          kind: 'masterLink',
           leagueId: '',
-          leagueName: 'Master League',
+          leagueName: 'MasterLink',
           success: true,
           provider: providerName,
           currency: currencyUsed,
           amount: totalAmount,
-          receiptId: receipt,
+          receiptId: recorded.receiptId,
           errorMessage: null,
           userId: effectiveUserId,
         );
 
         return MasterLeaguePaymentResult.paid(
-          receiptId: receipt,
-          paidAtMs: now,
+          receiptId: recorded.receiptId,
+          paidAtMs: recorded.paidAtMs,
           provider: providerName,
           currency: currencyUsed,
           totalAmount: totalAmount,
@@ -261,10 +266,14 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
       final status = (response.status ?? '').toString().trim();
       final msg = status.isNotEmpty ? 'Payment not successful (status: $status)' : 'Payment cancelled or not successful';
 
+      if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(attemptId: attemptId, reason: msg);
+      }
+
       await AppAnalyticsService.instance.logPaymentResult(
-        kind: 'master_league',
+        kind: 'masterLink',
         leagueId: '',
-        leagueName: 'Master League',
+        leagueName: 'MasterLink',
         success: false,
         provider: providerName,
         currency: currencyUsed,
@@ -281,21 +290,10 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         totalAmount: totalAmount,
       );
     } catch (e) {
-      try {
-        await AppAnalyticsService.instance.logPaymentResult(
-          kind: 'master_league',
-          leagueId: '',
-          leagueName: 'Master League',
-          success: false,
-          provider: providerName,
-          currency: currencyUsed,
-          amount: totalAmount,
-          receiptId: null,
-          errorMessage: e.toString(),
-          userId: effectiveUserId,
-        );
-      } catch (_) {
-        // best-effort
+      if (attemptId.isNotEmpty) {
+        try {
+          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: e.toString());
+        } catch (_) {}
       }
 
       return MasterLeaguePaymentResult.failed(

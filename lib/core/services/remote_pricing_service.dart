@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../config/flutterwave_config.dart';
+import 'country/country_resolver_service.dart';
 
 class RemotePricingPlan {
   final String currency;
@@ -14,14 +15,8 @@ class RemotePricingPlan {
   final bool viewersEnabled;
 
   // ── PREMIUM FIELDS ──────────────────────────────────────────────────────────
-  /// Price of one premium subscription period in this currency.
   final double premiumFee;
-
-  /// How many days one premium purchase lasts.
   final int premiumDurationDays;
-
-  /// Super-admin kill-switch: when false the premium paywall is hidden and
-  /// PremiumAccessGuard passes everyone through.
   final bool premiumEnabled;
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -56,8 +51,7 @@ class RemotePricingPlan {
       accessFee: accessFee ?? this.accessFee,
       couponUnit: couponUnit ?? this.couponUnit,
       couponThreshold: couponThreshold ?? this.couponThreshold,
-      couponDiscountPercent:
-          couponDiscountPercent ?? this.couponDiscountPercent,
+      couponDiscountPercent: couponDiscountPercent ?? this.couponDiscountPercent,
       viewersEnabled: viewersEnabled ?? this.viewersEnabled,
       premiumFee: premiumFee ?? this.premiumFee,
       premiumDurationDays: premiumDurationDays ?? this.premiumDurationDays,
@@ -123,31 +117,24 @@ class RemotePricingPlan {
     required Map<String, dynamic> map,
     required RemotePricingPlan defaults,
   }) {
+    // Accept both old and new keys for backward compatibility.
+    final createFee = map.containsKey('createFee') ? map['createFee'] : map['createLeagueFee'];
+
     return RemotePricingPlan(
       currency: currency,
-      createLeagueFee:
-          _numToDouble(map['createFee'], fallback: defaults.createLeagueFee),
+      createLeagueFee: _numToDouble(createFee, fallback: defaults.createLeagueFee),
       accessFee: _numToDouble(map['accessFee'], fallback: defaults.accessFee),
-      couponUnit:
-          _numToDouble(map['couponUnit'], fallback: defaults.couponUnit),
+      couponUnit: _numToDouble(map['couponUnit'], fallback: defaults.couponUnit),
       couponThreshold: map.containsKey('couponThreshold')
-          ? (_numToDouble(map['couponThreshold'],
-                      fallback: defaults.couponThreshold ?? 0) ==
-                  0
+          ? (_numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0) == 0
               ? null
-              : _numToDouble(map['couponThreshold'],
-                  fallback: defaults.couponThreshold ?? 0))
+              : _numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0))
           : defaults.couponThreshold,
-      couponDiscountPercent: _numToDouble(map['couponDiscountPercent'],
-          fallback: defaults.couponDiscountPercent),
-      viewersEnabled:
-          _boolFromAny(map['viewersEnabled'], fallback: defaults.viewersEnabled),
-      premiumFee:
-          _numToDouble(map['premiumFee'], fallback: defaults.premiumFee),
-      premiumDurationDays: _numToInt(map['premiumDurationDays'],
-          fallback: defaults.premiumDurationDays),
-      premiumEnabled:
-          _boolFromAny(map['premiumEnabled'], fallback: defaults.premiumEnabled),
+      couponDiscountPercent: _numToDouble(map['couponDiscountPercent'], fallback: defaults.couponDiscountPercent),
+      viewersEnabled: _boolFromAny(map['viewersEnabled'], fallback: defaults.viewersEnabled),
+      premiumFee: _numToDouble(map['premiumFee'], fallback: defaults.premiumFee),
+      premiumDurationDays: _numToInt(map['premiumDurationDays'], fallback: defaults.premiumDurationDays),
+      premiumEnabled: _boolFromAny(map['premiumEnabled'], fallback: defaults.premiumEnabled),
     );
   }
 }
@@ -191,10 +178,18 @@ class RemotePricingService {
 
   _RemotePricingCache? _cache;
 
+  Future<DocumentSnapshot<Map<String, dynamic>>> _getPricingDoc() async {
+    // New source of truth:
+    final primary = await _firestore.collection('app_config').doc('pricing').get();
+    if (primary.exists) return primary;
+
+    // Backward compatible fallback:
+    return _firestore.collection('app').doc('pricing').get();
+  }
+
   Future<_RemotePricingCache> _fetch() async {
     try {
-      final doc =
-          await _firestore.collection('app').doc('pricing').get();
+      final doc = await _getPricingDoc();
       if (!doc.exists) {
         return _RemotePricingCache(
           fetchedAt: DateTime.now(),
@@ -203,12 +198,9 @@ class RemotePricingService {
         );
       }
 
-      final raw =
-          (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ngnMap =
-          (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final usdMap =
-          (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final raw = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final ngnMap = (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final usdMap = (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
       final ngn = RemotePricingPlan.fromMap(
         currency: 'NGN',
@@ -246,15 +238,15 @@ class RemotePricingService {
       _cache = await _fetch();
     }
 
+    // Testing override (if set)
     final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
     if (forced.isNotEmpty) {
       return _isNigeriaCountryCode(forced) ? _cache!.ngn : _cache!.usd;
     }
 
-    final cc = (locale?.countryCode ?? '').trim().toUpperCase();
-    if (_isNigeriaCountryCode(cc)) {
-      return _cache!.ngn;
-    }
+    // Automatic country detection (locale -> IP fallback on IO)
+    final cc = await CountryResolverService.instance.resolveCountryCode(locale: locale);
+    if (_isNigeriaCountryCode(cc)) return _cache!.ngn;
     return _cache!.usd;
   }
 
@@ -276,8 +268,7 @@ class RemotePricingService {
     if (threshold == null) return _roundMoney(plan.currency, subtotal);
 
     if (subtotal >= threshold) {
-      final pct =
-          (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
+      final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
       final discounted = subtotal * ((100.0 - pct) / 100.0);
       return _roundMoney(plan.currency, discounted);
     }
@@ -308,24 +299,21 @@ class RemotePricingService {
 
     final threshold = plan.couponThreshold;
     final thresholdConfigured = threshold != null && threshold > 0;
-    final pct =
-        (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
+    final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
 
     bool bulkApplied = false;
     double discountedSubtotalUnrounded = rawSubtotalUnrounded;
 
     if (thresholdConfigured && rawSubtotalUnrounded >= threshold!) {
       bulkApplied = true;
-      discountedSubtotalUnrounded =
-          rawSubtotalUnrounded * ((100.0 - pct) / 100.0);
+      discountedSubtotalUnrounded = rawSubtotalUnrounded * ((100.0 - pct) / 100.0);
     }
 
     return OrganizerCouponPricing(
       organizerUnit: organizerUnit,
       qty: qty,
       rawSubtotal: _roundMoney(plan.currency, rawSubtotalUnrounded),
-      discountedSubtotal:
-          _roundMoney(plan.currency, discountedSubtotalUnrounded),
+      discountedSubtotal: _roundMoney(plan.currency, discountedSubtotalUnrounded),
       bulkDiscountApplied: bulkApplied,
     );
   }

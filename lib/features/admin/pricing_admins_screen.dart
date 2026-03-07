@@ -99,6 +99,11 @@ class _PricingAdminsScreenState extends State<PricingAdminsScreen> {
         elevation: 0,
         actions: [
           IconButton(
+            tooltip: 'Open Analytics Dashboard',
+            onPressed: _saving ? null : () => context.push('/admin/analytics'),
+            icon: const Icon(Icons.analytics_rounded),
+          ),
+          IconButton(
             tooltip: 'Quick Edit Pricing',
             onPressed: _saving ? null : () => showPricingQuickEditorSheet(context),
             icon: const Icon(Icons.price_change_rounded),
@@ -252,7 +257,9 @@ class _PricingAdminsScreenState extends State<PricingAdminsScreen> {
                           ),
                         const SizedBox(height: 6),
                         Text(
-                          'Tip: Use the price icon above to edit pricing (including Master League fee).',
+                          'Tip: Add a UID here and that user will automatically gain access to:\n'
+                          '• Pricing Admin\n'
+                          '• Analytics Dashboard\n',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: cs.onSurface.withOpacity(0.60),
                             fontWeight: FontWeight.w600,

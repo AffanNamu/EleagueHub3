@@ -53,13 +53,10 @@ String _numToText(dynamic v) {
 }
 
 /// In-app pricing editor for pricing admins.
-/// Writes to Firestore: app/pricing
-///
-/// This does NOT require "going to Firebase console". It still uses Firestore rules,
-/// so only allowed users can save.
-///
-/// Master League System:
-/// - Adds pricing key: `masterLeagueFee` under each currency block (usd/ngn)
+/// Writes to Firestore:
+///   app_config/pricing  (source of truth)
+/// Also mirrors to:
+///   app/pricing         (legacy compatibility)
 Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   if (uid.isEmpty) {
@@ -95,12 +92,18 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
     return;
   }
 
-  final docRef = FirebaseFirestore.instance.collection('app').doc('pricing');
+  final primaryRef = FirebaseFirestore.instance.collection('app_config').doc('pricing');
+  final legacyRef = FirebaseFirestore.instance.collection('app').doc('pricing');
 
   Map<String, dynamic> pricing;
   try {
-    final snap = await docRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
-    pricing = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    final snap = await primaryRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
+    if (snap.exists) {
+      pricing = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    } else {
+      final old = await legacyRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
+      pricing = (old.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    }
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -117,14 +120,20 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   final ngn = (pricing['ngn'] is Map) ? (pricing['ngn'] as Map).cast<String, dynamic>() : <String, dynamic>{};
 
   final usdAccessFee = TextEditingController(text: _numToText(usd['accessFee']));
-  final usdCreateFee = TextEditingController(text: _numToText(usd['createLeagueFee']));
+  final usdCreateFee = TextEditingController(text: _numToText(usd['createFee'] ?? usd['createLeagueFee']));
   final usdCouponUnit = TextEditingController(text: _numToText(usd['couponUnit']));
-  final usdMasterLeagueFee = TextEditingController(text: _numToText(usd['masterLeagueFee']));
+  final usdMasterLinkFee = TextEditingController(text: _numToText(usd['masterLinkFee'] ?? usd['masterLeagueFee']));
+  final usdPremiumFee = TextEditingController(text: _numToText(usd['premiumFee']));
+  final usdPremiumDays = TextEditingController(text: _numToText(usd['premiumDurationDays']));
+  bool usdPremiumEnabled = (usd['premiumEnabled'] is bool) ? usd['premiumEnabled'] as bool : true;
 
   final ngnAccessFee = TextEditingController(text: _numToText(ngn['accessFee']));
-  final ngnCreateFee = TextEditingController(text: _numToText(ngn['createLeagueFee']));
+  final ngnCreateFee = TextEditingController(text: _numToText(ngn['createFee'] ?? ngn['createLeagueFee']));
   final ngnCouponUnit = TextEditingController(text: _numToText(ngn['couponUnit']));
-  final ngnMasterLeagueFee = TextEditingController(text: _numToText(ngn['masterLeagueFee']));
+  final ngnMasterLinkFee = TextEditingController(text: _numToText(ngn['masterLinkFee'] ?? ngn['masterLeagueFee']));
+  final ngnPremiumFee = TextEditingController(text: _numToText(ngn['premiumFee']));
+  final ngnPremiumDays = TextEditingController(text: _numToText(ngn['premiumDurationDays']));
+  bool ngnPremiumEnabled = (ngn['premiumEnabled'] is bool) ? ngn['premiumEnabled'] as bool : true;
 
   bool saved = false;
 
@@ -181,21 +190,18 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
         final ua = _parseNum(usdAccessFee.text);
         final uc = _parseNum(usdCreateFee.text);
         final uu = _parseNum(usdCouponUnit.text);
-        final uml = _parseNum(usdMasterLeagueFee.text);
+        final uml = _parseNum(usdMasterLinkFee.text);
+        final upf = _parseNum(usdPremiumFee.text);
+        final upd = _parseNum(usdPremiumDays.text);
 
         final na = _parseNum(ngnAccessFee.text);
         final nc = _parseNum(ngnCreateFee.text);
         final nu = _parseNum(ngnCouponUnit.text);
-        final nml = _parseNum(ngnMasterLeagueFee.text);
+        final nml = _parseNum(ngnMasterLinkFee.text);
+        final npf = _parseNum(ngnPremiumFee.text);
+        final npd = _parseNum(ngnPremiumDays.text);
 
-        if (ua == null ||
-            uc == null ||
-            uu == null ||
-            uml == null ||
-            na == null ||
-            nc == null ||
-            nu == null ||
-            nml == null) {
+        if (ua == null || uc == null || uu == null || uml == null || upf == null || upd == null || na == null || nc == null || nu == null || nml == null || npf == null || npd == null) {
           setSheet(() => error = 'Enter valid numbers for all fields.');
           return;
         }
@@ -209,27 +215,31 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
           await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
           final now = DateTime.now().millisecondsSinceEpoch;
 
-          await docRef
-              .set(
-                <String, dynamic>{
-                  'usd': <String, dynamic>{
-                    'accessFee': ua,
-                    'createLeagueFee': uc,
-                    'couponUnit': uu,
-                    'masterLeagueFee': uml,
-                  },
-                  'ngn': <String, dynamic>{
-                    'accessFee': na,
-                    'createLeagueFee': nc,
-                    'couponUnit': nu,
-                    'masterLeagueFee': nml,
-                  },
-                  'updatedAtMs': now,
-                  'updatedBy': uid,
-                },
-                SetOptions(merge: true),
-              )
-              .timeout(const Duration(seconds: 15));
+          final payload = <String, dynamic>{
+            'usd': <String, dynamic>{
+              'accessFee': ua,
+              'createFee': uc,
+              'couponUnit': uu,
+              'masterLinkFee': uml,
+              'premiumFee': upf,
+              'premiumDurationDays': upd.toInt(),
+              'premiumEnabled': usdPremiumEnabled,
+            },
+            'ngn': <String, dynamic>{
+              'accessFee': na,
+              'createFee': nc,
+              'couponUnit': nu,
+              'masterLinkFee': nml,
+              'premiumFee': npf,
+              'premiumDurationDays': npd.toInt(),
+              'premiumEnabled': ngnPremiumEnabled,
+            },
+            'updatedAtMs': now,
+            'updatedBy': uid,
+          };
+
+          await primaryRef.set(payload, SetOptions(merge: true)).timeout(const Duration(seconds: 15));
+          await legacyRef.set(payload, SetOptions(merge: true)).timeout(const Duration(seconds: 15));
 
           saved = true;
           if (ctx.mounted) Navigator.of(ctx).pop();
@@ -309,10 +319,13 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                           field('USD Access Fee', usdAccessFee),
                           field('USD Create League Fee', usdCreateFee),
                           field('USD Coupon Unit', usdCouponUnit),
-                          field(
-                            'USD Master League Fee',
-                            usdMasterLeagueFee,
-                            helper: 'Premium unlock fee (pay once, create many competitions)',
+                          field('USD MasterLink Fee', usdMasterLinkFee, helper: 'MasterLink subscription fee'),
+                          field('USD Premium Fee', usdPremiumFee),
+                          field('USD Premium Duration (days)', usdPremiumDays),
+                          SwitchListTile.adaptive(
+                            value: usdPremiumEnabled,
+                            onChanged: busy ? null : (v) => setSheet(() => usdPremiumEnabled = v),
+                            title: const Text('Premium enabled'),
                           ),
                           const SizedBox(height: 8),
                           Align(
@@ -326,10 +339,13 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                           field('NGN Access Fee', ngnAccessFee),
                           field('NGN Create League Fee', ngnCreateFee),
                           field('NGN Coupon Unit', ngnCouponUnit),
-                          field(
-                            'NGN Master League Fee',
-                            ngnMasterLeagueFee,
-                            helper: 'Premium unlock fee (pay once, create many competitions)',
+                          field('NGN MasterLink Fee', ngnMasterLinkFee, helper: 'MasterLink subscription fee'),
+                          field('NGN Premium Fee', ngnPremiumFee),
+                          field('NGN Premium Duration (days)', ngnPremiumDays),
+                          SwitchListTile.adaptive(
+                            value: ngnPremiumEnabled,
+                            onChanged: busy ? null : (v) => setSheet(() => ngnPremiumEnabled = v),
+                            title: const Text('Premium enabled'),
                           ),
                           if ((error ?? '').trim().isNotEmpty) ...[
                             const SizedBox(height: 10),
@@ -387,12 +403,16 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   usdAccessFee.dispose();
   usdCreateFee.dispose();
   usdCouponUnit.dispose();
-  usdMasterLeagueFee.dispose();
+  usdMasterLinkFee.dispose();
+  usdPremiumFee.dispose();
+  usdPremiumDays.dispose();
 
   ngnAccessFee.dispose();
   ngnCreateFee.dispose();
   ngnCouponUnit.dispose();
-  ngnMasterLeagueFee.dispose();
+  ngnMasterLinkFee.dispose();
+  ngnPremiumFee.dispose();
+  ngnPremiumDays.dispose();
 
   if (saved && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
