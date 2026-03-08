@@ -9,6 +9,7 @@ import '../../../core/config/flutterwave_config.dart';
 import '../../../core/services/app_analytics_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
+import '../domain/master_league_plan.dart';
 import 'master_league_pricing_service.dart';
 
 final masterLeaguePaymentServiceProvider =
@@ -76,6 +77,7 @@ abstract class MasterLeaguePaymentService {
   Future<MasterLeaguePaymentResult> purchaseMasterLeagueAccess({
     required BuildContext context,
     required String userId,
+    required MasterLeaguePlan plan,
   });
 
   String get providerName;
@@ -139,6 +141,7 @@ class FlutterwaveMasterLeaguePaymentService
   Future<MasterLeaguePaymentResult> purchaseMasterLeagueAccess({
     required BuildContext context,
     required String userId,
+    required MasterLeaguePlan plan,
   }) async {
     String currencyUsed = '';
     String totalAmount = '0';
@@ -168,10 +171,15 @@ class FlutterwaveMasterLeaguePaymentService
       final pricing = MasterLeaguePricingService();
       final loc = _effectiveLocale(context);
 
-      final price = await pricing.getMasterLeaguePriceForLocale(loc);
+      // Fetch plan-specific price from admin pricing doc
+      final price = await pricing.getMasterLeaguePriceForPlan(
+        plan: plan,
+        locale: loc,
+      );
       if (price == null) {
         throw StateError(
-            "MasterLink price isn't configured yet. Please try again later.");
+            "MasterLink ${plan.displayName} price isn't configured yet. "
+            "Please try again later.");
       }
 
       currencyUsed = price.currency.trim().toUpperCase();
@@ -187,6 +195,8 @@ class FlutterwaveMasterLeaguePaymentService
 
       totalAmount = _toFlutterwaveAmount(rounded);
 
+      final planLabel = 'MasterLink-${plan.displayName}';
+
       // Create attempt (best-effort, never blocks)
       attemptId = await PaymentsService.instance.createAttempt(
         PaymentAttemptCreate(
@@ -196,11 +206,11 @@ class FlutterwaveMasterLeaguePaymentService
           amountStr: totalAmount,
           userId: authUid,
           leagueId: '',
-          leagueName: 'MasterLink',
+          leagueName: planLabel,
           items: [
             PaymentLineItem(
               productType: 'masterLink',
-              productSubType: 'masterlink_access',
+              productSubType: 'masterlink_${plan.id}',
               quantity: 1,
               amount: rounded,
             ),
@@ -211,7 +221,7 @@ class FlutterwaveMasterLeaguePaymentService
       await AppAnalyticsService.instance.logPaymentAttempt(
         kind: 'masterLink',
         leagueId: '',
-        leagueName: 'MasterLink',
+        leagueName: planLabel,
         provider: providerName,
         currency: currencyUsed,
         amount: totalAmount,
@@ -235,7 +245,7 @@ class FlutterwaveMasterLeaguePaymentService
           Customer(name: name, phoneNumber: phone, email: email);
 
       final txRef =
-          'EH-MLK-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+          'EH-MLK-${plan.id.toUpperCase()}-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -247,7 +257,7 @@ class FlutterwaveMasterLeaguePaymentService
         paymentOptions: _paymentOptionsForCurrency(currencyUsed),
         customization: Customization(
           title: 'EleagueHub',
-          description: 'MasterLink access (3 months)',
+          description: 'MasterLink ${plan.displayName} access (3 months)',
         ),
         isTestMode: FlutterwaveConfig.isTestMode,
       );
@@ -287,7 +297,7 @@ class FlutterwaveMasterLeaguePaymentService
         await AppAnalyticsService.instance.logPaymentResult(
           kind: 'masterLink',
           leagueId: '',
-          leagueName: 'MasterLink',
+          leagueName: planLabel,
           success: true,
           provider: providerName,
           currency: currencyUsed,
@@ -322,7 +332,7 @@ class FlutterwaveMasterLeaguePaymentService
       await AppAnalyticsService.instance.logPaymentResult(
         kind: 'masterLink',
         leagueId: '',
-        leagueName: 'MasterLink',
+        leagueName: planLabel,
         success: false,
         provider: providerName,
         currency: currencyUsed,

@@ -33,11 +33,12 @@ class _CreateMasterLeagueScreenState
     super.dispose();
   }
 
-  Future<MasterLeaguePrice?> _loadPrice() async {
+  Future<MasterLeaguePrice?> _loadPriceForPlan(MasterLeaguePlan plan) async {
     try {
       final svc = MasterLeaguePricingService();
-      return await svc.getMasterLeaguePriceForLocale(
-        Localizations.maybeLocaleOf(context),
+      return await svc.getMasterLeaguePriceForPlan(
+        plan: plan,
+        locale: Localizations.maybeLocaleOf(context),
       );
     } catch (_) {
       return null;
@@ -47,6 +48,7 @@ class _CreateMasterLeagueScreenState
   Future<bool> _showPurchaseDialog({
     required MasterLeaguePrice? price,
     required bool preferNgn,
+    required MasterLeaguePlan plan,
   }) async {
     if (!mounted) return false;
 
@@ -55,7 +57,8 @@ class _CreateMasterLeagueScreenState
 
     final String priceLine =
         (price != null) ? 'Price: ${price.display}' : 'Price: unavailable';
-    const String durationLine = 'Access duration: 3 months (renew required)';
+    final String durationLine =
+        'Plan: ${plan.displayName} • Access duration: 3 months';
 
     final actualCurrency = (price?.currency ?? '').trim().toUpperCase();
     final String? warning =
@@ -85,14 +88,15 @@ class _CreateMasterLeagueScreenState
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: cs.primary.withOpacity(0.12),
-                        border: Border.all(color: cs.primary.withOpacity(0.25)),
+                        border:
+                            Border.all(color: cs.primary.withOpacity(0.25)),
                       ),
                       child: Icon(Icons.hub_rounded, color: cs.primary),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Master League (Premium)',
+                        'Master League — ${plan.displayName}',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
                           color: cs.onSurface,
@@ -127,11 +131,13 @@ class _CreateMasterLeagueScreenState
                     decoration: BoxDecoration(
                       color: cs.error.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: cs.error.withOpacity(0.30)),
+                      border:
+                          Border.all(color: cs.error.withOpacity(0.30)),
                     ),
                     child: Text(warning,
                         style: TextStyle(
-                            color: cs.error, fontWeight: FontWeight.w800)),
+                            color: cs.error,
+                            fontWeight: FontWeight.w800)),
                   ),
                 ],
                 const SizedBox(height: 14),
@@ -141,7 +147,8 @@ class _CreateMasterLeagueScreenState
                       child: OutlinedButton(
                         onPressed: () => Navigator.of(ctx).pop(false),
                         child: const Text('Cancel',
-                            style: TextStyle(fontWeight: FontWeight.w900)),
+                            style:
+                                TextStyle(fontWeight: FontWeight.w900)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -149,7 +156,8 @@ class _CreateMasterLeagueScreenState
                       child: FilledButton(
                         onPressed: () => Navigator.of(ctx).pop(true),
                         child: const Text('Purchase / Renew',
-                            style: TextStyle(fontWeight: FontWeight.w900)),
+                            style:
+                                TextStyle(fontWeight: FontWeight.w900)),
                       ),
                     ),
                   ],
@@ -164,7 +172,7 @@ class _CreateMasterLeagueScreenState
     return shouldPurchase == true;
   }
 
-  Future<bool> _ensureSubscriptionActive() async {
+  Future<bool> _ensureSubscriptionActive(MasterLeaguePlan plan) async {
     final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
 
     bool unlocked = false;
@@ -177,23 +185,29 @@ class _CreateMasterLeagueScreenState
 
     if (unlocked) return true;
 
-    final price = await _loadPrice();
+    // Load plan-specific price
+    final price = await _loadPriceForPlan(plan);
     final cc = await CountryResolverService.instance.resolveCountryCode(
       locale: Localizations.maybeLocaleOf(context),
     );
     final preferNgn = cc.trim().toUpperCase() == 'NG';
 
-    final shouldPurchase =
-        await _showPurchaseDialog(price: price, preferNgn: preferNgn);
+    final shouldPurchase = await _showPurchaseDialog(
+      price: price,
+      preferNgn: preferNgn,
+      plan: plan,
+    );
     if (!shouldPurchase) return false;
     if (!mounted) return false;
 
     final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
     final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
+    // Charge plan-specific price
     final result = await paymentSvc.purchaseMasterLeagueAccess(
       context: context,
       userId: userId,
+      plan: plan,
     );
 
     if (!mounted) return false;
@@ -231,13 +245,12 @@ class _CreateMasterLeagueScreenState
       if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            behavior: SnackBarBehavior.floating, content: Text('$e')),
+            behavior: SnackBarBehavior.floating,
+            content: Text('$e')),
       );
       return false;
     }
 
-    // The repository create() now has retry logic built in,
-    // so we don't need to wait here.
     return true;
   }
 
@@ -258,15 +271,31 @@ class _CreateMasterLeagueScreenState
     setState(() => _saving = true);
 
     try {
-      final ok = await _ensureSubscriptionActive();
+      final repo = ref.read(masterLeaguesRepositoryProvider);
+
+      // Check master league count limit BEFORE payment
+      try {
+        await repo.checkMasterLeagueLimitOrThrow(_selectedPlan);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            content: Text('$e'),
+          ),
+        );
+        if (mounted) setState(() => _saving = false);
+        return;
+      }
+
+      // Ensure subscription is active (pay if needed)
+      final ok = await _ensureSubscriptionActive(_selectedPlan);
       if (!ok) {
         if (mounted) setState(() => _saving = false);
         return;
       }
 
       if (!mounted) return;
-
-      final repo = ref.read(masterLeaguesRepositoryProvider);
 
       debugPrint(
           '[CreateML] Creating: "$name" plan=${_selectedPlan.id}');
@@ -305,7 +334,8 @@ class _CreateMasterLeagueScreenState
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
             child: ListView(
-              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
+              padding:
+                  const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
               children: [
                 Glass(
                   borderRadius: 28,
@@ -331,7 +361,8 @@ class _CreateMasterLeagueScreenState
                           Expanded(
                             child: Text(
                               'Premium Master League',
-                              style: theme.textTheme.titleMedium?.copyWith(
+                              style:
+                                  theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: -0.2,
                                 color: cs.onSurface,
@@ -395,15 +426,19 @@ class _CreateMasterLeagueScreenState
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: InkWell(
-                      onTap: () => setState(() => _selectedPlan = plan),
+                      onTap: () =>
+                          setState(() => _selectedPlan = plan),
                       borderRadius: BorderRadius.circular(20),
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
+                        duration:
+                            const Duration(milliseconds: 200),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
                           color: bgColor,
-                          border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
+                          border: Border.all(
+                              color: borderColor,
+                              width: isSelected ? 2 : 1),
                         ),
                         child: Row(
                           children: [
@@ -415,7 +450,8 @@ class _CreateMasterLeagueScreenState
                                 border: Border.all(
                                   color: isSelected
                                       ? cs.primary
-                                      : cs.onSurface.withOpacity(0.35),
+                                      : cs.onSurface
+                                          .withOpacity(0.35),
                                   width: 2,
                                 ),
                                 color: isSelected
@@ -424,7 +460,8 @@ class _CreateMasterLeagueScreenState
                               ),
                               child: isSelected
                                   ? const Icon(Icons.check,
-                                      size: 16, color: Colors.white)
+                                      size: 16,
+                                      color: Colors.white)
                                   : null,
                             ),
                             const SizedBox(width: 12),
@@ -437,9 +474,11 @@ class _CreateMasterLeagueScreenState
                                     children: [
                                       Text(
                                         plan.displayName,
-                                        style: theme.textTheme.titleSmall
+                                        style: theme
+                                            .textTheme.titleSmall
                                             ?.copyWith(
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight:
+                                              FontWeight.w900,
                                           color: cs.onSurface,
                                         ),
                                       ),
@@ -447,27 +486,34 @@ class _CreateMasterLeagueScreenState
                                         const SizedBox(width: 8),
                                         Container(
                                           padding:
-                                              const EdgeInsets.symmetric(
+                                              const EdgeInsets
+                                                  .symmetric(
                                                   horizontal: 8,
                                                   vertical: 3),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF22C55E)
-                                                .withOpacity(0.14),
+                                          decoration:
+                                              BoxDecoration(
+                                            color: const Color(
+                                                    0xFF22C55E)
+                                                .withOpacity(
+                                                    0.14),
                                             borderRadius:
-                                                BorderRadius.circular(8),
+                                                BorderRadius
+                                                    .circular(8),
                                             border: Border.all(
-                                                color:
-                                                    const Color(0xFF22C55E)
-                                                        .withOpacity(
-                                                            0.30)),
+                                                color: const Color(
+                                                        0xFF22C55E)
+                                                    .withOpacity(
+                                                        0.30)),
                                           ),
                                           child: const Text(
                                             'MOST POPULAR',
                                             style: TextStyle(
                                               fontSize: 9,
-                                              fontWeight: FontWeight.w900,
+                                              fontWeight:
+                                                  FontWeight.w900,
                                               letterSpacing: 0.5,
-                                              color: Color(0xFF22C55E),
+                                              color: Color(
+                                                  0xFF22C55E),
                                             ),
                                           ),
                                         ),
@@ -477,10 +523,11 @@ class _CreateMasterLeagueScreenState
                                   const SizedBox(height: 4),
                                   Text(
                                     plan.description,
-                                    style: theme.textTheme.bodySmall
+                                    style: theme
+                                        .textTheme.bodySmall
                                         ?.copyWith(
-                                      color:
-                                          cs.onSurface.withOpacity(0.65),
+                                      color: cs.onSurface
+                                          .withOpacity(0.65),
                                       fontWeight: FontWeight.w700,
                                       height: 1.2,
                                     ),
@@ -503,19 +550,25 @@ class _CreateMasterLeagueScreenState
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2),
                         )
-                      : const Icon(Icons.add_circle_outline_rounded),
+                      : const Icon(
+                          Icons.add_circle_outline_rounded),
                   label: Text(
-                    _saving ? 'Creating...' : 'Create Master League',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    _saving
+                        ? 'Creating...'
+                        : 'Create Master League',
+                    style:
+                        const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
 
                 const SizedBox(height: 10),
 
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
                     'Tip: Create Classic, Swiss (Series), and UCL Group '
                     'competitions inside your Master League.',

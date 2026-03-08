@@ -133,11 +133,67 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Plan limit checks
+  // ---------------------------------------------------------------------------
+
+  /// Checks if the user can create more master leagues based on the plan
+  /// they are purchasing. Counts ALL master leagues owned by this user.
+  Future<void> checkMasterLeagueLimitOrThrow(MasterLeaguePlan plan) async {
+    final uid = _requireAuthUid();
+
+    final snap = await _firestore
+        .collection('master_leagues')
+        .where('ownerId', isEqualTo: uid)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
+
+    final count = snap.docs.length;
+
+    if (count >= plan.maxMasterLeagues) {
+      throw UserFriendlyException(
+        'You have reached the limit of ${plan.maxMasterLeagues} '
+        'master league${plan.maxMasterLeagues == 1 ? '' : 's'} '
+        'for the ${plan.displayName} plan. '
+        'Upgrade to a higher plan to create more.',
+      );
+    }
+  }
+
+  /// Checks if the master league can accept more competitions.
+  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
+    final ml = await getById(masterLeagueId);
+    if (ml == null) {
+      throw const UserFriendlyException(
+        "We couldn't find that Master League.",
+      );
+    }
+
+    final maxLeagues = ml.maxLeagues;
+
+    // Count existing leagues under this master league
+    final snap = await _firestore
+        .collection('leagues')
+        .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
+
+    final count = snap.docs.length;
+
+    if (count >= maxLeagues) {
+      throw UserFriendlyException(
+        'You have reached the limit of $maxLeagues competitions '
+        'for your ${ml.plan.displayName} plan. '
+        'Upgrade your plan to create more.',
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Create  —  no retry needed since Firestore rule no longer does get()
+  // ---------------------------------------------------------------------------
+
   /// Creates a new Master League with a plan tier.
-  ///
-  /// Retries up to 3 times with delays if permission-denied occurs,
-  /// because the entitlement doc may not yet be visible to Firestore
-  /// rules immediately after writing it in a transaction.
   Future<MasterLeague> create({
     required String name,
     MasterLeaguePlan plan = MasterLeaguePlan.basic,
@@ -175,53 +231,26 @@ class MasterLeaguesRepositoryFirebase {
         '[MasterLeaguesRepo] Creating: name="$trimmed" uid=$uid id=$id plan=${plan.id}',
       );
 
-      // Retry logic: entitlement doc may not be immediately visible
-      // to Firestore rules after being written in a transaction.
-      const maxRetries = 3;
-      const retryDelays = [
-        Duration(seconds: 2),
-        Duration(seconds: 3),
-        Duration(seconds: 4),
-      ];
+      await ref
+          .set(docData, SetOptions(merge: false))
+          .timeout(const Duration(seconds: 20));
 
-      for (int attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          await ref
-              .set(docData, SetOptions(merge: false))
-              .timeout(const Duration(seconds: 20));
+      debugPrint('[MasterLeaguesRepo] Created successfully: $id');
 
-          debugPrint('[MasterLeaguesRepo] Created successfully: $id (attempt ${attempt + 1})');
-
-          // Read back the created document
-          final fresh = await ref
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 15));
-          return MasterLeague.fromDoc(fresh);
-        } on FirebaseException catch (e) {
-          if (e.code == 'permission-denied' && attempt < maxRetries - 1) {
-            debugPrint(
-              '[MasterLeaguesRepo] Permission denied on attempt ${attempt + 1}, '
-              'retrying in ${retryDelays[attempt].inSeconds}s...',
-            );
-            await Future<void>.delayed(retryDelays[attempt]);
-            // Regenerate timestamp for retry
-            docData['createdAt'] = Timestamp.now();
-            docData['updatedAtMs'] = _nowMs();
-            continue;
-          }
-          rethrow;
-        }
-      }
-
-      // Should not reach here, but just in case
-      throw const UserFriendlyException(
-        'Could not create Master League. Please try again.',
-      );
+      // Read back the created document
+      final fresh = await ref
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      return MasterLeague.fromDoc(fresh);
     } catch (e) {
       debugPrint('[MasterLeaguesRepo] Create failed: $e');
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Ownership guard
+  // ---------------------------------------------------------------------------
 
   /// Basic ownership check.
   Future<void> requireOwnerOrThrow(String masterLeagueId) async {
@@ -259,34 +288,9 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
-  /// Checks if the master league can accept more competitions.
-  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
-    final ml = await getById(masterLeagueId);
-    if (ml == null) {
-      throw const UserFriendlyException(
-        "We couldn't find that Master League.",
-      );
-    }
-
-    final maxLeagues = ml.maxLeagues;
-
-    // Count existing leagues under this master league
-    final snap = await _firestore
-        .collection('leagues')
-        .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 15));
-
-    final count = snap.docs.length;
-
-    if (count >= maxLeagues) {
-      throw UserFriendlyException(
-        'You have reached the limit of $maxLeagues competitions '
-        'for your ${ml.plan.displayName} plan. '
-        'Upgrade your plan to create more.',
-      );
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Update helpers
+  // ---------------------------------------------------------------------------
 
   Future<void> rename({
     required String masterLeagueId,
@@ -362,6 +366,10 @@ class MasterLeaguesRepositoryFirebase {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Delete
+  // ---------------------------------------------------------------------------
 
   /// Deletes a Master League (owner only).
   Future<void> delete(String masterLeagueId) async {
