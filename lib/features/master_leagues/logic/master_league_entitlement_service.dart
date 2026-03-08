@@ -23,12 +23,17 @@ class MasterLeagueEntitlementException implements Exception {
 /// Firestore doc:
 ///   users/{uid}/entitlements/master_league
 ///
-/// MUST satisfy Firestore rules keys().hasOnly([
-///  'active','purchasedAt','expiresAtMs','lastReceiptId','lastProvider','lastPaidAtMs','updatedAtMs'
+/// MUST satisfy your Firestore rules:
+/// - keys().hasOnly([
+///   'active','purchasedAt','expiresAtMs','lastReceiptId','lastProvider','lastPaidAtMs','updatedAtMs'
 /// ])
+/// - expiresAtMs must be in the future
+/// - on update: must NOT shorten expiresAtMs
 ///
 /// IMPORTANT:
-/// We use `.set(payload)` WITHOUT merge to remove any legacy extra keys.
+/// We use a TRANSACTION to read the current expiresAtMs and always extend
+/// from max(now, currentExpiresAtMs). This avoids "permission-denied" caused
+/// by accidentally shortening expiry.
 class MasterLeagueEntitlementService {
   MasterLeagueEntitlementService({
     FirebaseFirestore? firestore,
@@ -40,6 +45,7 @@ class MasterLeagueEntitlementService {
   final FirebaseAuth _auth;
 
   static const int _durationDays = 90; // 3 months ≈ 90 days
+  static const int _futureBufferMs = 2 * 60 * 1000; // 2 minutes safety
 
   String _uidOrThrow() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
@@ -59,7 +65,7 @@ class MasterLeagueEntitlementService {
     final active = data['active'] == true;
     if (!active) return false;
 
-    // Backward compatible with your Firestore rules:
+    // Backward compatibility with your rules helper:
     // If expiresAtMs is missing but active=true, treat as active.
     if (!data.containsKey('expiresAtMs')) return true;
 
@@ -78,9 +84,6 @@ class MasterLeagueEntitlementService {
       if (!snap.exists) return false;
       final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       return _isUnlockedFromData(data);
-    }).handleError((_) {
-      // best-effort: emit false on stream errors
-      return false;
     });
   }
 
@@ -111,46 +114,49 @@ class MasterLeagueEntitlementService {
     }
 
     final now = _nowMs();
-
-    // Fetch existing expiry so we can extend without shortening.
-    int currentExpiry = 0;
-    try {
-      final snap = await _docRef(uid)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 12));
-
-      if (snap.exists) {
-        final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final v = data['expiresAtMs'];
-        if (v is num) currentExpiry = v.toInt();
-      }
-    } catch (_) {
-      currentExpiry = 0;
-    }
-
-    final base = (currentExpiry > now) ? currentExpiry : now;
-    final extended = DateTime.fromMillisecondsSinceEpoch(base).add(const Duration(days: _durationDays)).millisecondsSinceEpoch;
-
-    // Buffer so it always remains > request.time (rules require future)
-    final expiresAtMs = extended + 2 * 60 * 1000;
-
-    // EXACT keys only (rules)
-    final payload = <String, dynamic>{
-      'active': true,
-      'purchasedAt': Timestamp.fromMillisecondsSinceEpoch(now),
-      'expiresAtMs': expiresAtMs,
-      'lastReceiptId': receipt,
-      'lastProvider': payment.provider,
-      'lastPaidAtMs': (payment.paidAtMs > 0) ? payment.paidAtMs : now,
-      'updatedAtMs': now,
-    };
+    final ref = _docRef(uid);
 
     try {
-      // Overwrite doc to remove legacy keys that would fail hasOnly([...])
-      await _docRef(uid).set(payload).timeout(const Duration(seconds: 15));
+      await _firestore.runTransaction((tx) async {
+        final snap = await tx.get(ref);
+
+        int currentExpiry = 0;
+        if (snap.exists) {
+          final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+          final v = data['expiresAtMs'];
+          if (v is num) currentExpiry = v.toInt();
+        }
+
+        final base = (currentExpiry > now) ? currentExpiry : now;
+        final extended = DateTime.fromMillisecondsSinceEpoch(base)
+            .add(const Duration(days: _durationDays))
+            .millisecondsSinceEpoch;
+
+        // Must be strictly > request.time.toMillis() in rules.
+        final expiresAtMs = extended + _futureBufferMs;
+
+        // EXACT keys only (rules)
+        final payload = <String, dynamic>{
+          'active': true,
+          'purchasedAt': Timestamp.fromMillisecondsSinceEpoch(now),
+          'expiresAtMs': expiresAtMs,
+          'lastReceiptId': receipt,
+          'lastProvider': payment.provider,
+          'lastPaidAtMs': (payment.paidAtMs > 0) ? payment.paidAtMs : now,
+          'updatedAtMs': now,
+        };
+
+        // Overwrite doc (not merge) so no legacy keys remain.
+        tx.set(ref, payload);
+      }).timeout(const Duration(seconds: 20));
     } on FirebaseException catch (e) {
+      // This is exactly what you're seeing.
       throw MasterLeagueEntitlementException(
         "We couldn't update your subscription right now. Please try again. (${e.code})",
+      );
+    } on TimeoutException {
+      throw const MasterLeagueEntitlementException(
+        "We couldn't update your subscription right now. Please try again.",
       );
     } catch (_) {
       throw const MasterLeagueEntitlementException(
