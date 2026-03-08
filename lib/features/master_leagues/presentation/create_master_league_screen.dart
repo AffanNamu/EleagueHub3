@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/country/country_resolver_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../domain/master_league_plan.dart';
 import '../logic/master_league_entitlement_service.dart';
 import '../logic/master_league_payment_service.dart';
 import '../logic/master_league_pricing_service.dart';
@@ -24,6 +25,7 @@ class _CreateMasterLeagueScreenState
     extends ConsumerState<CreateMasterLeagueScreen> {
   final _nameCtrl = TextEditingController();
   bool _saving = false;
+  MasterLeaguePlan _selectedPlan = MasterLeaguePlan.pro;
 
   @override
   void dispose() {
@@ -58,7 +60,7 @@ class _CreateMasterLeagueScreenState
     final actualCurrency = (price?.currency ?? '').trim().toUpperCase();
     final String? warning =
         (preferNgn && actualCurrency.isNotEmpty && actualCurrency != 'NGN')
-            ? 'NGN price is not configured in Firestore. Falling back to $actualCurrency.'
+            ? 'NGN price is not configured. Falling back to $actualCurrency.'
             : null;
 
     final shouldPurchase = await showDialog<bool>(
@@ -83,12 +85,9 @@ class _CreateMasterLeagueScreenState
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: cs.primary.withOpacity(0.12),
-                        border: Border.all(
-                          color: cs.primary.withOpacity(0.25),
-                        ),
+                        border: Border.all(color: cs.primary.withOpacity(0.25)),
                       ),
-                      child:
-                          Icon(Icons.hub_rounded, color: cs.primary),
+                      child: Icon(Icons.hub_rounded, color: cs.primary),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -104,8 +103,8 @@ class _CreateMasterLeagueScreenState
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Master League is a premium feature. It allows you to create '
-                  'multiple competitions inside one league system.',
+                  'Master League is a premium feature. Create multiple '
+                  'competitions inside one league system.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: cs.onSurface.withOpacity(0.72),
                     fontWeight: FontWeight.w600,
@@ -128,17 +127,11 @@ class _CreateMasterLeagueScreenState
                     decoration: BoxDecoration(
                       color: cs.error.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: cs.error.withOpacity(0.30),
-                      ),
+                      border: Border.all(color: cs.error.withOpacity(0.30)),
                     ),
-                    child: Text(
-                      warning,
-                      style: TextStyle(
-                        color: cs.error,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    child: Text(warning,
+                        style: TextStyle(
+                            color: cs.error, fontWeight: FontWeight.w800)),
                   ),
                 ],
                 const SizedBox(height: 14),
@@ -146,21 +139,17 @@ class _CreateMasterLeagueScreenState
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () =>
-                            Navigator.of(ctx).pop(false),
+                        onPressed: () => Navigator.of(ctx).pop(false),
                         child: const Text('Cancel',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w900)),
+                            style: TextStyle(fontWeight: FontWeight.w900)),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
-                        onPressed: () =>
-                            Navigator.of(ctx).pop(true),
+                        onPressed: () => Navigator.of(ctx).pop(true),
                         child: const Text('Purchase / Renew',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w900)),
+                            style: TextStyle(fontWeight: FontWeight.w900)),
                       ),
                     ),
                   ],
@@ -176,11 +165,8 @@ class _CreateMasterLeagueScreenState
   }
 
   Future<bool> _ensureSubscriptionActive() async {
-    // Use the provider from master_leagues_providers.dart
-    final entitlementSvc =
-        ref.read(masterLeagueEntitlementServiceProvider);
+    final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
 
-    // Check if already unlocked
     bool unlocked = false;
     try {
       unlocked = await entitlementSvc.isUnlocked();
@@ -191,25 +177,19 @@ class _CreateMasterLeagueScreenState
 
     if (unlocked) return true;
 
-    // Not unlocked — show purchase dialog
     final price = await _loadPrice();
-    final cc =
-        await CountryResolverService.instance.resolveCountryCode(
+    final cc = await CountryResolverService.instance.resolveCountryCode(
       locale: Localizations.maybeLocaleOf(context),
     );
     final preferNgn = cc.trim().toUpperCase() == 'NG';
 
-    final shouldPurchase = await _showPurchaseDialog(
-      price: price,
-      preferNgn: preferNgn,
-    );
+    final shouldPurchase =
+        await _showPurchaseDialog(price: price, preferNgn: preferNgn);
     if (!shouldPurchase) return false;
     if (!mounted) return false;
 
-    final paymentSvc =
-        ref.read(masterLeaguePaymentServiceProvider);
-    final userId =
-        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
+    final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
     final result = await paymentSvc.purchaseMasterLeagueAccess(
       context: context,
@@ -223,9 +203,7 @@ class _CreateMasterLeagueScreenState
         SnackBar(
           behavior: SnackBarBehavior.floating,
           content: Text(
-            result.errorMessage ??
-                'Payment failed. Please try again.',
-          ),
+              result.errorMessage ?? 'Payment failed. Please try again.'),
         ),
       );
       return false;
@@ -233,79 +211,33 @@ class _CreateMasterLeagueScreenState
 
     debugPrint(
       '[CreateML] Payment success: receiptId=${result.receiptId} '
-      'paidAtMs=${result.paidAtMs} provider=${result.provider}',
+      'paidAtMs=${result.paidAtMs}',
     );
 
-    // Write entitlement
     try {
-      await entitlementSvc.grantOrExtendAfterPayment(
-          payment: result);
+      await entitlementSvc.grantOrExtendAfterPayment(payment: result);
       debugPrint('[CreateML] Entitlement granted successfully');
     } on MasterLeagueEntitlementException catch (e) {
-      debugPrint(
-          '[CreateML] Entitlement write failed: ${e.message}');
+      debugPrint('[CreateML] Entitlement write failed: ${e.message}');
       if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text(e.message),
-        ),
+            behavior: SnackBarBehavior.floating,
+            content: Text(e.message)),
       );
       return false;
     } catch (e) {
-      debugPrint(
-          '[CreateML] Entitlement write failed (unexpected): $e');
+      debugPrint('[CreateML] Entitlement write failed: $e');
       if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('$e'),
-        ),
+            behavior: SnackBarBehavior.floating, content: Text('$e')),
       );
       return false;
     }
 
-    // Wait for Firestore to propagate the entitlement write.
-    // The master_leagues create rule reads entitlement via get(),
-    // so we need the write to be visible before creating the doc.
-    debugPrint(
-        '[CreateML] Waiting for entitlement propagation...');
-    await Future<void>.delayed(const Duration(seconds: 2));
-
-    // Verify entitlement is now readable from server
-    try {
-      final nowUnlocked = await entitlementSvc.isUnlocked();
-      debugPrint(
-          '[CreateML] Post-payment isUnlocked=$nowUnlocked');
-      if (!nowUnlocked) {
-        // Try once more with a longer delay
-        debugPrint(
-            '[CreateML] Not yet visible, waiting 3 more seconds...');
-        await Future<void>.delayed(
-            const Duration(seconds: 3));
-        final retryUnlocked =
-            await entitlementSvc.isUnlocked();
-        debugPrint(
-            '[CreateML] Retry isUnlocked=$retryUnlocked');
-        if (!retryUnlocked) {
-          if (!mounted) return false;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              behavior: SnackBarBehavior.floating,
-              content: Text(
-                'Your payment was successful but the subscription is still '
-                'processing. Please wait a moment and try again.',
-              ),
-            ),
-          );
-          return false;
-        }
-      }
-    } catch (e) {
-      debugPrint('[CreateML] Post-payment verify failed: $e');
-      // Proceed anyway — the write may have succeeded
-    }
-
+    // The repository create() now has retry logic built in,
+    // so we don't need to wait here.
     return true;
   }
 
@@ -326,7 +258,6 @@ class _CreateMasterLeagueScreenState
     setState(() => _saving = true);
 
     try {
-      // Ensure subscription is active (purchase if needed)
       final ok = await _ensureSubscriptionActive();
       if (!ok) {
         if (mounted) setState(() => _saving = false);
@@ -337,8 +268,10 @@ class _CreateMasterLeagueScreenState
 
       final repo = ref.read(masterLeaguesRepositoryProvider);
 
-      debugPrint('[CreateML] Creating master league: "$name"');
-      final created = await repo.create(name: name);
+      debugPrint(
+          '[CreateML] Creating: "$name" plan=${_selectedPlan.id}');
+      final created =
+          await repo.create(name: name, plan: _selectedPlan);
       debugPrint('[CreateML] Created: id=${created.id}');
 
       if (!mounted) return;
@@ -348,9 +281,8 @@ class _CreateMasterLeagueScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('$e'),
-        ),
+            behavior: SnackBarBehavior.floating,
+            content: Text('$e')),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -373,15 +305,13 @@ class _CreateMasterLeagueScreenState
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
             child: ListView(
-              padding: const EdgeInsetsDirectional.fromSTEB(
-                  16, 12, 16, 24),
+              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
               children: [
                 Glass(
                   borderRadius: 28,
                   padding: const EdgeInsets.all(16),
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
@@ -390,26 +320,18 @@ class _CreateMasterLeagueScreenState
                             height: 44,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: cs.primary
-                                  .withOpacity(0.12),
+                              color: cs.primary.withOpacity(0.12),
                               border: Border.all(
-                                color: cs.primary
-                                    .withOpacity(0.25),
-                              ),
+                                  color: cs.primary.withOpacity(0.25)),
                             ),
-                            child: Icon(
-                              Icons.hub_rounded,
-                              color: cs.primary,
-                              size: 22,
-                            ),
+                            child: Icon(Icons.hub_rounded,
+                                color: cs.primary, size: 22),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               'Premium Master League',
-                              style: theme
-                                  .textTheme.titleMedium
-                                  ?.copyWith(
+                              style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: -0.2,
                                 color: cs.onSurface,
@@ -421,11 +343,9 @@ class _CreateMasterLeagueScreenState
                       const SizedBox(height: 10),
                       Text(
                         'Master League is a 3-month premium subscription. '
-                        'Renew to continue creating competitions.',
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(
-                          color: cs.onSurface
-                              .withOpacity(0.70),
+                        'Choose a plan and create competitions.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: cs.onSurface.withOpacity(0.70),
                           fontWeight: FontWeight.w600,
                           height: 1.35,
                         ),
@@ -433,51 +353,177 @@ class _CreateMasterLeagueScreenState
                       const SizedBox(height: 14),
                       TextField(
                         controller: _nameCtrl,
-                        textInputAction:
-                            TextInputAction.done,
+                        textInputAction: TextInputAction.done,
                         onSubmitted: (_) => _create(),
                         decoration: const InputDecoration(
                           labelText: 'Master League Name',
-                          prefixIcon:
-                              Icon(Icons.edit_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      FilledButton.icon(
-                        onPressed:
-                            _saving ? null : _create,
-                        icon: _saving
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child:
-                                    CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons
-                                .add_circle_outline_rounded),
-                        label: Text(
-                          _saving
-                              ? 'Creating...'
-                              : 'Create Master League',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Tip: Create Classic, Swiss (Series), and UCL Group '
-                        'competitions inside your Master League.',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(
-                          color: cs.onSurface
-                              .withOpacity(0.60),
-                          fontWeight: FontWeight.w700,
-                          height: 1.3,
+                          prefixIcon: Icon(Icons.edit_outlined),
                         ),
                       ),
                     ],
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                // Plan selection
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 10),
+                  child: Text(
+                    'Choose Your Plan',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.2,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                ),
+
+                ...MasterLeaguePlan.values.map((plan) {
+                  final isSelected = _selectedPlan == plan;
+                  final Color borderColor;
+                  final Color bgColor;
+
+                  if (isSelected) {
+                    borderColor = cs.primary;
+                    bgColor = cs.primary.withOpacity(0.08);
+                  } else {
+                    borderColor = cs.onSurface.withOpacity(0.12);
+                    bgColor = Colors.transparent;
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: InkWell(
+                      onTap: () => setState(() => _selectedPlan = plan),
+                      borderRadius: BorderRadius.circular(20),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          color: bgColor,
+                          border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 24,
+                              height: 24,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isSelected
+                                      ? cs.primary
+                                      : cs.onSurface.withOpacity(0.35),
+                                  width: 2,
+                                ),
+                                color: isSelected
+                                    ? cs.primary
+                                    : Colors.transparent,
+                              ),
+                              child: isSelected
+                                  ? const Icon(Icons.check,
+                                      size: 16, color: Colors.white)
+                                  : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        plan.displayName,
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          color: cs.onSurface,
+                                        ),
+                                      ),
+                                      if (plan.isPopular) ...[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF22C55E)
+                                                .withOpacity(0.14),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            border: Border.all(
+                                                color:
+                                                    const Color(0xFF22C55E)
+                                                        .withOpacity(
+                                                            0.30)),
+                                          ),
+                                          child: const Text(
+                                            'MOST POPULAR',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 0.5,
+                                              color: Color(0xFF22C55E),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    plan.description,
+                                    style: theme.textTheme.bodySmall
+                                        ?.copyWith(
+                                      color:
+                                          cs.onSurface.withOpacity(0.65),
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+
+                const SizedBox(height: 8),
+
+                FilledButton.icon(
+                  onPressed: _saving ? null : _create,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_circle_outline_rounded),
+                  label: Text(
+                    _saving ? 'Creating...' : 'Create Master League',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Tip: Create Classic, Swiss (Series), and UCL Group '
+                    'competitions inside your Master League.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.60),
+                      fontWeight: FontWeight.w700,
+                      height: 1.3,
+                    ),
                   ),
                 ),
               ],

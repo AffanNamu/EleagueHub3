@@ -35,8 +35,7 @@ class _MasterLeagueDetailsScreenState
 
   bool _isOwner(MasterLeague? ml) {
     if (ml == null) return false;
-    return ml.ownerId.trim() == _currentUid &&
-        _currentUid.isNotEmpty;
+    return ml.ownerId.trim() == _currentUid && _currentUid.isNotEmpty;
   }
 
   void _snack(String msg, {bool error = false}) {
@@ -45,13 +44,10 @@ class _MasterLeagueDetailsScreenState
       SnackBar(
         behavior: SnackBarBehavior.floating,
         content: Text(msg),
-        backgroundColor:
-            error ? Theme.of(context).colorScheme.error : null,
+        backgroundColor: error ? Theme.of(context).colorScheme.error : null,
       ),
     );
   }
-
-  // ── Streams ──────────────────────────────────────────────
 
   Stream<MasterLeague?> _watchMasterLeague(String id) {
     return FirebaseFirestore.instance
@@ -60,8 +56,8 @@ class _MasterLeagueDetailsScreenState
         .snapshots(includeMetadataChanges: true)
         .map((snap) {
       if (!snap.exists) return null;
-      return MasterLeague.fromMap(snap.id,
-          (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>());
+      return MasterLeague.fromMap(
+          snap.id, (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>());
     }).handleError((_) => null);
   }
 
@@ -73,28 +69,34 @@ class _MasterLeagueDetailsScreenState
         .map((snap) {
       final list = snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
-        map['id'] =
-            (map['id'] as String?)?.trim().isNotEmpty == true
-                ? map['id']
-                : d.id;
+        map['id'] = (map['id'] as String?)?.trim().isNotEmpty == true
+            ? map['id']
+            : d.id;
         return League.fromRemoteMap(map);
       }).toList(growable: false);
       final sorted = [...list];
-      sorted.sort(
-          (a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+      sorted.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
       return sorted;
     }).handleError((_) => <League>[]);
   }
 
-  // ── Create competition ───────────────────────────────────
-
   Future<void> _showCreateCompetitionSheet(
-      BuildContext context) async {
+      BuildContext context, MasterLeague? ml) async {
+    // Check league limit before showing options
+    if (ml != null && _isOwner(ml)) {
+      try {
+        final repo = ref.read(masterLeaguesRepositoryProvider);
+        await repo.checkLeagueLimitOrThrow(widget.masterLeagueId);
+      } catch (e) {
+        _snack('$e', error: true);
+        return;
+      }
+    }
+
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final selected =
-        await showModalBottomSheet<LeagueFormat>(
+    final selected = await showModalBottomSheet<LeagueFormat>(
       context: context,
       showDragHandle: true,
       backgroundColor: Colors.transparent,
@@ -114,8 +116,8 @@ class _MasterLeagueDetailsScreenState
               borderRadius: BorderRadius.circular(20),
               child: Glass(
                 borderRadius: 20,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 child: Row(
                   children: [
                     Container(
@@ -124,41 +126,30 @@ class _MasterLeagueDetailsScreenState
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: c.withOpacity(0.12),
-                        border: Border.all(
-                            color: c.withOpacity(0.30)),
+                        border: Border.all(color: c.withOpacity(0.30)),
                       ),
-                      child:
-                          Icon(icon, color: c, size: 20),
+                      child: Icon(icon, color: c, size: 20),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(title,
-                              style: theme
-                                  .textTheme.titleSmall
-                                  ?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                color: cs.onSurface,
-                              )),
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: cs.onSurface)),
                           const SizedBox(height: 3),
                           Text(subtitle,
-                              style: theme
-                                  .textTheme.bodySmall
-                                  ?.copyWith(
-                                color: cs.onSurface
-                                    .withOpacity(0.65),
-                                fontWeight: FontWeight.w700,
-                                height: 1.2,
-                              )),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                  color: cs.onSurface.withOpacity(0.65),
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.2)),
                         ],
                       ),
                     ),
                     Icon(Icons.chevron_right_rounded,
-                        color:
-                            cs.onSurface.withOpacity(0.35)),
+                        color: cs.onSurface.withOpacity(0.35)),
                   ],
                 ),
               ),
@@ -168,9 +159,7 @@ class _MasterLeagueDetailsScreenState
 
         return SafeArea(
           child: Padding(
-            padding:
-                const EdgeInsetsDirectional.fromSTEB(
-                    16, 12, 16, 24),
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -179,21 +168,14 @@ class _MasterLeagueDetailsScreenState
                   padding: const EdgeInsets.all(14),
                   child: Row(
                     children: [
-                      Icon(
-                          Icons
-                              .add_circle_outline_rounded,
+                      Icon(Icons.add_circle_outline_rounded,
                           color: cs.primary),
                       const SizedBox(width: 10),
                       Expanded(
-                          child: Text(
-                              'Create Competition',
-                              style: theme.textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                fontWeight:
-                                    FontWeight.w900,
-                                color: cs.onSurface,
-                              ))),
+                          child: Text('Create Competition',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: cs.onSurface))),
                     ],
                   ),
                 ),
@@ -201,8 +183,7 @@ class _MasterLeagueDetailsScreenState
                 option(
                     icon: Icons.emoji_events_outlined,
                     title: 'Classic League',
-                    subtitle:
-                        'Round-robin style competition',
+                    subtitle: 'Round-robin style competition',
                     format: LeagueFormat.classic,
                     tint: cs.primary),
                 option(
@@ -214,8 +195,7 @@ class _MasterLeagueDetailsScreenState
                 option(
                     icon: Icons.groups_rounded,
                     title: 'UCL Group League',
-                    subtitle:
-                        'Group stage competition',
+                    subtitle: 'Group stage competition',
                     format: LeagueFormat.uclGroup,
                     tint: const Color(0xFF22C55E)),
               ],
@@ -233,13 +213,11 @@ class _MasterLeagueDetailsScreenState
       'initialFormat': selected,
       'type': selected == LeagueFormat.classic
           ? 'classic'
-          : (selected == LeagueFormat.uclSwiss
-              ? 'swiss'
-              : 'ucl'),
+          : (selected == LeagueFormat.uclSwiss ? 'swiss' : 'ucl'),
+      // Pass max teams so league creation can enforce it
+      if (ml != null) 'maxTeams': ml.maxTeamsPerLeague,
     });
   }
-
-  // ── Rename ───────────────────────────────────────────────
 
   Future<void> _showRenameDialog(MasterLeague ml) async {
     final theme = Theme.of(context);
@@ -260,17 +238,14 @@ class _MasterLeagueDetailsScreenState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('Rename Master League',
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          color: cs.onSurface)),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900, color: cs.onSurface)),
               const SizedBox(height: 14),
               TextField(
                 controller: ctrl,
                 autofocus: true,
                 textInputAction: TextInputAction.done,
-                onSubmitted: (v) =>
-                    Navigator.of(ctx).pop(v.trim()),
+                onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
                 decoration: const InputDecoration(
                     labelText: 'New Name',
                     prefixIcon: Icon(Icons.edit_outlined)),
@@ -279,21 +254,16 @@ class _MasterLeagueDetailsScreenState
               Row(children: [
                 Expanded(
                     child: OutlinedButton(
-                        onPressed: () =>
-                            Navigator.of(ctx).pop(null),
+                        onPressed: () => Navigator.of(ctx).pop(null),
                         child: const Text('Cancel',
-                            style: TextStyle(
-                                fontWeight:
-                                    FontWeight.w900)))),
+                            style: TextStyle(fontWeight: FontWeight.w900)))),
                 const SizedBox(width: 12),
                 Expanded(
                     child: FilledButton(
-                        onPressed: () => Navigator.of(ctx)
-                            .pop(ctrl.text.trim()),
+                        onPressed: () =>
+                            Navigator.of(ctx).pop(ctrl.text.trim()),
                         child: const Text('Rename',
-                            style: TextStyle(
-                                fontWeight:
-                                    FontWeight.w900)))),
+                            style: TextStyle(fontWeight: FontWeight.w900)))),
               ]),
             ],
           ),
@@ -301,17 +271,12 @@ class _MasterLeagueDetailsScreenState
       ),
     );
     ctrl.dispose();
-    if (newName == null ||
-        newName.isEmpty ||
-        newName == ml.name.trim()) return;
+    if (newName == null || newName.isEmpty || newName == ml.name.trim()) return;
 
     setState(() => _busy = true);
     try {
-      await ref
-          .read(masterLeaguesRepositoryProvider)
-          .rename(
-              masterLeagueId: widget.masterLeagueId,
-              newName: newName);
+      await ref.read(masterLeaguesRepositoryProvider).rename(
+          masterLeagueId: widget.masterLeagueId, newName: newName);
       _snack('Renamed to "$newName"');
     } catch (e) {
       _snack('$e', error: true);
@@ -319,8 +284,6 @@ class _MasterLeagueDetailsScreenState
       if (mounted) setState(() => _busy = false);
     }
   }
-
-  // ── Add member ───────────────────────────────────────────
 
   Future<void> _showAddMemberDialog() async {
     final theme = Theme.of(context);
@@ -342,11 +305,9 @@ class _MasterLeagueDetailsScreenState
             children: [
               Text('Add Member',
                   style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: cs.onSurface)),
+                      fontWeight: FontWeight.w900, color: cs.onSurface)),
               const SizedBox(height: 8),
-              Text(
-                  'Enter the user ID of the member you want to add.',
+              Text('Enter the user ID of the member.',
                   style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurface.withOpacity(0.65),
                       fontWeight: FontWeight.w700)),
@@ -355,32 +316,25 @@ class _MasterLeagueDetailsScreenState
                 controller: ctrl,
                 autofocus: true,
                 textInputAction: TextInputAction.done,
-                onSubmitted: (v) =>
-                    Navigator.of(ctx).pop(v.trim()),
+                onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
                 decoration: const InputDecoration(
                     labelText: 'User ID',
-                    prefixIcon:
-                        Icon(Icons.person_add_outlined)),
+                    prefixIcon: Icon(Icons.person_add_outlined)),
               ),
               const SizedBox(height: 14),
               Row(children: [
                 Expanded(
                     child: OutlinedButton(
-                        onPressed: () =>
-                            Navigator.of(ctx).pop(null),
+                        onPressed: () => Navigator.of(ctx).pop(null),
                         child: const Text('Cancel',
-                            style: TextStyle(
-                                fontWeight:
-                                    FontWeight.w900)))),
+                            style: TextStyle(fontWeight: FontWeight.w900)))),
                 const SizedBox(width: 12),
                 Expanded(
                     child: FilledButton(
-                        onPressed: () => Navigator.of(ctx)
-                            .pop(ctrl.text.trim()),
+                        onPressed: () =>
+                            Navigator.of(ctx).pop(ctrl.text.trim()),
                         child: const Text('Add',
-                            style: TextStyle(
-                                fontWeight:
-                                    FontWeight.w900)))),
+                            style: TextStyle(fontWeight: FontWeight.w900)))),
               ]),
             ],
           ),
@@ -393,8 +347,7 @@ class _MasterLeagueDetailsScreenState
     setState(() => _busy = true);
     try {
       await ref.read(masterLeaguesRepositoryProvider).addMember(
-          masterLeagueId: widget.masterLeagueId,
-          memberUid: uid);
+          masterLeagueId: widget.masterLeagueId, memberUid: uid);
       _snack('Member added');
     } catch (e) {
       _snack('$e', error: true);
@@ -403,23 +356,19 @@ class _MasterLeagueDetailsScreenState
     }
   }
 
-  // ── Remove member ────────────────────────────────────────
-
   Future<void> _confirmRemoveMember(String memberUid) async {
     final cs = Theme.of(context).colorScheme;
     final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-              title: Text('Remove Member',
-                  style: TextStyle(color: cs.error)),
+              title: Text('Remove Member', style: TextStyle(color: cs.error)),
               content: Text('Remove $memberUid from this Master League?'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.of(ctx).pop(false),
                     child: const Text('Cancel')),
                 FilledButton(
-                    style: FilledButton.styleFrom(
-                        backgroundColor: cs.error),
+                    style: FilledButton.styleFrom(backgroundColor: cs.error),
                     onPressed: () => Navigator.of(ctx).pop(true),
                     child: const Text('Remove')),
               ],
@@ -428,11 +377,8 @@ class _MasterLeagueDetailsScreenState
 
     setState(() => _busy = true);
     try {
-      await ref
-          .read(masterLeaguesRepositoryProvider)
-          .removeMember(
-              masterLeagueId: widget.masterLeagueId,
-              memberUid: memberUid);
+      await ref.read(masterLeaguesRepositoryProvider).removeMember(
+          masterLeagueId: widget.masterLeagueId, memberUid: memberUid);
       _snack('Member removed');
     } catch (e) {
       _snack('$e', error: true);
@@ -440,8 +386,6 @@ class _MasterLeagueDetailsScreenState
       if (mounted) setState(() => _busy = false);
     }
   }
-
-  // ── Delete master league ─────────────────────────────────
 
   Future<void> _confirmDelete(MasterLeague ml) async {
     final cs = Theme.of(context).colorScheme;
@@ -458,8 +402,7 @@ class _MasterLeagueDetailsScreenState
                     onPressed: () => Navigator.of(ctx).pop(false),
                     child: const Text('Cancel')),
                 FilledButton(
-                    style: FilledButton.styleFrom(
-                        backgroundColor: cs.error),
+                    style: FilledButton.styleFrom(backgroundColor: cs.error),
                     onPressed: () => Navigator.of(ctx).pop(true),
                     child: const Text('Delete')),
               ],
@@ -481,8 +424,6 @@ class _MasterLeagueDetailsScreenState
     }
   }
 
-  // ── Delete competition ───────────────────────────────────
-
   Future<void> _confirmDeleteCompetition(League league) async {
     final cs = Theme.of(context).colorScheme;
     final confirmed = await showDialog<bool>(
@@ -497,8 +438,7 @@ class _MasterLeagueDetailsScreenState
                     onPressed: () => Navigator.of(ctx).pop(false),
                     child: const Text('Cancel')),
                 FilledButton(
-                    style: FilledButton.styleFrom(
-                        backgroundColor: cs.error),
+                    style: FilledButton.styleFrom(backgroundColor: cs.error),
                     onPressed: () => Navigator.of(ctx).pop(true),
                     child: const Text('Delete')),
               ],
@@ -520,8 +460,6 @@ class _MasterLeagueDetailsScreenState
     }
   }
 
-  // ── Owner menu ───────────────────────────────────────────
-
   void _showOwnerMenu(MasterLeague ml) {
     final cs = Theme.of(context).colorScheme;
     showModalBottomSheet(
@@ -532,17 +470,11 @@ class _MasterLeagueDetailsScreenState
           ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('Rename'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _showRenameDialog(ml);
-              }),
+              onTap: () { Navigator.of(ctx).pop(); _showRenameDialog(ml); }),
           ListTile(
               leading: const Icon(Icons.person_add_outlined),
               title: const Text('Add Member'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _showAddMemberDialog();
-              }),
+              onTap: () { Navigator.of(ctx).pop(); _showAddMemberDialog(); }),
           ListTile(
               leading: const Icon(Icons.copy_rounded),
               title: const Text('Copy ID'),
@@ -553,27 +485,54 @@ class _MasterLeagueDetailsScreenState
               }),
           const Divider(),
           ListTile(
-              leading:
-                  Icon(Icons.delete_forever, color: cs.error),
+              leading: Icon(Icons.delete_forever, color: cs.error),
               title: Text('Delete Master League',
+                  style: TextStyle(color: cs.error)),
+              onTap: () { Navigator.of(ctx).pop(); _confirmDelete(ml); }),
+        ]),
+      ),
+    );
+  }
+
+  void _showCompetitionMenu(League league) {
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+              leading: const Icon(Icons.open_in_new_rounded),
+              title: const Text('Open'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                context.push('/leagues/${league.id}');
+              }),
+          ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy League ID'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                Clipboard.setData(ClipboardData(text: league.id));
+                _snack('League ID copied');
+              }),
+          const Divider(),
+          ListTile(
+              leading: Icon(Icons.delete_outline_rounded, color: cs.error),
+              title: Text('Delete Competition',
                   style: TextStyle(color: cs.error)),
               onTap: () {
                 Navigator.of(ctx).pop();
-                _confirmDelete(ml);
+                _confirmDeleteCompetition(league);
               }),
         ]),
       ),
     );
   }
 
-  // ── Members section ──────────────────────────────────────
-
-  Widget _buildMembers(
-      MasterLeague ml, ThemeData theme, ColorScheme cs) {
+  Widget _buildMembers(MasterLeague ml, ThemeData theme, ColorScheme cs) {
     final isOwner = _isOwner(ml);
-    if (ml.memberIds.isEmpty && !isOwner) {
-      return const SizedBox.shrink();
-    }
+    if (ml.memberIds.isEmpty && !isOwner) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -590,8 +549,7 @@ class _MasterLeagueDetailsScreenState
                         color: cs.onSurface))),
             if (isOwner)
               IconButton(
-                  icon: const Icon(Icons.person_add_outlined,
-                      size: 20),
+                  icon: const Icon(Icons.person_add_outlined, size: 20),
                   tooltip: 'Add Member',
                   onPressed: _showAddMemberDialog),
           ]),
@@ -603,8 +561,8 @@ class _MasterLeagueDetailsScreenState
             padding: const EdgeInsets.only(bottom: 8),
             child: Glass(
               borderRadius: 18,
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 14, vertical: 10),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Row(children: [
                 Container(
                   width: 36,
@@ -632,25 +590,21 @@ class _MasterLeagueDetailsScreenState
                     Text(isMe ? 'You' : uid,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: cs.onSurface)),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: cs.onSurface)),
                     if (isMLOwner)
                       Text('Owner',
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(
-                                  color: cs.primary,
-                                  fontWeight:
-                                      FontWeight.w700)),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.primary,
+                              fontWeight: FontWeight.w700)),
                   ],
                 )),
                 if (isOwner && !isMLOwner)
                   IconButton(
                       icon: Icon(Icons.remove_circle_outline,
                           color: cs.error, size: 20),
-                      onPressed: () =>
-                          _confirmRemoveMember(uid)),
+                      onPressed: () => _confirmRemoveMember(uid)),
               ]),
             ),
           );
@@ -659,461 +613,307 @@ class _MasterLeagueDetailsScreenState
     );
   }
 
-  // ── Build ────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return GlassScaffold(
-      appBar: AppBar(
-        title: const Text('Master League'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          IconButton(
-            tooltip: 'Create Competition',
-            onPressed: () =>
-                _showCreateCompetitionSheet(context),
-            icon: const Icon(
-                Icons.add_circle_outline_rounded),
+    return StreamBuilder<MasterLeague?>(
+      stream: _watchMasterLeague(widget.masterLeagueId),
+      builder: (context, masterSnap) {
+        final master = masterSnap.data;
+        final isOwner = _isOwner(master);
+
+        return GlassScaffold(
+          appBar: AppBar(
+            title: const Text('Master League'),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            actions: [
+              IconButton(
+                tooltip: 'Create Competition',
+                onPressed: () => _showCreateCompetitionSheet(context, master),
+                icon: const Icon(Icons.add_circle_outline_rounded),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Stack(children: [
-        SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints:
-                  const BoxConstraints(maxWidth: 820),
-              child: StreamBuilder<MasterLeague?>(
-                stream: _watchMasterLeague(
-                    widget.masterLeagueId),
-                builder: (context, masterSnap) {
-                  if (masterSnap.connectionState ==
-                          ConnectionState.waiting &&
-                      !masterSnap.hasData) {
-                    return const Center(
-                        child:
-                            CircularProgressIndicator());
-                  }
+          body: Stack(children: [
+            SafeArea(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 820),
+                  child: () {
+                    if (masterSnap.connectionState == ConnectionState.waiting &&
+                        !masterSnap.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-                  final master = masterSnap.data;
-                  final isOwner = _isOwner(master);
-
-                  if (master == null) {
-                    return Center(
-                      child: EmptyState(
-                        title: 'Master League not found',
-                        message:
-                            'This Master League may have been deleted or you may not have access.',
-                        icon: Icons.hub_rounded,
-                        action: FilledButton.icon(
-                            onPressed: () => context
-                                .go('/master-leagues'),
-                            icon: const Icon(
-                                Icons.arrow_back),
-                            label:
-                                const Text('Go Back')),
-                      ),
-                    );
-                  }
-
-                  return ListView(
-                    physics:
-                        const BouncingScrollPhysics(
-                            parent:
-                                AlwaysScrollableScrollPhysics()),
-                    padding:
-                        const EdgeInsetsDirectional
-                            .fromSTEB(
-                            16, 12, 16, 110),
-                    children: [
-                      // Header
-                      Glass(
-                        borderRadius: 28,
-                        padding:
-                            const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment
-                                  .start,
-                          children: [
-                            Row(children: [
-                              Container(
-                                width: 46,
-                                height: 46,
-                                decoration:
-                                    BoxDecoration(
-                                  shape:
-                                      BoxShape.circle,
-                                  color: cs.primary
-                                      .withOpacity(
-                                          0.12),
-                                  border: Border.all(
-                                      color: cs
-                                          .primary
-                                          .withOpacity(
-                                              0.25)),
-                                ),
-                                child: Icon(
-                                    Icons.hub_rounded,
-                                    color: cs.primary,
-                                    size: 22),
-                              ),
-                              const SizedBox(
-                                  width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment
-                                          .start,
-                                  children: [
-                                    Text(
-                                      master.name
-                                              .trim()
-                                              .isNotEmpty
-                                          ? master
-                                              .name
-                                              .trim()
-                                          : 'Master League',
-                                      maxLines: 1,
-                                      overflow:
-                                          TextOverflow
-                                              .ellipsis,
-                                      style: theme
-                                          .textTheme
-                                          .titleLarge
-                                          ?.copyWith(
-                                        fontWeight:
-                                            FontWeight
-                                                .w900,
-                                        letterSpacing:
-                                            -0.3,
-                                        color: cs
-                                            .onSurface,
-                                      ),
-                                    ),
-                                    const SizedBox(
-                                        height: 4),
-                                    Text(
-                                      'Create and manage multiple competitions.',
-                                      style: theme
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                        color: cs
-                                            .onSurface
-                                            .withOpacity(
-                                                0.65),
-                                        fontWeight:
-                                            FontWeight
-                                                .w700,
-                                        height:
-                                            1.2,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (isOwner)
-                                IconButton(
-                                  icon: const Icon(
-                                      Icons
-                                          .more_vert),
-                                  tooltip:
-                                      'Options',
-                                  onPressed: () =>
-                                      _showOwnerMenu(
-                                          master),
-                                ),
-                            ]),
-                            const SizedBox(
-                                height: 12),
-                            FilledButton.icon(
-                              onPressed: () =>
-                                  _showCreateCompetitionSheet(
-                                      context),
-                              icon: const Icon(
-                                  Icons.add),
-                              label: const Text(
-                                'Create Competition',
-                                style: TextStyle(
-                                    fontWeight:
-                                        FontWeight
-                                            .w900),
-                              ),
-                            ),
-                          ],
+                    if (master == null) {
+                      return Center(
+                        child: EmptyState(
+                          title: 'Master League not found',
+                          message:
+                              'This may have been deleted or you don\'t have access.',
+                          icon: Icons.hub_rounded,
+                          action: FilledButton.icon(
+                              onPressed: () => context.go('/master-leagues'),
+                              icon: const Icon(Icons.arrow_back),
+                              label: const Text('Go Back')),
                         ),
-                      ),
+                      );
+                    }
 
-                      // Members
-                      _buildMembers(
-                          master, theme, cs),
-
-                      // Competitions header
-                      const SizedBox(height: 14),
-                      Padding(
-                        padding:
-                            const EdgeInsets.only(
-                                left: 4,
-                                bottom: 10),
-                        child: Text(
-                          'Competitions',
-                          style: theme
-                              .textTheme.titleMedium
-                              ?.copyWith(
-                            fontWeight:
-                                FontWeight.w900,
-                            letterSpacing: -0.2,
-                            color: cs.onSurface,
+                    return ListView(
+                      physics: const BouncingScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics()),
+                      padding: const EdgeInsetsDirectional.fromSTEB(
+                          16, 12, 16, 110),
+                      children: [
+                        // Header
+                        Glass(
+                          borderRadius: 28,
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(children: [
+                                Container(
+                                  width: 46,
+                                  height: 46,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: cs.primary.withOpacity(0.12),
+                                    border: Border.all(
+                                        color: cs.primary.withOpacity(0.25)),
+                                  ),
+                                  child: Icon(Icons.hub_rounded,
+                                      color: cs.primary, size: 22),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        master.name.trim().isNotEmpty
+                                            ? master.name.trim()
+                                            : 'Master League',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.titleLarge
+                                            ?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: -0.3,
+                                          color: cs.onSurface,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${master.plan.displayName} plan • ${master.plan.description}',
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                          color: cs.onSurface.withOpacity(0.65),
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (isOwner)
+                                  IconButton(
+                                    icon: const Icon(Icons.more_vert),
+                                    tooltip: 'Options',
+                                    onPressed: () => _showOwnerMenu(master),
+                                  ),
+                              ]),
+                              const SizedBox(height: 12),
+                              FilledButton.icon(
+                                onPressed: () =>
+                                    _showCreateCompetitionSheet(context, master),
+                                icon: const Icon(Icons.add),
+                                label: const Text('Create Competition',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.w900)),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
 
-                      // Competitions
-                      StreamBuilder<List<League>>(
-                        stream:
-                            _watchCompetitions(
-                                widget
-                                    .masterLeagueId),
-                        builder: (context, snap) {
-                          if (snap.hasError) {
-                            return Glass(
-                              borderRadius: 28,
-                              padding:
-                                  const EdgeInsets
-                                      .all(16),
-                              child: Text(
-                                  '${snap.error}',
-                                  style: TextStyle(
-                                      color:
-                                          cs.error,
-                                      fontWeight:
-                                          FontWeight
-                                              .w800)),
-                            );
-                          }
-                          if (!snap.hasData) {
-                            return const Center(
-                                child: Padding(
-                                    padding:
-                                        EdgeInsets
-                                            .all(24),
-                                    child:
-                                        CircularProgressIndicator()));
-                          }
+                        // Members
+                        _buildMembers(master, theme, cs),
 
-                          final leagues =
-                              snap.data!;
-                          if (leagues.isEmpty) {
+                        // Competitions
+                        const SizedBox(height: 14),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4, bottom: 10),
+                          child: Text('Competitions',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.2,
+                                  color: cs.onSurface)),
+                        ),
+
+                        StreamBuilder<List<League>>(
+                          stream:
+                              _watchCompetitions(widget.masterLeagueId),
+                          builder: (context, snap) {
+                            if (snap.hasError) {
+                              return Glass(
+                                borderRadius: 28,
+                                padding: const EdgeInsets.all(16),
+                                child: Text('${snap.error}',
+                                    style: TextStyle(
+                                        color: cs.error,
+                                        fontWeight: FontWeight.w800)),
+                              );
+                            }
+                            if (!snap.hasData) {
+                              return const Center(
+                                  child: Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: CircularProgressIndicator()));
+                            }
+
+                            final leagues = snap.data!;
+                            if (leagues.isEmpty) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  const EmptyState(
+                                    title: 'No competitions yet',
+                                    message:
+                                        'Tap "Create Competition" to add leagues.',
+                                    icon: Icons.emoji_events_rounded,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  FilledButton.icon(
+                                    onPressed: () =>
+                                        _showCreateCompetitionSheet(
+                                            context, master),
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('Create Competition',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w900)),
+                                  ),
+                                ],
+                              );
+                            }
+
                             return Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment
-                                      .stretch,
-                              children: [
-                                const EmptyState(
-                                  title:
-                                      'No competitions yet',
-                                  message:
-                                      'Tap "Create Competition" to add leagues.',
-                                  icon: Icons
-                                      .emoji_events_rounded,
-                                ),
-                                const SizedBox(
-                                    height: 12),
-                                FilledButton.icon(
-                                  onPressed: () =>
-                                      _showCreateCompetitionSheet(
-                                          context),
-                                  icon: const Icon(
-                                      Icons.add),
-                                  label: const Text(
-                                      'Create Competition',
-                                      style: TextStyle(
-                                          fontWeight:
-                                              FontWeight.w900)),
-                                ),
-                              ],
-                            );
-                          }
+                              children:
+                                  List.generate(leagues.length, (i) {
+                                final l = leagues[i];
+                                final icon = l.format == LeagueFormat.classic
+                                    ? Icons.emoji_events_outlined
+                                    : (l.format == LeagueFormat.uclSwiss
+                                        ? Icons.grid_view_rounded
+                                        : Icons.groups_rounded);
 
-                          return Column(
-                            children:
-                                List.generate(
-                                    leagues.length,
-                                    (i) {
-                              final l =
-                                  leagues[i];
-                              final fmtLabel = l
-                                  .format
-                                  .displayName;
-                              final icon = l.format ==
-                                      LeagueFormat
-                                          .classic
-                                  ? Icons
-                                      .emoji_events_outlined
-                                  : (l.format ==
-                                          LeagueFormat
-                                              .uclSwiss
-                                      ? Icons
-                                          .grid_view_rounded
-                                      : Icons
-                                          .groups_rounded);
-
-                              return Padding(
-                                padding:
-                                    EdgeInsets.only(
-                                  bottom: i ==
-                                          leagues.length -
-                                              1
-                                      ? 0
-                                      : 12,
-                                ),
-                                child: InkWell(
-                                  onTap: () =>
-                                      context.push(
-                                          '/leagues/${l.id}'),
-                                  onLongPress:
-                                      isOwner
-                                          ? () => _showCompetitionMenu(
-                                              l)
-                                          : null,
-                                  borderRadius:
-                                      BorderRadius
-                                          .circular(
-                                              22),
-                                  child: Glass(
-                                    borderRadius:
-                                        22,
-                                    padding:
-                                        const EdgeInsets
-                                            .symmetric(
-                                      horizontal:
-                                          14,
-                                      vertical:
-                                          14,
-                                    ),
-                                    child: Row(
-                                      children: [
+                                return Padding(
+                                  padding: EdgeInsets.only(
+                                      bottom:
+                                          i == leagues.length - 1 ? 0 : 12),
+                                  child: InkWell(
+                                    onTap: () =>
+                                        context.push('/leagues/${l.id}'),
+                                    onLongPress: isOwner
+                                        ? () => _showCompetitionMenu(l)
+                                        : null,
+                                    borderRadius: BorderRadius.circular(22),
+                                    child: Glass(
+                                      borderRadius: 22,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 14, vertical: 14),
+                                      child: Row(children: [
                                         Container(
-                                          width:
-                                              44,
-                                          height:
-                                              44,
-                                          decoration:
-                                              BoxDecoration(
-                                            shape:
-                                                BoxShape.circle,
-                                            color: cs
-                                                .onSurface
+                                          width: 44,
+                                          height: 44,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: cs.onSurface
                                                 .withOpacity(0.06),
-                                            border:
-                                                Border.all(color: cs.onSurface.withOpacity(0.10)),
+                                            border: Border.all(
+                                                color: cs.onSurface
+                                                    .withOpacity(0.10)),
                                           ),
-                                          child: Icon(
-                                              icon,
-                                              color: cs.primary,
-                                              size: 20),
+                                          child: Icon(icon,
+                                              color: cs.primary, size: 20),
                                         ),
-                                        const SizedBox(
-                                            width:
-                                                12),
+                                        const SizedBox(width: 12),
                                         Expanded(
-                                          child:
-                                              Column(
+                                          child: Column(
                                             crossAxisAlignment:
                                                 CrossAxisAlignment.start,
                                             children: [
                                               Text(l.name,
                                                   maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900, color: cs.onSurface)),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: theme
+                                                      .textTheme.titleSmall
+                                                      ?.copyWith(
+                                                          fontWeight:
+                                                              FontWeight.w900,
+                                                          color:
+                                                              cs.onSurface)),
                                               const SizedBox(height: 4),
-                                              Text('$fmtLabel • ${l.season}',
-                                                  style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.65), fontWeight: FontWeight.w700, height: 1.2)),
+                                              Text(
+                                                  '${l.format.displayName} • ${l.season}',
+                                                  style: theme
+                                                      .textTheme.bodySmall
+                                                      ?.copyWith(
+                                                          color: cs.onSurface
+                                                              .withOpacity(
+                                                                  0.65),
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          height: 1.2)),
                                             ],
                                           ),
                                         ),
                                         if (isOwner)
                                           IconButton(
-                                              icon: Icon(Icons.more_vert, color: cs.onSurface.withOpacity(0.4), size: 20),
-                                              onPressed: () => _showCompetitionMenu(l))
+                                              icon: Icon(Icons.more_vert,
+                                                  color: cs.onSurface
+                                                      .withOpacity(0.4),
+                                                  size: 20),
+                                              onPressed: () =>
+                                                  _showCompetitionMenu(l))
                                         else
-                                          Icon(Icons.chevron_right_rounded, color: cs.onSurface.withOpacity(0.35)),
-                                      ],
+                                          Icon(Icons.chevron_right_rounded,
+                                              color: cs.onSurface
+                                                  .withOpacity(0.35)),
+                                      ]),
                                     ),
                                   ),
-                                ),
-                              );
-                            }),
-                          );
-                        },
-                      ),
-                    ],
-                  );
-                },
+                                );
+                              }),
+                            );
+                          },
+                        ),
+                      ],
+                    );
+                  }(),
+                ),
               ),
             ),
+            if (_busy)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withOpacity(0.15),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+          ]),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () => _showCreateCompetitionSheet(context, master),
+            icon: const Icon(Icons.add),
+            label: const Text('Create Competition'),
           ),
-        ),
-        if (_busy)
-          Positioned.fill(
-            child: Container(
-              color: Colors.black.withOpacity(0.15),
-              child: const Center(
-                  child: CircularProgressIndicator()),
-            ),
-          ),
-      ]),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () =>
-            _showCreateCompetitionSheet(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Create Competition'),
-      ),
-    );
-  }
-
-  // ── Competition context menu ─────────────────────────────
-
-  void _showCompetitionMenu(League league) {
-    final cs = Theme.of(context).colorScheme;
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-              leading: const Icon(Icons.open_in_new_rounded),
-              title: const Text('Open'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                context.push('/leagues/${league.id}');
-              }),
-          ListTile(
-              leading: const Icon(Icons.copy_rounded),
-              title: const Text('Copy League ID'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                Clipboard.setData(
-                    ClipboardData(text: league.id));
-                _snack('League ID copied');
-              }),
-          const Divider(),
-          ListTile(
-              leading: Icon(Icons.delete_outline_rounded,
-                  color: cs.error),
-              title: Text('Delete Competition',
-                  style: TextStyle(color: cs.error)),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _confirmDeleteCompetition(league);
-              }),
-        ]),
-      ),
+        );
+      },
     );
   }
 }

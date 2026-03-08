@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/master_league.dart';
+import '../domain/master_league_plan.dart';
 
 /// User-safe exception: if UI shows `$e`, it will still be a friendly message.
 class UserFriendlyException implements Exception {
@@ -132,25 +133,14 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
-  /// Creates a new Master League.
+  /// Creates a new Master League with a plan tier.
   ///
-  /// Firestore rules require:
-  /// - keys().hasOnly(['name','ownerId','createdAt','purchaseStatus','memberIds','updatedAtMs'])
-  /// - ownerId == request.auth.uid
-  /// - purchaseStatus == 'active'
-  /// - memberIds is a list containing request.auth.uid
-  /// - createdAt is a timestamp
-  /// - masterLeagueSubscriptionActive(uid) must be true
-  ///
-  /// IMPORTANT:
-  /// - Use Timestamp.now() NOT FieldValue.serverTimestamp()
-  ///   (rules check `createdAt is timestamp` — server transforms are not evaluated during rules)
-  /// - Use plain List NOT FieldValue.arrayUnion()
-  ///   (rules check `request.auth.uid in request.resource.data.memberIds` — transforms can't be evaluated)
-  /// - Use SetOptions(merge: false) NOT merge: true
-  ///   (merge: true on new doc can cause confusion between create/update rules)
+  /// Retries up to 3 times with delays if permission-denied occurs,
+  /// because the entitlement doc may not yet be visible to Firestore
+  /// rules immediately after writing it in a transaction.
   Future<MasterLeague> create({
     required String name,
+    MasterLeaguePlan plan = MasterLeaguePlan.basic,
   }) async {
     try {
       final uid = _requireAuthUid();
@@ -171,32 +161,62 @@ class MasterLeaguesRepositoryFirebase {
       final ref = _col.doc(id);
       final now = _nowMs();
 
+      final docData = <String, dynamic>{
+        'name': trimmed,
+        'ownerId': uid,
+        'createdAt': Timestamp.now(),
+        'purchaseStatus': 'active',
+        'memberIds': <String>[uid],
+        'updatedAtMs': now,
+        'plan': plan.id,
+      };
+
       debugPrint(
-        '[MasterLeaguesRepo] Creating: name="$trimmed" uid=$uid id=$id',
+        '[MasterLeaguesRepo] Creating: name="$trimmed" uid=$uid id=$id plan=${plan.id}',
       );
 
-      // EXACT keys that rules allow — no extras, no missing.
-      await ref
-          .set(
-            <String, dynamic>{
-              'name': trimmed,
-              'ownerId': uid,
-              'createdAt': Timestamp.now(),
-              'purchaseStatus': 'active',
-              'memberIds': <String>[uid],
-              'updatedAtMs': now,
-            },
-            SetOptions(merge: false),
-          )
-          .timeout(const Duration(seconds: 20));
+      // Retry logic: entitlement doc may not be immediately visible
+      // to Firestore rules after being written in a transaction.
+      const maxRetries = 3;
+      const retryDelays = [
+        Duration(seconds: 2),
+        Duration(seconds: 3),
+        Duration(seconds: 4),
+      ];
 
-      debugPrint('[MasterLeaguesRepo] Created successfully: $id');
+      for (int attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          await ref
+              .set(docData, SetOptions(merge: false))
+              .timeout(const Duration(seconds: 20));
 
-      // Read back the created document
-      final fresh = await ref
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 15));
-      return MasterLeague.fromDoc(fresh);
+          debugPrint('[MasterLeaguesRepo] Created successfully: $id (attempt ${attempt + 1})');
+
+          // Read back the created document
+          final fresh = await ref
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 15));
+          return MasterLeague.fromDoc(fresh);
+        } on FirebaseException catch (e) {
+          if (e.code == 'permission-denied' && attempt < maxRetries - 1) {
+            debugPrint(
+              '[MasterLeaguesRepo] Permission denied on attempt ${attempt + 1}, '
+              'retrying in ${retryDelays[attempt].inSeconds}s...',
+            );
+            await Future<void>.delayed(retryDelays[attempt]);
+            // Regenerate timestamp for retry
+            docData['createdAt'] = Timestamp.now();
+            docData['updatedAtMs'] = _nowMs();
+            continue;
+          }
+          rethrow;
+        }
+      }
+
+      // Should not reach here, but just in case
+      throw const UserFriendlyException(
+        'Could not create Master League. Please try again.',
+      );
     } catch (e) {
       debugPrint('[MasterLeaguesRepo] Create failed: $e');
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
@@ -236,6 +256,35 @@ class MasterLeaguesRepositoryFirebase {
       }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Checks if the master league can accept more competitions.
+  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
+    final ml = await getById(masterLeagueId);
+    if (ml == null) {
+      throw const UserFriendlyException(
+        "We couldn't find that Master League.",
+      );
+    }
+
+    final maxLeagues = ml.maxLeagues;
+
+    // Count existing leagues under this master league
+    final snap = await _firestore
+        .collection('leagues')
+        .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
+
+    final count = snap.docs.length;
+
+    if (count >= maxLeagues) {
+      throw UserFriendlyException(
+        'You have reached the limit of $maxLeagues competitions '
+        'for your ${ml.plan.displayName} plan. '
+        'Upgrade your plan to create more.',
+      );
     }
   }
 
@@ -315,7 +364,6 @@ class MasterLeaguesRepositoryFirebase {
   }
 
   /// Deletes a Master League (owner only).
-  /// Unlinks child leagues first (best-effort), then deletes the doc.
   Future<void> delete(String masterLeagueId) async {
     try {
       await requireOwnerOrThrow(masterLeagueId);
