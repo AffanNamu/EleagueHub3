@@ -11,7 +11,8 @@ import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
 import 'master_league_pricing_service.dart';
 
-final masterLeaguePaymentServiceProvider = Provider<MasterLeaguePaymentService>((ref) {
+final masterLeaguePaymentServiceProvider =
+    Provider<MasterLeaguePaymentService>((ref) {
   return FlutterwaveMasterLeaguePaymentService();
 });
 
@@ -80,18 +81,23 @@ abstract class MasterLeaguePaymentService {
   String get providerName;
 }
 
-class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentService {
+class FlutterwaveMasterLeaguePaymentService
+    implements MasterLeaguePaymentService {
   final Uuid _uuid = const Uuid();
 
   @override
   String get providerName => 'flutterwave';
 
   Locale _effectiveLocale(BuildContext context) {
-    final base = Localizations.maybeLocaleOf(context) ?? WidgetsBinding.instance.platformDispatcher.locale;
+    final base = Localizations.maybeLocaleOf(context) ??
+        WidgetsBinding.instance.platformDispatcher.locale;
 
     final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
     if (forced.isNotEmpty) {
-      return Locale(base.languageCode.isNotEmpty ? base.languageCode : 'en', forced);
+      return Locale(
+        base.languageCode.isNotEmpty ? base.languageCode : 'en',
+        forced,
+      );
     }
     return base;
   }
@@ -124,7 +130,8 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
   }
 
   bool _isChargeSuccessful(ChargeResponse response) {
-    final status = (response.status ?? '').toString().trim().toLowerCase();
+    final status =
+        (response.status ?? '').toString().trim().toLowerCase();
     return response.success == true || status == 'successful';
   }
 
@@ -142,30 +149,52 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
     try {
       FlutterwaveConfig.assertConfigured();
 
+      // Ensure user is signed in
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Please sign in to continue.',
+        );
+      }
+      final authUid = currentUser.uid.trim();
+      if (authUid.isEmpty) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Please sign in to continue.',
+        );
+      }
+
       final pricing = MasterLeaguePricingService();
       final loc = _effectiveLocale(context);
 
       final price = await pricing.getMasterLeaguePriceForLocale(loc);
       if (price == null) {
-        throw StateError("MasterLink price isn't configured yet. Please try again later.");
+        throw StateError(
+            "MasterLink price isn't configured yet. Please try again later.");
       }
 
       currencyUsed = price.currency.trim().toUpperCase();
 
-      final rawAmount = (price.amount is int) ? (price.amount as int).toDouble() : (price.amount as num).toDouble();
+      final rawAmount = (price.amount is int)
+          ? (price.amount as int).toDouble()
+          : (price.amount as num).toDouble();
       final rounded = _roundMoney(currencyUsed, rawAmount);
-      if (rounded <= 0) throw StateError('MasterLink price is invalid. Please contact support.');
+      if (rounded <= 0) {
+        throw StateError(
+            'MasterLink price is invalid. Please contact support.');
+      }
 
       totalAmount = _toFlutterwaveAmount(rounded);
 
-      // Create attempt
+      // Create attempt (best-effort, never blocks)
       attemptId = await PaymentsService.instance.createAttempt(
         PaymentAttemptCreate(
           provider: providerName,
           currency: currencyUsed,
           amount: rounded,
           amountStr: totalAmount,
-          userId: FirebaseAuth.instance.currentUser!.uid,
+          userId: authUid,
           leagueId: '',
           leagueName: 'MasterLink',
           items: [
@@ -189,20 +218,24 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         userId: effectiveUserId,
       );
 
-      final authUser = FirebaseAuth.instance.currentUser;
-      final String email = (authUser?.email?.trim().isNotEmpty ?? false)
-          ? authUser!.email!.trim()
-          : 'user_$effectiveUserId@eleaguehub.app';
-      final String phone = (authUser?.phoneNumber?.trim().isNotEmpty ?? false)
-          ? authUser!.phoneNumber!.trim()
-          : '0000000000';
-      final String name = (authUser?.displayName?.trim().isNotEmpty ?? false)
-          ? authUser!.displayName!.trim()
-          : 'EleagueHub User';
+      final String email =
+          (currentUser.email?.trim().isNotEmpty ?? false)
+              ? currentUser.email!.trim()
+              : 'user_$effectiveUserId@eleaguehub.app';
+      final String phone =
+          (currentUser.phoneNumber?.trim().isNotEmpty ?? false)
+              ? currentUser.phoneNumber!.trim()
+              : '0000000000';
+      final String name =
+          (currentUser.displayName?.trim().isNotEmpty ?? false)
+              ? currentUser.displayName!.trim()
+              : 'EleagueHub User';
 
-      final customer = Customer(name: name, phoneNumber: phone, email: email);
+      final customer =
+          Customer(name: name, phoneNumber: phone, email: email);
 
-      final txRef = 'EH-MLK-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+      final txRef =
+          'EH-MLK-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -222,20 +255,30 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
       final ChargeResponse response = await flutterwave.charge(context);
 
       debugPrint(
-        'Flutterwave charge result: success=${response.success} status=${response.status} '
-        'txRef=${response.txRef} transactionId=${response.transactionId}',
+        'Flutterwave charge result: success=${response.success} '
+        'status=${response.status} txRef=${response.txRef} '
+        'transactionId=${response.transactionId}',
       );
 
       if (_isChargeSuccessful(response)) {
-        final txId = (response.transactionId ?? '').toString().trim();
+        final txId =
+            (response.transactionId ?? '').toString().trim();
         if (txId.isEmpty) {
-          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: 'Missing transactionId.');
-          throw StateError('Payment success returned without transactionId.');
+          await PaymentsService.instance.markClientFailed(
+            attemptId: attemptId,
+            errorMessage: 'Missing transactionId.',
+          );
+          throw StateError(
+              'Payment success returned without transactionId.');
         }
 
-        final resolvedTxRef = (response.txRef?.toString().trim().isNotEmpty ?? false) ? response.txRef!.toString().trim() : txRef;
+        final resolvedTxRef =
+            (response.txRef?.toString().trim().isNotEmpty ?? false)
+                ? response.txRef!.toString().trim()
+                : txRef;
 
-        final recorded = await PaymentsService.instance.recordFlutterwaveClientSuccess(
+        final recorded =
+            await PaymentsService.instance.recordFlutterwaveClientSuccess(
           attemptId: attemptId,
           transactionId: txId,
           txRef: resolvedTxRef,
@@ -263,11 +306,17 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
         );
       }
 
-      final status = (response.status ?? '').toString().trim();
-      final msg = status.isNotEmpty ? 'Payment not successful (status: $status)' : 'Payment cancelled or not successful';
+      final status =
+          (response.status ?? '').toString().trim();
+      final msg = status.isNotEmpty
+          ? 'Payment not successful (status: $status)'
+          : 'Payment cancelled or not successful';
 
       if (attemptId.isNotEmpty) {
-        await PaymentsService.instance.markClientCancelled(attemptId: attemptId, reason: msg);
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: msg,
+        );
       }
 
       await AppAnalyticsService.instance.logPaymentResult(
@@ -292,7 +341,10 @@ class FlutterwaveMasterLeaguePaymentService implements MasterLeaguePaymentServic
     } catch (e) {
       if (attemptId.isNotEmpty) {
         try {
-          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: e.toString());
+          await PaymentsService.instance.markClientFailed(
+            attemptId: attemptId,
+            errorMessage: e.toString(),
+          );
         } catch (_) {}
       }
 

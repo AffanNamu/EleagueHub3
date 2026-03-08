@@ -6,7 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'master_league_payment_service.dart';
 
-final masterLeagueEntitlementServiceProvider = Provider<MasterLeagueEntitlementService>((ref) {
+final masterLeagueEntitlementServiceProvider =
+    Provider<MasterLeagueEntitlementService>((ref) {
   return MasterLeagueEntitlementService();
 });
 
@@ -27,6 +28,7 @@ class MasterLeagueEntitlementException implements Exception {
 /// - keys().hasOnly([
 ///   'active','purchasedAt','expiresAtMs','lastReceiptId','lastProvider','lastPaidAtMs','updatedAtMs'
 /// ])
+/// - active must be true
 /// - expiresAtMs must be in the future
 /// - on update: must NOT shorten expiresAtMs
 ///
@@ -49,14 +51,21 @@ class MasterLeagueEntitlementService {
 
   String _uidOrThrow() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
-    if (uid.isEmpty) throw const MasterLeagueEntitlementException('Please sign in and try again.');
+    if (uid.isEmpty) {
+      throw const MasterLeagueEntitlementException(
+          'Please sign in and try again.');
+    }
     return uid;
   }
 
   String _uidOrEmpty() => _auth.currentUser?.uid.trim() ?? '';
 
   DocumentReference<Map<String, dynamic>> _docRef(String uid) {
-    return _firestore.collection('users').doc(uid).collection('entitlements').doc('master_league');
+    return _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('entitlements')
+        .doc('master_league');
   }
 
   int _nowMs() => DateTime.now().millisecondsSinceEpoch;
@@ -65,11 +74,12 @@ class MasterLeagueEntitlementService {
     final active = data['active'] == true;
     if (!active) return false;
 
-    // Backward compatibility with your rules helper:
+    // Backward compatibility:
     // If expiresAtMs is missing but active=true, treat as active.
     if (!data.containsKey('expiresAtMs')) return true;
 
-    final expiresAtMs = (data['expiresAtMs'] is num) ? (data['expiresAtMs'] as num).toInt() : 0;
+    final expiresAtMs =
+        (data['expiresAtMs'] is num) ? (data['expiresAtMs'] as num).toInt() : 0;
     if (expiresAtMs <= 0) return false;
 
     return expiresAtMs > _nowMs();
@@ -80,9 +90,12 @@ class MasterLeagueEntitlementService {
     final uid = _uidOrEmpty();
     if (uid.isEmpty) return Stream<bool>.value(false);
 
-    return _docRef(uid).snapshots(includeMetadataChanges: true).map((snap) {
+    return _docRef(uid)
+        .snapshots(includeMetadataChanges: true)
+        .map((snap) {
       if (!snap.exists) return false;
-      final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final data =
+          (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       return _isUnlockedFromData(data);
     });
   }
@@ -90,13 +103,28 @@ class MasterLeagueEntitlementService {
   Future<bool> isUnlocked() async {
     final uid = _uidOrThrow();
 
-    final snap = await _docRef(uid)
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 12));
+    try {
+      final snap = await _docRef(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
 
-    if (!snap.exists) return false;
-    final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    return _isUnlockedFromData(data);
+      if (!snap.exists) return false;
+      final data =
+          (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      return _isUnlockedFromData(data);
+    } on TimeoutException {
+      // Fallback: try cache
+      try {
+        final snap = await _docRef(uid)
+            .get(const GetOptions(source: Source.cache));
+        if (!snap.exists) return false;
+        final data =
+            (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        return _isUnlockedFromData(data);
+      } catch (_) {
+        return false;
+      }
+    }
   }
 
   Future<void> grantOrExtendAfterPayment({
@@ -105,12 +133,14 @@ class MasterLeagueEntitlementService {
     final uid = _uidOrThrow();
 
     if (!payment.success) {
-      throw const MasterLeagueEntitlementException('Payment not successful.');
+      throw const MasterLeagueEntitlementException(
+          'Payment not successful.');
     }
 
     final receipt = (payment.receiptId ?? '').trim();
     if (receipt.isEmpty) {
-      throw const MasterLeagueEntitlementException('Missing receipt ID from payment provider.');
+      throw const MasterLeagueEntitlementException(
+          'Missing receipt ID from payment provider.');
     }
 
     final now = _nowMs();
@@ -122,7 +152,8 @@ class MasterLeagueEntitlementService {
 
         int currentExpiry = 0;
         if (snap.exists) {
-          final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+          final data =
+              (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
           final v = data['expiresAtMs'];
           if (v is num) currentExpiry = v.toInt();
         }
@@ -135,11 +166,18 @@ class MasterLeagueEntitlementService {
         // Must be strictly > request.time.toMillis() in rules.
         final expiresAtMs = extended + _futureBufferMs;
 
-        // EXACT keys only (rules)
+        // Ensure we never shorten expiry (rules enforce this on update).
+        // If somehow currentExpiry > expiresAtMs, use currentExpiry + buffer.
+        final safeExpiresAtMs = (currentExpiry > 0 && expiresAtMs < currentExpiry)
+            ? currentExpiry + _futureBufferMs
+            : expiresAtMs;
+
+        // EXACT keys only (rules enforce hasOnly).
+        // Use set() without merge so no legacy keys remain.
         final payload = <String, dynamic>{
           'active': true,
           'purchasedAt': Timestamp.fromMillisecondsSinceEpoch(now),
-          'expiresAtMs': expiresAtMs,
+          'expiresAtMs': safeExpiresAtMs,
           'lastReceiptId': receipt,
           'lastProvider': payment.provider,
           'lastPaidAtMs': (payment.paidAtMs > 0) ? payment.paidAtMs : now,
@@ -150,7 +188,6 @@ class MasterLeagueEntitlementService {
         tx.set(ref, payload);
       }).timeout(const Duration(seconds: 20));
     } on FirebaseException catch (e) {
-      // This is exactly what you're seeing.
       throw MasterLeagueEntitlementException(
         "We couldn't update your subscription right now. Please try again. (${e.code})",
       );
@@ -158,7 +195,8 @@ class MasterLeagueEntitlementService {
       throw const MasterLeagueEntitlementException(
         "We couldn't update your subscription right now. Please try again.",
       );
-    } catch (_) {
+    } catch (e) {
+      if (e is MasterLeagueEntitlementException) rethrow;
       throw const MasterLeagueEntitlementException(
         "We couldn't update your subscription right now. Please try again.",
       );
