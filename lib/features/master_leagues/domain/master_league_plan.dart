@@ -51,7 +51,7 @@ enum MasterLeaguePlan {
   final bool isPopular;
 
   /// Resolve from Firestore string. Falls back to [basic].
-  static MasterLeaguePlan fromId(String? raw) {
+  static MasterLeaguePlan fromString(String? raw) {
     final s = (raw ?? '').trim().toLowerCase();
     for (final p in values) {
       if (p.id == s) return p;
