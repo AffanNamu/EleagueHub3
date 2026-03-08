@@ -18,47 +18,52 @@ class AnalyticsRollupService {
     return '$yyyy-$mm-$dd';
   }
 
-  /// Rebuilds analytics_summary/global and revenue_by_day for the last [daysBack] days
-  /// by scanning successful payments.
-  Future<void> rebuild({int daysBack = 30}) async {
-    final now = DateTime.now().toUtc();
-    final from = now.subtract(Duration(days: daysBack));
-    final fromMs = from.millisecondsSinceEpoch;
+  double _asDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v.trim()) ?? 0.0;
+    return 0.0;
+  }
 
-    // Fetch payments in pages
-    Query<Map<String, dynamic>> q = _firestore
-        .collection('payments')
-        .where('status', isEqualTo: 'success')
-        .where('paidAtMs', isGreaterThanOrEqualTo: fromMs)
-        .orderBy('paidAtMs', descending: true)
-        .limit(500);
+  int _asInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim()) ?? 0;
+    return 0;
+  }
+
+  /// Spark-plan rollup rebuild:
+  /// - success attempts: status == client_success
+  /// - failed attempts: status in [cancelled, client_failed]
+  ///
+  /// Writes:
+  /// - analytics_summary/global
+  /// - revenue_by_day/{YYYY-MM-DD}
+  Future<void> rebuild({int daysBack = 30}) async {
+    final nowUtc = DateTime.now().toUtc();
+    final fromUtc = nowUtc.subtract(Duration(days: daysBack));
+    final fromMs = fromUtc.millisecondsSinceEpoch;
 
     int successfulPayments = 0;
+    int failedPayments = 0;
     int couponsSold = 0;
 
-    final revenueTotals = <String, double>{'NGN': 0, 'USD': 0};
+    final revenueTotals = <String, double>{'NGN': 0.0, 'USD': 0.0};
     final byProductType = <String, dynamic>{};
 
     final byDay = <String, Map<String, dynamic>>{};
 
-    DocumentSnapshot<Map<String, dynamic>>? last;
-    while (true) {
-      Query<Map<String, dynamic>> page = q;
-      if (last != null) page = page.startAfterDocument(last);
-
-      final snap = await page.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
-      if (snap.docs.isEmpty) break;
-
-      for (final doc in snap.docs) {
+    Future<void> consume(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {required bool success}) async {
+      for (final doc in docs) {
         final data = doc.data();
-        successfulPayments++;
 
         final currency = (data['currency'] ?? 'USD').toString().trim().toUpperCase();
-        final amount = (data['amount'] is num) ? (data['amount'] as num).toDouble() : 0.0;
-        revenueTotals[currency] = (revenueTotals[currency] ?? 0) + amount;
+        final amount = _asDouble(data['amount']);
 
-        final paidAtMs = (data['paidAtMs'] is num) ? (data['paidAtMs'] as num).toInt() : 0;
-        final dayId = _dayIdUtcFromMs(paidAtMs > 0 ? paidAtMs : _nowMs());
+        final paidAtMs = _asInt(data['paidAtMs']);
+        final createdAtMs = _asInt(data['createdAtMs']);
+        final tsMs = (paidAtMs > 0) ? paidAtMs : (createdAtMs > 0 ? createdAtMs : _nowMs());
+
+        final dayId = _dayIdUtcFromMs(tsMs);
 
         byDay.putIfAbsent(dayId, () {
           return <String, dynamic>{
@@ -66,96 +71,137 @@ class AnalyticsRollupService {
             'successfulPayments': 0,
             'failedPayments': 0,
             'leaguesCreated': 0,
-            'revenue': <String, double>{'NGN': 0, 'USD': 0},
+            'revenue': <String, double>{'NGN': 0.0, 'USD': 0.0},
             'byProductType': <String, dynamic>{},
           };
         });
 
         final day = byDay[dayId]!;
-        day['successfulPayments'] = (day['successfulPayments'] as int) + 1;
-        final dayRevenue = (day['revenue'] as Map).cast<String, dynamic>();
-        dayRevenue[currency] = ((dayRevenue[currency] is num) ? (dayRevenue[currency] as num).toDouble() : 0.0) + amount;
+        if (success) {
+          successfulPayments++;
+          day['successfulPayments'] = (day['successfulPayments'] as int) + 1;
 
-        // items[] => byProductType + couponsSold
+          revenueTotals[currency] = (revenueTotals[currency] ?? 0.0) + amount;
+          final dayRevenue = (day['revenue'] as Map).cast<String, dynamic>();
+          dayRevenue[currency] = _asDouble(dayRevenue[currency]) + amount;
+        } else {
+          failedPayments++;
+          day['failedPayments'] = (day['failedPayments'] as int) + 1;
+        }
+
         final items = (data['items'] is List) ? (data['items'] as List) : const [];
         for (final it in items) {
           if (it is! Map) continue;
           final m = it.cast<String, dynamic>();
+
           final type = (m['productType'] ?? '').toString().trim();
           if (type.isEmpty) continue;
 
-          final itAmount = (m['amount'] is num) ? (m['amount'] as num).toDouble() : 0.0;
-          final qty = (m['quantity'] is num) ? (m['quantity'] as num).toInt() : 0;
+          final itAmount = _asDouble(m['amount']);
+          final qty = _asInt(m['quantity']);
 
-          // coupons sold
-          if (type.toLowerCase() == 'coupon') {
+          if (success && type.toLowerCase() == 'coupon') {
             couponsSold += qty < 0 ? 0 : qty;
           }
 
-          // global byProductType
           byProductType.putIfAbsent(type, () => <String, dynamic>{
                 'count': 0,
                 'units': 0,
-                'revenue': <String, double>{'NGN': 0, 'USD': 0},
+                'revenue': <String, double>{'NGN': 0.0, 'USD': 0.0},
               });
 
           final g = (byProductType[type] as Map).cast<String, dynamic>();
-          g['count'] = (g['count'] as int) + 1;
-          if (type.toLowerCase() == 'coupon') {
+          if (success) g['count'] = (g['count'] as int) + 1;
+          if (success && type.toLowerCase() == 'coupon') {
             g['units'] = (g['units'] as int) + (qty < 0 ? 0 : qty);
           }
-          final gRev = (g['revenue'] as Map).cast<String, dynamic>();
-          gRev[currency] = ((gRev[currency] is num) ? (gRev[currency] as num).toDouble() : 0.0) + itAmount;
+          if (success) {
+            final gRev = (g['revenue'] as Map).cast<String, dynamic>();
+            gRev[currency] = _asDouble(gRev[currency]) + itAmount;
+          }
 
-          // day byProductType
           final dayTypes = (day['byProductType'] as Map).cast<String, dynamic>();
           dayTypes.putIfAbsent(type, () => <String, dynamic>{
                 'count': 0,
                 'units': 0,
-                'revenue': <String, double>{'NGN': 0, 'USD': 0},
+                'revenue': <String, double>{'NGN': 0.0, 'USD': 0.0},
               });
 
           final dAgg = (dayTypes[type] as Map).cast<String, dynamic>();
-          dAgg['count'] = (dAgg['count'] as int) + 1;
-          if (type.toLowerCase() == 'coupon') {
+          if (success) dAgg['count'] = (dAgg['count'] as int) + 1;
+          if (success && type.toLowerCase() == 'coupon') {
             dAgg['units'] = (dAgg['units'] as int) + (qty < 0 ? 0 : qty);
           }
-          final dRev = (dAgg['revenue'] as Map).cast<String, dynamic>();
-          dRev[currency] = ((dRev[currency] is num) ? (dRev[currency] as num).toDouble() : 0.0) + itAmount;
+          if (success) {
+            final dRev = (dAgg['revenue'] as Map).cast<String, dynamic>();
+            dRev[currency] = _asDouble(dRev[currency]) + itAmount;
+          }
         }
       }
+    }
 
+    // Success attempts
+    Query<Map<String, dynamic>> successQ = _firestore
+        .collection('payment_attempts')
+        .where('status', isEqualTo: 'client_success')
+        .where('createdAtMs', isGreaterThanOrEqualTo: fromMs)
+        .orderBy('createdAtMs', descending: true)
+        .limit(500);
+
+    DocumentSnapshot<Map<String, dynamic>>? last;
+    while (true) {
+      Query<Map<String, dynamic>> page = successQ;
+      if (last != null) page = page.startAfterDocument(last);
+
+      final snap = await page.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+      if (snap.docs.isEmpty) break;
+
+      await consume(snap.docs, success: true);
+      last = snap.docs.last;
+      if (snap.docs.length < 500) break;
+    }
+
+    // Failed attempts
+    Query<Map<String, dynamic>> failedQ = _firestore
+        .collection('payment_attempts')
+        .where('status', whereIn: const ['cancelled', 'client_failed'])
+        .where('createdAtMs', isGreaterThanOrEqualTo: fromMs)
+        .orderBy('createdAtMs', descending: true)
+        .limit(500);
+
+    last = null;
+    while (true) {
+      Query<Map<String, dynamic>> page = failedQ;
+      if (last != null) page = page.startAfterDocument(last);
+
+      final snap = await page.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
+      if (snap.docs.isEmpty) break;
+
+      await consume(snap.docs, success: false);
       last = snap.docs.last;
       if (snap.docs.length < 500) break;
     }
 
     final updatedAtMs = _nowMs();
-
-    // Write summary + days (admin-only via rules)
     final batch = _firestore.batch();
 
-    final summaryRef = _firestore.collection('analytics_summary').doc('global');
-    batch.set(summaryRef, <String, dynamic>{
+    batch.set(_firestore.collection('analytics_summary').doc('global'), <String, dynamic>{
       'updatedAtMs': updatedAtMs,
       'totals': <String, dynamic>{
         'successfulPayments': successfulPayments,
-        'failedPayments': 0, // optional: you can compute from payment_attempts if needed
+        'failedPayments': failedPayments,
         'couponsSold': couponsSold,
         'leaguesCreated': 0,
         'revenue': revenueTotals,
       },
       'byProductType': byProductType,
-      'range': <String, dynamic>{
-        'daysBack': daysBack,
-        'fromMs': fromMs,
-      },
+      'range': <String, dynamic>{'daysBack': daysBack, 'fromMs': fromMs},
+      'source': 'payment_attempts',
     }, SetOptions(merge: true));
 
-    // Upsert each day doc
     for (final e in byDay.entries) {
       final dayRef = _firestore.collection('revenue_by_day').doc(e.key);
-      final dayData = e.value;
-      dayData['updatedAtMs'] = updatedAtMs;
+      final dayData = e.value..['updatedAtMs'] = updatedAtMs;
       batch.set(dayRef, dayData, SetOptions(merge: true));
     }
 

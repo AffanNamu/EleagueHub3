@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
+import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/league_access_controller.dart';
 
 class LeagueAccessGuard extends ConsumerStatefulWidget {
@@ -31,17 +33,18 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
   void initState() {
     super.initState();
 
-    // Delay loader to avoid flicker + prevent owners seeing any intermediate screen in most flows.
     _loaderDelay = Timer(const Duration(milliseconds: 280), () {
       if (!mounted) return;
       setState(() => _showLoader = true);
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(ref.read(leagueAccessControllerProvider(widget.leagueId).notifier).check(
-            force: false,
-            silentIfAlreadyAllowed: true,
-          ));
+      unawaited(
+        ref.read(leagueAccessControllerProvider(widget.leagueId).notifier).check(
+              force: false,
+              silentIfAlreadyAllowed: true,
+            ),
+      );
     });
   }
 
@@ -65,6 +68,13 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     );
   }
 
+  String _money(String currency, double v) {
+    final c = currency.trim().toUpperCase();
+    if (c == 'NGN') return '₦${v.toStringAsFixed(0)}';
+    if (c == 'USD') return '\$${v.toStringAsFixed(2)}';
+    return '$c ${v.toStringAsFixed(2)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final st = ref.watch(leagueAccessControllerProvider(widget.leagueId));
@@ -77,7 +87,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
     final showLoader = st.checking && _showLoader;
 
-    final loader = Scaffold(
+    final loader = GlassScaffold(
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
@@ -118,7 +128,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
     final deny = (decision?.denyMessage ?? '').trim();
     final message = err.isNotEmpty ? err : (deny.isNotEmpty ? deny : 'You don’t have access yet.');
 
-    final gate = Scaffold(
+    final gate = GlassScaffold(
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -205,7 +215,28 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                           'Unlock $leagueName',
                           style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
                         ),
+                        const SizedBox(height: 8),
+
+                        FutureBuilder<RemotePricingPlan>(
+                          future: RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context)),
+                          builder: (context, snap) {
+                            final plan = snap.data;
+                            final feeLine = (plan == null)
+                                ? 'Entry fee: loading…'
+                                : 'Entry fee: ${_money(plan.currency, plan.accessFee)}';
+
+                            return Text(
+                              feeLine,
+                              style: TextStyle(
+                                color: cs.onSurface.withOpacity(0.70),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            );
+                          },
+                        ),
+
                         const SizedBox(height: 12),
+
                         FilledButton.icon(
                           onPressed: st.busy
                               ? null
@@ -223,6 +254,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                           ),
                         ),
                         const SizedBox(height: 14),
+
                         Text(
                           'Or redeem a coupon',
                           style: theme.textTheme.bodySmall?.copyWith(
