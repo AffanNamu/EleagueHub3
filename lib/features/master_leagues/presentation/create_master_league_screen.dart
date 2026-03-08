@@ -49,8 +49,9 @@ class _CreateMasterLeagueScreenState extends ConsumerState<CreateMasterLeagueScr
     final String priceLine = (price != null) ? 'Price: ${price.display}' : 'Price: unavailable';
     const String durationLine = 'Access duration: 3 months (renew required)';
 
-    final String? warning = (preferNgn && (price?.currencyCode != 'NGN'))
-        ? 'NGN price is not configured in Firestore. Falling back to ${price?.currencyCode ?? 'USD'}.'
+    final actualCurrency = (price?.currency ?? '').trim().toUpperCase();
+    final String? warning = (preferNgn && actualCurrency.isNotEmpty && actualCurrency != 'NGN')
+        ? 'NGN price is not configured in Firestore. Falling back to $actualCurrency.'
         : null;
 
     final shouldPurchase = await showDialog<bool>(
