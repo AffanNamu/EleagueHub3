@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/services/admins_service.dart';
 import '../../core/services/analytics/analytics_rollup_service.dart';
 import '../../core/services/app_admins_service.dart';
 
@@ -33,7 +32,10 @@ class _DeveloperAnalyticsDashboardScreenState extends State<DeveloperAnalyticsDa
       await AnalyticsRollupService.instance.rebuild(daysBack: 30);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rollups rebuilt (last 30 days).'), behavior: SnackBarBehavior.floating),
+        const SnackBar(
+          content: Text('Rollups rebuilt (last 30 days).'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -107,26 +109,23 @@ class _DeveloperAnalyticsDashboardScreenState extends State<DeveloperAnalyticsDa
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: cs.error.withOpacity(0.25)),
                         ),
-                        child: Text(_error!, style: TextStyle(color: cs.error, fontWeight: FontWeight.w800)),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(color: cs.error, fontWeight: FontWeight.w800),
+                        ),
                       ),
                       const SizedBox(height: 12),
                     ],
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: _busy ? null : _rebuild,
-                            icon: _busy
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.refresh_rounded),
-                            label: const Text('Rebuild rollups (30 days)', style: TextStyle(fontWeight: FontWeight.w900)),
-                          ),
-                        ),
-                      ],
+                    FilledButton.icon(
+                      onPressed: _busy ? null : _rebuild,
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.refresh_rounded),
+                      label: const Text('Rebuild rollups (30 days)', style: TextStyle(fontWeight: FontWeight.w900)),
                     ),
                     const SizedBox(height: 12),
                     _metricRow(
@@ -152,7 +151,10 @@ class _DeveloperAnalyticsDashboardScreenState extends State<DeveloperAnalyticsDa
                     if (dayDocs.isEmpty)
                       Text(
                         'No data yet. Tap “Rebuild rollups”.',
-                        style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.65), fontWeight: FontWeight.w600),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.65),
+                          fontWeight: FontWeight.w600,
+                        ),
                       )
                     else
                       ...dayDocs.map((d) {
