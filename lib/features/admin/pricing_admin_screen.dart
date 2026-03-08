@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/app_pricing_admin_service.dart';
+import '../../core/widgets/glass.dart';
+import '../../core/widgets/glass_scaffold.dart';
 
 class PricingAdminScreen extends StatefulWidget {
   const PricingAdminScreen({super.key});
@@ -91,7 +93,6 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
       final usd = (doc['usd'] as Map).cast<String, dynamic>();
 
       setState(() {
-        // NGN
         _ngnCreate.text = '${ngn['createFee'] ?? ''}';
         _ngnAccess.text = '${ngn['accessFee'] ?? ''}';
         _ngnCouponUnit.text = '${ngn['couponUnit'] ?? ''}';
@@ -105,7 +106,6 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
 
         _ngnMasterLinkFee.text = '${ngn['masterLinkFee'] ?? ngn['masterLeagueFee'] ?? ''}';
 
-        // USD
         _usdCreate.text = '${usd['createFee'] ?? ''}';
         _usdAccess.text = '${usd['accessFee'] ?? ''}';
         _usdCouponUnit.text = '${usd['couponUnit'] ?? ''}';
@@ -207,133 +207,130 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
     final cs = theme.colorScheme;
 
     if (_loading) {
-      return Scaffold(
+      return GlassScaffold(
         appBar: AppBar(title: const Text('Pricing Admin')),
         body: Center(child: CircularProgressIndicator(color: cs.primary)),
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Pricing Admin')),
+    return GlassScaffold(
+      appBar: AppBar(
+        title: const Text('Pricing Admin'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (_error != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: cs.error.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: cs.error.withOpacity(0.35)),
-                    ),
-                    child: Text(
-                      _error!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.error,
-                        fontWeight: FontWeight.w800,
+            child: Glass(
+              borderRadius: 28,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_error != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: cs.error.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: cs.error.withOpacity(0.35)),
+                      ),
+                      child: Text(
+                        _error!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.error,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  _currencyCard(
+                    title: 'NGN plan',
+                    children: [
+                      _rowNum('Create fee (NGN)', _ngnCreate),
+                      _rowNum('Access fee (NGN)', _ngnAccess),
+                      _rowNum('Coupon unit (NGN)', _ngnCouponUnit),
+                      _rowNumAllowNull('Coupon threshold (NGN, empty = none)', _ngnThreshold),
+                      _rowNum('Threshold discount (%)', _ngnDiscount),
+                      SwitchListTile.adaptive(
+                        value: _ngnViewers,
+                        onChanged: (v) => setState(() => _ngnViewers = v),
+                        title: const Text('Viewers enabled (legacy; keep off)'),
+                      ),
+                      _sectionDivider('Premium (NGN)'),
+                      _rowNum('Premium fee (NGN)', _ngnPremiumFee),
+                      _rowNum('Premium duration (days)', _ngnPremiumDays),
+                      SwitchListTile.adaptive(
+                        value: _ngnPremiumEnabled,
+                        onChanged: (v) => setState(() => _ngnPremiumEnabled = v),
+                        title: const Text('Premium enabled'),
+                      ),
+                      _sectionDivider('MasterLink (NGN)'),
+                      _rowNum('MasterLink fee (NGN)', _ngnMasterLinkFee),
+                    ],
                   ),
+
                   const SizedBox(height: 12),
-                ],
 
-                _currencyCard(
-                  title: 'NGN plan',
-                  children: [
-                    _rowNum('Create fee (NGN)', _ngnCreate),
-                    _rowNum('Access fee (NGN)', _ngnAccess),
-                    _rowNum('Coupon unit (NGN)', _ngnCouponUnit),
-                    _rowNumAllowNull('Coupon threshold (NGN, empty = none)', _ngnThreshold),
-                    _rowNum('Threshold discount (%)', _ngnDiscount),
-                    SwitchListTile.adaptive(
-                      value: _ngnViewers,
-                      onChanged: (v) => setState(() => _ngnViewers = v),
-                      title: const Text('Viewers enabled (legacy; keep off)'),
-                    ),
-                    _sectionDivider('Premium (NGN)'),
-                    _rowNum('Premium fee (NGN)', _ngnPremiumFee),
-                    _rowNum('Premium duration (days)', _ngnPremiumDays),
-                    SwitchListTile.adaptive(
-                      value: _ngnPremiumEnabled,
-                      onChanged: (v) => setState(() => _ngnPremiumEnabled = v),
-                      title: const Text('Premium enabled'),
-                      subtitle: const Text('When off, all users bypass the premium paywall'),
-                    ),
-                    _sectionDivider('MasterLink (NGN)'),
-                    _rowNum('MasterLink fee (NGN)', _ngnMasterLinkFee),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-
-                _currencyCard(
-                  title: 'USD plan',
-                  children: [
-                    _rowNum('Create fee (USD)', _usdCreate),
-                    _rowNum('Access fee (USD)', _usdAccess),
-                    _rowNum('Coupon unit (USD)', _usdCouponUnit),
-                    _rowNumAllowNull('Coupon threshold (USD, empty = none)', _usdThreshold),
-                    _rowNum('Threshold discount (%)', _usdDiscount),
-                    SwitchListTile.adaptive(
-                      value: _usdViewers,
-                      onChanged: (v) => setState(() => _usdViewers = v),
-                      title: const Text('Viewers enabled (legacy; keep off)'),
-                    ),
-                    _sectionDivider('Premium (USD)'),
-                    _rowNum('Premium fee (USD)', _usdPremiumFee),
-                    _rowNum('Premium duration (days)', _usdPremiumDays),
-                    SwitchListTile.adaptive(
-                      value: _usdPremiumEnabled,
-                      onChanged: (v) => setState(() => _usdPremiumEnabled = v),
-                      title: const Text('Premium enabled'),
-                      subtitle: const Text('When off, all users bypass the premium paywall'),
-                    ),
-                    _sectionDivider('MasterLink (USD)'),
-                    _rowNum('MasterLink fee (USD)', _usdMasterLinkFee),
-                  ],
-                ),
-
-                const SizedBox(height: 18),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _saving ? null : _load,
-                        child: const Text('Reload'),
+                  _currencyCard(
+                    title: 'USD plan',
+                    children: [
+                      _rowNum('Create fee (USD)', _usdCreate),
+                      _rowNum('Access fee (USD)', _usdAccess),
+                      _rowNum('Coupon unit (USD)', _usdCouponUnit),
+                      _rowNumAllowNull('Coupon threshold (USD, empty = none)', _usdThreshold),
+                      _rowNum('Threshold discount (%)', _usdDiscount),
+                      SwitchListTile.adaptive(
+                        value: _usdViewers,
+                        onChanged: (v) => setState(() => _usdViewers = v),
+                        title: const Text('Viewers enabled (legacy; keep off)'),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: _saving ? null : _save,
-                        icon: _saving
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : const Icon(Icons.save),
-                        label: const Text('Save'),
+                      _sectionDivider('Premium (USD)'),
+                      _rowNum('Premium fee (USD)', _usdPremiumFee),
+                      _rowNum('Premium duration (days)', _usdPremiumDays),
+                      SwitchListTile.adaptive(
+                        value: _usdPremiumEnabled,
+                        onChanged: (v) => setState(() => _usdPremiumEnabled = v),
+                        title: const Text('Premium enabled'),
                       ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 8),
-                Text(
-                  'Note: Admin-only. Rules enforce writes only for authorized UIDs.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.65),
-                    fontWeight: FontWeight.w600,
+                      _sectionDivider('MasterLink (USD)'),
+                      _rowNum('MasterLink fee (USD)', _usdMasterLinkFee),
+                    ],
                   ),
-                ),
-              ],
+
+                  const SizedBox(height: 18),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _saving ? null : _load,
+                          child: const Text('Reload'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _saving ? null : _save,
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.save),
+                          label: const Text('Save', style: TextStyle(fontWeight: FontWeight.w900)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -370,14 +367,14 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: cs.onSurface.withOpacity(0.035),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: cs.onSurface.withOpacity(0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title, style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           ...children,
         ],
       ),
@@ -390,10 +387,7 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
       child: TextField(
         controller: c,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: const Icon(Icons.numbers),
-        ),
+        decoration: InputDecoration(labelText: label, prefixIcon: const Icon(Icons.numbers)),
       ),
     );
   }

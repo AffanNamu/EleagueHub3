@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/services/country/country_resolver_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/master_league_entitlement_service.dart';
@@ -36,6 +37,121 @@ class _CreateMasterLeagueScreenState extends ConsumerState<CreateMasterLeagueScr
     }
   }
 
+  Future<bool> _showPurchaseDialog({
+    required MasterLeaguePrice? price,
+    required bool preferNgn,
+  }) async {
+    if (!mounted) return false;
+
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final String priceLine = (price != null) ? 'Price: ${price.display}' : 'Price: unavailable';
+    const String durationLine = 'Access duration: 3 months (renew required)';
+
+    final String? warning = (preferNgn && (price?.currencyCode != 'NGN'))
+        ? 'NGN price is not configured in Firestore. Falling back to ${price?.currencyCode ?? 'USD'}.'
+        : null;
+
+    final shouldPurchase = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.35),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(16),
+          child: Glass(
+            borderRadius: 28,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: cs.primary.withOpacity(0.12),
+                        border: Border.all(color: cs.primary.withOpacity(0.25)),
+                      ),
+                      child: Icon(Icons.hub_rounded, color: cs.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Master League (Premium)',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Master League is a premium feature. It allows you to create multiple competitions inside one league system.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface.withOpacity(0.72),
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '$durationLine\n$priceLine',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface.withOpacity(0.86),
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+                if (warning != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cs.error.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: cs.error.withOpacity(0.30)),
+                    ),
+                    child: Text(
+                      warning,
+                      style: TextStyle(color: cs.error, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w900)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text('Purchase / Renew', style: TextStyle(fontWeight: FontWeight.w900)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    return shouldPurchase == true;
+  }
+
   Future<bool> _ensureSubscriptionActive() async {
     final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
 
@@ -43,41 +159,14 @@ class _CreateMasterLeagueScreenState extends ConsumerState<CreateMasterLeagueScr
     if (unlocked) return true;
 
     final price = await _loadPrice();
-
-    if (!mounted) return false;
-
-    final String priceLine = (price != null) ? 'Price: ${price.display}' : 'Price: unavailable';
-    const String durationLine = 'Access duration: 3 months (renew required)';
-
-    final shouldPurchase = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
-
-        return AlertDialog(
-          title: const Text('Master League (Premium)'),
-          content: Text(
-            'Master League is a premium feature. It allows you to create multiple competitions inside one league system.\n\n$durationLine\n$priceLine',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Purchase / Renew'),
-            ),
-          ],
-          icon: Icon(Icons.hub_rounded, color: cs.primary),
-        );
-      },
+    final cc = await CountryResolverService.instance.resolveCountryCode(
+      locale: Localizations.maybeLocaleOf(context),
     );
+    final preferNgn = cc.trim().toUpperCase() == 'NG';
 
-    if (shouldPurchase != true) return false;
+    final shouldPurchase = await _showPurchaseDialog(price: price, preferNgn: preferNgn);
+    if (!shouldPurchase) return false;
 
-    // Charge using Flutterwave and only unlock AFTER success.
     final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
     final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 

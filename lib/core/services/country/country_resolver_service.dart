@@ -9,8 +9,12 @@ import 'country_resolver_factory.dart';
 ///
 /// Resolution order:
 /// 1) FlutterwaveConfig.forcedCountryCode (testing override)
-/// 2) locale.countryCode (if present)
-/// 3) (IO only) IP lookup via ipapi.co/country
+/// 2) platform resolver (locale countryCode, with IO IP-lookup fallback)
+/// 3) FINAL FALLBACK (Nigeria-first): "NG"
+///
+/// Why Nigeria-first fallback?
+/// Some devices/builds return locale without a countryCode (e.g., "en").
+/// In that scenario you prefer showing NGN rather than USD.
 class CountryResolverService {
   CountryResolverService._();
   static final CountryResolverService instance = CountryResolverService._();
@@ -26,13 +30,29 @@ class CountryResolverService {
     return DateTime.now().difference(at).inHours < 6;
   }
 
+  bool _looksLikeCountryCode(String cc) => cc.trim().length == 2;
+
   Future<String> resolveCountryCode({Locale? locale}) async {
+    // 1) Explicit override for testing
     final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
-    if (forced.isNotEmpty) return forced;
+    if (_looksLikeCountryCode(forced)) return forced;
 
-    if (_cacheFresh && _cached.isNotEmpty) return _cached;
+    // 2) Cached
+    if (_cacheFresh && _looksLikeCountryCode(_cached)) return _cached;
 
-    final cc = (await _impl.resolveCountryCode(locale: locale)).trim().toUpperCase();
+    // 3) Platform resolver (locale / IP)
+    String cc = '';
+    try {
+      cc = (await _impl.resolveCountryCode(locale: locale)).trim().toUpperCase();
+    } catch (_) {
+      cc = '';
+    }
+
+    // 4) Final fallback: Nigeria-first
+    if (!_looksLikeCountryCode(cc)) {
+      cc = 'NG';
+    }
+
     _cached = cc;
     _cachedAt = DateTime.now();
     return cc;
