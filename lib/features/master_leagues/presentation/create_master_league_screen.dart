@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/country/country_resolver_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../logic/master_league_entitlement_service.dart';
+import '../logic/master_league_entitlement_service.dart' hide masterLeagueEntitlementServiceProvider;
 import '../logic/master_league_payment_service.dart';
 import '../logic/master_league_pricing_service.dart';
 import '../logic/master_leagues_providers.dart';

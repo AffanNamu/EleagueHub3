@@ -47,11 +47,42 @@ class MasterLeagueEntitlementService {
     return uid;
   }
 
+  String _uidOrEmpty() => _auth.currentUser?.uid.trim() ?? '';
+
   DocumentReference<Map<String, dynamic>> _docRef(String uid) {
     return _firestore.collection('users').doc(uid).collection('entitlements').doc('master_league');
   }
 
   int _nowMs() => DateTime.now().millisecondsSinceEpoch;
+
+  bool _isUnlockedFromData(Map<String, dynamic> data) {
+    final active = data['active'] == true;
+    if (!active) return false;
+
+    // Backward compatible with your Firestore rules:
+    // If expiresAtMs is missing but active=true, treat as active.
+    if (!data.containsKey('expiresAtMs')) return true;
+
+    final expiresAtMs = (data['expiresAtMs'] is num) ? (data['expiresAtMs'] as num).toInt() : 0;
+    if (expiresAtMs <= 0) return false;
+
+    return expiresAtMs > _nowMs();
+  }
+
+  /// Stream entitlement status (used by master_leagues_providers.dart).
+  Stream<bool> watchUnlocked() {
+    final uid = _uidOrEmpty();
+    if (uid.isEmpty) return Stream<bool>.value(false);
+
+    return _docRef(uid).snapshots(includeMetadataChanges: true).map((snap) {
+      if (!snap.exists) return false;
+      final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      return _isUnlockedFromData(data);
+    }).handleError((_) {
+      // best-effort: emit false on stream errors
+      return false;
+    });
+  }
 
   Future<bool> isUnlocked() async {
     final uid = _uidOrThrow();
@@ -61,15 +92,8 @@ class MasterLeagueEntitlementService {
         .timeout(const Duration(seconds: 12));
 
     if (!snap.exists) return false;
-
     final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    final active = data['active'] == true;
-    if (!active) return false;
-
-    final expiresAtMs = (data['expiresAtMs'] is num) ? (data['expiresAtMs'] as num).toInt() : 0;
-    if (expiresAtMs <= 0) return false;
-
-    return expiresAtMs > _nowMs();
+    return _isUnlockedFromData(data);
   }
 
   Future<void> grantOrExtendAfterPayment({
