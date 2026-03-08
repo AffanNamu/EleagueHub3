@@ -3,7 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/master_leagues_repository_firebase.dart';
 import 'master_league_entitlement_service.dart';
 
-final masterLeaguesRepositoryProvider = Provider<MasterLeaguesRepositoryFirebase>((ref) {
+final masterLeaguesRepositoryProvider =
+    Provider<MasterLeaguesRepositoryFirebase>((ref) {
   return MasterLeaguesRepositoryFirebase();
 });
 
@@ -12,7 +13,8 @@ final myMasterLeaguesProvider = StreamProvider.autoDispose((ref) {
   return repo.watchMyMasterLeagues();
 });
 
-final masterLeagueEntitlementServiceProvider = Provider<MasterLeagueEntitlementService>((ref) {
+final masterLeagueEntitlementServiceProvider =
+    Provider<MasterLeagueEntitlementService>((ref) {
   return MasterLeagueEntitlementService();
 });
 

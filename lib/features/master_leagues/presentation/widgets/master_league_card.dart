@@ -18,10 +18,16 @@ class MasterLeagueCard extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final title = masterLeague.name.trim().isEmpty ? 'Master League' : masterLeague.name.trim();
-    final subtitle = masterLeague.isActive ? 'Premium unlocked • Create multiple competitions' : 'Locked';
+    final title = masterLeague.name.trim().isEmpty
+        ? 'Master League'
+        : masterLeague.name.trim();
+    final subtitle = masterLeague.isActive
+        ? 'Premium unlocked • Create multiple competitions'
+        : 'Locked';
 
-    final badgeBg = masterLeague.isActive ? const Color(0xFF22C55E) : const Color(0xFFF59E0B);
+    final badgeBg = masterLeague.isActive
+        ? const Color(0xFF22C55E)
+        : const Color(0xFFF59E0B);
     final badgeLabel = masterLeague.isActive ? 'ACTIVE' : 'LOCKED';
 
     return InkWell(
@@ -31,7 +37,8 @@ class MasterLeagueCard extends StatelessWidget {
         borderRadius: 22,
         padding: EdgeInsets.zero,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 14, vertical: 14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
             gradient: LinearGradient(
@@ -51,9 +58,11 @@ class MasterLeagueCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: cs.onSurface.withOpacity(0.06),
-                  border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                  border: Border.all(
+                      color: cs.onSurface.withOpacity(0.10)),
                 ),
-                child: Icon(Icons.hub_rounded, color: cs.primary, size: 22),
+                child: Icon(Icons.hub_rounded,
+                    color: cs.primary, size: 22),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -64,7 +73,8 @@ class MasterLeagueCard extends StatelessWidget {
                       title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall?.copyWith(
+                      style:
+                          theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: cs.onSurface,
                       ),
@@ -86,15 +96,18 @@ class MasterLeagueCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(999),
                   color: badgeBg.withOpacity(0.14),
-                  border: Border.all(color: badgeBg.withOpacity(0.32)),
+                  border: Border.all(
+                      color: badgeBg.withOpacity(0.32)),
                 ),
                 child: Text(
                   badgeLabel,
-                  style: theme.textTheme.labelSmall?.copyWith(
+                  style:
+                      theme.textTheme.labelSmall?.copyWith(
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0.6,
                     color: badgeBg,
@@ -102,7 +115,8 @@ class MasterLeagueCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded, color: cs.onSurface.withOpacity(0.35)),
+              Icon(Icons.chevron_right_rounded,
+                  color: cs.onSurface.withOpacity(0.35)),
             ],
           ),
         ),

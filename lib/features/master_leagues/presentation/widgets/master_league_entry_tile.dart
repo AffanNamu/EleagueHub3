@@ -31,7 +31,7 @@ class MasterLeagueEntryTile extends StatelessWidget {
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
 
-    final title = 'Master Leagues';
+    const title = 'Master Leagues';
 
     String subtitle;
     if (!isSignedIn) {
@@ -41,16 +41,22 @@ class MasterLeagueEntryTile extends StatelessWidget {
     } else if (unlocked) {
       subtitle = 'Premium unlocked • Create multiple competitions';
     } else {
-      subtitle = priceText.isEmpty ? 'Premium locked • Unlock to create multiple competitions' : 'Premium locked • Price: $priceText';
+      subtitle = priceText.isEmpty
+          ? 'Premium locked • Unlock to create multiple competitions'
+          : 'Premium locked • Price: $priceText';
     }
 
     final badgeColor = !isSignedIn
         ? onSurface.withOpacity(0.45)
-        : (unlocked ? const Color(0xFF22C55E) : const Color(0xFFF59E0B));
+        : (unlocked
+            ? const Color(0xFF22C55E)
+            : const Color(0xFFF59E0B));
 
-    final badgeLabel = !isSignedIn ? 'SIGN IN' : (unlocked ? 'UNLOCKED' : 'LOCKED');
+    final badgeLabel =
+        !isSignedIn ? 'SIGN IN' : (unlocked ? 'UNLOCKED' : 'LOCKED');
 
-    final actionLabel = !isSignedIn ? 'Sign in' : (unlocked ? 'Open' : 'Unlock');
+    final actionLabel =
+        !isSignedIn ? 'Sign in' : (unlocked ? 'Open' : 'Unlock');
 
     VoidCallback action;
     if (!isSignedIn) {
@@ -65,7 +71,8 @@ class MasterLeagueEntryTile extends StatelessWidget {
       borderRadius: 22,
       padding: EdgeInsets.zero,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(22),
           gradient: LinearGradient(
@@ -85,9 +92,11 @@ class MasterLeagueEntryTile extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: cs.onSurface.withOpacity(0.06),
-                border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                border: Border.all(
+                    color: cs.onSurface.withOpacity(0.10)),
               ),
-              child: Icon(Icons.hub_rounded, color: cs.primary, size: 22),
+              child: Icon(Icons.hub_rounded,
+                  color: cs.primary, size: 22),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -101,22 +110,30 @@ class MasterLeagueEntryTile extends StatelessWidget {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall?.copyWith(
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: cs.onSurface,
                           ),
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          color: badgeColor.withOpacity(0.14),
-                          border: Border.all(color: badgeColor.withOpacity(0.32)),
+                          borderRadius:
+                              BorderRadius.circular(999),
+                          color:
+                              badgeColor.withOpacity(0.14),
+                          border: Border.all(
+                            color:
+                                badgeColor.withOpacity(0.32),
+                          ),
                         ),
                         child: Text(
                           badgeLabel,
-                          style: theme.textTheme.labelSmall?.copyWith(
+                          style: theme.textTheme.labelSmall
+                              ?.copyWith(
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.6,
                             color: badgeColor,
@@ -130,8 +147,10 @@ class MasterLeagueEntryTile extends StatelessWidget {
                     subtitle,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.65),
+                    style:
+                        theme.textTheme.bodySmall?.copyWith(
+                      color:
+                          cs.onSurface.withOpacity(0.65),
                       fontWeight: FontWeight.w700,
                       height: 1.2,
                     ),
@@ -146,11 +165,15 @@ class MasterLeagueEntryTile extends StatelessWidget {
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : Text(
                       actionLabel,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w900),
                     ),
             ),
           ],

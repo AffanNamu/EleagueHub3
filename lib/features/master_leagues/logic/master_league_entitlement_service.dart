@@ -2,14 +2,9 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 
 import 'master_league_payment_service.dart';
-
-final masterLeagueEntitlementServiceProvider =
-    Provider<MasterLeagueEntitlementService>((ref) {
-  return MasterLeagueEntitlementService();
-});
 
 class MasterLeagueEntitlementException implements Exception {
   final String message;
@@ -24,18 +19,13 @@ class MasterLeagueEntitlementException implements Exception {
 /// Firestore doc:
 ///   users/{uid}/entitlements/master_league
 ///
-/// MUST satisfy your Firestore rules:
+/// Rules enforce:
 /// - keys().hasOnly([
 ///   'active','purchasedAt','expiresAtMs','lastReceiptId','lastProvider','lastPaidAtMs','updatedAtMs'
 /// ])
 /// - active must be true
-/// - expiresAtMs must be in the future
+/// - expiresAtMs must be > request.time.toMillis()
 /// - on update: must NOT shorten expiresAtMs
-///
-/// IMPORTANT:
-/// We use a TRANSACTION to read the current expiresAtMs and always extend
-/// from max(now, currentExpiresAtMs). This avoids "permission-denied" caused
-/// by accidentally shortening expiry.
 class MasterLeagueEntitlementService {
   MasterLeagueEntitlementService({
     FirebaseFirestore? firestore,
@@ -46,14 +36,15 @@ class MasterLeagueEntitlementService {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
-  static const int _durationDays = 90; // 3 months ≈ 90 days
-  static const int _futureBufferMs = 2 * 60 * 1000; // 2 minutes safety
+  static const int _durationDays = 90;
+  static const int _futureBufferMs = 5 * 60 * 1000; // 5 min safety
 
   String _uidOrThrow() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
       throw const MasterLeagueEntitlementException(
-          'Please sign in and try again.');
+        'Please sign in and try again.',
+      );
     }
     return uid;
   }
@@ -74,18 +65,17 @@ class MasterLeagueEntitlementService {
     final active = data['active'] == true;
     if (!active) return false;
 
-    // Backward compatibility:
-    // If expiresAtMs is missing but active=true, treat as active.
     if (!data.containsKey('expiresAtMs')) return true;
 
-    final expiresAtMs =
-        (data['expiresAtMs'] is num) ? (data['expiresAtMs'] as num).toInt() : 0;
+    final expiresAtMs = (data['expiresAtMs'] is num)
+        ? (data['expiresAtMs'] as num).toInt()
+        : 0;
     if (expiresAtMs <= 0) return false;
 
     return expiresAtMs > _nowMs();
   }
 
-  /// Stream entitlement status (used by master_leagues_providers.dart).
+  /// Stream entitlement status.
   Stream<bool> watchUnlocked() {
     final uid = _uidOrEmpty();
     if (uid.isEmpty) return Stream<bool>.value(false);
@@ -100,6 +90,7 @@ class MasterLeagueEntitlementService {
     });
   }
 
+  /// One-shot check. Tries server first, falls back to cache.
   Future<bool> isUnlocked() async {
     final uid = _uidOrThrow();
 
@@ -108,12 +99,20 @@ class MasterLeagueEntitlementService {
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 12));
 
-      if (!snap.exists) return false;
+      if (!snap.exists) {
+        debugPrint('[Entitlement] isUnlocked: doc does not exist');
+        return false;
+      }
       final data =
           (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      return _isUnlockedFromData(data);
-    } on TimeoutException {
-      // Fallback: try cache
+      final result = _isUnlockedFromData(data);
+      debugPrint(
+        '[Entitlement] isUnlocked=$result active=${data['active']} '
+        'expiresAtMs=${data['expiresAtMs']} now=${_nowMs()}',
+      );
+      return result;
+    } catch (e) {
+      debugPrint('[Entitlement] server check failed: $e — trying cache');
       try {
         final snap = await _docRef(uid)
             .get(const GetOptions(source: Source.cache));
@@ -127,6 +126,7 @@ class MasterLeagueEntitlementService {
     }
   }
 
+  /// Grants or extends the master league subscription after a successful payment.
   Future<void> grantOrExtendAfterPayment({
     required MasterLeaguePaymentResult payment,
   }) async {
@@ -134,13 +134,15 @@ class MasterLeagueEntitlementService {
 
     if (!payment.success) {
       throw const MasterLeagueEntitlementException(
-          'Payment not successful.');
+        'Payment not successful.',
+      );
     }
 
     final receipt = (payment.receiptId ?? '').trim();
     if (receipt.isEmpty) {
       throw const MasterLeagueEntitlementException(
-          'Missing receipt ID from payment provider.');
+        'Missing receipt ID from payment provider.',
+      );
     }
 
     final now = _nowMs();
@@ -158,22 +160,21 @@ class MasterLeagueEntitlementService {
           if (v is num) currentExpiry = v.toInt();
         }
 
+        // Extend from whichever is later: now or current expiry
         final base = (currentExpiry > now) ? currentExpiry : now;
         final extended = DateTime.fromMillisecondsSinceEpoch(base)
             .add(const Duration(days: _durationDays))
             .millisecondsSinceEpoch;
 
-        // Must be strictly > request.time.toMillis() in rules.
+        // Add buffer so expiresAtMs > request.time.toMillis()
         final expiresAtMs = extended + _futureBufferMs;
 
-        // Ensure we never shorten expiry (rules enforce this on update).
-        // If somehow currentExpiry > expiresAtMs, use currentExpiry + buffer.
-        final safeExpiresAtMs = (currentExpiry > 0 && expiresAtMs < currentExpiry)
-            ? currentExpiry + _futureBufferMs
-            : expiresAtMs;
+        // Safety: never shorten
+        final safeExpiresAtMs =
+            (currentExpiry > 0 && expiresAtMs < currentExpiry)
+                ? currentExpiry + _futureBufferMs
+                : expiresAtMs;
 
-        // EXACT keys only (rules enforce hasOnly).
-        // Use set() without merge so no legacy keys remain.
         final payload = <String, dynamic>{
           'active': true,
           'purchasedAt': Timestamp.fromMillisecondsSinceEpoch(now),
@@ -184,12 +185,41 @@ class MasterLeagueEntitlementService {
           'updatedAtMs': now,
         };
 
-        // Overwrite doc (not merge) so no legacy keys remain.
+        debugPrint(
+          '[Entitlement] Writing: uid=$uid expiresAtMs=$safeExpiresAtMs '
+          'currentExpiry=$currentExpiry docExists=${snap.exists}',
+        );
+
+        // set() without merge — clean doc, exact keys only
         tx.set(ref, payload);
       }).timeout(const Duration(seconds: 20));
+
+      debugPrint('[Entitlement] Successfully wrote entitlement for uid=$uid');
+
+      // Verify write
+      try {
+        final verifySnap = await ref
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 10));
+        if (verifySnap.exists) {
+          final vData = verifySnap.data() ?? {};
+          debugPrint(
+            '[Entitlement] Verify: active=${vData['active']} '
+            'expiresAtMs=${vData['expiresAtMs']}',
+          );
+        } else {
+          debugPrint('[Entitlement] WARNING: doc not found after write!');
+        }
+      } catch (e) {
+        debugPrint('[Entitlement] Verify read failed (non-critical): $e');
+      }
     } on FirebaseException catch (e) {
+      debugPrint(
+        '[Entitlement] FirebaseException: code=${e.code} msg=${e.message}',
+      );
       throw MasterLeagueEntitlementException(
-        "We couldn't update your subscription right now. Please try again. (${e.code})",
+        "We couldn't update your subscription right now. "
+        "Please try again. (${e.code})",
       );
     } on TimeoutException {
       throw const MasterLeagueEntitlementException(
@@ -197,6 +227,7 @@ class MasterLeagueEntitlementService {
       );
     } catch (e) {
       if (e is MasterLeagueEntitlementException) rethrow;
+      debugPrint('[Entitlement] Unexpected error: $e');
       throw const MasterLeagueEntitlementException(
         "We couldn't update your subscription right now. Please try again.",
       );

@@ -33,7 +33,10 @@ class MasterLeague {
         'ownerId': ownerId.trim(),
         'createdAt': createdAt,
         'purchaseStatus': purchaseStatus.trim(),
-        'memberIds': memberIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(growable: false),
+        'memberIds': memberIds
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(growable: false),
       };
 
   static MasterLeague fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -43,13 +46,19 @@ class MasterLeague {
 
   static MasterLeague fromMap(String id, Map<String, dynamic> map) {
     final name = (map['name'] as String?) ?? '';
-    final ownerId = (map['ownerId'] as String?) ?? (map['ownerUid'] as String?) ?? '';
-    final createdAt = map['createdAt'] is Timestamp ? map['createdAt'] as Timestamp : null;
+    final ownerId =
+        (map['ownerId'] as String?) ?? (map['ownerUid'] as String?) ?? '';
+    final createdAt =
+        map['createdAt'] is Timestamp ? map['createdAt'] as Timestamp : null;
     final purchaseStatus = (map['purchaseStatus'] as String?) ?? 'active';
 
     final memberIdsRaw = map['memberIds'];
     final memberIds = (memberIdsRaw is List)
-        ? memberIdsRaw.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty).toList(growable: false)
+        ? memberIdsRaw
+            .whereType<String>()
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(growable: false)
         : const <String>[];
 
     return MasterLeague(
