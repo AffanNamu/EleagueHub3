@@ -391,6 +391,7 @@ class UserProfileRepository {
     String? userId,
     required String authProvider,
     required String teamName,
+    Object? onboardingAnswers,
   }) async {
     try {
       final authUid = _requireAuthUid();
@@ -409,6 +410,11 @@ class UserProfileRepository {
       if (existing.exists) return;
 
       final now = DateTime.now().millisecondsSinceEpoch;
+
+      // NOTE:
+      // onboardingAnswers is accepted for backward compatibility with older
+      // onboarding flow callsites, but intentionally not stored here because
+      // current Firestore rules for /users/{uid} do not allow that field.
       await ref.set(
         <String, dynamic>{
           'userId': targetUid,
@@ -429,11 +435,13 @@ class UserProfileRepository {
     String? userId,
     required String authProvider,
     required String teamName,
+    Object? onboardingAnswers,
   }) async {
     await createIfMissing(
       userId: userId,
       authProvider: authProvider,
       teamName: teamName,
+      onboardingAnswers: onboardingAnswers,
     );
   }
 

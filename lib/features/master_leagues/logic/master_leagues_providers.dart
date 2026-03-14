@@ -7,10 +7,6 @@ import '../domain/master_league_plan.dart';
 import 'master_league_entitlement_service.dart';
 import 'master_league_payment_service.dart';
 
-class _ConcreteMasterLeaguePaymentService extends MasterLeaguePaymentService {
-  _ConcreteMasterLeaguePaymentService();
-}
-
 final masterLeaguesRepositoryProvider =
     Provider<MasterLeaguesRepositoryFirebase>((ref) {
   return MasterLeaguesRepositoryFirebase();
@@ -35,7 +31,7 @@ final masterLeagueEntitlementServiceProvider =
 
 final masterLeaguePaymentServiceProvider =
     Provider<MasterLeaguePaymentService>((ref) {
-  return _ConcreteMasterLeaguePaymentService();
+  return FlutterwaveMasterLeaguePaymentService();
 });
 
 final masterLeagueUnlockedProvider = StreamProvider.autoDispose<bool>((ref) {

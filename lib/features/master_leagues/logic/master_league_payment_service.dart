@@ -1,7 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutterwave_standard/flutterwave.dart';
 import 'package:uuid/uuid.dart';
 
@@ -11,11 +10,6 @@ import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
 import '../domain/master_league_plan.dart';
 import 'master_league_pricing_service.dart';
-
-final masterLeaguePaymentServiceProvider =
-    Provider<MasterLeaguePaymentService>((ref) {
-  return FlutterwaveMasterLeaguePaymentService();
-});
 
 class MasterLeaguePaymentResult {
   final bool success;
@@ -132,8 +126,7 @@ class FlutterwaveMasterLeaguePaymentService
   }
 
   bool _isChargeSuccessful(ChargeResponse response) {
-    final status =
-        (response.status ?? '').toString().trim().toLowerCase();
+    final status = (response.status ?? '').toString().trim().toLowerCase();
     return response.success == true || status == 'successful';
   }
 
@@ -152,7 +145,6 @@ class FlutterwaveMasterLeaguePaymentService
     try {
       FlutterwaveConfig.assertConfigured();
 
-      // Ensure user is signed in
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
         return MasterLeaguePaymentResult.failed(
@@ -171,15 +163,15 @@ class FlutterwaveMasterLeaguePaymentService
       final pricing = MasterLeaguePricingService();
       final loc = _effectiveLocale(context);
 
-      // Fetch plan-specific price from admin pricing doc
       final price = await pricing.getMasterLeaguePriceForPlan(
         plan: plan,
         locale: loc,
       );
       if (price == null) {
         throw StateError(
-            "MasterLink ${plan.displayName} price isn't configured yet. "
-            "Please try again later.");
+          "MasterLink ${plan.displayName} price isn't configured yet. "
+          "Please try again later.",
+        );
       }
 
       currencyUsed = price.currency.trim().toUpperCase();
@@ -190,14 +182,13 @@ class FlutterwaveMasterLeaguePaymentService
       final rounded = _roundMoney(currencyUsed, rawAmount);
       if (rounded <= 0) {
         throw StateError(
-            'MasterLink price is invalid. Please contact support.');
+          'MasterLink price is invalid. Please contact support.',
+        );
       }
 
       totalAmount = _toFlutterwaveAmount(rounded);
-
       final planLabel = 'MasterLink-${plan.displayName}';
 
-      // Create attempt (best-effort, never blocks)
       attemptId = await PaymentsService.instance.createAttempt(
         PaymentAttemptCreate(
           provider: providerName,
@@ -228,21 +219,22 @@ class FlutterwaveMasterLeaguePaymentService
         userId: effectiveUserId,
       );
 
-      final String email =
-          (currentUser.email?.trim().isNotEmpty ?? false)
-              ? currentUser.email!.trim()
-              : 'user_$effectiveUserId@eleaguehub.app';
+      final String email = (currentUser.email?.trim().isNotEmpty ?? false)
+          ? currentUser.email!.trim()
+          : 'user_$effectiveUserId@eleaguehub.app';
       final String phone =
           (currentUser.phoneNumber?.trim().isNotEmpty ?? false)
               ? currentUser.phoneNumber!.trim()
               : '0000000000';
-      final String name =
-          (currentUser.displayName?.trim().isNotEmpty ?? false)
-              ? currentUser.displayName!.trim()
-              : 'EleagueHub User';
+      final String name = (currentUser.displayName?.trim().isNotEmpty ?? false)
+          ? currentUser.displayName!.trim()
+          : 'EleagueHub User';
 
-      final customer =
-          Customer(name: name, phoneNumber: phone, email: email);
+      final customer = Customer(
+        name: name,
+        phoneNumber: phone,
+        email: email,
+      );
 
       final txRef =
           'EH-MLK-${plan.id.toUpperCase()}-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
@@ -271,15 +263,15 @@ class FlutterwaveMasterLeaguePaymentService
       );
 
       if (_isChargeSuccessful(response)) {
-        final txId =
-            (response.transactionId ?? '').toString().trim();
+        final txId = (response.transactionId ?? '').toString().trim();
         if (txId.isEmpty) {
           await PaymentsService.instance.markClientFailed(
             attemptId: attemptId,
             errorMessage: 'Missing transactionId.',
           );
           throw StateError(
-              'Payment success returned without transactionId.');
+            'Payment success returned without transactionId.',
+          );
         }
 
         final resolvedTxRef =
@@ -316,8 +308,7 @@ class FlutterwaveMasterLeaguePaymentService
         );
       }
 
-      final status =
-          (response.status ?? '').toString().trim();
+      final status = (response.status ?? '').toString().trim();
       final msg = status.isNotEmpty
           ? 'Payment not successful (status: $status)'
           : 'Payment cancelled or not successful';

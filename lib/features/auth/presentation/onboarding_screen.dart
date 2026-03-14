@@ -1,12 +1,5 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../core/locale/app_localizations.dart';
-import '../../../core/routing/app_router.dart';
-import '../../../core/widgets/glass.dart';
-import '../../../core/widgets/glass_scaffold.dart';
-import '../data/auth_service.dart';
 import '../data/user_profile_repository.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -17,173 +10,215 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  final _teamName = TextEditingController();
-  final _q1 = TextEditingController();
-  final _q2 = TextEditingController();
-  final _q3 = TextEditingController();
-
-  bool _submitting = false;
-
   final UserProfileRepository _profiles = UserProfileRepository();
-  final AuthService _authService = AuthService();
+
+  final TextEditingController _teamNameCtrl = TextEditingController();
+
+  bool _saving = false;
+  int _step = 0;
+
+  String _game = '';
+  String _experience = '';
+  String _goal = '';
 
   @override
   void dispose() {
-    _teamName.dispose();
-    _q1.dispose();
-    _q2.dispose();
-    _q3.dispose();
+    _teamNameCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final l10n = context.l10n;
+  Map<String, dynamic> _buildOnboardingAnswers() {
+    return <String, dynamic>{
+      'game': _game,
+      'experience': _experience,
+      'goal': _goal,
+    };
+  }
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+  Future<void> _finish() async {
+    if (_saving) return;
 
-    final team = _teamName.text.trim();
-    if (team.isEmpty) {
+    final teamName = _teamNameCtrl.text.trim();
+    if (teamName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.errorTeamNameRequired)),
+        const SnackBar(
+          content: Text('Please enter a team name.'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
 
-    setState(() => _submitting = true);
+    setState(() => _saving = true);
 
     try {
-      final onboardingAnswers = <String, dynamic>{
-        'favoriteGame': _q1.text.trim(),
-        'experienceLevel': _q2.text.trim(),
-        'region': _q3.text.trim(),
-      }..removeWhere((_, v) => (v is String) && v.trim().isEmpty);
-
-      final provider = AuthService.detectAuthProvider(user);
+      final onboardingAnswers = _buildOnboardingAnswers();
 
       await _profiles.createProfileIfMissing(
-        userId: user.uid,
-        teamName: team,
-        authProvider: provider,
+        teamName: teamName,
+        authProvider: 'email',
         onboardingAnswers: onboardingAnswers,
       );
 
-      await authRouterRefresh.refreshProfileStatus();
-
       if (!mounted) return;
-      context.go('/');
+      Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${l10n.errorFailedOnboardingPrefix}: $e')),
+        SnackBar(
+          content: Text('$e'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) setState(() => _saving = false);
     }
+  }
+
+  Widget _choiceChip({
+    required String label,
+    required String groupValue,
+    required ValueChanged<String> onSelected,
+  }) {
+    final selected = groupValue == label;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onSelected(label),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final t = theme.textTheme;
+    final canContinueStep0 = _teamNameCtrl.text.trim().isNotEmpty;
+    final canContinueStep1 = _game.trim().isNotEmpty;
+    final canContinueStep2 = _experience.trim().isNotEmpty;
 
-    final fieldStyle = theme.textTheme.bodyLarge?.copyWith(
-      fontWeight: FontWeight.w600,
-      color: cs.onSurface,
-    );
-
-    return GlassScaffold(
+    return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.onboardingTitle),
+        title: const Text('Onboarding'),
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Glass(
-              padding: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      l10n.onboardingHeader,
-                      style: t.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.onboardingDescription,
-                      style: t.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.72),
-                        height: 1.35,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: _teamName,
-                      style: fieldStyle,
-                      cursorColor: cs.primary,
-                      decoration: InputDecoration(
-                        labelText: l10n.onboardingTeamNameLabel,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _q1,
-                      style: fieldStyle,
-                      cursorColor: cs.primary,
-                      decoration: InputDecoration(
-                        labelText: l10n.onboardingFavoriteGameLabel,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _q2,
-                      style: fieldStyle,
-                      cursorColor: cs.primary,
-                      decoration: InputDecoration(
-                        labelText: l10n.onboardingExperienceLevelLabel,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _q3,
-                      style: fieldStyle,
-                      cursorColor: cs.primary,
-                      decoration: InputDecoration(
-                        labelText: l10n.onboardingRegionLabel,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: _submitting ? null : _submit,
-                        child: _submitting
-                            ? SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: cs.onPrimary,
-                                ),
-                              )
-                            : Text(l10n.onboardingContinue),
-                      ),
-                    ),
-                  ],
+      body: SafeArea(
+        child: Stepper(
+          currentStep: _step,
+          onStepContinue: () {
+            if (_step == 0 && canContinueStep0) {
+              setState(() => _step = 1);
+              return;
+            }
+            if (_step == 1 && canContinueStep1) {
+              setState(() => _step = 2);
+              return;
+            }
+            if (_step == 2 && canContinueStep2) {
+              setState(() => _step = 3);
+              return;
+            }
+            if (_step == 3) {
+              _finish();
+            }
+          },
+          onStepCancel: () {
+            if (_step == 0) {
+              Navigator.of(context).maybePop();
+              return;
+            }
+            setState(() => _step -= 1);
+          },
+          controlsBuilder: (context, details) {
+            return Row(
+              children: [
+                FilledButton(
+                  onPressed: _saving ? null : details.onStepContinue,
+                  child: _saving && _step == 3
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(_step == 3 ? 'Finish' : 'Continue'),
                 ),
+                const SizedBox(width: 12),
+                TextButton(
+                  onPressed: _saving ? null : details.onStepCancel,
+                  child: Text(_step == 0 ? 'Close' : 'Back'),
+                ),
+              ],
+            );
+          },
+          steps: [
+            Step(
+              title: const Text('Team'),
+              isActive: _step >= 0,
+              content: TextField(
+                controller: _teamNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Team name',
+                ),
+                onChanged: (_) => setState(() {}),
               ),
             ),
-          ),
+            Step(
+              title: const Text('Game'),
+              isActive: _step >= 1,
+              content: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _choiceChip(
+                    label: 'eFootball',
+                    groupValue: _game,
+                    onSelected: (v) => setState(() => _game = v),
+                  ),
+                  _choiceChip(
+                    label: 'FC Mobile',
+                    groupValue: _game,
+                    onSelected: (v) => setState(() => _game = v),
+                  ),
+                  _choiceChip(
+                    label: 'PUBG',
+                    groupValue: _game,
+                    onSelected: (v) => setState(() => _game = v),
+                  ),
+                ],
+              ),
+            ),
+            Step(
+              title: const Text('Experience'),
+              isActive: _step >= 2,
+              content: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _choiceChip(
+                    label: 'Beginner',
+                    groupValue: _experience,
+                    onSelected: (v) => setState(() => _experience = v),
+                  ),
+                  _choiceChip(
+                    label: 'Intermediate',
+                    groupValue: _experience,
+                    onSelected: (v) => setState(() => _experience = v),
+                  ),
+                  _choiceChip(
+                    label: 'Professional',
+                    groupValue: _experience,
+                    onSelected: (v) => setState(() => _experience = v),
+                  ),
+                ],
+              ),
+            ),
+            Step(
+              title: const Text('Goal'),
+              isActive: _step >= 3,
+              content: TextField(
+                decoration: const InputDecoration(
+                  labelText: 'What do you want to do?',
+                ),
+                onChanged: (v) => _goal = v.trim(),
+              ),
+            ),
+          ],
         ),
       ),
     );
