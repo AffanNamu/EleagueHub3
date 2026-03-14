@@ -17,8 +17,22 @@ class MasterLeaguesListScreen extends ConsumerWidget {
     final cs = theme.colorScheme;
 
     final listAsync = ref.watch(myMasterLeaguesProvider);
+    final unlockedAsync = ref.watch(masterLeagueUnlockedProvider);
+    final planAsync = ref.watch(organizerProActivePlanProvider);
 
     Widget header() {
+      final unlocked = unlockedAsync.asData?.value == true;
+      final plan = planAsync.asData?.value;
+
+      final String statusLine;
+      if (plan != null) {
+        statusLine = 'Organizer Pro active • Plan: ${plan.displayName}';
+      } else if (unlocked) {
+        statusLine = 'Organizer Pro active';
+      } else {
+        statusLine = 'Organizer Pro not active';
+      }
+
       return Glass(
         borderRadius: 28,
         padding: const EdgeInsets.all(16),
@@ -26,7 +40,7 @@ class MasterLeaguesListScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Master Leagues',
+              'Organizer Pro Mode',
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w900,
                 letterSpacing: -0.3,
@@ -35,8 +49,18 @@ class MasterLeaguesListScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'A premium container that lets you create multiple competitions '
-              '(Classic, Swiss, UCL Group) without paying again.',
+              statusLine,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: plan != null
+                    ? cs.primary
+                    : cs.onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Master Leagues let you organize multiple competitions (Classic, Swiss, UCL Group) '
+              'inside one professional organizer system. Subscription checks are enforced server-side.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: cs.onSurface.withOpacity(0.70),
                 height: 1.35,
@@ -45,10 +69,8 @@ class MasterLeaguesListScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: () =>
-                  context.push('/master-leagues/create'),
-              icon:
-                  const Icon(Icons.add_circle_outline_rounded),
+              onPressed: () => context.push('/master-leagues/create'),
+              icon: const Icon(Icons.add_circle_outline_rounded),
               label: const Text(
                 'Create Master League',
                 style: TextStyle(fontWeight: FontWeight.w900),
@@ -61,16 +83,14 @@ class MasterLeaguesListScreen extends ConsumerWidget {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Master Leagues'),
+        title: const Text('Organizer Pro'),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           IconButton(
             tooltip: 'Create Master League',
-            onPressed: () =>
-                context.push('/master-leagues/create'),
-            icon:
-                const Icon(Icons.add_circle_outline_rounded),
+            onPressed: () => context.push('/master-leagues/create'),
+            icon: const Icon(Icons.add_circle_outline_rounded),
           ),
         ],
       ),
@@ -79,12 +99,12 @@ class MasterLeaguesListScreen extends ConsumerWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
             child: listAsync.when(
-              loading: () => const Center(
-                  child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Padding(
                 padding: const EdgeInsets.all(16),
                 child: Glass(
                   borderRadius: 28,
+                  padding: const EdgeInsets.all(16),
                   child: Text(
                     '$e',
                     style: TextStyle(
@@ -95,50 +115,69 @@ class MasterLeaguesListScreen extends ConsumerWidget {
                 ),
               ),
               data: (list) {
+                final sorted = [...list];
+                sorted.sort((a, b) {
+                  final dynamic ad = a.createdAt;
+                  final dynamic bd = b.createdAt;
+
+                  int aMs = 0;
+                  int bMs = 0;
+
+                  if (ad is DateTime) aMs = ad.millisecondsSinceEpoch;
+                  if (bd is DateTime) bMs = bd.millisecondsSinceEpoch;
+
+                  try {
+                    if (ad != null && ad.millisecondsSinceEpoch is int) {
+                      aMs = ad.millisecondsSinceEpoch as int;
+                    }
+                  } catch (_) {}
+
+                  try {
+                    if (bd != null && bd.millisecondsSinceEpoch is int) {
+                      bMs = bd.millisecondsSinceEpoch as int;
+                    }
+                  } catch (_) {}
+
+                  return bMs.compareTo(aMs);
+                });
+
                 return ListView(
                   physics: const BouncingScrollPhysics(
-                    parent:
-                        AlwaysScrollableScrollPhysics(),
+                    parent: AlwaysScrollableScrollPhysics(),
                   ),
-                  padding:
-                      const EdgeInsetsDirectional.fromSTEB(
-                          16, 12, 16, 110),
+                  padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 110),
                   children: [
                     header(),
                     const SizedBox(height: 14),
-                    if (list.isEmpty)
+                    if (sorted.isEmpty)
                       const EmptyState(
                         title: 'No Master Leagues yet',
                         message:
-                            'Create one to organize multiple competitions in a single premium system.',
+                            'Create one to manage multiple competitions under one organizer system.',
                         icon: Icons.hub_rounded,
                       )
                     else ...[
                       Padding(
-                        padding: const EdgeInsets.only(
-                            left: 4, bottom: 10, top: 4),
+                        padding:
+                            const EdgeInsets.only(left: 4, bottom: 10, top: 4),
                         child: Text(
                           'Your Master Leagues',
-                          style: theme
-                              .textTheme.titleMedium
-                              ?.copyWith(
+                          style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.2,
                           ),
                         ),
                       ),
-                      ...List.generate(list.length, (i) {
-                        final ml = list[i];
+                      ...List.generate(sorted.length, (i) {
+                        final ml = sorted[i];
                         return Padding(
                           padding: EdgeInsets.only(
-                            bottom: i == list.length - 1
-                                ? 0
-                                : 12,
+                            bottom: i == sorted.length - 1 ? 0 : 12,
                           ),
                           child: MasterLeagueCard(
                             masterLeague: ml,
-                            onTap: () => context.push(
-                                '/master-leagues/${ml.id}'),
+                            onTap: () =>
+                                context.push('/master-leagues/${ml.id}'),
                           ),
                         );
                       }),
@@ -151,8 +190,7 @@ class MasterLeaguesListScreen extends ConsumerWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () =>
-            context.push('/master-leagues/create'),
+        onPressed: () => context.push('/master-leagues/create'),
         icon: const Icon(Icons.add),
         label: const Text('Create'),
       ),

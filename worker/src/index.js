@@ -40,7 +40,6 @@ function resolveRoomName(body) {
   const explicitRoomName = sanitizeRoomTokenPart(body.roomName);
   if (explicitRoomName) return explicitRoomName;
 
-  // New: callId -> call_<8digits> (or any sanitized token part)
   const callId = sanitizeRoomTokenPart(body.callId);
   if (callId) return `call_${callId}`;
 
@@ -59,7 +58,6 @@ function toHttpBaseUrl(livekitUrl) {
 
   if (u.startsWith("wss://")) return "https://" + u.slice("wss://".length);
   if (u.startsWith("ws://")) return "http://" + u.slice("ws://".length);
-
   if (u.startsWith("https://") || u.startsWith("http://")) return u;
 
   return `https://${u}`;
@@ -118,13 +116,6 @@ function kindFrom(body, roomName) {
   return "unknown";
 }
 
-// ============================================================================
-// Firebase ID token verification (Cloudinary signed upload endpoint security)
-// - Validates Authorization: Bearer <FIREBASE_ID_TOKEN>
-// - Uses Google's public keys (cached) to verify RS256 signature
-// - Requires env.FIREBASE_PROJECT_ID
-// ============================================================================
-
 let _firebaseCertCache = {
   keysByKid: new Map(),
   expiresAtMs: 0,
@@ -139,6 +130,17 @@ function _b64UrlToUint8Array(b64url) {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
+}
+
+function _uint8ArrayToB64Url(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let bin = "";
+  for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function _utf8ToB64Url(s) {
+  return _uint8ArrayToB64Url(new TextEncoder().encode(String(s || "")));
 }
 
 function _pemToDerBytes(pem) {
@@ -162,7 +164,10 @@ function _parseCacheControlMaxAgeSeconds(h) {
 
 async function _loadFirebaseCerts() {
   const now = Date.now();
-  if (_firebaseCertCache.keysByKid.size > 0 && now < _firebaseCertCache.expiresAtMs) {
+  if (
+    _firebaseCertCache.keysByKid.size > 0 &&
+    now < _firebaseCertCache.expiresAtMs
+  ) {
     return _firebaseCertCache.keysByKid;
   }
 
@@ -175,7 +180,9 @@ async function _loadFirebaseCerts() {
     throw new Error(`Failed to fetch Firebase certs: ${res.status}`);
   }
 
-  const maxAge = _parseCacheControlMaxAgeSeconds(res.headers.get("cache-control"));
+  const maxAge = _parseCacheControlMaxAgeSeconds(
+    res.headers.get("cache-control")
+  );
   const json = await res.json();
 
   const map = new Map();
@@ -195,8 +202,12 @@ function _decodeJwtParts(token) {
   const parts = String(token || "").split(".");
   if (parts.length !== 3) throw new Error("Invalid JWT format");
 
-  const header = JSON.parse(new TextDecoder().decode(_b64UrlToUint8Array(parts[0])));
-  const payload = JSON.parse(new TextDecoder().decode(_b64UrlToUint8Array(parts[1])));
+  const header = JSON.parse(
+    new TextDecoder().decode(_b64UrlToUint8Array(parts[0]))
+  );
+  const payload = JSON.parse(
+    new TextDecoder().decode(_b64UrlToUint8Array(parts[1]))
+  );
   const signature = _b64UrlToUint8Array(parts[2]);
 
   const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
@@ -210,10 +221,17 @@ async function _verifyFirebaseIdToken(env, request) {
     throw new Error("Worker missing FIREBASE_PROJECT_ID env var");
   }
 
-  const auth = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+  const auth =
+    request.headers.get("authorization") ||
+    request.headers.get("Authorization") ||
+    "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (!m) {
-    return { ok: false, status: 401, error: "Missing Authorization: Bearer <Firebase ID token>" };
+    return {
+      ok: false,
+      status: 401,
+      error: "Missing Authorization: Bearer <Firebase ID token>",
+    };
   }
 
   const token = m[1].trim();
@@ -261,7 +279,11 @@ async function _verifyFirebaseIdToken(env, request) {
     const certs = await _loadFirebaseCerts();
     pem = certs.get(kid);
   } catch (e) {
-    return { ok: false, status: 503, error: "Unable to load Firebase public keys" };
+    return {
+      ok: false,
+      status: 503,
+      error: "Unable to load Firebase public keys",
+    };
   }
 
   if (!pem) {
@@ -307,18 +329,417 @@ async function _verifyFirebaseIdToken(env, request) {
   };
 }
 
-// ============================================================================
-// Cloudinary signed upload helper
-// - Signature: sha1(sorted_params + api_secret)
-// - This endpoint returns signature + timestamp + public api_key
-// - Requires env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
-//
-// SECURITY (highlights):
-// - This endpoint now validates that the user is allowed to upload highlights by
-//   reading Firestore as the user (using the same Firebase ID token).
-// - Zero-budget strategy: no Admin SDK required; reads are authorized by your
-//   Firestore security rules.
-// ============================================================================
+let _saSigningKeyCache = { key: null, forEmail: "" };
+let _googleAccessTokenCache = { accessToken: "", expiresAtMs: 0 };
+
+function _requireEnvString(env, key) {
+  const v = String(env[key] || "").trim();
+  if (!v) throw new Error(`Worker missing ${key} env var`);
+  return v;
+}
+
+function _serviceAccountPrivateKeyPem(env) {
+  const raw = String(env.FIREBASE_PRIVATE_KEY || "").trim();
+  if (!raw) throw new Error("Worker missing FIREBASE_PRIVATE_KEY env var");
+  return raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
+}
+
+async function _importServiceAccountSigningKey(env) {
+  const email = _requireEnvString(env, "FIREBASE_CLIENT_EMAIL");
+  if (_saSigningKeyCache.key && _saSigningKeyCache.forEmail === email) {
+    return _saSigningKeyCache.key;
+  }
+
+  const pem = _serviceAccountPrivateKeyPem(env);
+  const der = _pemToDerBytes(pem);
+
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    der,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  _saSigningKeyCache = { key, forEmail: email };
+  return key;
+}
+
+async function _signRs256(env, signingInputUtf8) {
+  const key = await _importServiceAccountSigningKey(env);
+  const data = new TextEncoder().encode(String(signingInputUtf8 || ""));
+  const sig = await crypto.subtle.sign(
+    { name: "RSASSA-PKCS1-v1_5" },
+    key,
+    data
+  );
+  return _uint8ArrayToB64Url(new Uint8Array(sig));
+}
+
+async function _serviceAccountAccessToken(env) {
+  const now = Date.now();
+  if (
+    _googleAccessTokenCache.accessToken &&
+    now + 15000 < _googleAccessTokenCache.expiresAtMs
+  ) {
+    return _googleAccessTokenCache.accessToken;
+  }
+
+  const tokenUri = String(
+    env.FIREBASE_TOKEN_URI || "https://oauth2.googleapis.com/token"
+  ).trim();
+  const clientEmail = _requireEnvString(env, "FIREBASE_CLIENT_EMAIL");
+
+  const iat = Math.floor(now / 1000);
+  const exp = iat + 60 * 60;
+
+  const header = { alg: "RS256", typ: "JWT" };
+  const payload = {
+    iss: clientEmail,
+    sub: clientEmail,
+    aud: tokenUri,
+    iat,
+    exp,
+    scope: "https://www.googleapis.com/auth/identitytoolkit",
+  };
+
+  const encodedHeader = _utf8ToB64Url(JSON.stringify(header));
+  const encodedPayload = _utf8ToB64Url(JSON.stringify(payload));
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const signature = await _signRs256(env, signingInput);
+  const assertion = `${signingInput}.${signature}`;
+
+  const body = new URLSearchParams();
+  body.set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
+  body.set("assertion", assertion);
+
+  const res = await fetch(tokenUri, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(
+      `Failed to fetch OAuth access token (${res.status}): ${txt}`
+    );
+  }
+
+  const json = await res.json();
+  const accessToken = String(json.access_token || "").trim();
+  const expiresIn =
+    typeof json.expires_in === "number" ? json.expires_in : 3600;
+
+  if (!accessToken) {
+    throw new Error("OAuth response missing access_token");
+  }
+
+  _googleAccessTokenCache = {
+    accessToken,
+    expiresAtMs: now + expiresIn * 1000,
+  };
+
+  return accessToken;
+}
+
+function _identityToolkitBase(env) {
+  const projectId = _requireEnvString(env, "FIREBASE_PROJECT_ID");
+  return `https://identitytoolkit.googleapis.com/v1/projects/${projectId}`;
+}
+
+function _claimsString(claimsObj) {
+  return JSON.stringify(claimsObj || {});
+}
+
+async function _lookupExistingCustomClaims(env, uid) {
+  const accessToken = await _serviceAccountAccessToken(env);
+
+  const res = await fetch(`${_identityToolkitBase(env)}/accounts:lookup`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ localId: [String(uid || "").trim()] }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`accounts:lookup failed (${res.status}): ${txt}`);
+  }
+
+  const json = await res.json();
+  const users = Array.isArray(json.users) ? json.users : [];
+  if (users.length < 1) return {};
+
+  const customAttributesStr =
+    typeof users[0].customAttributes === "string"
+      ? users[0].customAttributes
+      : "";
+  if (!customAttributesStr) return {};
+
+  try {
+    return JSON.parse(customAttributesStr);
+  } catch (_) {
+    return {};
+  }
+}
+
+async function _setFirebaseCustomClaims(env, uid, claimsObj) {
+  const accessToken = await _serviceAccountAccessToken(env);
+
+  const res = await fetch(`${_identityToolkitBase(env)}/accounts:update`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      localId: String(uid || "").trim(),
+      customAttributes: _claimsString(claimsObj),
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`accounts:update failed (${res.status}): ${txt}`);
+  }
+
+  return res.json();
+}
+
+function _planOrder(planId) {
+  const p = String(planId || "").trim().toLowerCase();
+  if (p === "basic") return 1;
+  if (p === "pro") return 2;
+  if (p === "elite") return 3;
+  return 0;
+}
+
+function _normalizePlan(planId) {
+  const p = String(planId || "").trim().toLowerCase();
+  if (p === "basic" || p === "pro" || p === "elite") return p;
+  return "";
+}
+
+function _planFromTxRef(txRef) {
+  const s = String(txRef || "").trim();
+  const m = s.match(/^EH-MLK-([A-Z]+)-/);
+  if (!m) return "";
+  return _normalizePlan(String(m[1] || "").trim().toLowerCase());
+}
+
+function _uidFromTxRef(txRef) {
+  const s = String(txRef || "").trim();
+  const patterns = [
+    /(?:^|-)UID-([A-Za-z0-9_-]{20,128})(?:-|$)/i,
+    /(?:^|_)UID_([A-Za-z0-9_-]{20,128})(?:_|$)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const m = s.match(pattern);
+    if (m && m[1]) return String(m[1]).trim();
+  }
+  return "";
+}
+
+function _extractFlutterwaveTxIdFromReceipt(receiptId) {
+  const r = String(receiptId || "").trim();
+  if (!r) return "";
+  if (r.startsWith("FLW-") && r.length > 4) return r.slice(4).trim();
+  return r;
+}
+
+async function _verifyFlutterwaveTransaction(env, transactionId) {
+  const secret = _requireEnvString(env, "FLUTTERWAVE_SECRET_KEY");
+  const txId = String(transactionId || "").trim();
+  if (!txId) throw new Error("Missing flutterwave transactionId");
+
+  const res = await fetch(
+    `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(
+      txId
+    )}/verify`,
+    {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${secret}`,
+        "content-type": "application/json",
+      },
+    }
+  );
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Flutterwave verify failed (${res.status}): ${txt}`);
+  }
+
+  const json = await res.json();
+
+  const topStatus = String(json.status || "").trim().toLowerCase();
+  const data = json.data || {};
+
+  const paymentStatus = String(data.status || "").trim().toLowerCase();
+  const txRef = String(data.tx_ref || "").trim();
+  const currency = String(data.currency || "").trim().toUpperCase();
+  const amount = typeof data.amount === "number" ? data.amount : null;
+
+  const customer = data.customer || {};
+  const customerEmail =
+    typeof customer.email === "string" ? customer.email.trim() : "";
+
+  const ok = topStatus === "success" && paymentStatus === "successful";
+  if (!ok) {
+    throw new Error(
+      `Flutterwave transaction not successful (status=${topStatus}, data.status=${paymentStatus})`
+    );
+  }
+
+  if (!txRef.startsWith("EH-MLK-")) {
+    throw new Error("Flutterwave tx_ref is not a Master League purchase");
+  }
+
+  const planFromRef = _planFromTxRef(txRef);
+  if (!planFromRef) {
+    throw new Error("Unable to determine plan from tx_ref");
+  }
+
+  if (!currency || !["NGN", "USD"].includes(currency)) {
+    throw new Error("Unsupported currency from Flutterwave verify");
+  }
+
+  if (amount == null || amount <= 0) {
+    throw new Error("Invalid amount from Flutterwave verify");
+  }
+
+  return {
+    ok: true,
+    txId,
+    txRef,
+    planId: planFromRef,
+    currency,
+    amount,
+    customerEmail,
+    raw: json,
+  };
+}
+
+async function _activateOrganizerPro(env, verified, body) {
+  const requestedPlan = _normalizePlan(body.plan);
+  if (!requestedPlan) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Invalid plan. Must be one of: basic, pro, elite",
+    };
+  }
+
+  const provider = String(body.provider || "flutterwave")
+    .trim()
+    .toLowerCase();
+  if (provider !== "flutterwave") {
+    return {
+      ok: false,
+      status: 400,
+      error: "Unsupported provider. Only flutterwave is supported.",
+    };
+  }
+
+  const receiptId = String(body.receiptId || "").trim();
+  if (!receiptId) {
+    return { ok: false, status: 400, error: "receiptId is required" };
+  }
+
+  const txId = _extractFlutterwaveTxIdFromReceipt(receiptId);
+  if (!txId) {
+    return { ok: false, status: 400, error: "Invalid receiptId" };
+  }
+
+  const verify = await _verifyFlutterwaveTransaction(env, txId);
+
+  if (verify.planId !== requestedPlan) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Plan mismatch. Payment is for "${verify.planId}" but request is "${requestedPlan}".`,
+    };
+  }
+
+  const txRefUid = _uidFromTxRef(verify.txRef);
+  if (txRefUid && txRefUid !== verified.uid) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Payment receipt does not belong to the signed-in user.",
+    };
+  }
+
+  const firebaseEmail = (verified.email || "").trim().toLowerCase();
+  const flwEmail = (verify.customerEmail || "").trim().toLowerCase();
+  if (firebaseEmail && flwEmail && firebaseEmail !== flwEmail) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Payment customer email does not match signed-in user.",
+    };
+  }
+
+  const nowMs = Date.now();
+  let existing = {};
+  try {
+    existing = await _lookupExistingCustomClaims(env, verified.uid);
+  } catch (_) {
+    existing = {};
+  }
+
+  const existingActive = existing && existing.organizerPro === true;
+  const existingExpiryMs =
+    existing && typeof existing.organizerProExpiryMs === "number"
+      ? existing.organizerProExpiryMs
+      : 0;
+  const existingPlan = _normalizePlan(
+    existing && typeof existing.organizerProPlan === "string"
+      ? existing.organizerProPlan
+      : ""
+  );
+
+  const hasActiveExisting =
+    existingActive &&
+    existingExpiryMs > nowMs &&
+    _planOrder(existingPlan) > 0;
+
+  const effectivePlan =
+    hasActiveExisting &&
+    _planOrder(existingPlan) > _planOrder(requestedPlan)
+      ? existingPlan
+      : requestedPlan;
+
+  const durationDays = 90;
+  const durationMs = durationDays * 24 * 60 * 60 * 1000;
+
+  const baseMs = existingExpiryMs > nowMs ? existingExpiryMs : nowMs;
+  const newExpiryMs = baseMs + durationMs;
+
+  const nextClaims = {
+    ...existing,
+    organizerPro: true,
+    organizerProPlan: effectivePlan,
+    organizerProExpiryMs: newExpiryMs,
+  };
+
+  await _setFirebaseCustomClaims(env, verified.uid, nextClaims);
+
+  return {
+    ok: true,
+    uid: verified.uid,
+    requestedPlan,
+    plan: effectivePlan,
+    expiresAtMs: newExpiryMs,
+    extendedFromMs: baseMs,
+    txRef: verify.txRef,
+    provider: "flutterwave",
+  };
+}
 
 function _sanitizeCloudinaryPathPart(s) {
   return String(s || "")
@@ -339,14 +760,11 @@ async function _sha1Hex(str) {
 }
 
 function _cloudinaryStringToSign(params) {
-  // params: object of key -> value (string/number/bool). Exclude empty values.
   const entries = Object.entries(params)
     .filter(([k, v]) => v !== undefined && v !== null && String(v).trim() !== "")
     .map(([k, v]) => [String(k), String(v)]);
 
   entries.sort((a, b) => a[0].localeCompare(b[0]));
-
-  // IMPORTANT: must be key=value joined by &
   return entries.map(([k, v]) => `${k}=${v}`).join("&");
 }
 
@@ -368,7 +786,11 @@ async function _firestoreGetDoc(env, idToken, path) {
   if (res.status === 404) return { ok: false, status: 404, doc: null };
   if (!res.ok) {
     const txt = await res.text();
-    return { ok: false, status: res.status, error: txt || `Firestore GET failed ${res.status}` };
+    return {
+      ok: false,
+      status: res.status,
+      error: txt || `Firestore GET failed ${res.status}`,
+    };
   }
 
   const doc = await res.json();
@@ -390,7 +812,6 @@ function _fsBool(doc, field) {
 }
 
 function _parseMatchHighlightsFolder(folder) {
-  // expected: match_highlights/{leagueId}/{matchId}/{teamId}
   const f = String(folder || "").trim().replace(/^\/+/, "");
   const parts = f.split("/").filter(Boolean);
   if (parts.length !== 4) return null;
@@ -398,20 +819,19 @@ function _parseMatchHighlightsFolder(folder) {
   return { leagueId: parts[1], matchId: parts[2], teamId: parts[3], folder: f };
 }
 
-// Best-effort in-memory rate limiter (resets on worker restart).
-// Prevents basic signature spamming to protect free tier.
 const _rate = {
-  // key -> { count, resetAtMs }
   map: new Map(),
 };
+
 function _rateKey(uid, leagueId, matchId) {
   return `${uid}::${leagueId}::${matchId}`;
 }
+
 function _checkRate(uid, leagueId, matchId) {
   const now = Date.now();
   const key = _rateKey(uid, leagueId, matchId);
-  const windowMs = 60 * 60 * 1000; // 1 hour
-  const max = 6; // allow a few retries (compression/upload retries etc)
+  const windowMs = 60 * 60 * 1000;
+  const max = 6;
 
   const cur = _rate.map.get(key);
   if (!cur || now > cur.resetAtMs) {
@@ -432,8 +852,6 @@ function _isSafeCloudinaryPublicIdLeaf(publicId) {
   const s = String(publicId || "").trim();
   if (!s) return false;
   if (s.includes("/")) return false;
-  // Keep it strict: Firestore highlightId is usually URL-safe / alnum-ish.
-  // Allow dash/underscore only.
   return /^[A-Za-z0-9_-]{6,200}$/.test(s);
 }
 
@@ -445,7 +863,6 @@ export default {
 
     const url = new URL(request.url);
 
-    // ---- ROUTE: POST /  -> issue token ----
     if (url.pathname === "/" && request.method === "POST") {
       if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
         return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
@@ -459,8 +876,8 @@ export default {
       }
 
       const userId = (body.userId || "").toString().trim();
-      const role = (body.role || "participant").toString().trim(); // "host" | "participant"
-      const side = (body.side || "").toString().trim(); // optional: "home" | "away" | "unknown" | ...
+      const role = (body.role || "participant").toString().trim();
+      const side = (body.side || "").toString().trim();
       const roomName = resolveRoomName(body);
 
       if (!userId) {
@@ -509,7 +926,6 @@ export default {
       return jsonResponse({ token, url: env.LIVEKIT_URL, roomName, role, kind });
     }
 
-    // ---- ROUTE: POST /admin  -> moderation helper (mute/unmute only) ----
     if (url.pathname === "/admin" && request.method === "POST") {
       if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
         return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
@@ -522,7 +938,7 @@ export default {
         return jsonResponse({ error: "Invalid JSON" }, 400);
       }
 
-      const action = (body.action || "").toString().trim(); // mute|unmute
+      const action = (body.action || "").toString().trim();
       const targetUserId = (body.targetUserId || "").toString().trim();
       const roomName = resolveRoomName(body);
 
@@ -554,10 +970,34 @@ export default {
       }
     }
 
-    // ---- ROUTE: POST /cloudinary/sign  -> signed upload signature for Cloudinary ----
-    // Requires Authorization: Bearer <Firebase ID token>
+    if (url.pathname === "/organizer-pro/activate" && request.method === "POST") {
+      let verified;
+      try {
+        verified = await _verifyFirebaseIdToken(env, request);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+      if (!verified.ok) {
+        return jsonResponse({ error: verified.error }, verified.status || 401);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON" }, 400);
+      }
+
+      try {
+        const out = await _activateOrganizerPro(env, verified, body || {});
+        if (!out.ok) return jsonResponse({ error: out.error }, out.status || 400);
+        return jsonResponse(out, 200);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+    }
+
     if (url.pathname === "/cloudinary/sign" && request.method === "POST") {
-      // Verify Firebase user
       let verified;
       try {
         verified = await _verifyFirebaseIdToken(env, request);
@@ -583,15 +1023,14 @@ export default {
         return jsonResponse({ error: "Invalid JSON" }, 400);
       }
 
-      // Support both payload shapes:
-      // - { params: { folder, public_id, overwrite, timestamp } }
-      // - { folder, public_id, overwrite, timestamp }
-      const paramsIn = body && body.params && typeof body.params === "object" ? body.params : body;
+      const paramsIn =
+        body && body.params && typeof body.params === "object" ? body.params : body;
 
-      const folderRaw = _sanitizeCloudinaryPathPart(paramsIn.folder || "").replace(/^\/+/, "");
+      const folderRaw = _sanitizeCloudinaryPathPart(
+        paramsIn.folder || ""
+      ).replace(/^\/+/, "");
       const parsed = _parseMatchHighlightsFolder(folderRaw);
 
-      // Only highlights are supported here (tight abuse control).
       if (!parsed) {
         return jsonResponse(
           { error: "Invalid folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}" },
@@ -599,28 +1038,36 @@ export default {
         );
       }
 
-      const publicId = _sanitizeCloudinaryPathPart(paramsIn.public_id || paramsIn.publicId || "").replace(/^\/+/, "");
+      const publicId = _sanitizeCloudinaryPathPart(
+        paramsIn.public_id || paramsIn.publicId || ""
+      ).replace(/^\/+/, "");
       if (!_isSafeCloudinaryPublicIdLeaf(publicId)) {
         return jsonResponse({ error: "Invalid public_id" }, 400);
       }
 
-      // Enforce overwrite and block any extra transformation/tag usage (cost control).
-      const overwrite = paramsIn.overwrite === true || String(paramsIn.overwrite).toLowerCase() === "true";
+      const overwrite =
+        paramsIn.overwrite === true ||
+        String(paramsIn.overwrite).toLowerCase() === "true";
       if (!overwrite) {
         return jsonResponse({ error: "overwrite must be true" }, 400);
       }
-      if (paramsIn.transformation || paramsIn.tags || paramsIn.eager || paramsIn.streaming_profile) {
-        return jsonResponse({ error: "Transformations/tags are not allowed for highlights" }, 400);
+      if (
+        paramsIn.transformation ||
+        paramsIn.tags ||
+        paramsIn.eager ||
+        paramsIn.streaming_profile
+      ) {
+        return jsonResponse(
+          { error: "Transformations/tags are not allowed for highlights" },
+          400
+        );
       }
 
-      // Rate limit per uid+match (best effort).
       const rl = _checkRate(verified.uid, parsed.leagueId, parsed.matchId);
       if (!rl.ok) {
         return jsonResponse({ error: rl.error }, 429);
       }
 
-      // ---- Firestore authorization checks (zero-budget) ----
-      // We read as the user using the same Firebase ID token. Reads are authorized by your Firestore rules.
       const membershipPath = `leagues/${parsed.leagueId}/memberships/${verified.uid}`;
       const matchPath = `leagues/${parsed.leagueId}/matches/${parsed.matchId}`;
 
@@ -643,7 +1090,8 @@ export default {
       const status = _fsString(matchRes.doc, "status");
       const matchStatus = _fsString(matchRes.doc, "matchStatus");
 
-      const finished = (isPlayed === true) || status === "FINISHED" || matchStatus === "FINISHED";
+      const finished =
+        isPlayed === true || status === "FINISHED" || matchStatus === "FINISHED";
       if (!finished) {
         return jsonResponse({ error: "Not allowed (match not finished)" }, 403);
       }
@@ -651,15 +1099,17 @@ export default {
       const homeTeamId = _fsString(matchRes.doc, "homeTeamId");
       const awayTeamId = _fsString(matchRes.doc, "awayTeamId");
 
-      const isParticipant = (memTeamId === homeTeamId) || (memTeamId === awayTeamId);
+      const isParticipant =
+        memTeamId === homeTeamId || memTeamId === awayTeamId;
       if (!isParticipant) {
-        return jsonResponse({ error: "Not allowed (team did not participate)" }, 403);
+        return jsonResponse(
+          { error: "Not allowed (team did not participate)" },
+          403
+        );
       }
 
-      // Use server timestamp (do not trust client time).
       const nowSec = Math.floor(Date.now() / 1000);
 
-      // Build params to sign (minimal set).
       const paramsToSign = {
         folder: parsed.folder,
         public_id: publicId,
@@ -677,8 +1127,6 @@ export default {
         apiKey,
         timestamp: nowSec,
         signature,
-
-        // FYI only; client can ignore.
         uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`,
         params: paramsToSign,
       });

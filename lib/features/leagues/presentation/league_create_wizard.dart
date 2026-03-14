@@ -101,7 +101,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     }
   }
 
-  bool get _supportsHomeAwayMatches => _format == LeagueFormat.classic || _format == LeagueFormat.uclGroup;
+  bool get _supportsHomeAwayMatches =>
+      _format == LeagueFormat.classic || _format == LeagueFormat.uclGroup;
 
   int get _maxTeams {
     switch (_format) {
@@ -122,9 +123,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   bool get _paymentCompleted => _payment?.success == true;
 
-  bool get _couponsEnabled => (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
+  bool get _couponsEnabled =>
+      (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
 
-  int get _discountPercent => _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+  int get _discountPercent =>
+      _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
 
   int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
 
@@ -148,7 +151,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Color _softPanelFill(ThemeData theme) {
     if (theme.brightness == Brightness.light) {
-      // Airy, frosted sub-surface inside Glass cards.
       return Colors.white.withOpacity(0.38);
     }
     return theme.colorScheme.onSurface.withOpacity(0.04);
@@ -156,9 +158,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
   Color _softPanelBorder(ThemeData theme, {Color? accent}) {
     if (theme.brightness == Brightness.light) {
-      // Subtle white edge with slight accent tint.
       final a = accent ?? theme.colorScheme.primary;
-      return Color.alphaBlend(a.withOpacity(0.14), Colors.white.withOpacity(0.70));
+      return Color.alphaBlend(
+        a.withOpacity(0.14),
+        Colors.white.withOpacity(0.70),
+      );
     }
     return theme.colorScheme.onSurface.withOpacity(0.10);
   }
@@ -224,7 +228,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
       _showSnack(context.l10n.tr('common_done'));
     } catch (e) {
-      _showSnack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _showSnack(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     } finally {
       if (!mounted) return;
       setState(() {
@@ -254,7 +260,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       if (snap.docs.isEmpty) return code;
     }
 
-    throw StateError("We couldn't create a league code right now. Please try again.");
+    throw StateError(
+      "We couldn't create a league code right now. Please try again.",
+    );
   }
 
   Future<void> _payIfNeeded() async {
@@ -263,7 +271,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     if (!_creationRequiresPayment) return;
 
-    final name = _name.text.trim().isEmpty ? l10n.tr('common_league_placeholder') : _name.text.trim();
+    final name = _name.text.trim().isEmpty
+        ? l10n.tr('common_league_placeholder')
+        : _name.text.trim();
 
     final result = await context.push<LeagueCreationPaymentResult?>(
       '/leagues/create/payment',
@@ -386,7 +396,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     if (_createdLeague != null) {
       final league = _createdLeague!;
-      final qrColor = theme.brightness == Brightness.dark ? Colors.white : Colors.black;
+      final qrColor =
+          theme.brightness == Brightness.dark ? Colors.white : Colors.black;
 
       return GlassScaffold(
         appBar: AppBar(
@@ -407,8 +418,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                       leagueId: league.id,
                       leagueName: league.name,
                       leagueCode: league.code,
-                      distribution: '${league.format.displayName} • ${league.season}',
-                      subtitle: '0 / ${league.maxTeams} ${l10n.tr('league_create_teams_word')}',
+                      distribution:
+                          '${league.format.displayName} • ${league.season}',
+                      subtitle:
+                          '0 / ${league.maxTeams} ${l10n.tr('league_create_teams_word')}',
                       onDoubleTap: () => context.push('/leagues/${league.id}'),
                       qrWidget: QrImageView(
                         data: league.qrPayload,
@@ -468,7 +481,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                               Expanded(
                                 child: FilledButton(
                                   onPressed: () => context.go('/leagues'),
-                                  child: Text(l10n.tr('league_create_done_upper')),
+                                  child: Text(
+                                    l10n.tr('league_create_done_upper'),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -476,9 +491,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                                 child: OutlinedButton(
                                   onPressed: () => context.push(
                                     '/leagues/add-teams',
-                                    extra: {'leagueId': league.id, 'format': league.format},
+                                    extra: {
+                                      'leagueId': league.id,
+                                      'format': league.format,
+                                    },
                                   ),
-                                  child: Text(l10n.tr('league_create_add_teams_upper')),
+                                  child: Text(
+                                    l10n.tr('league_create_add_teams_upper'),
+                                  ),
                                 ),
                               ),
                             ],
@@ -487,8 +507,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           TextButton(
                             onPressed: () => context.push('/leagues/${league.id}'),
                             child: Text(
-                              l10n.tr('league_create_open_league_details_upper'),
-                              style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900),
+                              l10n.tr(
+                                'league_create_open_league_details_upper',
+                              ),
+                              style: TextStyle(
+                                color: cs.primary,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ),
                           if (_containsRewards) ...[
@@ -497,7 +522,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                               onPressed: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
-                                    builder: (_) => EditLeagueRewardsScreen(leagueId: league.id),
+                                    builder: (_) => EditLeagueRewardsScreen(
+                                      leagueId: league.id,
+                                    ),
                                   ),
                                 );
                               },
@@ -522,7 +549,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Text(_inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_appbar_title')),
+        title: Text(
+          _inMasterLeagueMode
+              ? 'Create Competition'
+              : l10n.tr('league_create_appbar_title'),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -531,7 +562,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final maxWidth = constraints.maxWidth;
-              final contentMax = maxWidth >= 1200 ? 1180.0 : (maxWidth >= 900 ? 900.0 : 560.0);
+              final contentMax = maxWidth >= 1200
+                  ? 1180.0
+                  : (maxWidth >= 900 ? 900.0 : 560.0);
 
               final main = ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: isWide ? 720 : contentMax),
@@ -540,7 +573,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
               if (!isWide) {
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: contentMax),
                     child: main,
@@ -549,7 +585,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               }
 
               return SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
+                ),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: contentMax),
                   child: Row(
@@ -597,7 +636,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final paymentColor = _creationRequiresPayment ? (_paymentCompleted ? cs.primary : _premiumAmber) : cs.primary;
+    final paymentColor = _creationRequiresPayment
+        ? (_paymentCompleted ? cs.primary : _premiumAmber)
+        : cs.primary;
 
     Widget row(IconData icon, String label, String value, {Color? color}) {
       return Padding(
@@ -655,37 +696,59 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               'Inside Master League',
               color: cs.primary,
             ),
-          row(Icons.auto_awesome, l10n.tr('league_create_summary_type_label'), _format.displayName),
+          row(
+            Icons.auto_awesome,
+            l10n.tr('league_create_summary_type_label'),
+            _format.displayName,
+          ),
           row(
             Icons.label,
             l10n.tr('league_create_summary_name_label'),
-            _name.text.trim().isEmpty ? l10n.tr('league_create_summary_not_set') : _name.text.trim(),
+            _name.text.trim().isEmpty
+                ? l10n.tr('league_create_summary_not_set')
+                : _name.text.trim(),
           ),
           row(
             Icons.lock,
             l10n.tr('league_create_summary_privacy_label'),
-            _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
+            _privacy == LeaguePrivacy.private
+                ? l10n.tr('league_create_private')
+                : l10n.tr('league_create_public'),
           ),
-          row(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
+          row(
+            Icons.groups,
+            l10n.tr('league_create_summary_max_teams_label'),
+            '$_maxTeams',
+          ),
           if (_supportsHomeAwayMatches)
             row(
               Icons.swap_horiz,
               'Home/Away',
               _homeAwayEnabled ? 'Enabled' : 'Disabled',
-              color: _homeAwayEnabled ? cs.primary : cs.onSurface.withOpacity(0.75),
+              color: _homeAwayEnabled
+                  ? cs.primary
+                  : cs.onSurface.withOpacity(0.75),
             ),
           row(
             Icons.card_giftcard_outlined,
             'Rewards',
             _containsRewards ? 'Yes' : 'No',
-            color: _containsRewards ? cs.primary : cs.onSurface.withOpacity(0.75),
+            color: _containsRewards
+                ? cs.primary
+                : cs.onSurface.withOpacity(0.75),
           ),
           row(
-            _creationRequiresPayment ? (_paymentCompleted ? Icons.verified : Icons.lock_outline) : Icons.verified,
+            _creationRequiresPayment
+                ? (_paymentCompleted ? Icons.verified : Icons.lock_outline)
+                : Icons.verified,
             l10n.tr('league_create_summary_creation_fee_label'),
             _creationRequiresPayment
-                ? (_paymentCompleted ? l10n.tr('league_create_fee_paid') : l10n.tr('league_create_fee_required'))
-                : (_inMasterLeagueMode ? 'Included in Master League' : l10n.tr('league_create_fee_free')),
+                ? (_paymentCompleted
+                      ? l10n.tr('league_create_fee_paid')
+                      : l10n.tr('league_create_fee_required'))
+                : (_inMasterLeagueMode
+                      ? 'Included in Master League'
+                      : l10n.tr('league_create_fee_free')),
             color: paymentColor,
           ),
           if (_couponsEnabled) ...[
@@ -715,7 +778,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     if (_inMasterLeagueMode) {
       return 'Master League competitions are included after premium unlock.';
     }
-    return _creationRequiresPayment ? l10n.tr('league_create_fee_note_requires_payment') : l10n.tr('league_create_fee_note_free');
+    return _creationRequiresPayment
+        ? l10n.tr('league_create_fee_note_requires_payment')
+        : l10n.tr('league_create_fee_note_free');
   }
 
   Widget _buildStepHeader() {
@@ -726,14 +791,19 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     final steps = <_StepMeta>[
       _StepMeta(l10n.tr('league_create_wizard_step_basics'), Icons.edit_note),
       _StepMeta(l10n.tr('league_create_wizard_step_rules'), Icons.rule),
-      _StepMeta(l10n.tr('league_create_wizard_step_review'), Icons.check_circle_outline),
+      _StepMeta(
+        l10n.tr('league_create_wizard_step_review'),
+        Icons.check_circle_outline,
+      ),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          _inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_header_title'),
+          _inMasterLeagueMode
+              ? 'Create Competition'
+              : l10n.tr('league_create_header_title'),
           style: theme.textTheme.titleLarge?.copyWith(
             color: cs.onSurface,
             fontWeight: FontWeight.w900,
@@ -785,26 +855,30 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     final Color borderColor = active
         ? cs.primary.withOpacity(0.75)
         : done
-            ? cs.primary.withOpacity(0.40)
-            : (_isLight ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.14));
+              ? cs.primary.withOpacity(0.40)
+              : (_isLight
+                    ? Colors.white.withOpacity(0.70)
+                    : cs.onSurface.withOpacity(0.14));
 
     final Color bgColor = active
         ? cs.primary.withOpacity(0.14)
         : done
-            ? cs.onSurface.withOpacity(0.06)
-            : (_isLight ? Colors.white.withOpacity(0.30) : cs.onSurface.withOpacity(0.04));
+              ? cs.onSurface.withOpacity(0.06)
+              : (_isLight
+                    ? Colors.white.withOpacity(0.30)
+                    : cs.onSurface.withOpacity(0.04));
 
     final Color iconColor = active
         ? cs.primary
         : done
-            ? cs.primary.withOpacity(0.85)
-            : cs.onSurface.withOpacity(0.55);
+              ? cs.primary.withOpacity(0.85)
+              : cs.onSurface.withOpacity(0.55);
 
     final Color textColor = active
         ? cs.primary
         : done
-            ? cs.onSurface.withOpacity(0.75)
-            : cs.onSurface.withOpacity(0.55);
+              ? cs.onSurface.withOpacity(0.75)
+              : cs.onSurface.withOpacity(0.55);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -824,7 +898,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: textColor, fontWeight: FontWeight.w900, fontSize: 11),
+              style: TextStyle(
+                color: textColor,
+                fontWeight: FontWeight.w900,
+                fontSize: 11,
+              ),
             ),
           ),
         ],
@@ -852,7 +930,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     Widget formatChip(LeagueFormat fmt, String label) {
       final selected = _format == fmt;
 
-      final unselectedBg = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.34) : cs.onSurface.withOpacity(0.06);
+      final unselectedBg = theme.brightness == Brightness.light
+          ? Colors.white.withOpacity(0.34)
+          : cs.onSurface.withOpacity(0.06);
 
       return ChoiceChip(
         selected: selected,
@@ -862,7 +942,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         side: BorderSide(
           color: selected
               ? cs.primary.withOpacity(0.35)
-              : (theme.brightness == Brightness.light ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.12)),
+              : (theme.brightness == Brightness.light
+                    ? Colors.white.withOpacity(0.70)
+                    : cs.onSurface.withOpacity(0.12)),
         ),
         labelStyle: TextStyle(
           color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
@@ -876,7 +958,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   _format = fmt;
                   if (!_creationRequiresPayment) _payment = null;
 
-                  // Home/Away is only applicable to classic + group.
                   if (!_supportsHomeAwayMatches) {
                     _homeAwayEnabled = false;
                     _doubleRoundRobin = false;
@@ -971,15 +1052,23 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 value: _privacy == LeaguePrivacy.private,
                 onChanged: _submitting
                     ? null
-                    : (v) => setState(() => _privacy = v ? LeaguePrivacy.private : LeaguePrivacy.public),
+                    : (v) => setState(
+                        () => _privacy =
+                            v ? LeaguePrivacy.private : LeaguePrivacy.public,
+                      ),
                 activeColor: cs.primary,
                 contentPadding: EdgeInsets.zero,
                 title: Text(
                   'Private league',
-                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 subtitle: Text(
-                  _privacy == LeaguePrivacy.private ? 'Only members can view and join.' : 'Anyone can view, join with code.',
+                  _privacy == LeaguePrivacy.private
+                      ? 'Only members can view and join.'
+                      : 'Anyone can view, join with code.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.onSurface.withOpacity(0.65),
                     fontSize: 12,
@@ -998,7 +1087,6 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           final enabled = v ?? false;
                           setState(() {
                             _homeAwayEnabled = enabled;
-                            // Keep existing flag in sync (used by LeagueSettings/fixtures)
                             _doubleRoundRobin = enabled;
                           });
                         },
@@ -1008,10 +1096,15 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   checkColor: Colors.white,
                   title: Text(
                     'Home and Away Matches',
-                    style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   subtitle: Text(
-                    _homeAwayEnabled ? 'Each team plays twice (home + away).' : 'Each team plays once.',
+                    _homeAwayEnabled
+                        ? 'Each team plays twice (home + away).'
+                        : 'Each team plays once.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurface.withOpacity(0.65),
                       fontSize: 12,
@@ -1024,12 +1117,17 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               Divider(color: cs.onSurface.withOpacity(0.12)),
               SwitchListTile.adaptive(
                 value: _containsRewards,
-                onChanged: _submitting ? null : (v) => setState(() => _containsRewards = v),
+                onChanged: _submitting
+                    ? null
+                    : (v) => setState(() => _containsRewards = v),
                 activeColor: cs.primary,
                 contentPadding: EdgeInsets.zero,
                 title: Text(
                   'Does this league contain rewards?',
-                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w900),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 subtitle: Text(
                   _containsRewards
@@ -1055,10 +1153,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final canCreate = _name.text.trim().isNotEmpty && (!_creationRequiresPayment || _paymentCompleted);
+    final canCreate =
+        _name.text.trim().isNotEmpty &&
+        (!_creationRequiresPayment || _paymentCompleted);
 
-    final paymentTitle =
-        _paymentCompleted ? l10n.tr('league_create_payment_completed_title') : l10n.tr('league_create_payment_required_title');
+    final paymentTitle = _paymentCompleted
+        ? l10n.tr('league_create_payment_completed_title')
+        : l10n.tr('league_create_payment_required_title');
     final paymentSubtitle = _paymentCompleted
         ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}'
         : l10n.tr('league_create_payment_required_subtitle');
@@ -1074,8 +1175,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 10),
         _infoBanner(
           icon: Icons.emoji_events_outlined,
-          title: _name.text.trim().isEmpty ? l10n.tr('league_create_league_name_not_set') : _name.text.trim(),
-          subtitle: '${_format.displayName} • $_maxTeams teams • ${_privacy == LeaguePrivacy.private ? 'Private' : 'Public'}',
+          title: _name.text.trim().isEmpty
+              ? l10n.tr('league_create_league_name_not_set')
+              : _name.text.trim(),
+          subtitle:
+              '${_format.displayName} • $_maxTeams teams • ${_privacy == LeaguePrivacy.private ? 'Private' : 'Public'}',
         ),
         const SizedBox(height: 10),
         if (_inMasterLeagueMode)
@@ -1090,13 +1194,17 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             Icons.swap_horiz,
             'Home & away matches',
             _homeAwayEnabled ? 'Enabled' : 'Disabled',
-            valueColor: _homeAwayEnabled ? cs.primary : cs.onSurface.withOpacity(0.75),
+            valueColor: _homeAwayEnabled
+                ? cs.primary
+                : cs.onSurface.withOpacity(0.75),
           ),
         _confirmRow(
           Icons.card_giftcard_outlined,
           'Rewards',
           _containsRewards ? 'Yes' : 'No',
-          valueColor: _containsRewards ? cs.primary : cs.onSurface.withOpacity(0.75),
+          valueColor: _containsRewards
+              ? cs.primary
+              : cs.onSurface.withOpacity(0.75),
         ),
         if (_couponsEnabled)
           _confirmRow(
@@ -1116,24 +1224,31 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           const SizedBox(height: 12),
           FilledButton(
             onPressed: _submitting ? null : _payIfNeeded,
-            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
             child: Text(
-              _paymentCompleted ? l10n.tr('league_create_payment_done_view_receipt') : l10n.tr('league_create_pay_now'),
+              _paymentCompleted
+                  ? l10n.tr('league_create_payment_done_view_receipt')
+                  : l10n.tr('league_create_pay_now'),
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ),
         ],
         const SizedBox(height: 12),
-
-        // Single working create button for wizard
         FilledButton(
           onPressed: (_submitting || !canCreate) ? null : () => _create(context),
-          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
           child: _submitting
               ? const SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : Text(
                   l10n.tr('league_create_create_league_button_upper'),
@@ -1152,7 +1267,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     final isLast = _step == 2;
 
     final outlineSide = BorderSide(
-      color: theme.brightness == Brightness.light ? Colors.white.withOpacity(0.70) : cs.onSurface.withOpacity(0.18),
+      color: theme.brightness == Brightness.light
+          ? Colors.white.withOpacity(0.70)
+          : cs.onSurface.withOpacity(0.18),
     );
 
     return Row(
@@ -1166,7 +1283,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               foregroundColor: cs.onSurface.withOpacity(0.80),
             ),
             child: Text(
-              (_step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back')).toUpperCase(),
+              (_step == 0
+                      ? l10n.tr('common_cancel')
+                      : l10n.tr('common_back'))
+                  .toUpperCase(),
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ),
@@ -1179,7 +1299,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 : () async {
                     await _validateAndNext();
                   },
-            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
             child: Text(
               l10n.tr('common_next').toUpperCase(),
               style: const TextStyle(fontWeight: FontWeight.w900),
@@ -1331,32 +1453,41 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         throw StateError('unauthenticated');
       }
 
-      final derivedShortId = UserProfile.deriveShareIdFromUid(organizerUid).trim();
-      final organizerUserId = derivedShortId.isNotEmpty ? derivedShortId : organizerUid;
+      final derivedShortId =
+          UserProfile.deriveShareIdFromUid(organizerUid).trim();
+      final organizerUserId =
+          derivedShortId.isNotEmpty ? derivedShortId : organizerUid;
 
-      final leagueId = _draftLeagueId;
+      final requestedLeagueId = _inMasterLeagueMode ? '' : _draftLeagueId;
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      // Ensure Home/Away is only active for formats that support it
-      final effectiveHomeAwayEnabled = _supportsHomeAwayMatches ? _homeAwayEnabled : false;
+      final effectiveHomeAwayEnabled = _supportsHomeAwayMatches
+          ? _homeAwayEnabled
+          : false;
 
       final settings = LeagueSettings.defaultsFor(_format).copyWith(
         doubleRoundRobin: effectiveHomeAwayEnabled,
         lastPulledAtMs: 0,
       );
 
-      // Keep existing flag aligned for any downstream usage inside this widget
       _doubleRoundRobin = effectiveHomeAwayEnabled;
 
-      final couponsEnabled = _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
-      final discountPercent = (couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0).clamp(0, 100);
+      final couponsEnabled =
+          _paymentCompleted && (_payment?.buyCouponsForParticipants ?? false);
+      final discountPercent =
+          (couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0).clamp(
+            0,
+            100,
+          );
       final couponCount = couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
       final safeCouponCount = couponCount < 0 ? 0 : couponCount;
 
-      final joinCode = await _generateUniqueJoinCode().timeout(const Duration(seconds: 12));
+      final joinCode = await _generateUniqueJoinCode().timeout(
+        const Duration(seconds: 12),
+      );
 
-      final league = League(
-        id: leagueId,
+      final pendingLeague = League(
+        id: requestedLeagueId,
         name: _name.text.trim(),
         masterLeagueId: widget.masterLeagueId.trim(),
         description: _description.text.trim(),
@@ -1382,7 +1513,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       );
 
       final repo = LeaguesRepositoryFirebase();
-      await repo.saveLeague(league).timeout(const Duration(seconds: 25));
+      final savedLeagueId = await repo
+          .saveLeague(pendingLeague)
+          .timeout(const Duration(seconds: 25));
+
+      final createdLeague = pendingLeague.copyWith(id: savedLeagueId);
 
       if (couponsEnabled && safeCouponCount > 0) {
         try {
@@ -1392,7 +1527,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
           await CouponConfigService()
               .createOrIncrementOnPurchase(
-                leagueId: leagueId,
+                leagueId: createdLeague.id,
                 organizerUserId: organizerUid,
                 qtyPurchased: safeCouponCount,
                 discountPercent: discountPercent,
@@ -1400,29 +1535,34 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               )
               .timeout(const Duration(seconds: 20));
         } catch (_) {
-          _showSnack("We saved your league, but couldn't update coupons right now. Please try again.");
+          _showSnack(
+            "We saved your league, but couldn't update coupons right now. Please try again.",
+          );
         }
       }
 
       if (!mounted) return;
       setState(() {
-        _createdLeague = league;
+        _createdLeague = createdLeague;
         _submitting = false;
       });
 
-      // NEW: Immediately offer rewards management if organizer selected Yes.
       if (_containsRewards) {
         if (!mounted) return;
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => EditLeagueRewardsScreen(leagueId: league.id),
+            builder: (_) => EditLeagueRewardsScreen(
+              leagueId: createdLeague.id,
+            ),
           ),
         );
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      _showSnack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _showSnack(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 }
@@ -1460,12 +1600,13 @@ class _OptionalImageField extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final previewFill = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.40) : cs.onSurface.withOpacity(0.06);
-    final previewBorder = theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.14);
+    final previewFill = theme.brightness == Brightness.light
+        ? Colors.white.withOpacity(0.40)
+        : cs.onSurface.withOpacity(0.06);
+    final previewBorder = theme.brightness == Brightness.light
+        ? Colors.white.withOpacity(0.72)
+        : cs.onSurface.withOpacity(0.14);
 
-    // IMPORTANT:
-    // - Never render controller.text anywhere (prevents URL exposure).
-    // - Rebuild when controller changes (upload/clear) without needing parent setState.
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: controller,
       builder: (context, value, _) {
@@ -1495,39 +1636,43 @@ class _OptionalImageField extends StatelessWidget {
             child: bytes != null
                 ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
                 : (hasImage
-                    ? Image.network(
-                        url,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Icon(
+                      ? Image.network(
+                          url,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Icon(
+                            Icons.image_outlined,
+                            color: cs.onSurface.withOpacity(0.55),
+                          ),
+                        )
+                      : Icon(
                           Icons.image_outlined,
                           color: cs.onSurface.withOpacity(0.55),
-                        ),
-                      )
-                    : Icon(Icons.image_outlined, color: cs.onSurface.withOpacity(0.55))),
+                        )),
           ),
         );
 
         final String statusText = uploading
             ? 'Uploading...'
             : hasImage
-                ? 'Uploaded'
-                : 'No image selected';
+            ? 'Uploaded'
+            : 'No image selected';
 
-        final IconData tickIcon = hasImage ? Icons.check_box : Icons.check_box_outline_blank;
-        final Color tickColor = hasImage ? cs.primary : cs.onSurface.withOpacity(0.45);
+        final IconData tickIcon = hasImage
+            ? Icons.check_box
+            : Icons.check_box_outline_blank;
+        final Color tickColor = hasImage
+            ? cs.primary
+            : cs.onSurface.withOpacity(0.45);
 
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Preview does not expose any URL text.
             Semantics(
               label: label,
               image: true,
               child: preview,
             ),
             const SizedBox(width: 10),
-
-            // Replaces prior URL TextField to eliminate any link exposure.
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.only(top: 2),
@@ -1566,7 +1711,6 @@ class _OptionalImageField extends StatelessWidget {
                 ),
               ),
             ),
-
             const SizedBox(width: 8),
             Column(
               mainAxisSize: MainAxisSize.min,
@@ -1577,7 +1721,10 @@ class _OptionalImageField extends StatelessWidget {
                   child: uploading
                       ? Padding(
                           padding: const EdgeInsets.all(10),
-                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: cs.primary,
+                          ),
                         )
                       : IconButton(
                           tooltip: 'Upload',

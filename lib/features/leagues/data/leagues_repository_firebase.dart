@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../master_leagues/domain/master_league_plan.dart';
 import '../models/league.dart';
 import '../models/membership.dart';
 
@@ -19,16 +20,22 @@ class UserFriendlyException implements Exception {
   String toString() => message;
 }
 
+class _CompetitionSlotTakenException implements Exception {
+  const _CompetitionSlotTakenException();
+}
+
 class LeaguesRepositoryFirebase {
-  LeaguesRepositoryFirebase({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
+  LeaguesRepositoryFirebase({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
   final Uuid _uuid = const Uuid();
 
-  CollectionReference<Map<String, dynamic>> get _leaguesCol => _firestore.collection('leagues');
+  CollectionReference<Map<String, dynamic>> get _leaguesCol =>
+      _firestore.collection('leagues');
 
-  // Master League System
-  CollectionReference<Map<String, dynamic>> get _masterLeaguesCol => _firestore.collection('master_leagues');
+  CollectionReference<Map<String, dynamic>> get _masterLeaguesCol =>
+      _firestore.collection('master_leagues');
 
   String _requireAuthUid() {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
@@ -47,7 +54,9 @@ class LeaguesRepositoryFirebase {
       );
     }
     if (error is TimeoutException) {
-      throw const UserFriendlyException('Your internet connection seems unstable. Please try again.');
+      throw const UserFriendlyException(
+        'Your internet connection seems unstable. Please try again.',
+      );
     }
 
     if (error is FirebaseException) {
@@ -58,11 +67,17 @@ class LeaguesRepositoryFirebase {
             'Your network appears to be offline. Please check your connection and try again.',
           );
         case 'permission-denied':
-          throw const UserFriendlyException('You don’t have access to this league.');
+          throw const UserFriendlyException(
+            'You don’t have access to this league.',
+          );
         case 'unauthenticated':
-          throw const UserFriendlyException('Please sign in and try again.');
+          throw const UserFriendlyException(
+            'Please sign in and try again.',
+          );
         default:
-          throw const UserFriendlyException("We couldn't complete this action. Please try again.");
+          throw const UserFriendlyException(
+            "We couldn't complete this action. Please try again.",
+          );
       }
     }
 
@@ -89,7 +104,6 @@ class LeaguesRepositoryFirebase {
     return League.fromRemoteMap(map);
   }
 
-  // Master League System: client-side validation
   Future<void> _requireMasterLeagueOwnerOrThrow({
     required String masterLeagueId,
     required String authUid,
@@ -103,15 +117,252 @@ class LeaguesRepositoryFirebase {
         .timeout(const Duration(seconds: 12));
 
     if (!snap.exists) {
-      throw const UserFriendlyException("We couldn't find that Master League. Please refresh and try again.");
+      throw const UserFriendlyException(
+        "We couldn't find that Master League. Please refresh and try again.",
+      );
     }
 
     final data = snap.data() ?? <String, dynamic>{};
-    final ownerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+    final ownerId =
+        (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
+            .trim();
 
     if (ownerId.isEmpty || ownerId != authUid) {
-      throw const UserFriendlyException('Only the Master League owner can create competitions inside it.');
+      throw const UserFriendlyException(
+        'Only the Master League owner can create competitions inside it.',
+      );
     }
+  }
+
+  Future<MasterLeaguePlan> _getMasterLeaguePlan(String masterLeagueId) async {
+    final id = masterLeagueId.trim();
+    if (id.isEmpty) return MasterLeaguePlan.basic;
+
+    final snap = await _masterLeaguesCol
+        .doc(id)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    if (!snap.exists) {
+      throw const UserFriendlyException(
+        "We couldn't find that Master League. Please refresh and try again.",
+      );
+    }
+
+    final data = snap.data() ?? <String, dynamic>{};
+    return MasterLeaguePlan.fromString(data['plan'] as String?);
+  }
+
+  String _competitionLimitMessage(MasterLeaguePlan plan) {
+    return 'You have reached the limit of ${plan.maxLeagues} competitions for your ${plan.displayName} plan.';
+  }
+
+  Future<List<String>> _candidateCompetitionLeagueIdsForMasterLeague({
+    required String masterLeagueId,
+  }) async {
+    final masterId = masterLeagueId.trim();
+    if (masterId.isEmpty) return <String>[_uuid.v4()];
+
+    final plan = await _getMasterLeaguePlan(masterId);
+
+    if (plan == MasterLeaguePlan.elite) {
+      return <String>[_uuid.v4()];
+    }
+
+    final max = plan.maxLeagues;
+    final prefix = 'mlc_${masterId}_';
+
+    final snap = await _firestore
+        .collection('leagues')
+        .where('masterLeagueId', isEqualTo: masterId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
+
+    final ids = snap.docs
+        .map((d) => d.id.trim())
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+
+    final takenSlots = <int>{};
+    int legacyCount = 0;
+
+    for (final id in ids) {
+      if (!id.startsWith(prefix)) {
+        legacyCount += 1;
+        continue;
+      }
+      final tail = id.substring(prefix.length).trim();
+      final slot = int.tryParse(tail);
+      if (slot != null && slot >= 1 && slot <= max) {
+        takenSlots.add(slot);
+      } else {
+        legacyCount += 1;
+      }
+    }
+
+    final reserved = legacyCount.clamp(0, max);
+    for (int i = 1; i <= reserved; i++) {
+      takenSlots.add(i);
+    }
+
+    if (ids.length >= max) {
+      throw UserFriendlyException(_competitionLimitMessage(plan));
+    }
+
+    final candidates = <String>[];
+    for (int slot = 1; slot <= max; slot++) {
+      if (!takenSlots.contains(slot)) {
+        candidates.add('${prefix}$slot');
+      }
+    }
+
+    if (candidates.isEmpty) {
+      throw UserFriendlyException(_competitionLimitMessage(plan));
+    }
+
+    return candidates;
+  }
+
+  Membership _organizerMembership({
+    required String leagueId,
+    required String authUid,
+    required int now,
+  }) {
+    return Membership(
+      id: authUid,
+      leagueId: leagueId,
+      userId: authUid,
+      teamId: null,
+      role: LeagueRole.organizer,
+      updatedAtMs: now,
+      version: 1,
+    );
+  }
+
+  Map<String, dynamic> _buildLeagueWriteData({
+    required League fixed,
+    required String authUid,
+    required int now,
+    required String requestedMasterLeagueId,
+    required bool forCreate,
+  }) {
+    final leagueData = <String, dynamic>{
+      ...fixed.toJson(),
+      'organizerUid': authUid,
+      'ownerUid': authUid,
+      'ownerId': authUid,
+      'updatedAtMs': now,
+    };
+
+    final rawMemberIds = leagueData['memberIds'];
+    final memberIds = <String>{authUid};
+    if (rawMemberIds is List) {
+      for (final value in rawMemberIds) {
+        final v = value is String ? value.trim() : '';
+        if (v.isNotEmpty) {
+          memberIds.add(v);
+        }
+      }
+    }
+    leagueData['memberIds'] = memberIds.toList(growable: false);
+
+    if (requestedMasterLeagueId.isEmpty) {
+      if (!forCreate) {
+        leagueData['masterLeagueId'] = FieldValue.delete();
+      } else {
+        leagueData.remove('masterLeagueId');
+      }
+    } else {
+      leagueData['masterLeagueId'] = requestedMasterLeagueId;
+    }
+
+    return leagueData;
+  }
+
+  Future<String> _createLeagueAtExactId({
+    required League league,
+    required String id,
+    required String authUid,
+    required String requestedMasterLeagueId,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final fixed = league.copyWith(
+      id: id,
+      organizerUid: authUid,
+      code: league.code.trim().toUpperCase(),
+      updatedAtMs: now,
+    );
+
+    final leagueRef = _leaguesCol.doc(id);
+    final membershipRef = leagueRef.collection('memberships').doc(authUid);
+    final membership = _organizerMembership(
+      leagueId: id,
+      authUid: authUid,
+      now: now,
+    );
+
+    await _firestore.runTransaction((txn) async {
+      final existing = await txn.get(leagueRef);
+      if (existing.exists) {
+        throw const _CompetitionSlotTakenException();
+      }
+
+      txn.set(
+        leagueRef,
+        _buildLeagueWriteData(
+          fixed: fixed,
+          authUid: authUid,
+          now: now,
+          requestedMasterLeagueId: requestedMasterLeagueId,
+          forCreate: true,
+        ),
+        SetOptions(merge: false),
+      );
+
+      txn.set(
+        membershipRef,
+        membership.toRemoteMap(),
+        SetOptions(merge: false),
+      );
+    }).timeout(const Duration(seconds: 25));
+
+    return id;
+  }
+
+  Future<String> _createMasterLeagueCompetitionWithReservedSlot({
+    required League league,
+    required String authUid,
+    required String masterLeagueId,
+  }) async {
+    final candidates = await _candidateCompetitionLeagueIdsForMasterLeague(
+      masterLeagueId: masterLeagueId,
+    );
+
+    Object? lastError;
+
+    for (final candidateId in candidates) {
+      try {
+        return await _createLeagueAtExactId(
+          league: league,
+          id: candidateId,
+          authUid: authUid,
+          requestedMasterLeagueId: masterLeagueId,
+        );
+      } on _CompetitionSlotTakenException {
+        lastError = const _CompetitionSlotTakenException();
+        continue;
+      } catch (e) {
+        lastError = e;
+        break;
+      }
+    }
+
+    if (lastError is Object && lastError is! _CompetitionSlotTakenException) {
+      _rethrowFriendly(lastError);
+    }
+
+    final plan = await _getMasterLeaguePlan(masterLeagueId);
+    throw UserFriendlyException(_competitionLimitMessage(plan));
   }
 
   Future<List<League>> getAllLeagues() async {
@@ -133,10 +384,13 @@ class LeaguesRepositoryFirebase {
     try {
       final uid = _requireAuthUid();
 
-      final base = _leaguesCol.where('memberIds', arrayContains: uid).snapshots(includeMetadataChanges: true);
+      final base = _leaguesCol
+          .where('memberIds', arrayContains: uid)
+          .snapshots(includeMetadataChanges: true);
 
       final serverOnly = base.where((snap) => !snap.metadata.isFromCache).map(
-            (snapshot) => snapshot.docs.map(_docToLeague).toList(growable: false),
+            (snapshot) =>
+                snapshot.docs.map(_docToLeague).toList(growable: false),
           );
 
       return serverOnly.handleError((error, stack) {
@@ -165,72 +419,130 @@ class LeaguesRepositoryFirebase {
     }
   }
 
-  /// Ensures:
-  /// - organizerUid/ownerUid = auth uid
-  /// - memberIds contains auth uid
-  /// - memberships/{authUid} exists (needed by membership-based rules, chatroom)
-  ///
-  /// Master League System:
-  /// - If `league.masterLeagueId` is set, validate that current user owns
-  ///   `master_leagues/{masterLeagueId}` (client-side guard; still enforce via rules).
-  Future<void> saveLeague(League league) async {
+  /// Returns the persisted league id.
+  Future<String> saveLeague(League league) async {
     try {
       final authUid = _requireAuthUid();
+      final requestedMasterLeagueId = league.masterLeagueId.trim();
+
+      if (requestedMasterLeagueId.isNotEmpty) {
+        await _requireMasterLeagueOwnerOrThrow(
+          masterLeagueId: requestedMasterLeagueId,
+          authUid: authUid,
+        );
+      }
+
+      if (requestedMasterLeagueId.isNotEmpty && league.id.trim().isEmpty) {
+        return await _createMasterLeagueCompetitionWithReservedSlot(
+          league: league,
+          authUid: authUid,
+          masterLeagueId: requestedMasterLeagueId,
+        );
+      }
 
       final id = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
+      final leagueRef = _leaguesCol.doc(id);
 
+      if (requestedMasterLeagueId.isNotEmpty) {
+        final existing = await leagueRef
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 15));
+
+        if (!existing.exists) {
+          return await _createLeagueAtExactId(
+            league: league,
+            id: id,
+            authUid: authUid,
+            requestedMasterLeagueId: requestedMasterLeagueId,
+          );
+        }
+
+        final existingData = existing.data() ?? <String, dynamic>{};
+        final existingOwner =
+            (existingData['ownerUid'] as String? ??
+                    existingData['organizerUid'] as String? ??
+                    existingData['ownerId'] as String? ??
+                    '')
+                .trim();
+        if (existingOwner.isNotEmpty && existingOwner != authUid) {
+          throw const UserFriendlyException(
+            'You don’t have access to this league.',
+          );
+        }
+
+        final existingMasterLeagueId =
+            (existingData['masterLeagueId'] as String? ?? '').trim();
+        if (existingMasterLeagueId != requestedMasterLeagueId) {
+          throw const UserFriendlyException(
+            "We couldn't move this competition. Please refresh and try again.",
+          );
+        }
+      }
+
+      final now = DateTime.now().millisecondsSinceEpoch;
       final fixed = league.copyWith(
         id: id,
         organizerUid: authUid,
         code: league.code.trim().toUpperCase(),
-        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+        updatedAtMs: now,
       );
 
-      final masterLeagueId = fixed.masterLeagueId.trim();
-      if (masterLeagueId.isNotEmpty) {
-        await _requireMasterLeagueOwnerOrThrow(masterLeagueId: masterLeagueId, authUid: authUid);
+      final membershipRef = leagueRef.collection('memberships').doc(authUid);
+      final membership = _organizerMembership(
+        leagueId: id,
+        authUid: authUid,
+        now: now,
+      );
+
+      final existing = await leagueRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      if (existing.exists) {
+        final existingData = existing.data() ?? <String, dynamic>{};
+        final existingOwner =
+            (existingData['ownerUid'] as String? ??
+                    existingData['organizerUid'] as String? ??
+                    existingData['ownerId'] as String? ??
+                    '')
+                .trim();
+
+        if (existingOwner.isNotEmpty && existingOwner != authUid) {
+          throw const UserFriendlyException(
+            'You don’t have access to this league.',
+          );
+        }
+
+        final existingMasterLeagueId =
+            (existingData['masterLeagueId'] as String? ?? '').trim();
+        if (existingMasterLeagueId != requestedMasterLeagueId) {
+          throw const UserFriendlyException(
+            "We couldn't move this competition. Please refresh and try again.",
+          );
+        }
       }
 
-      final leagueRef = _leaguesCol.doc(id);
-      final membershipRef = leagueRef.collection('memberships').doc(authUid);
-
-      final now = DateTime.now().millisecondsSinceEpoch;
-
       final batch = _firestore.batch();
-
-      final leagueData = <String, dynamic>{
-        ...fixed.toJson(),
-        'organizerUid': authUid,
-        'ownerUid': authUid,
-        'ownerId': authUid,
-        'memberIds': FieldValue.arrayUnion([authUid]),
-        'updatedAtMs': now,
-      };
-
-      // Canonical storage:
-      // - if empty: delete field so standalone leagues don't store it.
-      // - if set: store string id.
-      leagueData['masterLeagueId'] = masterLeagueId.isEmpty ? FieldValue.delete() : masterLeagueId;
-
       batch.set(
         leagueRef,
-        leagueData,
+        _buildLeagueWriteData(
+          fixed: fixed,
+          authUid: authUid,
+          now: now,
+          requestedMasterLeagueId: requestedMasterLeagueId,
+          forCreate: !existing.exists,
+        ),
+        SetOptions(merge: existing.exists),
+      );
+
+      batch.set(
+        membershipRef,
+        membership.toRemoteMap(),
         SetOptions(merge: true),
       );
 
-      final membership = Membership(
-        id: authUid,
-        leagueId: id,
-        userId: authUid,
-        teamId: null,
-        role: LeagueRole.organizer,
-        updatedAtMs: now,
-        version: 1,
-      );
-
-      batch.set(membershipRef, membership.toRemoteMap(), SetOptions(merge: true));
-
       await batch.commit().timeout(const Duration(seconds: 25));
+      return id;
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -239,7 +551,10 @@ class LeaguesRepositoryFirebase {
   Future<void> deleteLeague(String leagueId) async {
     try {
       _requireAuthUid();
-      await _leaguesCol.doc(leagueId).delete().timeout(const Duration(seconds: 20));
+      await _leaguesCol
+          .doc(leagueId)
+          .delete()
+          .timeout(const Duration(seconds: 20));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
