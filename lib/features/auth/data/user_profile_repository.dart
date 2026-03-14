@@ -105,7 +105,7 @@ class UserProfileRepository {
       _requireAuthUid();
 
       final uid = userId.trim();
-      if (uid.isEmpty) return const Stream<UserProfile?>.value(null);
+      if (uid.isEmpty) return Stream<UserProfile?>.value(null);
 
       return _usersCol.doc(uid).snapshots().map((snap) {
         if (!snap.exists) return null;
@@ -131,6 +131,20 @@ class UserProfileRepository {
 
       if (snap.docs.isEmpty) return null;
       return UserProfile.fromDoc(snap.docs.first);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<UserProfile?> fetchByUserIdOrShareId(String input) async {
+    try {
+      final trimmed = input.trim();
+      if (trimmed.isEmpty) return null;
+
+      final byUid = await fetchByUserId(trimmed);
+      if (byUid != null) return byUid;
+
+      return await fetchByShareId(trimmed);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -172,6 +186,34 @@ class UserProfileRepository {
     }
   }
 
+  Future<bool> profileExists(String userId) async {
+    final profile = await fetchByUserId(userId);
+    return profile != null;
+  }
+
+  Stream<bool> watchIsPremium(String userId) {
+    try {
+      _requireAuthUid();
+      return watchByUserId(userId).map((profile) {
+        if (profile == null) return false;
+        return profile.premiumActive;
+      });
+    } catch (_) {
+      return const Stream<bool>.empty();
+    }
+  }
+
+  Stream<List<String>> watchQuickMessagesCustom(String userId) {
+    try {
+      _requireAuthUid();
+      return watchByUserId(userId).map((profile) {
+        return profile?.quickMessagesCustom ?? const <String>[];
+      });
+    } catch (_) {
+      return const Stream<List<String>>.empty();
+    }
+  }
+
   Future<void> saveOrUpdateSelf(UserProfile profile) async {
     try {
       final authUid = _requireAuthUid();
@@ -201,19 +243,30 @@ class UserProfileRepository {
     }
   }
 
-  Future<void> updateTeamName(String teamName) async {
+  Future<void> updateTeamName({
+    String? userId,
+    required String teamName,
+  }) async {
     try {
       final authUid = _requireAuthUid();
+      final targetUid = (userId ?? authUid).trim();
       final value = teamName.trim();
+
+      if (targetUid != authUid) {
+        throw const UserProfileRepositoryException(
+          'You can only update your own profile.',
+        );
+      }
+
       if (value.isEmpty) {
         throw const UserProfileRepositoryException(
           'Please enter a team name.',
         );
       }
 
-      await _usersCol.doc(authUid).set(
+      await _usersCol.doc(targetUid).set(
         <String, dynamic>{
-          'userId': authUid,
+          'userId': targetUid,
           'teamName': value,
           'updatedAt': DateTime.now().millisecondsSinceEpoch,
         },
@@ -274,6 +327,39 @@ class UserProfileRepository {
     }
   }
 
+  Future<void> updateQuickMessagesCustom({
+    String? userId,
+    required List<String> messages,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+      final targetUid = (userId ?? authUid).trim();
+
+      if (targetUid != authUid) {
+        throw const UserProfileRepositoryException(
+          'You can only update your own quick messages.',
+        );
+      }
+
+      final values = messages
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .take(15)
+          .toList(growable: false);
+
+      await _usersCol.doc(targetUid).set(
+        <String, dynamic>{
+          'userId': targetUid,
+          'quickMessagesCustom': values,
+          'updatedAt': DateTime.now().millisecondsSinceEpoch,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
   Future<void> updateProfileImages({
     String? photoUrl,
     String? profileImageUrl,
@@ -302,12 +388,20 @@ class UserProfileRepository {
   }
 
   Future<void> createIfMissing({
+    String? userId,
     required String authProvider,
     required String teamName,
   }) async {
     try {
       final authUid = _requireAuthUid();
-      final ref = _usersCol.doc(authUid);
+      final targetUid = (userId ?? authUid).trim();
+      if (targetUid != authUid) {
+        throw const UserProfileRepositoryException(
+          'You can only create your own profile.',
+        );
+      }
+
+      final ref = _usersCol.doc(targetUid);
       final existing = await ref
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
@@ -317,18 +411,30 @@ class UserProfileRepository {
       final now = DateTime.now().millisecondsSinceEpoch;
       await ref.set(
         <String, dynamic>{
-          'userId': authUid,
+          'userId': targetUid,
           'teamName': teamName.trim(),
           'authProvider': authProvider.trim(),
           'createdAt': now,
           'updatedAt': now,
-          'shareId': UserProfile.deriveShareIdFromUid(authUid),
+          'shareId': UserProfile.deriveShareIdFromUid(targetUid),
         },
         SetOptions(merge: false),
       ).timeout(const Duration(seconds: 20));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
+  }
+
+  Future<void> createProfileIfMissing({
+    String? userId,
+    required String authProvider,
+    required String teamName,
+  }) async {
+    await createIfMissing(
+      userId: userId,
+      authProvider: authProvider,
+      teamName: teamName,
+    );
   }
 
   Future<void> refreshShareIdFromUidIfEmpty() async {

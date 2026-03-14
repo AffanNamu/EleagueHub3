@@ -7,6 +7,10 @@ import '../domain/master_league_plan.dart';
 import 'master_league_entitlement_service.dart';
 import 'master_league_payment_service.dart';
 
+class _ConcreteMasterLeaguePaymentService extends MasterLeaguePaymentService {
+  _ConcreteMasterLeaguePaymentService();
+}
+
 final masterLeaguesRepositoryProvider =
     Provider<MasterLeaguesRepositoryFirebase>((ref) {
   return MasterLeaguesRepositoryFirebase();
@@ -31,23 +35,19 @@ final masterLeagueEntitlementServiceProvider =
 
 final masterLeaguePaymentServiceProvider =
     Provider<MasterLeaguePaymentService>((ref) {
-  return MasterLeaguePaymentService();
+  return _ConcreteMasterLeaguePaymentService();
 });
 
-/// Server-enforced Organizer Pro unlocked state (based on Auth custom claims).
 final masterLeagueUnlockedProvider = StreamProvider.autoDispose<bool>((ref) {
   final svc = ref.watch(masterLeagueEntitlementServiceProvider);
   return svc.watchUnlocked();
 });
 
-/// Backward-compatible alias.
 final organizerProUnlockedProvider = StreamProvider.autoDispose<bool>((ref) {
   final svc = ref.watch(masterLeagueEntitlementServiceProvider);
   return svc.watchUnlocked();
 });
 
-/// Active Organizer Pro plan from server-issued Auth custom claims.
-/// - null when not active/expired
 final organizerProActivePlanProvider =
     StreamProvider.autoDispose<MasterLeaguePlan?>((ref) {
   final svc = ref.watch(masterLeagueEntitlementServiceProvider);
@@ -61,7 +61,6 @@ final organizerProActivePlanProvider =
   });
 });
 
-/// Backward-compatible alias.
 final organizerProPlanProvider =
     FutureProvider.autoDispose<MasterLeaguePlan?>((ref) async {
   final svc = ref.watch(masterLeagueEntitlementServiceProvider);

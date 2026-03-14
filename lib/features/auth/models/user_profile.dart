@@ -37,6 +37,20 @@ class UserProfile {
 
   bool get hasShareId => shareId.trim().isNotEmpty;
 
+  /// Backward-compatible helper used by older UI parts.
+  /// If stored shareId is missing, derive a stable short id from uid.
+  String get effectiveShareId {
+    final stored = shareId.trim();
+    if (stored.isNotEmpty) return stored;
+    return deriveShareIdFromUid(userId);
+  }
+
+  bool get premiumActive {
+    if (!isPremium) return false;
+    if (premiumExpiresAtMs <= 0) return isPremium;
+    return premiumExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+  }
+
   UserProfile copyWith({
     String? userId,
     String? teamName,

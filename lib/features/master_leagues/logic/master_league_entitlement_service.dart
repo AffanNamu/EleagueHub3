@@ -279,10 +279,16 @@ class MasterLeagueEntitlementService {
     }
 
     final idToken = await user.getIdToken();
+    final safeIdToken = idToken?.trim() ?? '';
+    if (safeIdToken.isEmpty) {
+      throw const MasterLeagueEntitlementException(
+        'Please sign in again and try once more.',
+      );
+    }
 
     await _postJson(
       uri: _activateUri(),
-      idToken: idToken,
+      idToken: safeIdToken,
       body: <String, dynamic>{
         'plan': plan.id,
         'provider': _providerFlutterwave,
