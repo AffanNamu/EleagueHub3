@@ -5,6 +5,8 @@ on:
     branches: [ main ]
     paths:
       - 'worker/**'
+      - '.github/workflows/deploy_worker.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -24,3 +26,71 @@ jobs:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+
+      - name: Test worker endpoints
+        working-directory: .
+        run: |
+          set -euo pipefail
+
+          WORKER_URL="https://livekit-token-worker.esportlyic.workers.dev"
+          echo "Testing worker at: ${WORKER_URL}"
+          echo ""
+
+          # Wait for deployment to propagate
+          sleep 5
+
+          # Test /organizer-pro/activate
+          echo "=== Testing /organizer-pro/activate ==="
+          HTTP_CODE=$(curl -s -o /tmp/resp1.txt -w "%{http_code}" \
+            -X POST "${WORKER_URL}/organizer-pro/activate" \
+            -H "Content-Type: application/json" \
+            -d '{"plan":"basic","provider":"flutterwave","receiptId":"test"}' \
+            --max-time 15)
+          RESP=$(cat /tmp/resp1.txt)
+          echo "HTTP ${HTTP_CODE}: ${RESP}"
+
+          if [ "${HTTP_CODE}" = "401" ]; then
+            echo "✅ /organizer-pro/activate works (401 = needs auth, correct)"
+          elif echo "${RESP}" | grep -qi "FIREBASE_PROJECT_ID"; then
+            echo "::error::Still missing FIREBASE_PROJECT_ID — check wrangler.toml [vars]"
+            exit 1
+          elif echo "${RESP}" | grep -qi "FIREBASE_CLIENT_EMAIL"; then
+            echo "::error::Missing FIREBASE_CLIENT_EMAIL secret in Cloudflare dashboard"
+            echo "Go to: https://dash.cloudflare.com → Workers → livekit-token-worker → Settings → Variables"
+            exit 1
+          elif echo "${RESP}" | grep -qi "FIREBASE_PRIVATE_KEY"; then
+            echo "::error::Missing FIREBASE_PRIVATE_KEY secret in Cloudflare dashboard"
+            exit 1
+          elif echo "${RESP}" | grep -qi "FLUTTERWAVE_SECRET_KEY"; then
+            echo "::error::Missing FLUTTERWAVE_SECRET_KEY secret in Cloudflare dashboard"
+            exit 1
+          elif [ "${HTTP_CODE}" = "404" ]; then
+            echo "::error::Endpoint not found — worker code outdated"
+            exit 1
+          else
+            echo "::warning::Unexpected response — check Cloudflare worker logs"
+          fi
+
+          echo ""
+
+          # Test /premium/activate
+          echo "=== Testing /premium/activate ==="
+          HTTP_CODE2=$(curl -s -o /tmp/resp2.txt -w "%{http_code}" \
+            -X POST "${WORKER_URL}/premium/activate" \
+            -H "Content-Type: application/json" \
+            -d '{"provider":"flutterwave","receiptId":"test"}' \
+            --max-time 15)
+          RESP2=$(cat /tmp/resp2.txt)
+          echo "HTTP ${HTTP_CODE2}: ${RESP2}"
+
+          if [ "${HTTP_CODE2}" = "401" ]; then
+            echo "✅ /premium/activate works (401 = needs auth, correct)"
+          elif [ "${HTTP_CODE2}" = "404" ]; then
+            echo "::warning::/premium/activate not found — check worker/src/index.js has the endpoint"
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "  /organizer-pro/activate : HTTP ${HTTP_CODE}"
+          echo "  /premium/activate       : HTTP ${HTTP_CODE2}"
+          echo "=========================================="
