@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
+import '../../config/backend_config.dart';
 import '../app_analytics_service.dart';
 import 'payment_models.dart';
 
@@ -12,12 +16,13 @@ class PaymentsService {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String _authUidOrEmpty() =>
-      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  String _authUidOrEmpty() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
   String _requireAuthUid() {
     final uid = _authUidOrEmpty();
-    if (uid.isEmpty) throw StateError('Not signed in.');
+    if (uid.isEmpty) {
+      throw StateError('Not signed in.');
+    }
     return uid;
   }
 
@@ -25,20 +30,16 @@ class PaymentsService {
 
   CollectionReference<Map<String, dynamic>> get _attempts =>
       _firestore.collection('payment_attempts');
+
   CollectionReference<Map<String, dynamic>> get _payments =>
       _firestore.collection('payments');
 
-  /// BEST-EFFORT: Creates a payment attempt document.
-  ///
-  /// If Firestore denies the write (permission-denied) or the network fails,
-  /// this returns '' and the app MUST continue (so payments never break).
   Future<String> createAttempt(PaymentAttemptCreate attempt) async {
     final uid = _authUidOrEmpty();
     if (uid.isEmpty) return '';
 
     try {
       if (attempt.userId.trim() != uid) {
-        // Do not throw; just skip attempt logging.
         return '';
       }
 
@@ -52,24 +53,25 @@ class PaymentsService {
 
       return ref.id;
     } catch (e) {
-      // Never block payment flows due to analytics/logging.
-      unawaited(AppAnalyticsService.instance.logEvent(
-        eventName: 'payment_attempt_write_failed',
-        extra: {
-          'error': e.toString(),
-          'provider': attempt.provider,
-          'currency': attempt.currency,
-          'amount': attempt.amount,
-          'leagueId': attempt.leagueId,
-          'leagueName': attempt.leagueName,
-        },
-      ));
+      unawaited(
+        AppAnalyticsService.instance.logEvent(
+          eventName: 'payment_attempt_write_failed',
+          extra: {
+            'error': e.toString(),
+            'provider': attempt.provider,
+            'currency': attempt.currency,
+            'amount': attempt.amount,
+            'leagueId': attempt.leagueId,
+            'leagueName': attempt.leagueName,
+            'productType': attempt.productType,
+            'productSubType': attempt.productSubType,
+          },
+        ),
+      );
       return '';
     }
   }
 
-  /// Reads the full attempt document so we can rebuild it for update.
-  /// Returns null on any failure.
   Future<Map<String, dynamic>?> _readAttempt(String attemptId) async {
     try {
       final snap = await _attempts.doc(attemptId).get();
@@ -80,9 +82,6 @@ class PaymentsService {
     }
   }
 
-  /// Builds a full document for update by overlaying [changes] on [existing].
-  /// Firestore rules with merge see request.resource.data as the FULL doc,
-  /// so we must ensure all immutable fields are present and unchanged.
   Map<String, dynamic> _buildFullAttemptUpdate(
     Map<String, dynamic> existing,
     Map<String, dynamic> changes,
@@ -106,20 +105,20 @@ class PaymentsService {
       final existing = await _readAttempt(attemptId.trim());
       if (existing == null) return;
 
-      // Verify ownership
       final docUid = (existing['userId'] ?? '').toString().trim();
       if (docUid != uid) return;
 
-      final fullDoc = _buildFullAttemptUpdate(existing, {
-        'status': 'cancelled',
-        'errorMessage': reason,
-        'updatedAtMs': now,
-      });
+      final fullDoc = _buildFullAttemptUpdate(
+        existing,
+        {
+          'status': 'cancelled',
+          'errorMessage': reason,
+          'updatedAtMs': now,
+        },
+      );
 
       await _attempts.doc(attemptId.trim()).set(fullDoc, SetOptions(merge: false));
-    } catch (_) {
-      // best-effort
-    }
+    } catch (_) {}
   }
 
   Future<void> markClientFailed({
@@ -136,26 +135,172 @@ class PaymentsService {
       final existing = await _readAttempt(attemptId.trim());
       if (existing == null) return;
 
-      // Verify ownership
       final docUid = (existing['userId'] ?? '').toString().trim();
       if (docUid != uid) return;
 
-      final fullDoc = _buildFullAttemptUpdate(existing, {
-        'status': 'client_failed',
-        'errorMessage': errorMessage,
-        'updatedAtMs': now,
-      });
+      final fullDoc = _buildFullAttemptUpdate(
+        existing,
+        {
+          'status': 'client_failed',
+          'errorMessage': errorMessage,
+          'updatedAtMs': now,
+        },
+      );
 
       await _attempts.doc(attemptId.trim()).set(fullDoc, SetOptions(merge: false));
-    } catch (_) {
-      // best-effort
+    } catch (_) {}
+  }
+
+  Uri _verifyFlutterwaveUri() {
+    final base = BackendConfig.workerBaseUrl.trim();
+    if (base.isEmpty) {
+      throw StateError(
+        'Payment verification service is not configured. '
+        'Missing EH_WORKER_BASE_URL.',
+      );
+    }
+    return Uri.parse('$base/flutterwave/verify');
+  }
+
+  Future<Map<String, dynamic>> _postJson({
+    required Uri uri,
+    required String idToken,
+    required Map<String, dynamic> body,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 15);
+
+    try {
+      final req = await client.postUrl(uri).timeout(timeout);
+      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $idToken');
+      req.headers.set(HttpHeaders.contentTypeHeader, ContentType.json.mimeType);
+      req.add(utf8.encode(jsonEncode(body)));
+
+      final res = await req.close().timeout(timeout);
+      final raw = await res.transform(utf8.decoder).join();
+
+      if (kDebugMode) {
+        debugPrint('[PaymentsService] ${uri.path} -> ${res.statusCode} $raw');
+      }
+
+      Map<String, dynamic> parsed = <String, dynamic>{};
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          parsed = decoded.cast<String, dynamic>();
+        }
+      } catch (_) {
+        parsed = <String, dynamic>{'raw': raw};
+      }
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        final msg = (parsed['error'] as String?)?.trim();
+        throw StateError(
+          msg?.isNotEmpty == true
+              ? msg!
+              : 'Payment verification failed (${res.statusCode}).',
+        );
+      }
+
+      return parsed;
+    } finally {
+      client.close(force: true);
     }
   }
 
-  /// Records a successful Flutterwave payment (client-side, Spark mode).
-  ///
-  /// IMPORTANT: This is best-effort and MUST NOT block UX.
-  /// If writing to /payments or updating /payment_attempts is denied, we still return success.
+  Future<PaymentVerificationResult> verifyFlutterwavePayment({
+    required String attemptId,
+    required String transactionId,
+    required String txRef,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = _requireAuthUid();
+
+    final safeAttemptId = attemptId.trim();
+    final safeTransactionId = transactionId.trim();
+    final safeTxRef = txRef.trim();
+
+    if (safeAttemptId.isEmpty) {
+      return PaymentVerificationResult.failed(
+        provider: 'flutterwave',
+        errorMessage: 'Missing payment attempt.',
+      );
+    }
+
+    if (safeTransactionId.isEmpty) {
+      return PaymentVerificationResult.failed(
+        provider: 'flutterwave',
+        errorMessage: 'Missing transaction id.',
+      );
+    }
+
+    if (user == null) {
+      return PaymentVerificationResult.failed(
+        provider: 'flutterwave',
+        errorMessage: 'Please sign in again and retry.',
+      );
+    }
+
+    try {
+      final idToken = await user.getIdToken(true);
+      final parsed = await _postJson(
+        uri: _verifyFlutterwaveUri(),
+        idToken: idToken ?? '',
+        body: <String, dynamic>{
+          'attemptId': safeAttemptId,
+          'transactionId': safeTransactionId,
+          'txRef': safeTxRef,
+          'userId': uid,
+        },
+      );
+
+      final success = parsed['success'] == true;
+      final provider = (parsed['provider'] as String? ?? 'flutterwave').trim();
+      final paymentId = (parsed['paymentId'] as String? ?? '').trim();
+      final receiptId = (parsed['receiptId'] as String? ?? '').trim();
+      final paidAtMs = ((parsed['paidAtMs'] as num?) ?? 0).toInt();
+      final status = (parsed['status'] as String? ?? '').trim();
+      final currency = (parsed['currency'] as String? ?? '').trim();
+      final amount = ((parsed['amount'] as num?) ?? 0).toDouble();
+      final amountStr = (parsed['amountStr'] as String? ?? '').trim();
+      final verifiedTxId =
+          (parsed['transactionId'] as String? ?? safeTransactionId).trim();
+      final verifiedTxRef = (parsed['txRef'] as String? ?? safeTxRef).trim();
+      final errorMessage = (parsed['error'] as String?)?.trim();
+
+      return PaymentVerificationResult(
+        success: success,
+        provider: provider,
+        paymentId: paymentId,
+        receiptId: receiptId,
+        paidAtMs: paidAtMs,
+        transactionId: verifiedTxId,
+        txRef: verifiedTxRef,
+        status: status,
+        currency: currency,
+        amount: amount,
+        amountStr: amountStr,
+        errorMessage: errorMessage,
+        raw: parsed,
+      );
+    } catch (e) {
+      try {
+        await markClientFailed(
+          attemptId: safeAttemptId,
+          errorMessage: 'Verification failed: $e',
+        );
+      } catch (_) {}
+
+      return PaymentVerificationResult.failed(
+        provider: 'flutterwave',
+        errorMessage: e.toString(),
+        transactionId: safeTransactionId,
+        txRef: safeTxRef,
+      );
+    }
+  }
+
   Future<ClientRecordPaymentResult> recordFlutterwaveClientSuccess({
     required String attemptId,
     required String transactionId,
@@ -166,8 +311,7 @@ class PaymentsService {
     final now = _nowMs();
     final txId = transactionId.trim();
     if (txId.isEmpty) {
-      // This should be treated as failure by callers, but keep safe.
-      return ClientRecordPaymentResult(
+      return const ClientRecordPaymentResult(
         paymentId: '',
         receiptId: '',
         paidAtMs: 0,
@@ -178,8 +322,7 @@ class PaymentsService {
     final receiptId = 'FLW-$txId';
 
     final hasAttempt = attemptId.trim().isNotEmpty;
-    final attemptRef =
-        hasAttempt ? _attempts.doc(attemptId.trim()) : null;
+    final attemptRef = hasAttempt ? _attempts.doc(attemptId.trim()) : null;
     final paymentRef = _payments.doc(paymentId);
 
     try {
@@ -189,18 +332,15 @@ class PaymentsService {
         if (attemptRef != null) {
           final attemptSnap = await t.get(attemptRef);
           if (attemptSnap.exists) {
-            attemptData = (attemptSnap.data() ?? <String, dynamic>{})
-                .cast<String, dynamic>();
-            final attemptUid =
-                (attemptData['userId'] ?? '').toString().trim();
-            // If mismatch, do not update attempt; still allow payment doc write.
+            attemptData =
+                (attemptSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+            final attemptUid = (attemptData['userId'] ?? '').toString().trim();
             if (attemptUid != uid) {
               attemptData = <String, dynamic>{};
             }
           }
         }
 
-        // Create payment doc if not exists (idempotent)
         final paySnap = await t.get(paymentRef);
         if (!paySnap.exists) {
           t.set(
@@ -214,20 +354,17 @@ class PaymentsService {
               'txRef': txRef.trim(),
               'receiptId': receiptId,
               'userId': uid,
-              'leagueId':
-                  (attemptData['leagueId'] ?? '').toString(),
-              'leagueName':
-                  (attemptData['leagueName'] ?? '').toString(),
-              'masterLeagueId':
-                  (attemptData['masterLeagueId'] ?? '').toString(),
-              'couponCode':
-                  (attemptData['couponCode'] ?? '').toString(),
-              'currency':
-                  (attemptData['currency'] ?? '').toString(),
+              'leagueId': (attemptData['leagueId'] ?? '').toString(),
+              'leagueName': (attemptData['leagueName'] ?? '').toString(),
+              'masterLeagueId': (attemptData['masterLeagueId'] ?? '').toString(),
+              'couponCode': (attemptData['couponCode'] ?? '').toString(),
+              'currency': (attemptData['currency'] ?? '').toString(),
               'amount': attemptData['amount'] ?? 0,
-              'amountStr':
-                  (attemptData['amountStr'] ?? '').toString(),
+              'amountStr': (attemptData['amountStr'] ?? '').toString(),
               'items': attemptData['items'] ?? <Map<String, dynamic>>[],
+              'productType': (attemptData['productType'] ?? '').toString(),
+              'productSubType': (attemptData['productSubType'] ?? '').toString(),
+              'metadata': attemptData['metadata'] ?? <String, dynamic>{},
               'paidAtMs': now,
               'createdAtMs': now,
               'verification': <String, dynamic>{
@@ -238,19 +375,19 @@ class PaymentsService {
           );
         }
 
-        // Update attempt status if we have an authorized attempt doc.
-        // We must write the FULL document (not merge) so rules see all
-        // immutable fields unchanged.
         if (attemptRef != null && attemptData.isNotEmpty) {
-          final fullDoc = _buildFullAttemptUpdate(attemptData, {
-            'status': 'client_success',
-            'paymentId': paymentId,
-            'receiptId': receiptId,
-            'paidAtMs': now,
-            'providerTransactionId': txId,
-            'txRef': txRef.trim(),
-            'updatedAtMs': now,
-          });
+          final fullDoc = _buildFullAttemptUpdate(
+            attemptData,
+            {
+              'status': 'client_success',
+              'paymentId': paymentId,
+              'receiptId': receiptId,
+              'paidAtMs': now,
+              'providerTransactionId': txId,
+              'txRef': txRef.trim(),
+              'updatedAtMs': now,
+            },
+          );
 
           t.set(attemptRef, fullDoc);
         }
@@ -262,19 +399,19 @@ class PaymentsService {
         paidAtMs: now,
       );
     } catch (e) {
-      // Permission denied should NEVER break purchase UX.
-      unawaited(AppAnalyticsService.instance.logEvent(
-        eventName: 'payment_record_write_failed',
-        extra: {
-          'attemptId': attemptId,
-          'paymentId': paymentId,
-          'txId': txId,
-          'txRef': txRef,
-          'error': e.toString(),
-        },
-      ));
+      unawaited(
+        AppAnalyticsService.instance.logEvent(
+          eventName: 'payment_record_write_failed',
+          extra: {
+            'attemptId': attemptId,
+            'paymentId': paymentId,
+            'txId': txId,
+            'txRef': txRef,
+            'error': e.toString(),
+          },
+        ),
+      );
 
-      // Return success to caller so league flow continues
       return ClientRecordPaymentResult(
         paymentId: paymentId,
         receiptId: receiptId,

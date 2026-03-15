@@ -14,11 +14,16 @@ class RemotePricingPlan {
   final double couponDiscountPercent;
   final bool viewersEnabled;
 
-  // ── PREMIUM FIELDS ──────────────────────────────────────────────────────────
   final double premiumFee;
   final int premiumDurationDays;
   final bool premiumEnabled;
-  // ────────────────────────────────────────────────────────────────────────────
+
+  final double masterLeagueBasicFee;
+  final double masterLeagueProFee;
+  final double masterLeagueEliteFee;
+
+  final bool paymentsEnabled;
+  final bool flutterwaveEnabled;
 
   const RemotePricingPlan({
     required this.currency,
@@ -31,6 +36,11 @@ class RemotePricingPlan {
     required this.premiumFee,
     required this.premiumDurationDays,
     required this.premiumEnabled,
+    required this.masterLeagueBasicFee,
+    required this.masterLeagueProFee,
+    required this.masterLeagueEliteFee,
+    required this.paymentsEnabled,
+    required this.flutterwaveEnabled,
   });
 
   RemotePricingPlan copyWith({
@@ -44,6 +54,11 @@ class RemotePricingPlan {
     double? premiumFee,
     int? premiumDurationDays,
     bool? premiumEnabled,
+    double? masterLeagueBasicFee,
+    double? masterLeagueProFee,
+    double? masterLeagueEliteFee,
+    bool? paymentsEnabled,
+    bool? flutterwaveEnabled,
   }) {
     return RemotePricingPlan(
       currency: currency ?? this.currency,
@@ -56,6 +71,11 @@ class RemotePricingPlan {
       premiumFee: premiumFee ?? this.premiumFee,
       premiumDurationDays: premiumDurationDays ?? this.premiumDurationDays,
       premiumEnabled: premiumEnabled ?? this.premiumEnabled,
+      masterLeagueBasicFee: masterLeagueBasicFee ?? this.masterLeagueBasicFee,
+      masterLeagueProFee: masterLeagueProFee ?? this.masterLeagueProFee,
+      masterLeagueEliteFee: masterLeagueEliteFee ?? this.masterLeagueEliteFee,
+      paymentsEnabled: paymentsEnabled ?? this.paymentsEnabled,
+      flutterwaveEnabled: flutterwaveEnabled ?? this.flutterwaveEnabled,
     );
   }
 
@@ -70,6 +90,11 @@ class RemotePricingPlan {
         premiumFee: 9.99,
         premiumDurationDays: 30,
         premiumEnabled: true,
+        masterLeagueBasicFee: 5.0,
+        masterLeagueProFee: 10.0,
+        masterLeagueEliteFee: 20.0,
+        paymentsEnabled: true,
+        flutterwaveEnabled: true,
       );
 
   factory RemotePricingPlan.defaultsNgn() => const RemotePricingPlan(
@@ -83,6 +108,11 @@ class RemotePricingPlan {
         premiumFee: 5000.0,
         premiumDurationDays: 30,
         premiumEnabled: true,
+        masterLeagueBasicFee: 1500.0,
+        masterLeagueProFee: 3000.0,
+        masterLeagueEliteFee: 5000.0,
+        paymentsEnabled: true,
+        flutterwaveEnabled: true,
       );
 
   static double _numToDouble(dynamic v, {double fallback = 0}) {
@@ -117,29 +147,73 @@ class RemotePricingPlan {
     required Map<String, dynamic> map,
     required RemotePricingPlan defaults,
   }) {
-    // Accept both old and new keys for backward compatibility.
-    final createFee = map.containsKey('createFee') ? map['createFee'] : map['createLeagueFee'];
+    final createFee = map.containsKey('createFee')
+        ? map['createFee']
+        : map['createLeagueFee'];
+
+    final paymentsEnabled =
+        map.containsKey('paymentsEnabled') ? map['paymentsEnabled'] : true;
+    final flutterwaveEnabled =
+        map.containsKey('flutterwaveEnabled') ? map['flutterwaveEnabled'] : true;
+
+    final mlBasic = map['masterLeagueBasicFee'] ??
+        map['masterLinkBasicFee'] ??
+        map['masterLinkFee'] ??
+        map['masterLeagueFee'];
+
+    final mlPro = map['masterLeagueProFee'] ??
+        map['masterLinkProFee'] ??
+        map['masterLinkFee'] ??
+        map['masterLeagueFee'];
+
+    final mlElite = map['masterLeagueEliteFee'] ??
+        map['masterLinkEliteFee'] ??
+        map['masterLinkFee'] ??
+        map['masterLeagueFee'];
 
     return RemotePricingPlan(
       currency: currency,
-      createLeagueFee: _numToDouble(createFee, fallback: defaults.createLeagueFee),
+      createLeagueFee:
+          _numToDouble(createFee, fallback: defaults.createLeagueFee),
       accessFee: _numToDouble(map['accessFee'], fallback: defaults.accessFee),
       couponUnit: _numToDouble(map['couponUnit'], fallback: defaults.couponUnit),
       couponThreshold: map.containsKey('couponThreshold')
-          ? (_numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0) == 0
+          ? (_numToDouble(
+                      map['couponThreshold'],
+                      fallback: defaults.couponThreshold ?? 0) ==
+                  0
               ? null
-              : _numToDouble(map['couponThreshold'], fallback: defaults.couponThreshold ?? 0))
+              : _numToDouble(
+                  map['couponThreshold'],
+                  fallback: defaults.couponThreshold ?? 0))
           : defaults.couponThreshold,
-      couponDiscountPercent: _numToDouble(map['couponDiscountPercent'], fallback: defaults.couponDiscountPercent),
-      viewersEnabled: _boolFromAny(map['viewersEnabled'], fallback: defaults.viewersEnabled),
+      couponDiscountPercent: _numToDouble(
+        map['couponDiscountPercent'],
+        fallback: defaults.couponDiscountPercent,
+      ),
+      viewersEnabled:
+          _boolFromAny(map['viewersEnabled'], fallback: defaults.viewersEnabled),
       premiumFee: _numToDouble(map['premiumFee'], fallback: defaults.premiumFee),
-      premiumDurationDays: _numToInt(map['premiumDurationDays'], fallback: defaults.premiumDurationDays),
-      premiumEnabled: _boolFromAny(map['premiumEnabled'], fallback: defaults.premiumEnabled),
+      premiumDurationDays: _numToInt(
+        map['premiumDurationDays'],
+        fallback: defaults.premiumDurationDays,
+      ),
+      premiumEnabled:
+          _boolFromAny(map['premiumEnabled'], fallback: defaults.premiumEnabled),
+      masterLeagueBasicFee:
+          _numToDouble(mlBasic, fallback: defaults.masterLeagueBasicFee),
+      masterLeagueProFee:
+          _numToDouble(mlPro, fallback: defaults.masterLeagueProFee),
+      masterLeagueEliteFee:
+          _numToDouble(mlElite, fallback: defaults.masterLeagueEliteFee),
+      paymentsEnabled:
+          _boolFromAny(paymentsEnabled, fallback: defaults.paymentsEnabled),
+      flutterwaveEnabled:
+          _boolFromAny(flutterwaveEnabled, fallback: defaults.flutterwaveEnabled),
     );
   }
 }
 
-/// Shared breakdown for "organizer coupon purchase" pricing.
 class OrganizerCouponPricing {
   final double organizerUnit;
   final int qty;
@@ -179,11 +253,8 @@ class RemotePricingService {
   _RemotePricingCache? _cache;
 
   Future<DocumentSnapshot<Map<String, dynamic>>> _getPricingDoc() async {
-    // New source of truth:
     final primary = await _firestore.collection('app_config').doc('pricing').get();
     if (primary.exists) return primary;
-
-    // Backward compatible fallback:
     return _firestore.collection('app').doc('pricing').get();
   }
 
@@ -199,8 +270,10 @@ class RemotePricingService {
       }
 
       final raw = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ngnMap = (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final usdMap = (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final ngnMap =
+          (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final usdMap =
+          (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
       final ngn = RemotePricingPlan.fromMap(
         currency: 'NGN',
@@ -238,16 +311,46 @@ class RemotePricingService {
       _cache = await _fetch();
     }
 
-    // Testing override (if set)
     final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
     if (forced.isNotEmpty) {
       return _isNigeriaCountryCode(forced) ? _cache!.ngn : _cache!.usd;
     }
 
-    // Automatic country detection (locale -> IP fallback on IO)
-    final cc = await CountryResolverService.instance.resolveCountryCode(locale: locale);
+    final cc =
+        await CountryResolverService.instance.resolveCountryCode(locale: locale);
     if (_isNigeriaCountryCode(cc)) return _cache!.ngn;
     return _cache!.usd;
+  }
+
+  Stream<RemotePricingPlan> watchPlanForLocale(Locale? locale) async* {
+    final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
+    final useNgn = forced.isNotEmpty
+        ? _isNigeriaCountryCode(forced)
+        : (locale?.countryCode ?? '').trim().toUpperCase() == 'NG';
+
+    yield* _firestore
+        .collection('app_config')
+        .doc('pricing')
+        .snapshots(includeMetadataChanges: true)
+        .map((snap) {
+      final raw = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final ngnMap =
+          (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final usdMap =
+          (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+
+      final ngn = RemotePricingPlan.fromMap(
+        currency: 'NGN',
+        map: ngnMap,
+        defaults: RemotePricingPlan.defaultsNgn(),
+      );
+      final usd = RemotePricingPlan.fromMap(
+        currency: 'USD',
+        map: usdMap,
+        defaults: RemotePricingPlan.defaultsUsd(),
+      );
+      return useNgn ? ngn : usd;
+    });
   }
 
   double _roundMoney(String currency, double v) {
@@ -268,7 +371,8 @@ class RemotePricingService {
     if (threshold == null) return _roundMoney(plan.currency, subtotal);
 
     if (subtotal >= threshold) {
-      final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
+      final pct =
+          (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
       final discounted = subtotal * ((100.0 - pct) / 100.0);
       return _roundMoney(plan.currency, discounted);
     }
@@ -313,7 +417,8 @@ class RemotePricingService {
       organizerUnit: organizerUnit,
       qty: qty,
       rawSubtotal: _roundMoney(plan.currency, rawSubtotalUnrounded),
-      discountedSubtotal: _roundMoney(plan.currency, discountedSubtotalUnrounded),
+      discountedSubtotal:
+          _roundMoney(plan.currency, discountedSubtotalUnrounded),
       bulkDiscountApplied: bulkApplied,
     );
   }

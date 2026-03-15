@@ -72,8 +72,7 @@ class OrganizerProfile {
       'bannerUrl': bannerUrl.trim(),
       'logoUrl': logoUrl.trim(),
       'bio': bio.trim(),
-      'socialLinks':
-          socialLinks.map((k, v) => MapEntry(k.trim(), v.trim())),
+      'socialLinks': socialLinks.map((k, v) => MapEntry(k.trim(), v.trim())),
       'badge': badge.trim(),
     };
   }
@@ -148,6 +147,38 @@ class OrganizerAnalytics {
   }
 }
 
+class MasterLeagueCompetitionDraft {
+  final String name;
+  final double entryFee;
+  final int maxParticipants;
+  final String currency;
+
+  const MasterLeagueCompetitionDraft({
+    required this.name,
+    required this.entryFee,
+    required this.maxParticipants,
+    required this.currency,
+  });
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'name': name.trim(),
+      'entryFee': entryFee,
+      'maxParticipants': maxParticipants,
+      'currency': currency.trim().toUpperCase(),
+    };
+  }
+
+  static MasterLeagueCompetitionDraft fromMap(Map<String, dynamic> map) {
+    return MasterLeagueCompetitionDraft(
+      name: (map['name'] as String? ?? '').trim(),
+      entryFee: ((map['entryFee'] as num?) ?? 0).toDouble(),
+      maxParticipants: ((map['maxParticipants'] as num?) ?? 0).toInt(),
+      currency: (map['currency'] as String? ?? '').trim().toUpperCase(),
+    );
+  }
+}
+
 class MasterLeague {
   final String id;
   final String name;
@@ -161,6 +192,10 @@ class MasterLeague {
   final OrganizerProfile organizerProfile;
   final OrganizerAnalytics analytics;
   final int updatedAtMs;
+  final String createdViaAttemptId;
+  final String sourcePaymentId;
+  final String sourceReceiptId;
+  final MasterLeagueCompetitionDraft? initialCompetition;
 
   const MasterLeague({
     required this.id,
@@ -175,6 +210,10 @@ class MasterLeague {
     required this.organizerProfile,
     required this.analytics,
     required this.updatedAtMs,
+    required this.createdViaAttemptId,
+    required this.sourcePaymentId,
+    required this.sourceReceiptId,
+    required this.initialCompetition,
   });
 
   bool get isActive => purchaseStatus.trim().toLowerCase() == 'active';
@@ -236,10 +275,14 @@ class MasterLeague {
           .toSet()
           .toList(growable: false),
       'roles': roles.map((k, v) => MapEntry(k.trim(), v.trim())),
-      'staffShareIds':
-          staffShareIds.map((k, v) => MapEntry(k.trim(), v.trim())),
+      'staffShareIds': staffShareIds.map((k, v) => MapEntry(k.trim(), v.trim())),
       'plan': plan.id,
       'updatedAtMs': updatedAtMs,
+      'createdViaAttemptId': createdViaAttemptId.trim(),
+      'sourcePaymentId': sourcePaymentId.trim(),
+      'sourceReceiptId': sourceReceiptId.trim(),
+      if (initialCompetition != null)
+        'initialCompetition': initialCompetition!.toMap(),
       ...organizerProfile.toFirestoreMap(),
       ...analytics.toFirestoreMap(),
     };
@@ -293,8 +336,7 @@ class MasterLeague {
 
   static MasterLeague fromMap(String id, Map<String, dynamic> map) {
     final ownerId =
-        ((map['ownerId'] as String?) ?? (map['ownerUid'] as String?) ?? '')
-            .trim();
+        ((map['ownerId'] as String?) ?? (map['ownerUid'] as String?) ?? '').trim();
 
     final members = _stringList(map['memberIds']);
     final normalizedMembers = <String>[
@@ -315,22 +357,26 @@ class MasterLeague {
         ? OrganizerProfile.fromMap(
             organizerProfileMap.cast<String, dynamic>(),
           ).copyWith(
-            bannerUrl: (organizerProfileMap['bannerUrl'] as String?)?.trim().isNotEmpty ==
+            bannerUrl: (organizerProfileMap['bannerUrl'] as String?)
+                        ?.trim()
+                        .isNotEmpty ==
                     true
                 ? (organizerProfileMap['bannerUrl'] as String?)!.trim()
                 : ((map['bannerUrl'] as String?) ?? '').trim(),
-            logoUrl: (organizerProfileMap['logoUrl'] as String?)?.trim().isNotEmpty ==
-                    true
-                ? (organizerProfileMap['logoUrl'] as String?)!.trim()
-                : ((map['logoUrl'] as String?) ?? '').trim(),
+            logoUrl:
+                (organizerProfileMap['logoUrl'] as String?)?.trim().isNotEmpty ==
+                        true
+                    ? (organizerProfileMap['logoUrl'] as String?)!.trim()
+                    : ((map['logoUrl'] as String?) ?? '').trim(),
             bio: (organizerProfileMap['bio'] as String?)?.trim().isNotEmpty ==
                     true
                 ? (organizerProfileMap['bio'] as String?)!.trim()
                 : ((map['bio'] as String?) ?? '').trim(),
-            badge: (organizerProfileMap['badge'] as String?)?.trim().isNotEmpty ==
-                    true
-                ? (organizerProfileMap['badge'] as String?)!.trim()
-                : ((map['badge'] as String?) ?? '').trim(),
+            badge:
+                (organizerProfileMap['badge'] as String?)?.trim().isNotEmpty ==
+                        true
+                    ? (organizerProfileMap['badge'] as String?)!.trim()
+                    : ((map['badge'] as String?) ?? '').trim(),
             socialLinks: _stringMap(organizerProfileMap['socialLinks']).isNotEmpty
                 ? _stringMap(organizerProfileMap['socialLinks'])
                 : _stringMap(map['socialLinks']),
@@ -363,6 +409,13 @@ class MasterLeague {
             totalMatches: _toInt(map['totalMatches']),
           );
 
+    final initialCompetitionMap = map['initialCompetition'];
+    final initialCompetition = initialCompetitionMap is Map
+        ? MasterLeagueCompetitionDraft.fromMap(
+            initialCompetitionMap.cast<String, dynamic>(),
+          )
+        : null;
+
     return MasterLeague(
       id: id.trim(),
       name: (map['name'] as String? ?? '').trim(),
@@ -376,6 +429,10 @@ class MasterLeague {
       organizerProfile: organizerProfile,
       analytics: analytics,
       updatedAtMs: _toInt(map['updatedAtMs']),
+      createdViaAttemptId: (map['createdViaAttemptId'] as String? ?? '').trim(),
+      sourcePaymentId: (map['sourcePaymentId'] as String? ?? '').trim(),
+      sourceReceiptId: (map['sourceReceiptId'] as String? ?? '').trim(),
+      initialCompetition: initialCompetition,
     );
   }
 
@@ -392,6 +449,10 @@ class MasterLeague {
     OrganizerProfile? organizerProfile,
     OrganizerAnalytics? analytics,
     int? updatedAtMs,
+    String? createdViaAttemptId,
+    String? sourcePaymentId,
+    String? sourceReceiptId,
+    MasterLeagueCompetitionDraft? initialCompetition,
   }) {
     return MasterLeague(
       id: id ?? this.id,
@@ -406,6 +467,10 @@ class MasterLeague {
       organizerProfile: organizerProfile ?? this.organizerProfile,
       analytics: analytics ?? this.analytics,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+      createdViaAttemptId: createdViaAttemptId ?? this.createdViaAttemptId,
+      sourcePaymentId: sourcePaymentId ?? this.sourcePaymentId,
+      sourceReceiptId: sourceReceiptId ?? this.sourceReceiptId,
+      initialCompetition: initialCompetition ?? this.initialCompetition,
     );
   }
 }

@@ -52,29 +52,31 @@ String _numToText(dynamic v) {
   return '';
 }
 
-/// In-app pricing editor for pricing admins.
-/// Writes to Firestore:
-///   app_config/pricing  (source of truth)
-/// Also mirrors to:
-///   app/pricing         (legacy compatibility)
 Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   if (uid.isEmpty) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please sign in.'), behavior: SnackBarBehavior.floating),
+        const SnackBar(
+          content: Text('Please sign in.'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
     return;
   }
 
   try {
-    await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+    await ConnectivityService.instance.requireOnline(
+      timeout: const Duration(seconds: 4),
+    );
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))),
+          content: Text(
+            UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -86,29 +88,8 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   if (!allowed) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Not authorized.'), behavior: SnackBarBehavior.floating),
-      );
-    }
-    return;
-  }
-
-  final primaryRef = FirebaseFirestore.instance.collection('app_config').doc('pricing');
-  final legacyRef = FirebaseFirestore.instance.collection('app').doc('pricing');
-
-  Map<String, dynamic> pricing;
-  try {
-    final snap = await primaryRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
-    if (snap.exists) {
-      pricing = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    } else {
-      final old = await legacyRef.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 12));
-      pricing = (old.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    }
-  } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))),
+        const SnackBar(
+          content: Text('Not authorized.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -116,24 +97,101 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
     return;
   }
 
-  final usd = (pricing['usd'] is Map) ? (pricing['usd'] as Map).cast<String, dynamic>() : <String, dynamic>{};
-  final ngn = (pricing['ngn'] is Map) ? (pricing['ngn'] as Map).cast<String, dynamic>() : <String, dynamic>{};
+  final primaryRef =
+      FirebaseFirestore.instance.collection('app_config').doc('pricing');
+  final legacyRef = FirebaseFirestore.instance.collection('app').doc('pricing');
 
+  Map<String, dynamic> pricing;
+  try {
+    final snap = await primaryRef
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+    if (snap.exists) {
+      pricing = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    } else {
+      final old = await legacyRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+      pricing = (old.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    return;
+  }
+
+  final usd =
+      (pricing['usd'] is Map) ? (pricing['usd'] as Map).cast<String, dynamic>() : <String, dynamic>{};
+  final ngn =
+      (pricing['ngn'] is Map) ? (pricing['ngn'] as Map).cast<String, dynamic>() : <String, dynamic>{};
+
+  final usdCreateFee = TextEditingController(
+    text: _numToText(usd['createFee'] ?? usd['createLeagueFee']),
+  );
   final usdAccessFee = TextEditingController(text: _numToText(usd['accessFee']));
-  final usdCreateFee = TextEditingController(text: _numToText(usd['createFee'] ?? usd['createLeagueFee']));
   final usdCouponUnit = TextEditingController(text: _numToText(usd['couponUnit']));
-  final usdMasterLinkFee = TextEditingController(text: _numToText(usd['masterLinkFee'] ?? usd['masterLeagueFee']));
   final usdPremiumFee = TextEditingController(text: _numToText(usd['premiumFee']));
   final usdPremiumDays = TextEditingController(text: _numToText(usd['premiumDurationDays']));
-  bool usdPremiumEnabled = (usd['premiumEnabled'] is bool) ? usd['premiumEnabled'] as bool : true;
+  final usdMlBasic = TextEditingController(
+    text: _numToText(
+      usd['masterLeagueBasicFee'] ?? usd['masterLinkBasicFee'] ?? usd['masterLinkFee'],
+    ),
+  );
+  final usdMlPro = TextEditingController(
+    text: _numToText(
+      usd['masterLeagueProFee'] ?? usd['masterLinkProFee'] ?? usd['masterLinkFee'],
+    ),
+  );
+  final usdMlElite = TextEditingController(
+    text: _numToText(
+      usd['masterLeagueEliteFee'] ?? usd['masterLinkEliteFee'] ?? usd['masterLinkFee'],
+    ),
+  );
 
+  bool usdPremiumEnabled =
+      (usd['premiumEnabled'] is bool) ? usd['premiumEnabled'] as bool : true;
+  bool usdPaymentsEnabled =
+      (usd['paymentsEnabled'] is bool) ? usd['paymentsEnabled'] as bool : true;
+  bool usdFlutterwaveEnabled =
+      (usd['flutterwaveEnabled'] is bool) ? usd['flutterwaveEnabled'] as bool : true;
+
+  final ngnCreateFee = TextEditingController(
+    text: _numToText(ngn['createFee'] ?? ngn['createLeagueFee']),
+  );
   final ngnAccessFee = TextEditingController(text: _numToText(ngn['accessFee']));
-  final ngnCreateFee = TextEditingController(text: _numToText(ngn['createFee'] ?? ngn['createLeagueFee']));
   final ngnCouponUnit = TextEditingController(text: _numToText(ngn['couponUnit']));
-  final ngnMasterLinkFee = TextEditingController(text: _numToText(ngn['masterLinkFee'] ?? ngn['masterLeagueFee']));
   final ngnPremiumFee = TextEditingController(text: _numToText(ngn['premiumFee']));
   final ngnPremiumDays = TextEditingController(text: _numToText(ngn['premiumDurationDays']));
-  bool ngnPremiumEnabled = (ngn['premiumEnabled'] is bool) ? ngn['premiumEnabled'] as bool : true;
+  final ngnMlBasic = TextEditingController(
+    text: _numToText(
+      ngn['masterLeagueBasicFee'] ?? ngn['masterLinkBasicFee'] ?? ngn['masterLinkFee'],
+    ),
+  );
+  final ngnMlPro = TextEditingController(
+    text: _numToText(
+      ngn['masterLeagueProFee'] ?? ngn['masterLinkProFee'] ?? ngn['masterLinkFee'],
+    ),
+  );
+  final ngnMlElite = TextEditingController(
+    text: _numToText(
+      ngn['masterLeagueEliteFee'] ?? ngn['masterLinkEliteFee'] ?? ngn['masterLinkFee'],
+    ),
+  );
+
+  bool ngnPremiumEnabled =
+      (ngn['premiumEnabled'] is bool) ? ngn['premiumEnabled'] as bool : true;
+  bool ngnPaymentsEnabled =
+      (ngn['paymentsEnabled'] is bool) ? ngn['paymentsEnabled'] as bool : true;
+  bool ngnFlutterwaveEnabled =
+      (ngn['flutterwaveEnabled'] is bool) ? ngn['flutterwaveEnabled'] as bool : true;
 
   bool saved = false;
 
@@ -146,7 +204,6 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
       final cs = theme.colorScheme;
       final on = cs.onSurface;
       final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
-
       final isLight = theme.brightness == Brightness.light;
 
       bool busy = false;
@@ -161,7 +218,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
           child: TextField(
             controller: c,
             enabled: !busy,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
               labelText: label,
               helperText: helper,
@@ -177,7 +234,26 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: cs.primary.withOpacity(0.65), width: 1.4),
+                borderSide: BorderSide(
+                  color: cs.primary.withOpacity(0.65),
+                  width: 1.4,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      Widget sectionLabel(String text) {
+        return Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 8),
+            child: Text(
+              text,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: on,
+                fontWeight: FontWeight.w900,
               ),
             ),
           ),
@@ -187,21 +263,40 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
       Future<void> doSave(StateSetter setSheet) async {
         if (busy) return;
 
-        final ua = _parseNum(usdAccessFee.text);
         final uc = _parseNum(usdCreateFee.text);
+        final ua = _parseNum(usdAccessFee.text);
         final uu = _parseNum(usdCouponUnit.text);
-        final uml = _parseNum(usdMasterLinkFee.text);
         final upf = _parseNum(usdPremiumFee.text);
         final upd = _parseNum(usdPremiumDays.text);
+        final ub = _parseNum(usdMlBasic.text);
+        final up = _parseNum(usdMlPro.text);
+        final ue = _parseNum(usdMlElite.text);
 
-        final na = _parseNum(ngnAccessFee.text);
         final nc = _parseNum(ngnCreateFee.text);
+        final na = _parseNum(ngnAccessFee.text);
         final nu = _parseNum(ngnCouponUnit.text);
-        final nml = _parseNum(ngnMasterLinkFee.text);
         final npf = _parseNum(ngnPremiumFee.text);
         final npd = _parseNum(ngnPremiumDays.text);
+        final nb = _parseNum(ngnMlBasic.text);
+        final np = _parseNum(ngnMlPro.text);
+        final ne = _parseNum(ngnMlElite.text);
 
-        if (ua == null || uc == null || uu == null || uml == null || upf == null || upd == null || na == null || nc == null || nu == null || nml == null || npf == null || npd == null) {
+        if (uc == null ||
+            ua == null ||
+            uu == null ||
+            upf == null ||
+            upd == null ||
+            ub == null ||
+            up == null ||
+            ue == null ||
+            nc == null ||
+            na == null ||
+            nu == null ||
+            npf == null ||
+            npd == null ||
+            nb == null ||
+            np == null ||
+            ne == null) {
           setSheet(() => error = 'Enter valid numbers for all fields.');
           return;
         }
@@ -212,41 +307,66 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
         });
 
         try {
-          await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+          await ConnectivityService.instance.requireOnline(
+            timeout: const Duration(seconds: 4),
+          );
           final now = DateTime.now().millisecondsSinceEpoch;
 
           final payload = <String, dynamic>{
             'usd': <String, dynamic>{
-              'accessFee': ua,
               'createFee': uc,
+              'accessFee': ua,
               'couponUnit': uu,
-              'masterLinkFee': uml,
               'premiumFee': upf,
               'premiumDurationDays': upd.toInt(),
               'premiumEnabled': usdPremiumEnabled,
+              'masterLeagueBasicFee': ub,
+              'masterLeagueProFee': up,
+              'masterLeagueEliteFee': ue,
+              'masterLinkBasicFee': ub,
+              'masterLinkProFee': up,
+              'masterLinkEliteFee': ue,
+              'masterLinkFee': up,
+              'masterLeagueFee': up,
+              'paymentsEnabled': usdPaymentsEnabled,
+              'flutterwaveEnabled': usdFlutterwaveEnabled,
             },
             'ngn': <String, dynamic>{
-              'accessFee': na,
               'createFee': nc,
+              'accessFee': na,
               'couponUnit': nu,
-              'masterLinkFee': nml,
               'premiumFee': npf,
               'premiumDurationDays': npd.toInt(),
               'premiumEnabled': ngnPremiumEnabled,
+              'masterLeagueBasicFee': nb,
+              'masterLeagueProFee': np,
+              'masterLeagueEliteFee': ne,
+              'masterLinkBasicFee': nb,
+              'masterLinkProFee': np,
+              'masterLinkEliteFee': ne,
+              'masterLinkFee': np,
+              'masterLeagueFee': np,
+              'paymentsEnabled': ngnPaymentsEnabled,
+              'flutterwaveEnabled': ngnFlutterwaveEnabled,
             },
             'updatedAtMs': now,
             'updatedBy': uid,
           };
 
-          await primaryRef.set(payload, SetOptions(merge: true)).timeout(const Duration(seconds: 15));
-          await legacyRef.set(payload, SetOptions(merge: true)).timeout(const Duration(seconds: 15));
+          await primaryRef
+              .set(payload, SetOptions(merge: true))
+              .timeout(const Duration(seconds: 15));
+          await legacyRef
+              .set(payload, SetOptions(merge: true))
+              .timeout(const Duration(seconds: 15));
 
           saved = true;
           if (ctx.mounted) Navigator.of(ctx).pop();
         } catch (e) {
           setSheet(() {
             busy = false;
-            error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+            error =
+                UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
           });
         }
       }
@@ -294,7 +414,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Pricing (Quick Editor)',
+                                  'Payment Control Center',
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     color: on,
                                     fontWeight: FontWeight.w900,
@@ -308,45 +428,58 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: Text(
-                              'USD',
-                              style: theme.textTheme.titleSmall?.copyWith(color: on, fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          field('USD Access Fee', usdAccessFee),
-                          field('USD Create League Fee', usdCreateFee),
-                          field('USD Coupon Unit', usdCouponUnit),
-                          field('USD MasterLink Fee', usdMasterLinkFee, helper: 'MasterLink subscription fee'),
-                          field('USD Premium Fee', usdPremiumFee),
-                          field('USD Premium Duration (days)', usdPremiumDays),
+
+                          sectionLabel('USD'),
+                          field('League create fee', usdCreateFee),
+                          field('League access fee', usdAccessFee),
+                          field('Coupon unit', usdCouponUnit),
+                          field('Premium fee', usdPremiumFee),
+                          field('Premium duration (days)', usdPremiumDays),
                           SwitchListTile.adaptive(
                             value: usdPremiumEnabled,
                             onChanged: busy ? null : (v) => setSheet(() => usdPremiumEnabled = v),
                             title: const Text('Premium enabled'),
                           ),
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: Text(
-                              'NGN',
-                              style: theme.textTheme.titleSmall?.copyWith(color: on, fontWeight: FontWeight.w900),
-                            ),
+                          field('Master League Basic fee', usdMlBasic),
+                          field('Master League Pro fee', usdMlPro),
+                          field('Master League Elite fee', usdMlElite),
+                          SwitchListTile.adaptive(
+                            value: usdPaymentsEnabled,
+                            onChanged: busy ? null : (v) => setSheet(() => usdPaymentsEnabled = v),
+                            title: const Text('Payments enabled'),
                           ),
+                          SwitchListTile.adaptive(
+                            value: usdFlutterwaveEnabled,
+                            onChanged: busy ? null : (v) => setSheet(() => usdFlutterwaveEnabled = v),
+                            title: const Text('Flutterwave enabled'),
+                          ),
+
                           const SizedBox(height: 8),
-                          field('NGN Access Fee', ngnAccessFee),
-                          field('NGN Create League Fee', ngnCreateFee),
-                          field('NGN Coupon Unit', ngnCouponUnit),
-                          field('NGN MasterLink Fee', ngnMasterLinkFee, helper: 'MasterLink subscription fee'),
-                          field('NGN Premium Fee', ngnPremiumFee),
-                          field('NGN Premium Duration (days)', ngnPremiumDays),
+                          sectionLabel('NGN'),
+                          field('League create fee', ngnCreateFee),
+                          field('League access fee', ngnAccessFee),
+                          field('Coupon unit', ngnCouponUnit),
+                          field('Premium fee', ngnPremiumFee),
+                          field('Premium duration (days)', ngnPremiumDays),
                           SwitchListTile.adaptive(
                             value: ngnPremiumEnabled,
                             onChanged: busy ? null : (v) => setSheet(() => ngnPremiumEnabled = v),
                             title: const Text('Premium enabled'),
                           ),
+                          field('Master League Basic fee', ngnMlBasic),
+                          field('Master League Pro fee', ngnMlPro),
+                          field('Master League Elite fee', ngnMlElite),
+                          SwitchListTile.adaptive(
+                            value: ngnPaymentsEnabled,
+                            onChanged: busy ? null : (v) => setSheet(() => ngnPaymentsEnabled = v),
+                            title: const Text('Payments enabled'),
+                          ),
+                          SwitchListTile.adaptive(
+                            value: ngnFlutterwaveEnabled,
+                            onChanged: busy ? null : (v) => setSheet(() => ngnFlutterwaveEnabled = v),
+                            title: const Text('Flutterwave enabled'),
+                          ),
+
                           if ((error ?? '').trim().isNotEmpty) ...[
                             const SizedBox(height: 10),
                             Container(
@@ -372,10 +505,16 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                                   ? const SizedBox(
                                       width: 18,
                                       height: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
                                     )
                                   : const Icon(Icons.save_rounded),
-                              label: const Text('Save', style: TextStyle(fontWeight: FontWeight.w900)),
+                              label: const Text(
+                                'Save',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -383,8 +522,14 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                             width: double.infinity,
                             child: OutlinedButton(
                               onPressed: busy ? null : () => Navigator.of(ctx).pop(),
-                              style: OutlinedButton.styleFrom(side: outlineSide, foregroundColor: on.withOpacity(0.90)),
-                              child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w900)),
+                              style: OutlinedButton.styleFrom(
+                                side: outlineSide,
+                                foregroundColor: on.withOpacity(0.90),
+                              ),
+                              child: const Text(
+                                'Cancel',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
                             ),
                           ),
                         ],
@@ -400,23 +545,30 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
     },
   );
 
-  usdAccessFee.dispose();
   usdCreateFee.dispose();
+  usdAccessFee.dispose();
   usdCouponUnit.dispose();
-  usdMasterLinkFee.dispose();
   usdPremiumFee.dispose();
   usdPremiumDays.dispose();
+  usdMlBasic.dispose();
+  usdMlPro.dispose();
+  usdMlElite.dispose();
 
-  ngnAccessFee.dispose();
   ngnCreateFee.dispose();
+  ngnAccessFee.dispose();
   ngnCouponUnit.dispose();
-  ngnMasterLinkFee.dispose();
   ngnPremiumFee.dispose();
   ngnPremiumDays.dispose();
+  ngnMlBasic.dispose();
+  ngnMlPro.dispose();
+  ngnMlElite.dispose();
 
   if (saved && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Pricing updated.'), behavior: SnackBarBehavior.floating),
+      const SnackBar(
+        content: Text('Pricing updated.'),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 }

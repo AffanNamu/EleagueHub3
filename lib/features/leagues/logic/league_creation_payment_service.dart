@@ -10,7 +10,8 @@ import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 
-final leagueCreationPaymentServiceProvider = Provider<LeagueCreationPaymentService>((ref) {
+final leagueCreationPaymentServiceProvider =
+    Provider<LeagueCreationPaymentService>((ref) {
   return FlutterwaveLeagueCreationPaymentService();
 });
 
@@ -20,7 +21,6 @@ class LeagueCreationPaymentResult {
   final int paidAtMs;
   final String provider;
   final String? errorMessage;
-
   final int viewerCapacity;
   final bool buyCouponsForParticipants;
   final int couponDiscountPercent;
@@ -103,7 +103,8 @@ abstract class LeagueCreationPaymentService {
   String get providerName;
 }
 
-class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentService {
+class FlutterwaveLeagueCreationPaymentService
+    implements LeagueCreationPaymentService {
   final Uuid _uuid = const Uuid();
 
   @override
@@ -125,6 +126,11 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
     return double.parse(v.toStringAsFixed(2));
   }
 
+  bool _isChargeSuccessful(ChargeResponse response) {
+    final status = (response.status ?? '').toString().trim().toLowerCase();
+    return response.success == true || status == 'successful';
+  }
+
   @override
   Future<LeagueCreationPaymentResult> collectLeagueCreationFee({
     required BuildContext context,
@@ -140,22 +146,63 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
     final safeCouponCount = buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
 
     String attemptId = '';
+    String totalAmount = '0';
 
     try {
-      final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
+      final authUser = FirebaseAuth.instance.currentUser;
+      if (authUser == null || authUser.uid.trim().isEmpty) {
+        return LeagueCreationPaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Please sign in to continue.',
+        );
+      }
+
+      final safeLeagueName = leagueName.trim();
+      if (safeLeagueName.isEmpty) {
+        return LeagueCreationPaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'League name is required.',
+        );
+      }
+
+      final plan = await RemotePricingService.instance.getPlanForLocale(
+        Localizations.maybeLocaleOf(context),
+      );
+
+      if (!plan.paymentsEnabled) {
+        return LeagueCreationPaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Payments are temporarily disabled by the administrator.',
+        );
+      }
+
+      if (!plan.flutterwaveEnabled) {
+        return LeagueCreationPaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
+        );
+      }
+
       final base = addonsOnly ? 0.0 : plan.createLeagueFee;
 
       if (buyCouponsForParticipants && safeCouponCount > 0 && discountPercent <= 0) {
-        throw StateError('Discount must be > 0 when buying coupons.');
+        return LeagueCreationPaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Discount must be greater than 0 when buying coupons.',
+        );
       }
 
-      final couponPricing = RemotePricingService.instance.computeOrganizerCouponPricing(
+      final couponPricing =
+          RemotePricingService.instance.computeOrganizerCouponPricing(
         plan: plan,
         couponCount: safeCouponCount,
         discountPercent: discountPercent,
       );
 
-      final totalNumeric = _roundMoney(plan.currency, base + couponPricing.discountedSubtotal);
+      final totalNumeric =
+          _roundMoney(plan.currency, base + couponPricing.discountedSubtotal);
 
       if (totalNumeric <= 0) {
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -172,21 +219,20 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
       }
 
       FlutterwaveConfig.assertConfigured();
-      final totalAmount = _toFlutterwaveAmount(totalNumeric);
+      totalAmount = _toFlutterwaveAmount(totalNumeric);
 
-      // Create attempt
       final items = <PaymentLineItem>[
         if (!addonsOnly)
           PaymentLineItem(
-            productType: 'league',
-            productSubType: 'league_creation',
+            productType: 'league_creation',
+            productSubType: 'league_creation_base',
             quantity: 1,
             amount: base,
           ),
         if (safeCouponCount > 0)
           PaymentLineItem(
-            productType: 'coupon',
-            productSubType: 'coupon_pack',
+            productType: 'coupon_pack',
+            productSubType: 'coupon_pack_purchase',
             quantity: safeCouponCount,
             amount: couponPricing.discountedSubtotal,
           ),
@@ -198,27 +244,43 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
           currency: plan.currency,
           amount: totalNumeric,
           amountStr: totalAmount,
-          userId: FirebaseAuth.instance.currentUser!.uid,
+          userId: authUser.uid,
           leagueId: '',
-          leagueName: leagueName,
+          leagueName: safeLeagueName,
+          productType: addonsOnly ? 'league_upgrade' : 'league_creation',
+          productSubType:
+              addonsOnly ? 'league_addons_only' : 'league_creation_checkout',
+          metadata: <String, dynamic>{
+            'addonsOnly': addonsOnly,
+            'viewerCapacity': viewerCapacity,
+            'buyCouponsForParticipants': buyCouponsForParticipants,
+            'couponDiscountPercent': discountPercent,
+            'couponCount': safeCouponCount,
+          },
           items: items,
         ),
       );
 
       await AppAnalyticsService.instance.logPaymentAttempt(
-        kind: 'league',
+        kind: addonsOnly ? 'league_upgrade' : 'league_creation',
         leagueId: '',
-        leagueName: leagueName,
+        leagueName: safeLeagueName,
         provider: providerName,
         currency: plan.currency,
         amount: totalAmount,
         userId: userId,
       );
 
-      final authUser = FirebaseAuth.instance.currentUser;
-      final String email = (authUser?.email?.trim().isNotEmpty ?? false) ? authUser!.email!.trim() : 'user_$userId@eleaguehub.app';
-      final String phone = (authUser?.phoneNumber?.trim().isNotEmpty ?? false) ? authUser!.phoneNumber!.trim() : '0000000000';
-      final String name = (authUser?.displayName?.trim().isNotEmpty ?? false) ? authUser!.displayName!.trim() : 'EleagueHub User';
+      final String email = (authUser.email?.trim().isNotEmpty ?? false)
+          ? authUser.email!.trim()
+          : 'user_$userId@eleaguehub.app';
+      final String phone = (authUser.phoneNumber?.trim().isNotEmpty ?? false)
+          ? authUser.phoneNumber!.trim()
+          : '0000000000';
+      final String name = (authUser.displayName?.trim().isNotEmpty ?? false)
+          ? authUser.displayName!.trim()
+          : 'EleagueHub User';
+
       final customer = Customer(name: name, phoneNumber: phone, email: email);
 
       final txRef = addonsOnly
@@ -232,26 +294,46 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         txRef: txRef,
         amount: totalAmount,
         customer: customer,
-        paymentOptions: plan.currency.toUpperCase() == 'NGN' ? 'card,ussd,banktransfer' : 'card',
+        paymentOptions: plan.currency.toUpperCase() == 'NGN'
+            ? 'card,ussd,banktransfer'
+            : 'card',
         customization: Customization(
           title: 'EleagueHub',
-          description: addonsOnly ? 'League upgrade: $leagueName' : 'League creation: $leagueName',
+          description: addonsOnly
+              ? 'League upgrade: $safeLeagueName'
+              : 'League creation: $safeLeagueName',
         ),
         isTestMode: FlutterwaveConfig.isTestMode,
       );
 
       final ChargeResponse response = await flutterwave.charge(context);
 
-      if (response.success == true) {
+      if (_isChargeSuccessful(response)) {
         final txId = (response.transactionId ?? '').toString().trim();
         if (txId.isEmpty) {
-          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: 'Missing transactionId.');
-          return LeagueCreationPaymentResult.failed(provider: providerName, errorMessage: 'Missing transaction id.');
+          if (attemptId.isNotEmpty) {
+            await PaymentsService.instance.markClientFailed(
+              attemptId: attemptId,
+              errorMessage: 'Missing transactionId.',
+            );
+          }
+          return LeagueCreationPaymentResult.failed(
+            provider: providerName,
+            errorMessage: 'Missing transaction id.',
+            totalAmount: totalAmount,
+            buyCouponsForParticipants: buyCouponsForParticipants,
+            couponDiscountPercent: discountPercent,
+            couponCount: safeCouponCount,
+          );
         }
 
-        final resolvedTxRef = (response.txRef?.trim().isNotEmpty ?? false) ? response.txRef!.trim() : txRef;
+        final resolvedTxRef =
+            (response.txRef?.trim().isNotEmpty ?? false)
+                ? response.txRef!.trim()
+                : txRef;
 
-        final recorded = await PaymentsService.instance.recordFlutterwaveClientSuccess(
+        final recorded =
+            await PaymentsService.instance.recordFlutterwaveClientSuccess(
           attemptId: attemptId,
           transactionId: txId,
           txRef: resolvedTxRef,
@@ -269,7 +351,12 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         );
       }
 
-      await PaymentsService.instance.markClientCancelled(attemptId: attemptId, reason: 'Payment cancelled or not successful');
+      if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: 'Payment cancelled or not successful',
+        );
+      }
 
       return LeagueCreationPaymentResult.failed(
         provider: providerName,
@@ -283,7 +370,10 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
     } catch (e) {
       if (attemptId.isNotEmpty) {
         try {
-          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: e.toString());
+          await PaymentsService.instance.markClientFailed(
+            attemptId: attemptId,
+            errorMessage: e.toString(),
+          );
         } catch (_) {}
       }
 
@@ -294,7 +384,7 @@ class FlutterwaveLeagueCreationPaymentService implements LeagueCreationPaymentSe
         buyCouponsForParticipants: buyCouponsForParticipants,
         couponDiscountPercent: discountPercent,
         couponCount: safeCouponCount,
-        totalAmount: '0',
+        totalAmount: totalAmount,
       );
     }
   }

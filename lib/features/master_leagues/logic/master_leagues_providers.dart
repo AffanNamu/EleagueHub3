@@ -18,6 +18,18 @@ final myMasterLeaguesProvider =
   return repo.watchMyMasterLeagues();
 });
 
+final createdMasterLeaguesProvider =
+    StreamProvider.autoDispose<List<MasterLeague>>((ref) {
+  final repo = ref.watch(masterLeaguesRepositoryProvider);
+  return repo.watchCreatedMasterLeagues();
+});
+
+final joinedMasterLeaguesProvider =
+    StreamProvider.autoDispose<List<MasterLeague>>((ref) {
+  final repo = ref.watch(masterLeaguesRepositoryProvider);
+  return repo.watchJoinedMasterLeagues();
+});
+
 final masterLeagueByIdProvider =
     FutureProvider.autoDispose.family<MasterLeague?, String>((ref, id) {
   final repo = ref.watch(masterLeaguesRepositoryProvider);

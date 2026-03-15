@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/widgets/glass.dart';
@@ -14,19 +15,8 @@ class MasterLeagueCard extends StatelessWidget {
   final VoidCallback onTap;
 
   String _createdLabel() {
-    final dynamic raw = masterLeague.createdAt;
-    DateTime? dt;
-
-    if (raw is DateTime) dt = raw;
-    try {
-      if (dt == null && raw != null && raw.toDate is Function) {
-        final value = raw.toDate();
-        if (value is DateTime) dt = value;
-      }
-    } catch (_) {}
-
+    final dt = masterLeague.createdAt;
     if (dt == null) return '';
-
     final month = dt.month.toString().padLeft(2, '0');
     final day = dt.day.toString().padLeft(2, '0');
     return '${dt.year}-$month-$day';
@@ -36,6 +26,9 @@ class MasterLeagueCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final isOwner =
+        currentUid.isNotEmpty && masterLeague.ownerId.trim() == currentUid;
 
     final title = masterLeague.name.trim().isEmpty
         ? 'Master League'
@@ -44,15 +37,18 @@ class MasterLeagueCard extends StatelessWidget {
     final bio = masterLeague.organizerProfile.bio.trim();
     final badge = masterLeague.organizerProfile.badge.trim();
     final created = _createdLabel();
+    final initialCompetition = masterLeague.initialCompetition;
 
     final subtitle = masterLeague.isActive
-        ? 'Organizer Pro active • Competitions inside included'
-        : 'Locked';
+        ? (isOwner
+            ? 'You created this Master League'
+            : 'You joined this Master League')
+        : 'Inactive';
 
     final badgeBg = masterLeague.isActive
         ? const Color(0xFF22C55E)
         : const Color(0xFFF59E0B);
-    final badgeLabel = masterLeague.isActive ? 'ACTIVE' : 'LOCKED';
+    final badgeLabel = masterLeague.isActive ? 'ACTIVE' : 'INACTIVE';
 
     return InkWell(
       onTap: onTap,
@@ -116,6 +112,13 @@ class MasterLeagueCard extends StatelessWidget {
                           color: cs.primary,
                           label: masterLeague.plan.displayName.toUpperCase(),
                         ),
+                        _chip(
+                          theme: theme,
+                          color: isOwner
+                              ? const Color(0xFF3B82F6)
+                              : const Color(0xFF8B5CF6),
+                          label: isOwner ? 'CREATED' : 'JOINED',
+                        ),
                         if (badge.isNotEmpty)
                           _chip(
                             theme: theme,
@@ -146,6 +149,19 @@ class MasterLeagueCard extends StatelessWidget {
                         height: 1.3,
                       ),
                     ),
+                    if (initialCompetition != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'Initial competition: ${initialCompetition.name} • Entry fee: ${initialCompetition.entryFee.toStringAsFixed(2)} • Max: ${initialCompetition.maxParticipants}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.68),
+                          fontWeight: FontWeight.w800,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 8,
@@ -165,7 +181,7 @@ class MasterLeagueCard extends StatelessWidget {
                         ),
                         _stat(
                           context,
-                          '${masterLeague.memberIds.length} staff',
+                          '${masterLeague.memberIds.length} members',
                         ),
                         if (created.isNotEmpty) _stat(context, 'Created $created'),
                       ],

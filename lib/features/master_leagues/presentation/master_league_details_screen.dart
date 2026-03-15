@@ -189,8 +189,7 @@ class _MasterLeagueDetailsScreenState
                   padding: const EdgeInsets.all(14),
                   child: Row(
                     children: [
-                      Icon(Icons.add_circle_outline_rounded,
-                          color: cs.primary),
+                      Icon(Icons.add_circle_outline_rounded, color: cs.primary),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -711,6 +710,108 @@ class _MasterLeagueDetailsScreenState
     );
   }
 
+  Widget _buildSummaryCard(
+    MasterLeague ml,
+    ThemeData theme,
+    ColorScheme cs,
+  ) {
+    final draft = ml.initialCompetition;
+
+    Widget infoTile({
+      required IconData icon,
+      required String label,
+      required String value,
+      Color? tint,
+    }) {
+      final c = tint ?? cs.primary;
+      return Glass(
+        borderRadius: 18,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: c, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '$label: $value',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 14),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 10),
+          child: Text(
+            'Creation Summary',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.2,
+              color: cs.onSurface,
+            ),
+          ),
+        ),
+        infoTile(
+          icon: Icons.workspace_premium_outlined,
+          label: 'Plan',
+          value: ml.plan.displayName,
+        ),
+        const SizedBox(height: 8),
+        infoTile(
+          icon: Icons.receipt_long_outlined,
+          label: 'Receipt',
+          value: ml.sourceReceiptId.isEmpty ? 'Not available' : ml.sourceReceiptId,
+        ),
+        const SizedBox(height: 8),
+        infoTile(
+          icon: Icons.payments_outlined,
+          label: 'Payment ID',
+          value: ml.sourcePaymentId.isEmpty ? 'Not available' : ml.sourcePaymentId,
+        ),
+        const SizedBox(height: 8),
+        infoTile(
+          icon: Icons.fingerprint_outlined,
+          label: 'Attempt ID',
+          value: ml.createdViaAttemptId.isEmpty
+              ? 'Not available'
+              : ml.createdViaAttemptId,
+        ),
+        if (draft != null) ...[
+          const SizedBox(height: 8),
+          infoTile(
+            icon: Icons.emoji_events_outlined,
+            label: 'Initial Competition',
+            value: draft.name,
+            tint: const Color(0xFF8B5CF6),
+          ),
+          const SizedBox(height: 8),
+          infoTile(
+            icon: Icons.payments_rounded,
+            label: 'Entry Fee',
+            value: '${draft.entryFee.toStringAsFixed(2)} ${draft.currency}',
+            tint: const Color(0xFF22C55E),
+          ),
+          const SizedBox(height: 8),
+          infoTile(
+            icon: Icons.groups_rounded,
+            label: 'Max Participants',
+            value: '${draft.maxParticipants}',
+            tint: const Color(0xFFF59E0B),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildStaff(MasterLeague ml, ThemeData theme, ColorScheme cs) {
     final isOwner = _isOwner(ml);
 
@@ -1209,6 +1310,7 @@ class _MasterLeagueDetailsScreenState
                               ],
                             ),
                           ),
+                          _buildSummaryCard(master, theme, cs),
                           _buildStaff(master, theme, cs),
                           _buildMembers(master, theme, cs),
                           const SizedBox(height: 14),
@@ -1250,14 +1352,16 @@ class _MasterLeagueDetailsScreenState
 
                               final leagues = snap.data!;
                               if (leagues.isEmpty) {
+                                final draft = master.initialCompetition;
                                 return Column(
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
                                   children: [
-                                    const EmptyState(
+                                    EmptyState(
                                       title: 'No competitions yet',
-                                      message:
-                                          'Tap "Create Competition" to add leagues.',
+                                      message: draft == null
+                                          ? 'Tap "Create Competition" to add leagues.'
+                                          : 'Initial competition draft saved: ${draft.name}. Tap "Create Competition" to build the actual league inside this Master League.',
                                       icon: Icons.emoji_events_rounded,
                                     ),
                                     if (isOwner) ...[
@@ -1297,8 +1401,9 @@ class _MasterLeagueDetailsScreenState
                                     ),
                                     child: InkWell(
                                       onTap: () => context.push('/leagues/${l.id}'),
-                                      onLongPress:
-                                          isOwner ? () => _showCompetitionMenu(l) : null,
+                                      onLongPress: isOwner
+                                          ? () => _showCompetitionMenu(l)
+                                          : null,
                                       borderRadius: BorderRadius.circular(22),
                                       child: Glass(
                                         borderRadius: 22,

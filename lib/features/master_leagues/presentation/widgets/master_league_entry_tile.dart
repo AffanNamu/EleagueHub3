@@ -29,40 +29,35 @@ class MasterLeagueEntryTile extends StatelessWidget {
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
 
-    const title = 'Organizer Pro';
+    const title = 'Master League';
 
     String subtitle;
     if (!isSignedIn) {
-      subtitle = 'Sign in to unlock Organizer Pro and create Master Leagues.';
+      subtitle = 'Sign in to create and manage Master Leagues.';
     } else if (loading) {
-      subtitle = 'Checking subscription (server)…';
+      subtitle = 'Checking your access...';
     } else if (unlocked) {
-      subtitle = 'Organizer Pro active • Create Master Leagues & competitions';
+      subtitle = 'Open your Master Leagues, view created and joined leagues.';
     } else {
       subtitle = priceText.isEmpty
-          ? 'Organizer Pro locked • Unlock to create Master Leagues'
-          : 'Organizer Pro locked • Price: $priceText';
+          ? 'Open Master Leagues and proceed to payment during creation.'
+          : 'Open Master Leagues • current plan price: $priceText';
     }
 
     final badgeColor = !isSignedIn
         ? onSurface.withOpacity(0.45)
-        : (unlocked
-            ? const Color(0xFF22C55E)
-            : const Color(0xFFF59E0B));
+        : (unlocked ? const Color(0xFF22C55E) : const Color(0xFFF59E0B));
 
     final badgeLabel =
-        !isSignedIn ? 'SIGN IN' : (unlocked ? 'ACTIVE' : 'LOCKED');
+        !isSignedIn ? 'SIGN IN' : (unlocked ? 'READY' : 'PAY AS YOU CREATE');
 
-    final actionLabel =
-        !isSignedIn ? 'Sign in' : (unlocked ? 'Open' : 'Unlock');
+    final actionLabel = !isSignedIn ? 'Sign in' : 'Open';
 
     VoidCallback action;
     if (!isSignedIn) {
       action = onSignIn;
-    } else if (unlocked) {
-      action = onOpen;
     } else {
-      action = onUnlock;
+      action = onOpen;
     }
 
     return Glass(

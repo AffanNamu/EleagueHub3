@@ -40,7 +40,6 @@ class MasterLeagueEntitlementService {
   static const String _claimsActiveKey = 'organizerPro';
   static const String _claimsExpiryKey = 'organizerProExpiryMs';
   static const String _claimsPlanKey = 'organizerProPlan';
-
   static const String _providerFlutterwave = 'flutterwave';
 
   String _uidOrThrow() {
@@ -103,7 +102,6 @@ class MasterLeagueEntitlementService {
     final notExpired = expiryMs > nowMs;
 
     final plan = _claimPlanFromRaw(claims[_claimsPlanKey]);
-
     final ok = active && notExpired && plan != null;
 
     return OrganizerProEntitlement(
@@ -136,33 +134,14 @@ class MasterLeagueEntitlementService {
     return ent.plan;
   }
 
-  /// Resolves the Worker URL for organizer-pro activation.
-  ///
-  /// Uses BackendConfig (centralized) which reads from:
-  ///   --dart-define=EH_WORKER_BASE_URL=https://livekit-token-worker.esportlyic.workers.dev
   Uri _activateUri() {
     final fromConfig = BackendConfig.organizerProActivateUrl();
     if (fromConfig != null) {
-      if (kDebugMode) {
-        debugPrint('[OrganizerPro] Activate URL: $fromConfig');
-      }
       return fromConfig;
     }
 
-    if (kDebugMode) {
-      debugPrint(
-        '[OrganizerPro] ERROR: EH_WORKER_BASE_URL is not set.\n'
-        'BackendConfig.workerBaseUrl = "${BackendConfig.workerBaseUrl}"\n'
-        'BackendConfig.workerEnabled = ${BackendConfig.workerEnabled}',
-      );
-    }
-
     throw const MasterLeagueEntitlementException(
-      'Organizer Pro activation service is not configured.\n\n'
-      'The app was built without the worker URL. '
-      'Please rebuild with:\n\n'
-      '  --dart-define=EH_WORKER_BASE_URL=https://livekit-token-worker.esportlyic.workers.dev\n\n'
-      'If you are an end user, please update to the latest version of the app.',
+      'Organizer Pro activation service is not configured.',
     );
   }
 
@@ -172,11 +151,6 @@ class MasterLeagueEntitlementService {
     required Map<String, dynamic> body,
     Duration timeout = const Duration(seconds: 25),
   }) async {
-    if (kDebugMode) {
-      debugPrint('[OrganizerPro] POST $uri');
-      debugPrint('[OrganizerPro] Body: ${jsonEncode(body)}');
-    }
-
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 12);
 
@@ -188,10 +162,6 @@ class MasterLeagueEntitlementService {
 
       final res = await req.close().timeout(timeout);
       final raw = await res.transform(utf8.decoder).join();
-
-      if (kDebugMode) {
-        debugPrint('[OrganizerPro] Response ${res.statusCode}: $raw');
-      }
 
       Map<String, dynamic> parsed = <String, dynamic>{};
       try {
@@ -215,17 +185,11 @@ class MasterLeagueEntitlementService {
       return parsed;
     } on MasterLeagueEntitlementException {
       rethrow;
-    } on SocketException catch (e) {
-      if (kDebugMode) {
-        debugPrint('[OrganizerPro] SocketException: $e');
-      }
+    } on SocketException {
       throw const MasterLeagueEntitlementException(
         'Your network appears to be offline. Please check your connection and try again.',
       );
-    } on HandshakeException catch (e) {
-      if (kDebugMode) {
-        debugPrint('[OrganizerPro] HandshakeException: $e');
-      }
+    } on HandshakeException {
       throw const MasterLeagueEntitlementException(
         'Secure connection failed. Please try again.',
       );
@@ -233,10 +197,7 @@ class MasterLeagueEntitlementService {
       throw const MasterLeagueEntitlementException(
         "We couldn't activate Organizer Pro right now. Please try again.",
       );
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[OrganizerPro] Unexpected error: $e');
-      }
+    } catch (_) {
       throw const MasterLeagueEntitlementException(
         "We couldn't activate Organizer Pro right now. Please try again.",
       );
@@ -264,23 +225,13 @@ class MasterLeagueEntitlementService {
     );
 
     for (int i = 0; i < delays.length; i++) {
-      if (kDebugMode) {
-        debugPrint('[OrganizerPro] Polling claims attempt ${i + 1}/${delays.length}...');
-      }
       last = await _readClaims(forceRefresh: true);
       if (last.active &&
           last.plan != null &&
           _planSatisfies(actual: last.plan!, requested: requestedPlan)) {
-        if (kDebugMode) {
-          debugPrint('[OrganizerPro] Claims confirmed: plan=${last.plan?.id} expiryMs=${last.expiryMs}');
-        }
         return last;
       }
       await Future<void>.delayed(delays[i]);
-    }
-
-    if (kDebugMode) {
-      debugPrint('[OrganizerPro] Claims NOT confirmed after ${delays.length} attempts. active=${last.active} plan=${last.plan?.id}');
     }
 
     return last;
@@ -292,7 +243,7 @@ class MasterLeagueEntitlementService {
   }) async {
     final uid = _uidOrThrow();
 
-    if (payment.success != true) {
+    if (!payment.success) {
       throw const MasterLeagueEntitlementException('Payment not successful.');
     }
 
@@ -315,12 +266,6 @@ class MasterLeagueEntitlementService {
       );
     }
 
-    if (kDebugMode) {
-      debugPrint(
-        '[OrganizerPro] Activating via Worker: uid=$uid plan=${plan.id} receiptId=$receiptId',
-      );
-    }
-
     final idToken = await user.getIdToken();
     final safeIdToken = idToken?.trim() ?? '';
     if (safeIdToken.isEmpty) {
@@ -336,6 +281,7 @@ class MasterLeagueEntitlementService {
         'plan': plan.id,
         'provider': _providerFlutterwave,
         'receiptId': receiptId,
+        'uid': uid,
       },
     );
 
@@ -349,8 +295,7 @@ class MasterLeagueEntitlementService {
 
     if (!_planSatisfies(actual: ent.plan!, requested: plan)) {
       throw MasterLeagueEntitlementException(
-        'Organizer Pro activated, but plan mismatch detected. '
-        'Expected at least ${plan.displayName}, got ${ent.plan?.displayName ?? 'unknown'}.',
+        'Organizer Pro activated, but plan mismatch detected.',
       );
     }
   }

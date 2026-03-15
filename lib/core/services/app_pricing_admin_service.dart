@@ -5,8 +5,11 @@ import 'remote_pricing_service.dart';
 class AppPricingAdminService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  DocumentReference<Map<String, dynamic>> get _primaryDoc => _firestore.collection('app_config').doc('pricing');
-  DocumentReference<Map<String, dynamic>> get _legacyDoc => _firestore.collection('app').doc('pricing');
+  DocumentReference<Map<String, dynamic>> get _primaryDoc =>
+      _firestore.collection('app_config').doc('pricing');
+
+  DocumentReference<Map<String, dynamic>> get _legacyDoc =>
+      _firestore.collection('app').doc('pricing');
 
   Future<DocumentSnapshot<Map<String, dynamic>>> _fetchDoc() async {
     final primary = await _primaryDoc.get();
@@ -24,29 +27,45 @@ class AppPricingAdminService {
     }
 
     final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    final ngn = (data['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    final usd = (data['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final ngn =
+        (data['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final usd =
+        (data['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
-    final mergedNgn = {..._planToMap(RemotePricingPlan.defaultsNgn()), ..._normalizeKeys(ngn)};
-    final mergedUsd = {..._planToMap(RemotePricingPlan.defaultsUsd()), ..._normalizeKeys(usd)};
-
-    // Ensure masterLinkFee exists (default to legacy masterLeagueFee if present)
-    mergedNgn['masterLinkFee'] ??= (ngn['masterLinkFee'] ?? ngn['masterLeagueFee']);
-    mergedUsd['masterLinkFee'] ??= (usd['masterLinkFee'] ?? usd['masterLeagueFee']);
+    final mergedNgn = {
+      ..._planToMap(RemotePricingPlan.defaultsNgn()),
+      ..._normalizeKeys(ngn),
+    };
+    final mergedUsd = {
+      ..._planToMap(RemotePricingPlan.defaultsUsd()),
+      ..._normalizeKeys(usd),
+    };
 
     return {
       'ngn': mergedNgn,
       'usd': mergedUsd,
+      'updatedAtMs': data['updatedAtMs'],
+      'updatedBy': data['updatedBy'],
     };
   }
 
   Map<String, dynamic> _normalizeKeys(Map<String, dynamic> src) {
-    // Accept older key names and map them into canonical schema.
     final out = Map<String, dynamic>.from(src);
 
     if (out.containsKey('createLeagueFee') && !out.containsKey('createFee')) {
       out['createFee'] = out['createLeagueFee'];
     }
+
+    out['masterLeagueBasicFee'] ??=
+        (out['masterLinkBasicFee'] ?? out['masterLinkFee'] ?? out['masterLeagueFee']);
+    out['masterLeagueProFee'] ??=
+        (out['masterLinkProFee'] ?? out['masterLinkFee'] ?? out['masterLeagueFee']);
+    out['masterLeagueEliteFee'] ??=
+        (out['masterLinkEliteFee'] ?? out['masterLinkFee'] ?? out['masterLeagueFee']);
+
+    out['paymentsEnabled'] ??= true;
+    out['flutterwaveEnabled'] ??= true;
+
     return out;
   }
 
@@ -82,23 +101,50 @@ class AppPricingAdminService {
         return fallback;
       }
 
-      final dft = isUsd ? RemotePricingPlan.defaultsUsd() : RemotePricingPlan.defaultsNgn();
+      final dft = isUsd
+          ? RemotePricingPlan.defaultsUsd()
+          : RemotePricingPlan.defaultsNgn();
+
+      final basicFee = toDouble(
+        src['masterLeagueBasicFee'] ?? src['masterLinkBasicFee'] ?? src['masterLinkFee'],
+        dft.masterLeagueBasicFee,
+      );
+      final proFee = toDouble(
+        src['masterLeagueProFee'] ?? src['masterLinkProFee'] ?? src['masterLinkFee'],
+        dft.masterLeagueProFee,
+      );
+      final eliteFee = toDouble(
+        src['masterLeagueEliteFee'] ?? src['masterLinkEliteFee'] ?? src['masterLinkFee'],
+        dft.masterLeagueEliteFee,
+      );
 
       return <String, dynamic>{
         'createFee': toDouble(src['createFee'], dft.createLeagueFee),
         'accessFee': toDouble(src['accessFee'], dft.accessFee),
         'couponUnit': toDouble(src['couponUnit'], dft.couponUnit),
-        'couponThreshold': src['couponThreshold'] == null ? null : toDouble(src['couponThreshold'], dft.couponThreshold ?? 0),
-        'couponDiscountPercent': toDouble(src['couponDiscountPercent'], dft.couponDiscountPercent),
+        'couponThreshold': src['couponThreshold'] == null
+            ? null
+            : toDouble(src['couponThreshold'], dft.couponThreshold ?? 0),
+        'couponDiscountPercent':
+            toDouble(src['couponDiscountPercent'], dft.couponDiscountPercent),
         'viewersEnabled': toBool(src['viewersEnabled'], false),
-
-        // Premium fields
         'premiumFee': toDouble(src['premiumFee'], dft.premiumFee),
-        'premiumDurationDays': toInt(src['premiumDurationDays'], dft.premiumDurationDays),
+        'premiumDurationDays':
+            toInt(src['premiumDurationDays'], dft.premiumDurationDays),
         'premiumEnabled': toBool(src['premiumEnabled'], dft.premiumEnabled),
+        'masterLeagueBasicFee': basicFee,
+        'masterLeagueProFee': proFee,
+        'masterLeagueEliteFee': eliteFee,
 
-        // MasterLink fee (separate product)
-        'masterLinkFee': toDouble(src['masterLinkFee'], isUsd ? 5.0 : 1500.0),
+        // backward-compatible mirrors
+        'masterLinkBasicFee': basicFee,
+        'masterLinkProFee': proFee,
+        'masterLinkEliteFee': eliteFee,
+        'masterLinkFee': proFee,
+        'masterLeagueFee': proFee,
+
+        'paymentsEnabled': toBool(src['paymentsEnabled'], true),
+        'flutterwaveEnabled': toBool(src['flutterwaveEnabled'], true),
       };
     }
 
@@ -107,19 +153,14 @@ class AppPricingAdminService {
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Write new source of truth
-    await _primaryDoc.set({
+    final payload = {
       'ngn': ngnSan,
       'usd': usdSan,
       'updatedAtMs': now,
-    }, SetOptions(merge: true));
+    };
 
-    // Optional mirror to legacy doc for older app builds still reading app/pricing
-    await _legacyDoc.set({
-      'ngn': ngnSan,
-      'usd': usdSan,
-      'updatedAtMs': now,
-    }, SetOptions(merge: true));
+    await _primaryDoc.set(payload, SetOptions(merge: true));
+    await _legacyDoc.set(payload, SetOptions(merge: true));
   }
 
   Map<String, dynamic> _planToMap(RemotePricingPlan p) => {
@@ -132,6 +173,15 @@ class AppPricingAdminService {
         'premiumFee': p.premiumFee,
         'premiumDurationDays': p.premiumDurationDays,
         'premiumEnabled': p.premiumEnabled,
-        'masterLinkFee': 0, // admin should set
+        'masterLeagueBasicFee': p.masterLeagueBasicFee,
+        'masterLeagueProFee': p.masterLeagueProFee,
+        'masterLeagueEliteFee': p.masterLeagueEliteFee,
+        'masterLinkBasicFee': p.masterLeagueBasicFee,
+        'masterLinkProFee': p.masterLeagueProFee,
+        'masterLinkEliteFee': p.masterLeagueEliteFee,
+        'masterLinkFee': p.masterLeagueProFee,
+        'masterLeagueFee': p.masterLeagueProFee,
+        'paymentsEnabled': p.paymentsEnabled,
+        'flutterwaveEnabled': p.flutterwaveEnabled,
       };
 }

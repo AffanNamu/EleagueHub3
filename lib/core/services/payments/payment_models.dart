@@ -1,17 +1,7 @@
 class PaymentLineItem {
-  /// Required product types for analytics:
-  /// - league
-  /// - coupon
-  /// - masterLink
-  /// - appUnlock
   final String productType;
-
-  /// Optional detail: league_creation, league_access, coupon_purchase, etc.
   final String productSubType;
-
   final int quantity;
-
-  /// Revenue attributed to this line item (in the payment currency).
   final double amount;
 
   const PaymentLineItem({
@@ -30,21 +20,24 @@ class PaymentLineItem {
 }
 
 class PaymentAttemptCreate {
-  final String provider; // flutterwave
-  final String currency; // NGN/USD
-  final double amount; // numeric (for analytics)
-  final String amountStr; // flutterwave string format
-
-  final String userId; // auth uid
+  final String provider;
+  final String currency;
+  final double amount;
+  final String amountStr;
+  final String userId;
 
   final String leagueId;
   final String leagueName;
 
   final List<PaymentLineItem> items;
 
-  /// Optional metadata
   final String masterLeagueId;
   final String couponCode;
+
+  final String productType;
+  final String productSubType;
+
+  final Map<String, dynamic> metadata;
 
   const PaymentAttemptCreate({
     required this.provider,
@@ -57,6 +50,9 @@ class PaymentAttemptCreate {
     required this.items,
     this.masterLeagueId = '',
     this.couponCode = '',
+    this.productType = '',
+    this.productSubType = '',
+    this.metadata = const <String, dynamic>{},
   });
 
   Map<String, dynamic> toFirestore({
@@ -74,7 +70,10 @@ class PaymentAttemptCreate {
       'leagueName': leagueName,
       'masterLeagueId': masterLeagueId,
       'couponCode': couponCode,
-      'status': 'initiated', // initiated -> client_success|cancelled|client_failed
+      'productType': productType,
+      'productSubType': productSubType,
+      'metadata': metadata,
+      'status': 'initiated',
       'createdAtMs': createdAtMs,
       'updatedAtMs': createdAtMs,
       'items': items.map((e) => e.toMap()).toList(growable: false),
@@ -82,7 +81,69 @@ class PaymentAttemptCreate {
   }
 }
 
-/// Result of writing a successful payment record (client-side).
+class PaymentVerificationResult {
+  final bool success;
+  final String provider;
+  final String paymentId;
+  final String receiptId;
+  final int paidAtMs;
+  final String transactionId;
+  final String txRef;
+  final String status;
+  final String currency;
+  final double amount;
+  final String amountStr;
+  final String? errorMessage;
+  final Map<String, dynamic> raw;
+
+  const PaymentVerificationResult({
+    required this.success,
+    required this.provider,
+    required this.paymentId,
+    required this.receiptId,
+    required this.paidAtMs,
+    required this.transactionId,
+    required this.txRef,
+    required this.status,
+    required this.currency,
+    required this.amount,
+    required this.amountStr,
+    required this.errorMessage,
+    required this.raw,
+  });
+
+  factory PaymentVerificationResult.failed({
+    required String provider,
+    required String errorMessage,
+    String paymentId = '',
+    String receiptId = '',
+    int paidAtMs = 0,
+    String transactionId = '',
+    String txRef = '',
+    String status = 'failed',
+    String currency = '',
+    double amount = 0,
+    String amountStr = '0',
+    Map<String, dynamic> raw = const <String, dynamic>{},
+  }) {
+    return PaymentVerificationResult(
+      success: false,
+      provider: provider,
+      paymentId: paymentId,
+      receiptId: receiptId,
+      paidAtMs: paidAtMs,
+      transactionId: transactionId,
+      txRef: txRef,
+      status: status,
+      currency: currency,
+      amount: amount,
+      amountStr: amountStr,
+      errorMessage: errorMessage,
+      raw: raw,
+    );
+  }
+}
+
 class ClientRecordPaymentResult {
   final String paymentId;
   final String receiptId;

@@ -5,10 +5,11 @@ import 'package:flutter/widgets.dart';
 
 import '../../../core/config/flutterwave_config.dart';
 import '../../../core/services/country/country_resolver_service.dart';
+import '../../../core/services/remote_pricing_service.dart';
 import '../domain/master_league_plan.dart';
 
 class MasterLeaguePrice {
-  final String currency; // 'USD' or 'NGN'
+  final String currency;
   final num amount;
 
   const MasterLeaguePrice({
@@ -23,22 +24,6 @@ class MasterLeaguePrice {
   }
 }
 
-/// Reads pricing for the Master League premium unlock from Firestore.
-///
-/// NEW (source of truth):
-///   app_config/pricing
-///
-/// FALLBACK (legacy):
-///   app/pricing
-///
-/// Plan-specific keys (preferred):
-/// - usd.masterLinkBasicFee / ngn.masterLinkBasicFee
-/// - usd.masterLinkProFee   / ngn.masterLinkProFee
-/// - usd.masterLinkEliteFee / ngn.masterLinkEliteFee
-///
-/// Fallback keys (legacy):
-/// - usd.masterLinkFee / ngn.masterLinkFee
-/// - usd.masterLeagueFee / ngn.masterLeagueFee
 class MasterLeaguePricingService {
   MasterLeaguePricingService({FirebaseFirestore? firestore})
       : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -58,9 +43,18 @@ class MasterLeaguePricingService {
         .get(const GetOptions(source: Source.server));
   }
 
-  /// Returns the Firestore key for a plan-specific fee.
-  /// e.g. basic → 'masterLinkBasicFee', pro → 'masterLinkProFee'
   static String _planFeeKey(MasterLeaguePlan plan) {
+    switch (plan) {
+      case MasterLeaguePlan.basic:
+        return 'masterLeagueBasicFee';
+      case MasterLeaguePlan.pro:
+        return 'masterLeagueProFee';
+      case MasterLeaguePlan.elite:
+        return 'masterLeagueEliteFee';
+    }
+  }
+
+  static String _legacyPlanFeeKey(MasterLeaguePlan plan) {
     switch (plan) {
       case MasterLeaguePlan.basic:
         return 'masterLinkBasicFee';
@@ -71,22 +65,19 @@ class MasterLeaguePricingService {
     }
   }
 
-  /// Extracts a num fee from a currency map, trying plan-specific key first,
-  /// then falling back to masterLinkFee → masterLeagueFee.
   num? _extractFee(Map<String, dynamic> currencyMap, MasterLeaguePlan? plan) {
-    // 1. Plan-specific key
     if (plan != null) {
-      final planKey = _planFeeKey(plan);
-      final v = currencyMap[planKey];
+      final v = currencyMap[_planFeeKey(plan)];
       if (v is num) return v;
+
+      final lv = currencyMap[_legacyPlanFeeKey(plan)];
+      if (lv is num) return lv;
     }
 
-    // 2. Generic masterLinkFee
-    final v1 = currencyMap['masterLinkFee'];
+    final v1 = currencyMap['masterLeagueFee'];
     if (v1 is num) return v1;
 
-    // 3. Legacy masterLeagueFee
-    final v2 = currencyMap['masterLeagueFee'];
+    final v2 = currencyMap['masterLinkFee'];
     if (v2 is num) return v2;
 
     return null;
@@ -130,29 +121,24 @@ class MasterLeaguePricingService {
     final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
     final cc = forced.isNotEmpty
         ? forced
-        : await CountryResolverService.instance
-            .resolveCountryCode(locale: locale);
+        : await CountryResolverService.instance.resolveCountryCode(
+            locale: locale,
+          );
     return cc == 'NG';
   }
 
-  /// One-time server fetch — returns price for the generic masterLinkFee
-  /// (used when no plan is specified, backward compatible).
-  Future<MasterLeaguePrice?> getMasterLeaguePriceForLocale(
-      Locale? locale) async {
+  Future<MasterLeaguePrice?> getMasterLeaguePriceForLocale(Locale? locale) async {
     final preferNgn = await _preferNgn(locale);
 
     final snap = await _getPricingDoc().timeout(const Duration(seconds: 12));
     final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-    return _priceFromPricingDoc(data, preferNgn: preferNgn);
+    return _priceFromPricingDoc(
+      data,
+      preferNgn: preferNgn,
+      plan: MasterLeaguePlan.pro,
+    );
   }
 
-  /// One-time server fetch — returns price for a specific plan tier.
-  ///
-  /// Reads from admin pricing doc:
-  ///   usd.masterLinkBasicFee / usd.masterLinkProFee / usd.masterLinkEliteFee
-  ///   ngn.masterLinkBasicFee / ngn.masterLinkProFee / ngn.masterLinkEliteFee
-  ///
-  /// Falls back to masterLinkFee → masterLeagueFee if plan key not set.
   Future<MasterLeaguePrice?> getMasterLeaguePriceForPlan({
     required MasterLeaguePlan plan,
     Locale? locale,
@@ -164,7 +150,6 @@ class MasterLeaguePricingService {
     return _priceFromPricingDoc(data, preferNgn: preferNgn, plan: plan);
   }
 
-  /// Live watch (UI convenience). Uses locale only (no IP lookup in streams).
   Stream<MasterLeaguePrice?> watchMasterLeaguePriceForLocale(Locale? locale) {
     final preferNgn =
         (locale?.countryCode ?? '').trim().toUpperCase() == 'NG';
@@ -174,9 +159,16 @@ class MasterLeaguePricingService {
         .doc('pricing')
         .snapshots(includeMetadataChanges: true)
         .map((snap) {
-      final data =
-          (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      return _priceFromPricingDoc(data, preferNgn: preferNgn);
+      final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      return _priceFromPricingDoc(
+        data,
+        preferNgn: preferNgn,
+        plan: MasterLeaguePlan.pro,
+      );
     });
+  }
+
+  Future<RemotePricingPlan> getUnifiedPlanForLocale(Locale? locale) {
+    return RemotePricingService.instance.getPlanForLocale(locale);
   }
 }

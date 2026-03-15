@@ -1,25 +1,7 @@
 class BackendConfig {
-  /// Base URL for your Firebase Functions HTTPS endpoints.
-  ///
-  /// Example:
-  ///   https://europe-west2-YOUR_PROJECT.cloudfunctions.net
-  ///
-  /// Optional for now (Spark plan users can leave empty).
   static const String functionsBaseUrl =
       String.fromEnvironment('FUNCTIONS_BASE_URL', defaultValue: '');
 
-  /// Base URL for your Cloudflare Worker (unified API gateway).
-  ///
-  /// This single worker handles:
-  ///   - LiveKit tokens (voice rooms)
-  ///   - Organizer Pro activation (payment verification)
-  ///   - Premium activation (payment verification)
-  ///   - Cloudinary signing (video uploads)
-  ///
-  /// Example:
-  ///   https://livekit-token-worker.esportlyic.workers.dev
-  ///
-  /// Set via --dart-define=EH_WORKER_BASE_URL=https://...
   static const String workerBaseUrl =
       String.fromEnvironment('EH_WORKER_BASE_URL', defaultValue: '');
 
@@ -42,16 +24,18 @@ class BackendConfig {
     return Uri.parse('$normalized/verifyFlutterwavePayment');
   }
 
-  /// Returns the URL for the premium activation endpoint on the Cloudflare Worker.
-  /// Returns null if the worker is not configured.
+  static Uri? workerFlutterwaveVerifyUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/flutterwave/verify');
+  }
+
   static Uri? premiumActivateUrl() {
     final base = _normalizedWorkerBase;
     if (base.isEmpty) return null;
     return Uri.parse('$base/premium/activate');
   }
 
-  /// Returns the URL for the organizer pro activation endpoint on the Cloudflare Worker.
-  /// Returns null if the worker is not configured.
   static Uri? organizerProActivateUrl() {
     final base = _normalizedWorkerBase;
     if (base.isEmpty) return null;

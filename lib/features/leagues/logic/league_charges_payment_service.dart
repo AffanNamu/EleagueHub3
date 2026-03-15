@@ -11,7 +11,8 @@ import '../../../core/services/payments/payments_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import 'league_charges_store.dart';
 
-final leagueChargesPaymentServiceProvider = Provider<LeagueChargesPaymentService>((ref) {
+final leagueChargesPaymentServiceProvider =
+    Provider<LeagueChargesPaymentService>((ref) {
   return FlutterwaveLeagueChargesPaymentService();
 });
 
@@ -21,7 +22,6 @@ class LeagueChargesPaymentResult {
   final int paidAtMs;
   final String provider;
   final String? errorMessage;
-
   final String totalAmount;
 
   const LeagueChargesPaymentResult._({
@@ -80,7 +80,8 @@ abstract class LeagueChargesPaymentService {
   String get providerName;
 }
 
-class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentService {
+class FlutterwaveLeagueChargesPaymentService
+    implements LeagueChargesPaymentService {
   final Uuid _uuid = const Uuid();
 
   @override
@@ -104,7 +105,10 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
     return _toFlutterwaveAmount(d);
   }
 
-  String _resolvedCurrency({required String planCurrency, String? override}) {
+  String _resolvedCurrency({
+    required String planCurrency,
+    String? override,
+  }) {
     final o = (override ?? '').trim().toUpperCase();
     if (o == 'NGN' || o == 'USD') return o;
     return planCurrency;
@@ -116,6 +120,11 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (authUid.trim().isNotEmpty) return authUid.trim();
     return 'anonymous';
+  }
+
+  bool _isChargeSuccessful(ChargeResponse response) {
+    final status = (response.status ?? '').toString().trim().toLowerCase();
+    return response.success == true || status == 'successful';
   }
 
   @override
@@ -136,18 +145,61 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
     final effectiveUserId = _resolveEffectiveUserId(userId);
 
     try {
+      final authUser = FirebaseAuth.instance.currentUser;
+      if (authUser == null || authUser.uid.trim().isEmpty) {
+        return LeagueChargesPaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Please sign in to continue.',
+        );
+      }
+
+      final plan = await RemotePricingService.instance.getPlanForLocale(
+        Localizations.maybeLocaleOf(context),
+      );
+
+      if (!plan.paymentsEnabled) {
+        return LeagueChargesPaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Payments are temporarily disabled by the administrator.',
+        );
+      }
+
+      if (!plan.flutterwaveEnabled) {
+        return LeagueChargesPaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
+        );
+      }
+
       FlutterwaveConfig.assertConfigured();
 
-      final plan = await RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context));
-      currencyUsed = _resolvedCurrency(planCurrency: plan.currency, override: currencyOverride);
+      currencyUsed = _resolvedCurrency(
+        planCurrency: plan.currency,
+        override: currencyOverride,
+      );
 
       final defaultAmount = _toFlutterwaveAmount(plan.accessFee);
-      final overrideNormalized = (amountOverride != null && amountOverride.trim().isNotEmpty) ? _normalizeAmount(amountOverride) : '';
-      totalAmount = (overrideNormalized.isNotEmpty && overrideNormalized != '0') ? overrideNormalized : defaultAmount;
+      final overrideNormalized =
+          (amountOverride != null && amountOverride.trim().isNotEmpty)
+              ? _normalizeAmount(amountOverride)
+              : '';
+      totalAmount = (overrideNormalized.isNotEmpty && overrideNormalized != '0')
+          ? overrideNormalized
+          : defaultAmount;
 
       final cpn = (couponCode ?? '').trim().toUpperCase();
       final kind = cpn.isNotEmpty ? 'coupon_redemption' : 'league_access';
       final numericAmount = double.tryParse(totalAmount) ?? 0.0;
+
+      if (numericAmount <= 0) {
+        return LeagueChargesPaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Invalid payment amount.',
+          totalAmount: totalAmount,
+        );
+      }
 
       attemptId = await PaymentsService.instance.createAttempt(
         PaymentAttemptCreate(
@@ -155,13 +207,21 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
           currency: currencyUsed,
           amount: numericAmount,
           amountStr: totalAmount,
-          userId: FirebaseAuth.instance.currentUser!.uid,
+          userId: authUser.uid,
           leagueId: leagueId,
           leagueName: leagueName,
           couponCode: cpn,
+          productType: cpn.isNotEmpty ? 'coupon_redemption' : 'league_access',
+          productSubType: cpn.isNotEmpty
+              ? 'league_coupon_access'
+              : 'league_standard_access',
+          metadata: <String, dynamic>{
+            'couponCode': cpn,
+            'couponDiscountPercent': couponDiscountPercent ?? 0,
+          },
           items: [
             PaymentLineItem(
-              productType: 'league',
+              productType: 'league_access',
               productSubType: kind,
               quantity: 1,
               amount: numericAmount,
@@ -180,17 +240,21 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         userId: effectiveUserId,
       );
 
-      final String email = (FirebaseAuth.instance.currentUser?.email?.trim().isNotEmpty ?? false)
-          ? FirebaseAuth.instance.currentUser!.email!.trim()
+      final String email = (authUser.email?.trim().isNotEmpty ?? false)
+          ? authUser.email!.trim()
           : 'user_$effectiveUserId@eleaguehub.app';
-      final String phone = (FirebaseAuth.instance.currentUser?.phoneNumber?.trim().isNotEmpty ?? false)
-          ? FirebaseAuth.instance.currentUser!.phoneNumber!.trim()
+      final String phone = (authUser.phoneNumber?.trim().isNotEmpty ?? false)
+          ? authUser.phoneNumber!.trim()
           : '0000000000';
-      final String name = (FirebaseAuth.instance.currentUser?.displayName?.trim().isNotEmpty ?? false)
-          ? FirebaseAuth.instance.currentUser!.displayName!.trim()
+      final String name = (authUser.displayName?.trim().isNotEmpty ?? false)
+          ? authUser.displayName!.trim()
           : 'EleagueHub User';
 
-      final customer = Customer(name: name, phoneNumber: phone, email: email);
+      final customer = Customer(
+        name: name,
+        phoneNumber: phone,
+        email: email,
+      );
 
       final txRef = 'EH-CHG-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
@@ -201,7 +265,9 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         txRef: txRef,
         amount: totalAmount,
         customer: customer,
-        paymentOptions: currencyUsed.toUpperCase() == 'NGN' ? 'card,ussd,banktransfer' : 'card',
+        paymentOptions: currencyUsed.toUpperCase() == 'NGN'
+            ? 'card,ussd,banktransfer'
+            : 'card',
         customization: Customization(
           title: 'EleagueHub',
           description: 'League charges: $leagueName',
@@ -211,27 +277,39 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
 
       final ChargeResponse response = await flutterwave.charge(context);
 
-      if (response.success == true) {
+      if (_isChargeSuccessful(response)) {
         final txId = (response.transactionId ?? '').toString().trim();
         if (txId.isEmpty) {
-          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: 'Missing transactionId.');
-          return LeagueChargesPaymentResult.failed(provider: providerName, errorMessage: 'Missing transaction id.', totalAmount: totalAmount);
+          if (attemptId.isNotEmpty) {
+            await PaymentsService.instance.markClientFailed(
+              attemptId: attemptId,
+              errorMessage: 'Missing transactionId.',
+            );
+          }
+          return LeagueChargesPaymentResult.failed(
+            provider: providerName,
+            errorMessage: 'Missing transaction id.',
+            totalAmount: totalAmount,
+          );
         }
 
-        final resolvedTxRef = (response.txRef?.trim().isNotEmpty ?? false) ? response.txRef!.trim() : txRef;
+        final resolvedTxRef =
+            (response.txRef?.trim().isNotEmpty ?? false)
+                ? response.txRef!.trim()
+                : txRef;
 
-        final recorded = await PaymentsService.instance.recordFlutterwaveClientSuccess(
+        final recorded =
+            await PaymentsService.instance.recordFlutterwaveClientSuccess(
           attemptId: attemptId,
           transactionId: txId,
           txRef: resolvedTxRef,
         );
 
-        // Store receipt for access gating
         try {
           await LeagueChargesStore.online().storeReceipt(
             LeagueChargesReceipt(
               leagueId: leagueId,
-              userId: FirebaseAuth.instance.currentUser!.uid,
+              userId: authUser.uid,
               receiptId: recorded.receiptId,
               provider: providerName,
               paidAtMs: recorded.paidAtMs,
@@ -247,7 +325,12 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
         );
       }
 
-      await PaymentsService.instance.markClientCancelled(attemptId: attemptId, reason: 'Payment cancelled or not successful');
+      if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: 'Payment cancelled or not successful',
+        );
+      }
 
       return LeagueChargesPaymentResult.failed(
         provider: providerName,
@@ -257,7 +340,10 @@ class FlutterwaveLeagueChargesPaymentService implements LeagueChargesPaymentServ
     } catch (e) {
       if (attemptId.isNotEmpty) {
         try {
-          await PaymentsService.instance.markClientFailed(attemptId: attemptId, errorMessage: e.toString());
+          await PaymentsService.instance.markClientFailed(
+            attemptId: attemptId,
+            errorMessage: e.toString(),
+          );
         } catch (_) {}
       }
 
