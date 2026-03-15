@@ -116,6 +116,10 @@ function kindFrom(body, roomName) {
   return "unknown";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Firebase ID Token verification
+// ─────────────────────────────────────────────────────────────────────────────
+
 let _firebaseCertCache = {
   keysByKid: new Map(),
   expiresAtMs: 0,
@@ -329,6 +333,10 @@ async function _verifyFirebaseIdToken(env, request) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Service Account helpers (for Custom Claims & Firestore REST writes)
+// ─────────────────────────────────────────────────────────────────────────────
+
 let _saSigningKeyCache = { key: null, forEmail: "" };
 let _googleAccessTokenCache = { accessToken: "", expiresAtMs: 0 };
 
@@ -400,7 +408,8 @@ async function _serviceAccountAccessToken(env) {
     aud: tokenUri,
     iat,
     exp,
-    scope: "https://www.googleapis.com/auth/identitytoolkit",
+    scope:
+      "https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore",
   };
 
   const encodedHeader = _utf8ToB64Url(JSON.stringify(header));
@@ -509,18 +518,108 @@ async function _setFirebaseCustomClaims(env, uid, claimsObj) {
   return res.json();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Firestore REST API helpers (service-account scoped)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _firestoreRestBase(env) {
+  const projectId = _requireEnvString(env, "FIREBASE_PROJECT_ID");
+  return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
+}
+
+async function _firestorePatchDoc(env, docPath, fieldsObj) {
+  const accessToken = await _serviceAccountAccessToken(env);
+  const base = _firestoreRestBase(env);
+  const cleanPath = String(docPath || "")
+    .trim()
+    .replace(/^\/+/, "");
+
+  const updateMaskParams = Object.keys(fieldsObj)
+    .map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+    .join("&");
+
+  const url = `${base}/${cleanPath}?${updateMaskParams}`;
+
+  const firestoreFields = {};
+  for (const [key, value] of Object.entries(fieldsObj)) {
+    if (typeof value === "boolean") {
+      firestoreFields[key] = { booleanValue: value };
+    } else if (typeof value === "number" && Number.isInteger(value)) {
+      firestoreFields[key] = { integerValue: String(value) };
+    } else if (typeof value === "number") {
+      firestoreFields[key] = { doubleValue: value };
+    } else if (typeof value === "string") {
+      firestoreFields[key] = { stringValue: value };
+    } else if (value && typeof value === "object" && value._serverTimestamp) {
+      firestoreFields[key] = {
+        timestampValue: new Date().toISOString(),
+      };
+    }
+  }
+
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ fields: firestoreFields }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(
+      `Firestore PATCH ${cleanPath} failed (${res.status}): ${txt}`
+    );
+  }
+
+  return res.json();
+}
+
+async function _firestoreGetDocSA(env, docPath) {
+  const accessToken = await _serviceAccountAccessToken(env);
+  const base = _firestoreRestBase(env);
+  const cleanPath = String(docPath || "")
+    .trim()
+    .replace(/^\/+/, "");
+
+  const res = await fetch(`${base}/${cleanPath}`, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (res.status === 404) return { ok: false, status: 404, doc: null };
+  if (!res.ok) {
+    const txt = await res.text();
+    return {
+      ok: false,
+      status: res.status,
+      error: txt || `Firestore GET failed ${res.status}`,
+    };
+  }
+
+  const doc = await res.json();
+  return { ok: true, status: 200, doc };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Flutterwave verification (shared)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _normalizePlan(planId) {
+  const p = String(planId || "").trim().toLowerCase();
+  if (p === "basic" || p === "pro" || p === "elite") return p;
+  return "";
+}
+
 function _planOrder(planId) {
   const p = String(planId || "").trim().toLowerCase();
   if (p === "basic") return 1;
   if (p === "pro") return 2;
   if (p === "elite") return 3;
   return 0;
-}
-
-function _normalizePlan(planId) {
-  const p = String(planId || "").trim().toLowerCase();
-  if (p === "basic" || p === "pro" || p === "elite") return p;
-  return "";
 }
 
 function _planFromTxRef(txRef) {
@@ -551,7 +650,7 @@ function _extractFlutterwaveTxIdFromReceipt(receiptId) {
   return r;
 }
 
-async function _verifyFlutterwaveTransaction(env, transactionId) {
+async function _verifyFlutterwaveTransactionGeneric(env, transactionId) {
   const secret = _requireEnvString(env, "FLUTTERWAVE_SECRET_KEY");
   const txId = String(transactionId || "").trim();
   if (!txId) throw new Error("Missing flutterwave transactionId");
@@ -589,40 +688,55 @@ async function _verifyFlutterwaveTransaction(env, transactionId) {
     typeof customer.email === "string" ? customer.email.trim() : "";
 
   const ok = topStatus === "success" && paymentStatus === "successful";
-  if (!ok) {
+
+  return {
+    ok,
+    txId,
+    txRef,
+    currency,
+    amount,
+    customerEmail,
+    paymentStatus,
+    topStatus,
+    raw: json,
+  };
+}
+
+async function _verifyFlutterwaveTransaction(env, transactionId) {
+  const result = await _verifyFlutterwaveTransactionGeneric(env, transactionId);
+
+  if (!result.ok) {
     throw new Error(
-      `Flutterwave transaction not successful (status=${topStatus}, data.status=${paymentStatus})`
+      `Flutterwave transaction not successful (status=${result.topStatus}, data.status=${result.paymentStatus})`
     );
   }
 
-  if (!txRef.startsWith("EH-MLK-")) {
+  if (!result.txRef.startsWith("EH-MLK-")) {
     throw new Error("Flutterwave tx_ref is not a Master League purchase");
   }
 
-  const planFromRef = _planFromTxRef(txRef);
+  const planFromRef = _planFromTxRef(result.txRef);
   if (!planFromRef) {
     throw new Error("Unable to determine plan from tx_ref");
   }
 
-  if (!currency || !["NGN", "USD"].includes(currency)) {
+  if (!result.currency || !["NGN", "USD"].includes(result.currency)) {
     throw new Error("Unsupported currency from Flutterwave verify");
   }
 
-  if (amount == null || amount <= 0) {
+  if (result.amount == null || result.amount <= 0) {
     throw new Error("Invalid amount from Flutterwave verify");
   }
 
   return {
-    ok: true,
-    txId,
-    txRef,
+    ...result,
     planId: planFromRef,
-    currency,
-    amount,
-    customerEmail,
-    raw: json,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Organizer Pro activation (existing)
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function _activateOrganizerPro(env, verified, body) {
   const requestedPlan = _normalizePlan(body.plan);
@@ -741,6 +855,222 @@ async function _activateOrganizerPro(env, verified, body) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PREMIUM ACTIVATION (NEW) — server-side verified
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function _readPricingConfig(env) {
+  const result = await _firestoreGetDocSA(env, "app_config/pricing");
+
+  const defaults = {
+    ngn: { premiumFee: 5000, premiumDurationDays: 30, premiumEnabled: true },
+    usd: { premiumFee: 9.99, premiumDurationDays: 30, premiumEnabled: true },
+  };
+
+  if (!result.ok || !result.doc || !result.doc.fields) {
+    return defaults;
+  }
+
+  const fields = result.doc.fields;
+
+  function readMapField(fieldName) {
+    const f = fields[fieldName];
+    if (!f || !f.mapValue || !f.mapValue.fields) return {};
+    const map = f.mapValue.fields;
+    const out = {};
+    for (const [k, v] of Object.entries(map)) {
+      if (v.integerValue !== undefined) out[k] = parseInt(v.integerValue, 10);
+      else if (v.doubleValue !== undefined) out[k] = v.doubleValue;
+      else if (v.booleanValue !== undefined) out[k] = v.booleanValue;
+      else if (v.stringValue !== undefined) out[k] = v.stringValue;
+    }
+    return out;
+  }
+
+  const ngnMap = readMapField("ngn");
+  const usdMap = readMapField("usd");
+
+  return {
+    ngn: {
+      premiumFee:
+        typeof ngnMap.premiumFee === "number"
+          ? ngnMap.premiumFee
+          : defaults.ngn.premiumFee,
+      premiumDurationDays:
+        typeof ngnMap.premiumDurationDays === "number"
+          ? ngnMap.premiumDurationDays
+          : defaults.ngn.premiumDurationDays,
+      premiumEnabled:
+        typeof ngnMap.premiumEnabled === "boolean"
+          ? ngnMap.premiumEnabled
+          : defaults.ngn.premiumEnabled,
+    },
+    usd: {
+      premiumFee:
+        typeof usdMap.premiumFee === "number"
+          ? usdMap.premiumFee
+          : defaults.usd.premiumFee,
+      premiumDurationDays:
+        typeof usdMap.premiumDurationDays === "number"
+          ? usdMap.premiumDurationDays
+          : defaults.usd.premiumDurationDays,
+      premiumEnabled:
+        typeof usdMap.premiumEnabled === "boolean"
+          ? usdMap.premiumEnabled
+          : defaults.usd.premiumEnabled,
+    },
+  };
+}
+
+async function _activatePremium(env, verified, body) {
+  const provider = String(body.provider || "flutterwave")
+    .trim()
+    .toLowerCase();
+  if (provider !== "flutterwave") {
+    return {
+      ok: false,
+      status: 400,
+      error: "Unsupported provider. Only flutterwave is supported.",
+    };
+  }
+
+  const receiptId = String(body.receiptId || "").trim();
+  if (!receiptId) {
+    return { ok: false, status: 400, error: "receiptId is required" };
+  }
+
+  const transactionId = String(body.transactionId || "").trim();
+  const txId = transactionId || _extractFlutterwaveTxIdFromReceipt(receiptId);
+  if (!txId) {
+    return { ok: false, status: 400, error: "Invalid receiptId / transactionId" };
+  }
+
+  // 1. Verify with Flutterwave
+  const verify = await _verifyFlutterwaveTransactionGeneric(env, txId);
+
+  if (!verify.ok) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Payment not successful (status=${verify.topStatus}, data.status=${verify.paymentStatus})`,
+    };
+  }
+
+  // 2. Validate tx_ref starts with EH-PRM-
+  if (!verify.txRef.startsWith("EH-PRM-")) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Transaction is not a premium purchase (invalid tx_ref prefix).",
+    };
+  }
+
+  // 3. Validate currency
+  if (!verify.currency || !["NGN", "USD"].includes(verify.currency)) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Unsupported currency.",
+    };
+  }
+
+  // 4. Validate amount against pricing config
+  const pricing = await _readPricingConfig(env);
+  const planForCurrency =
+    verify.currency === "NGN" ? pricing.ngn : pricing.usd;
+
+  if (!planForCurrency.premiumEnabled) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Premium is currently disabled for this currency.",
+    };
+  }
+
+  const expectedFee = planForCurrency.premiumFee;
+  const tolerance = 0.01;
+  if (
+    verify.amount == null ||
+    verify.amount < expectedFee - tolerance
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Amount mismatch. Expected at least ${expectedFee} ${verify.currency}, got ${verify.amount}.`,
+    };
+  }
+
+  // 5. Check email match
+  const firebaseEmail = (verified.email || "").trim().toLowerCase();
+  const flwEmail = (verify.customerEmail || "").trim().toLowerCase();
+  if (
+    firebaseEmail &&
+    flwEmail &&
+    !flwEmail.endsWith("@eleaguehub.app") &&
+    firebaseEmail !== flwEmail
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Payment customer email does not match signed-in user.",
+    };
+  }
+
+  // 6. Compute expiry
+  const durationDays = planForCurrency.premiumDurationDays || 30;
+  const nowMs = Date.now();
+
+  // Check existing premium — extend if still active
+  let existingExpiryMs = 0;
+  try {
+    const userDocResult = await _firestoreGetDocSA(
+      env,
+      `users/${verified.uid}`
+    );
+    if (
+      userDocResult.ok &&
+      userDocResult.doc &&
+      userDocResult.doc.fields
+    ) {
+      const exField = userDocResult.doc.fields.premiumExpiresAtMs;
+      if (exField && exField.integerValue) {
+        existingExpiryMs = parseInt(exField.integerValue, 10);
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  const baseMs = existingExpiryMs > nowMs ? existingExpiryMs : nowMs;
+  const newExpiryMs = baseMs + durationDays * 24 * 60 * 60 * 1000;
+
+  // 7. Write to Firestore via service account (bypasses client rules)
+  await _firestorePatchDoc(env, `users/${verified.uid}`, {
+    isPremium: true,
+    premiumExpiresAtMs: newExpiryMs,
+    premiumProvider: "flutterwave",
+    premiumReceiptId: receiptId,
+    premiumTxRef: verify.txRef,
+    premiumActivatedAtMs: nowMs,
+    updatedAt: { _serverTimestamp: true },
+  });
+
+  return {
+    ok: true,
+    uid: verified.uid,
+    premiumExpiresAtMs: newExpiryMs,
+    durationDays,
+    currency: verify.currency,
+    amount: verify.amount,
+    txRef: verify.txRef,
+    provider: "flutterwave",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cloudinary signing (existing)
+// ─────────────────────────────────────────────────────────────────────────────
+
 function _sanitizeCloudinaryPathPart(s) {
   return String(s || "")
     .trim()
@@ -761,7 +1091,9 @@ async function _sha1Hex(str) {
 
 function _cloudinaryStringToSign(params) {
   const entries = Object.entries(params)
-    .filter(([k, v]) => v !== undefined && v !== null && String(v).trim() !== "")
+    .filter(
+      ([k, v]) => v !== undefined && v !== null && String(v).trim() !== ""
+    )
     .map(([k, v]) => [String(k), String(v)]);
 
   entries.sort((a, b) => a[0].localeCompare(b[0]));
@@ -812,11 +1144,18 @@ function _fsBool(doc, field) {
 }
 
 function _parseMatchHighlightsFolder(folder) {
-  const f = String(folder || "").trim().replace(/^\/+/, "");
+  const f = String(folder || "")
+    .trim()
+    .replace(/^\/+/, "");
   const parts = f.split("/").filter(Boolean);
   if (parts.length !== 4) return null;
   if (parts[0] !== "match_highlights") return null;
-  return { leagueId: parts[1], matchId: parts[2], teamId: parts[3], folder: f };
+  return {
+    leagueId: parts[1],
+    matchId: parts[2],
+    teamId: parts[3],
+    folder: f,
+  };
 }
 
 const _rate = {
@@ -840,7 +1179,10 @@ function _checkRate(uid, leagueId, matchId) {
   }
 
   if (cur.count >= max) {
-    return { ok: false, error: "Rate limit exceeded. Please try again later." };
+    return {
+      ok: false,
+      error: "Rate limit exceeded. Please try again later.",
+    };
   }
 
   cur.count += 1;
@@ -855,6 +1197,10 @@ function _isSafeCloudinaryPublicIdLeaf(publicId) {
   return /^[A-Za-z0-9_-]{6,200}$/.test(s);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ROUTER
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -863,9 +1209,17 @@ export default {
 
     const url = new URL(request.url);
 
+    // ── LiveKit token ────────────────────────────────────────────────────
     if (url.pathname === "/" && request.method === "POST") {
-      if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
-        return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
+      if (
+        !env.LIVEKIT_URL ||
+        !env.LIVEKIT_API_KEY ||
+        !env.LIVEKIT_API_SECRET
+      ) {
+        return jsonResponse(
+          { error: "Worker missing LiveKit env vars" },
+          500
+        );
       }
 
       let body;
@@ -886,7 +1240,10 @@ export default {
 
       if (!roomName) {
         return jsonResponse(
-          { error: "One of leagueId, matchId, callId, or roomName is required" },
+          {
+            error:
+              "One of leagueId, matchId, callId, or roomName is required",
+          },
           400
         );
       }
@@ -906,11 +1263,15 @@ export default {
         kind,
       });
 
-      const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
-        identity: userId,
-        ttl: "2h",
-        metadata,
-      });
+      const at = new AccessToken(
+        env.LIVEKIT_API_KEY,
+        env.LIVEKIT_API_SECRET,
+        {
+          identity: userId,
+          ttl: "2h",
+          metadata,
+        }
+      );
 
       at.addGrant({
         room: roomName,
@@ -923,12 +1284,26 @@ export default {
 
       const token = await at.toJwt();
 
-      return jsonResponse({ token, url: env.LIVEKIT_URL, roomName, role, kind });
+      return jsonResponse({
+        token,
+        url: env.LIVEKIT_URL,
+        roomName,
+        role,
+        kind,
+      });
     }
 
+    // ── LiveKit admin ────────────────────────────────────────────────────
     if (url.pathname === "/admin" && request.method === "POST") {
-      if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
-        return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
+      if (
+        !env.LIVEKIT_URL ||
+        !env.LIVEKIT_API_KEY ||
+        !env.LIVEKIT_API_SECRET
+      ) {
+        return jsonResponse(
+          { error: "Worker missing LiveKit env vars" },
+          500
+        );
       }
 
       let body;
@@ -943,24 +1318,40 @@ export default {
       const roomName = resolveRoomName(body);
 
       if (!action || !targetUserId) {
-        return jsonResponse({ error: "action, targetUserId required" }, 400);
+        return jsonResponse(
+          { error: "action, targetUserId required" },
+          400
+        );
       }
 
       if (!roomName) {
         return jsonResponse(
-          { error: "One of leagueId, matchId, callId, or roomName is required" },
+          {
+            error:
+              "One of leagueId, matchId, callId, or roomName is required",
+          },
           400
         );
       }
 
       try {
         if (action === "mute") {
-          const out = await mutePublishedTrack(env, roomName, targetUserId, true);
+          const out = await mutePublishedTrack(
+            env,
+            roomName,
+            targetUserId,
+            true
+          );
           return jsonResponse({ ok: true, action, out });
         }
 
         if (action === "unmute") {
-          const out = await mutePublishedTrack(env, roomName, targetUserId, false);
+          const out = await mutePublishedTrack(
+            env,
+            roomName,
+            targetUserId,
+            false
+          );
           return jsonResponse({ ok: true, action, out });
         }
 
@@ -970,7 +1361,11 @@ export default {
       }
     }
 
-    if (url.pathname === "/organizer-pro/activate" && request.method === "POST") {
+    // ── Organizer Pro activation ─────────────────────────────────────────
+    if (
+      url.pathname === "/organizer-pro/activate" &&
+      request.method === "POST"
+    ) {
       let verified;
       try {
         verified = await _verifyFirebaseIdToken(env, request);
@@ -978,7 +1373,10 @@ export default {
         return jsonResponse({ error: e.message || String(e) }, 500);
       }
       if (!verified.ok) {
-        return jsonResponse({ error: verified.error }, verified.status || 401);
+        return jsonResponse(
+          { error: verified.error },
+          verified.status || 401
+        );
       }
 
       let body;
@@ -990,13 +1388,47 @@ export default {
 
       try {
         const out = await _activateOrganizerPro(env, verified, body || {});
-        if (!out.ok) return jsonResponse({ error: out.error }, out.status || 400);
+        if (!out.ok)
+          return jsonResponse({ error: out.error }, out.status || 400);
         return jsonResponse(out, 200);
       } catch (e) {
         return jsonResponse({ error: e.message || String(e) }, 500);
       }
     }
 
+    // ── PREMIUM ACTIVATION (NEW) ─────────────────────────────────────────
+    if (url.pathname === "/premium/activate" && request.method === "POST") {
+      let verified;
+      try {
+        verified = await _verifyFirebaseIdToken(env, request);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+      if (!verified.ok) {
+        return jsonResponse(
+          { error: verified.error },
+          verified.status || 401
+        );
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON" }, 400);
+      }
+
+      try {
+        const out = await _activatePremium(env, verified, body || {});
+        if (!out.ok)
+          return jsonResponse({ error: out.error }, out.status || 400);
+        return jsonResponse(out, 200);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+    }
+
+    // ── Cloudinary signing ───────────────────────────────────────────────
     if (url.pathname === "/cloudinary/sign" && request.method === "POST") {
       let verified;
       try {
@@ -1005,7 +1437,10 @@ export default {
         return jsonResponse({ error: e.message || String(e) }, 500);
       }
       if (!verified.ok) {
-        return jsonResponse({ error: verified.error }, verified.status || 401);
+        return jsonResponse(
+          { error: verified.error },
+          verified.status || 401
+        );
       }
 
       const cloudName = String(env.CLOUDINARY_CLOUD_NAME || "").trim();
@@ -1013,7 +1448,10 @@ export default {
       const apiSecret = String(env.CLOUDINARY_API_SECRET || "").trim();
 
       if (!cloudName || !apiKey || !apiSecret) {
-        return jsonResponse({ error: "Worker missing Cloudinary env vars" }, 500);
+        return jsonResponse(
+          { error: "Worker missing Cloudinary env vars" },
+          500
+        );
       }
 
       let body;
@@ -1024,7 +1462,9 @@ export default {
       }
 
       const paramsIn =
-        body && body.params && typeof body.params === "object" ? body.params : body;
+        body && body.params && typeof body.params === "object"
+          ? body.params
+          : body;
 
       const folderRaw = _sanitizeCloudinaryPathPart(
         paramsIn.folder || ""
@@ -1033,7 +1473,10 @@ export default {
 
       if (!parsed) {
         return jsonResponse(
-          { error: "Invalid folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}" },
+          {
+            error:
+              "Invalid folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}",
+          },
           400
         );
       }
@@ -1058,12 +1501,19 @@ export default {
         paramsIn.streaming_profile
       ) {
         return jsonResponse(
-          { error: "Transformations/tags are not allowed for highlights" },
+          {
+            error:
+              "Transformations/tags are not allowed for highlights",
+          },
           400
         );
       }
 
-      const rl = _checkRate(verified.uid, parsed.leagueId, parsed.matchId);
+      const rl = _checkRate(
+        verified.uid,
+        parsed.leagueId,
+        parsed.matchId
+      );
       if (!rl.ok) {
         return jsonResponse({ error: rl.error }, 429);
       }
@@ -1071,19 +1521,36 @@ export default {
       const membershipPath = `leagues/${parsed.leagueId}/memberships/${verified.uid}`;
       const matchPath = `leagues/${parsed.leagueId}/matches/${parsed.matchId}`;
 
-      const memRes = await _firestoreGetDoc(env, verified.token, membershipPath);
+      const memRes = await _firestoreGetDoc(
+        env,
+        verified.token,
+        membershipPath
+      );
       if (!memRes.ok) {
-        return jsonResponse({ error: "Not allowed (membership not found)" }, 403);
+        return jsonResponse(
+          { error: "Not allowed (membership not found)" },
+          403
+        );
       }
 
       const memTeamId = _fsString(memRes.doc, "teamId");
       if (!memTeamId || memTeamId !== parsed.teamId) {
-        return jsonResponse({ error: "Not allowed (team mismatch)" }, 403);
+        return jsonResponse(
+          { error: "Not allowed (team mismatch)" },
+          403
+        );
       }
 
-      const matchRes = await _firestoreGetDoc(env, verified.token, matchPath);
+      const matchRes = await _firestoreGetDoc(
+        env,
+        verified.token,
+        matchPath
+      );
       if (!matchRes.ok) {
-        return jsonResponse({ error: "Not allowed (match not found)" }, 403);
+        return jsonResponse(
+          { error: "Not allowed (match not found)" },
+          403
+        );
       }
 
       const isPlayed = _fsBool(matchRes.doc, "isPlayed");
@@ -1091,9 +1558,14 @@ export default {
       const matchStatus = _fsString(matchRes.doc, "matchStatus");
 
       const finished =
-        isPlayed === true || status === "FINISHED" || matchStatus === "FINISHED";
+        isPlayed === true ||
+        status === "FINISHED" ||
+        matchStatus === "FINISHED";
       if (!finished) {
-        return jsonResponse({ error: "Not allowed (match not finished)" }, 403);
+        return jsonResponse(
+          { error: "Not allowed (match not finished)" },
+          403
+        );
       }
 
       const homeTeamId = _fsString(matchRes.doc, "homeTeamId");
