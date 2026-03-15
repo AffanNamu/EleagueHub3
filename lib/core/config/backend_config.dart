@@ -8,12 +8,18 @@ class BackendConfig {
   static const String functionsBaseUrl =
       String.fromEnvironment('FUNCTIONS_BASE_URL', defaultValue: '');
 
-  /// Base URL for your Cloudflare Worker.
+  /// Base URL for your Cloudflare Worker (unified API gateway).
+  ///
+  /// This single worker handles:
+  ///   - LiveKit tokens (voice rooms)
+  ///   - Organizer Pro activation (payment verification)
+  ///   - Premium activation (payment verification)
+  ///   - Cloudinary signing (video uploads)
   ///
   /// Example:
-  ///   https://livekit-token-worker.YOUR_SUBDOMAIN.workers.dev
+  ///   https://livekit-token-worker.esportlyic.workers.dev
   ///
-  /// This is the primary backend for payment verification on Spark plan.
+  /// Set via --dart-define=EH_WORKER_BASE_URL=https://...
   static const String workerBaseUrl =
       String.fromEnvironment('EH_WORKER_BASE_URL', defaultValue: '');
 

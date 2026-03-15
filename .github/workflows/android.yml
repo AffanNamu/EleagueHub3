@@ -32,9 +32,6 @@ jobs:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
 
     steps:
-      # NOTE:
-      # actions/checkout uses git under the hood. During GitHub incidents it can fail with 500/502.
-      # This manual checkout adds stronger retries/backoff to reduce flaky CI failures.
       - name: Checkout (manual git with retries/backoff)
         shell: bash
         env:
@@ -53,7 +50,6 @@ jobs:
           for i in 1 2 3 4 5 6; do
             echo "Checkout attempt ${i}/6..."
 
-            # Clean workspace (but keep workflow working directory).
             find . -mindepth 1 -maxdepth 1 \
               ! -name ".git" \
               -exec rm -rf {} + || true
@@ -62,10 +58,8 @@ jobs:
             git init -q
             git config gc.auto 0
 
-            # Use token auth to avoid rate limits and private repo issues.
             git remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
 
-            # Fetch exact commit (most reliable) with retries.
             if git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${SHA}"; then
               git checkout --detach -q FETCH_HEAD
               echo "Checked out: $(git rev-parse HEAD)"
@@ -96,11 +90,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          # NOTE:
-          # We intentionally do NOT use setup-java's built-in Gradle caching because:
-          # - you override GRADLE_USER_HOME to workspace/.gradle
-          # - setup-java caches ~/.gradle by default
-          # - this mismatch often causes "path does not exist" warnings and ineffective caching.
 
       - name: Cache Gradle (workspace GRADLE_USER_HOME)
         uses: actions/cache@v4
@@ -124,8 +113,6 @@ jobs:
             libglu1-mesa
           sudo apt-get clean
 
-      # Avoid GitHub API flakiness by NOT using subosito/flutter-action.
-      # Instead download Flutter directly from Google's official storage and cache it.
       - name: Cache Flutter SDK
         id: cache-flutter
         uses: actions/cache@v4
@@ -231,7 +218,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets
-          # Retry because Google Drive endpoints can be flaky.
           curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
             -o assets/icon.png "https://drive.google.com/uc?export=download&id=1tsB5ZVBNWke_wlrCuKiOiXMrGSPEqZZd"
 
@@ -241,11 +227,44 @@ jobs:
           flutter pub run flutter_launcher_icons
 
       - name: Build RELEASE APK
+        env:
+          EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
+          FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
+          FLW_PUBLIC_KEY_LIVE: ${{ secrets.FLW_PUBLIC_KEY_LIVE }}
         run: |
           set -euo pipefail
-          flutter build apk --release --no-tree-shake-icons \
-            --dart-define=CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
-            --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET="${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
+
+          # Validate critical secret is present
+          if [ -z "${EH_WORKER_BASE_URL:-}" ]; then
+            echo "::error::EH_WORKER_BASE_URL secret is not set. Payment verification will not work."
+            echo "Go to GitHub → Settings → Secrets → Actions → New repository secret"
+            echo "Name:  EH_WORKER_BASE_URL"
+            echo "Value: https://livekit-token-worker.esportlyic.workers.dev"
+            exit 1
+          fi
+
+          echo "Worker URL configured: ${EH_WORKER_BASE_URL}"
+
+          # Build dart-define flags
+          DART_DEFINES=""
+          DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}"
+          DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
+          DART_DEFINES="${DART_DEFINES} --dart-define=EH_WORKER_BASE_URL=${EH_WORKER_BASE_URL}"
+
+          # Flutterwave keys (optional — use test key if live not set)
+          if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=false"
+            echo "Using LIVE Flutterwave key"
+          elif [ -n "${FLW_PUBLIC_KEY_TEST:-}" ]; then
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_TEST=${FLW_PUBLIC_KEY_TEST}"
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=true"
+            echo "Using TEST Flutterwave key"
+          else
+            echo "No Flutterwave key secrets set — using defaults from FlutterwaveConfig"
+          fi
+
+          flutter build apk --release --no-tree-shake-icons ${DART_DEFINES}
 
       - name: Verify APK is signed (best-effort)
         run: |
