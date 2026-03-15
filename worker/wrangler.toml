@@ -5,3 +5,4 @@ workers_dev = true
 
 [vars]
 LIVEKIT_URL = "wss://esportlyic-tnvub6ag.livekit.cloud"
+FIREBASE_PROJECT_ID = "esportlyic"

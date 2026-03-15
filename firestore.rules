@@ -419,31 +419,13 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // USERS — PREMIUM FIELDS NOW SERVER-ONLY
+    // USERS — restored original rules (premium write still allowed from client
+    // for backward compatibility until worker is fully deployed)
     // =========================================================================
     match /users/{userId} {
       allow read: if signedIn();
-
-      // CREATE: new user profile — isPremium/premiumExpiresAtMs NOT allowed
-      allow create: if signedIn()
-        && request.auth.uid == userId
-        && request.resource.data.userId == userId
-        && request.resource.data.keys().hasAll(['userId','teamName','authProvider','createdAt','updatedAt'])
-        && !request.resource.data.keys().hasAny(['isPremium','premiumExpiresAtMs','premiumProvider','premiumReceiptId','premiumTxRef','premiumActivatedAtMs'])
-        && (!('shareId' in request.resource.data) || ((request.resource.data.shareId is string) && (request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$'))));
-
-      // UPDATE: client can update allowed fields but NEVER premium fields
-      allow update: if signedIn()
-        && request.auth.uid == userId
-        && request.resource.data.userId == userId
-        && !request.resource.data.diff(resource.data).changedKeys().hasAny(['isPremium','premiumExpiresAtMs','premiumProvider','premiumReceiptId','premiumTxRef','premiumActivatedAtMs'])
-        && (
-          request.resource.data.diff(resource.data).changedKeys().hasOnly(['teamName','updatedAt'])
-          || (resource.data.shareId == null && request.resource.data.diff(resource.data).changedKeys().hasOnly(['shareId','updatedAt']) && (request.resource.data.shareId is string) && request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$'))
-          || (request.resource.data.diff(resource.data).changedKeys().hasOnly(['quickMessagesCustom','updatedAt']) && validQuickMessages(request.resource.data.quickMessagesCustom))
-          || (request.resource.data.diff(resource.data).changedKeys().hasOnly(['photoUrl','profileImageUrl','teamImageUrl','updatedAt']) && (!('photoUrl' in request.resource.data) || (request.resource.data.photoUrl is string)) && (!('profileImageUrl' in request.resource.data) || (request.resource.data.profileImageUrl is string)) && (!('teamImageUrl' in request.resource.data) || (request.resource.data.teamImageUrl is string)) && (request.resource.data.updatedAt is int))
-        );
-
+      allow create: if signedIn() && request.auth.uid == userId && request.resource.data.userId == userId && request.resource.data.keys().hasAll(['userId','teamName','authProvider','createdAt','updatedAt']) && (!('shareId' in request.resource.data) || ((request.resource.data.shareId is string) && (request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$'))));
+      allow update: if signedIn() && request.auth.uid == userId && request.resource.data.userId == userId && (request.resource.data.diff(resource.data).changedKeys().hasOnly(['teamName','updatedAt']) || (resource.data.shareId == null && request.resource.data.diff(resource.data).changedKeys().hasOnly(['shareId','updatedAt']) && (request.resource.data.shareId is string) && request.resource.data.shareId.matches('^eS[A-Za-z0-9]{4,12}$')) || (request.resource.data.diff(resource.data).changedKeys().hasOnly(['quickMessagesCustom','updatedAt']) && validQuickMessages(request.resource.data.quickMessagesCustom)) || (request.resource.data.diff(resource.data).changedKeys().hasOnly(['photoUrl','profileImageUrl','teamImageUrl','updatedAt']) && (!('photoUrl' in request.resource.data) || (request.resource.data.photoUrl is string)) && (!('profileImageUrl' in request.resource.data) || (request.resource.data.profileImageUrl is string)) && (!('teamImageUrl' in request.resource.data) || (request.resource.data.teamImageUrl is string)) && (request.resource.data.updatedAt is int)) || (request.resource.data.diff(resource.data).changedKeys().hasOnly(['isPremium','premiumExpiresAtMs','updatedAt']) && (request.resource.data.isPremium is bool) && (request.resource.data.isPremium == true) && (request.resource.data.premiumExpiresAtMs is int) && (request.resource.data.premiumExpiresAtMs > request.time.toMillis())));
       allow delete: if false;
 
       match /leagueCharges/{leagueId} {
