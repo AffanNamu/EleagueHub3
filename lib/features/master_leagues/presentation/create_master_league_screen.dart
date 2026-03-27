@@ -196,7 +196,7 @@ class _CreateMasterLeagueScreenState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Proceed to Payment',
+                  isUpgrade ? 'Proceed to Payment' : 'Proceed to Payment',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: cs.onSurface,
