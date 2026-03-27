@@ -101,23 +101,44 @@ class UserProfileRepository {
   }
 
   Future<UserProfile?> fetchByUserIdForBootstrap(String userId) async {
-    try {
-      final uid = userId.trim();
-      if (uid.isEmpty) return null;
+    final uid = userId.trim();
+    if (uid.isEmpty) return null;
 
-      final snap = await _usersCol
+    try {
+      final serverSnap = await _usersCol
           .doc(uid)
           .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 10));
 
-      if (!snap.exists) return null;
-      return UserProfile.fromDoc(snap);
+      if (serverSnap.exists) {
+        return UserProfile.fromDoc(serverSnap);
+      }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('UserProfileRepository.fetchByUserIdForBootstrap failed: $e');
+        debugPrint(
+          'UserProfileRepository.fetchByUserIdForBootstrap server read failed: $e',
+        );
       }
-      return null;
     }
+
+    try {
+      final cacheSnap = await _usersCol
+          .doc(uid)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 4));
+
+      if (cacheSnap.exists) {
+        return UserProfile.fromDoc(cacheSnap);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          'UserProfileRepository.fetchByUserIdForBootstrap cache read failed: $e',
+        );
+      }
+    }
+
+    return null;
   }
 
   Stream<UserProfile?> watchByUserId(String userId) {
@@ -207,8 +228,32 @@ class UserProfileRepository {
   }
 
   Future<bool> profileExists(String userId) async {
-    final profile = await fetchByUserIdForBootstrap(userId);
-    return profile != null;
+    final uid = userId.trim();
+    if (uid.isEmpty) return false;
+
+    final profile = await fetchByUserIdForBootstrap(uid);
+    if (profile != null) return true;
+
+    final currentUid = _auth.currentUser?.uid.trim() ?? '';
+    if (currentUid.isNotEmpty && currentUid == uid) {
+      final authUser = _auth.currentUser;
+      final hasAnyIdentitySignal =
+          (authUser?.displayName ?? '').trim().isNotEmpty ||
+              (authUser?.email ?? '').trim().isNotEmpty ||
+              (authUser?.photoURL ?? '').trim().isNotEmpty ||
+              (authUser?.providerData.isNotEmpty ?? false);
+
+      if (hasAnyIdentitySignal) {
+        if (kDebugMode) {
+          debugPrint(
+            'UserProfileRepository.profileExists fallback=true for existing auth user: $uid',
+          );
+        }
+        return true;
+      }
+    }
+
+    return false;
   }
 
   Stream<bool> watchIsPremium(String userId) {

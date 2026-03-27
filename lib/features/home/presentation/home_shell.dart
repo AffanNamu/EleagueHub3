@@ -781,7 +781,7 @@ class _HomeTab extends StatelessWidget {
   }
 }
 
-class _FollowedOrganizerFeedPreview extends StatelessWidget {
+class _FollowedOrganizerFeedPreview extends StatefulWidget {
   const _FollowedOrganizerFeedPreview({
     required this.uid,
   });
@@ -789,12 +789,107 @@ class _FollowedOrganizerFeedPreview extends StatelessWidget {
   final String uid;
 
   @override
+  State<_FollowedOrganizerFeedPreview> createState() =>
+      _FollowedOrganizerFeedPreviewState();
+}
+
+class _FollowedOrganizerFeedPreviewState
+    extends State<_FollowedOrganizerFeedPreview> {
+  late final OrganizerFeedFirebase _feed;
+
+  bool _loading = true;
+  List<OrganizerFeedEvent> _items = const <OrganizerFeedEvent>[];
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _feed = OrganizerFeedFirebase();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FollowedOrganizerFeedPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final uid = widget.uid.trim();
+    if (uid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _items = const <OrganizerFeedEvent>[];
+        _hasError = false;
+      });
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _hasError = false;
+      });
+    }
+
+    try {
+      final items = await _feed.fetchFollowedOrganizerFeedOnce(uid);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _items = items.take(6).toList(growable: false);
+        _hasError = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _items = const <OrganizerFeedEvent>[];
+        _hasError = true;
+      });
+    }
+  }
+
+  IconData _feedIcon(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'announcement':
+        return Icons.campaign_outlined;
+      case 'competition_created':
+        return Icons.emoji_events_outlined;
+      case 'verification_approved':
+        return Icons.verified_rounded;
+      case 'verification_renewed':
+        return Icons.refresh_rounded;
+      default:
+        return Icons.bolt_rounded;
+    }
+  }
+
+  Color _feedColor(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'announcement':
+        return const Color(0xFF8B5CF6);
+      case 'competition_created':
+        return const Color(0xFF22C55E);
+      case 'verification_approved':
+        return const Color(0xFF1D9BF0);
+      case 'verification_renewed':
+        return const Color(0xFF14B8A6);
+      default:
+        return const Color(0xFF64748B);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final t = theme.textTheme;
 
-    if (uid.isEmpty) {
+    if (widget.uid.isEmpty) {
       return Glass(
         borderRadius: 24,
         padding: const EdgeInsets.all(16),
@@ -811,40 +906,6 @@ class _FollowedOrganizerFeedPreview extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               'Sign in to see updates from organizers you follow.',
-              style: t.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.65),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    OrganizerFeedFirebase? feed;
-    try {
-      feed = OrganizerFeedFirebase();
-    } catch (_) {
-      feed = null;
-    }
-
-    if (feed == null) {
-      return Glass(
-        borderRadius: 24,
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Followed Organizer Feed',
-              style: t.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                color: cs.onSurface,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Organizer feed is temporarily unavailable.',
               style: t.bodySmall?.copyWith(
                 color: cs.onSurface.withOpacity(0.65),
                 fontWeight: FontWeight.w700,
@@ -887,141 +948,98 @@ class _FollowedOrganizerFeedPreview extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          StreamBuilder<List<OrganizerFeedEvent>>(
-            stream: feed.watchFollowedOrganizerFeedPreview(uid),
-            builder: (context, snap) {
-              final items = snap.data ?? const <OrganizerFeedEvent>[];
-
-              if (snap.hasError) {
-                return Text(
-                  'Unable to load organizer updates right now.',
-                  style: t.bodySmall?.copyWith(
-                    color: cs.error,
-                    fontWeight: FontWeight.w800,
-                  ),
-                );
-              }
-
-              if (snap.connectionState == ConnectionState.waiting &&
-                  items.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-
-              if (items.isEmpty) {
-                return Text(
-                  'No followed organizer updates yet. Follow organizer workspaces to see their latest activity here.',
-                  style: t.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.65),
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
-                  ),
-                );
-              }
-
-              return Column(
-                children: items.map((item) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: InkWell(
-                      onTap: () {
-                        try {
-                          if (item.leagueId.trim().isNotEmpty) {
-                            context.push('/leagues/${item.leagueId.trim()}');
-                            return;
-                          }
-                          if (item.masterLeagueId.trim().isNotEmpty) {
-                            context.push(
-                              '/master-leagues/${item.masterLeagueId.trim()}',
-                            );
-                          }
-                        } catch (_) {}
-                      },
-                      borderRadius: BorderRadius.circular(18),
-                      child: Glass(
-                        borderRadius: 18,
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _feedIcon(item.type),
-                              color: _feedColor(item.type),
-                              size: 18,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.title,
-                                    style: t.bodyMedium?.copyWith(
-                                      color: cs.onSurface,
-                                      fontWeight: FontWeight.w900,
-                                    ),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_hasError)
+            Text(
+              'Unable to load organizer updates right now.',
+              style: t.bodySmall?.copyWith(
+                color: cs.error,
+                fontWeight: FontWeight.w800,
+              ),
+            )
+          else if (_items.isEmpty)
+            Text(
+              'No followed organizer updates yet. Follow organizer workspaces to see their latest activity here.',
+              style: t.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.65),
+                fontWeight: FontWeight.w700,
+                height: 1.35,
+              ),
+            )
+          else
+            Column(
+              children: _items.map((item) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: InkWell(
+                    onTap: () {
+                      try {
+                        if (item.leagueId.trim().isNotEmpty) {
+                          context.push('/leagues/${item.leagueId.trim()}');
+                          return;
+                        }
+                        if (item.masterLeagueId.trim().isNotEmpty) {
+                          context.push(
+                            '/master-leagues/${item.masterLeagueId.trim()}',
+                          );
+                        }
+                      } catch (_) {}
+                    },
+                    borderRadius: BorderRadius.circular(18),
+                    child: Glass(
+                      borderRadius: 18,
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _feedIcon(item.type),
+                            color: _feedColor(item.type),
+                            size: 18,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.title,
+                                  style: t.bodyMedium?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w900,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    item.message,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: t.bodySmall?.copyWith(
-                                      color: cs.onSurface.withOpacity(0.70),
-                                      fontWeight: FontWeight.w700,
-                                      height: 1.25,
-                                    ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  item.message,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: t.bodySmall?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.70),
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.25,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                            Icon(
-                              Icons.chevron_right_rounded,
-                              color: cs.onSurface.withOpacity(0.35),
-                            ),
-                          ],
-                        ),
+                          ),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: cs.onSurface.withOpacity(0.35),
+                          ),
+                        ],
                       ),
                     ),
-                  );
-                }).toList(growable: false),
-              );
-            },
-          ),
+                  ),
+                );
+              }).toList(growable: false),
+            ),
         ],
       ),
     );
-  }
-
-  IconData _feedIcon(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'announcement':
-        return Icons.campaign_outlined;
-      case 'competition_created':
-        return Icons.emoji_events_outlined;
-      case 'verification_approved':
-        return Icons.verified_rounded;
-      case 'verification_renewed':
-        return Icons.refresh_rounded;
-      default:
-        return Icons.bolt_rounded;
-    }
-  }
-
-  Color _feedColor(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'announcement':
-        return const Color(0xFF8B5CF6);
-      case 'competition_created':
-        return const Color(0xFF22C55E);
-      case 'verification_approved':
-        return const Color(0xFF1D9BF0);
-      case 'verification_renewed':
-        return const Color(0xFF14B8A6);
-      default:
-        return const Color(0xFF64748B);
-    }
   }
 }
 
