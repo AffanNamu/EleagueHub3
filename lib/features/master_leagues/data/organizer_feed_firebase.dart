@@ -17,13 +17,6 @@ class OrganizerFeedFirebase {
   CollectionReference<Map<String, dynamic>> get _feedCol =>
       _firestore.collection('organizer_feed');
 
-  CollectionReference<Map<String, dynamic>> _followersCol(String masterLeagueId) {
-    return _firestore
-        .collection('master_leagues')
-        .doc(masterLeagueId.trim())
-        .collection('followers');
-  }
-
   void _log(Object error, [StackTrace? st]) {
     if (!kDebugMode) return;
     debugPrint('[OrganizerFeedFirebase] $error');
@@ -35,7 +28,7 @@ class OrganizerFeedFirebase {
   Stream<List<OrganizerFeedEvent>> watchWorkspaceFeed(String masterLeagueId) {
     final id = masterLeagueId.trim();
     if (id.isEmpty) {
-      return const Stream<List<OrganizerFeedEvent>>.empty();
+      return Stream<List<OrganizerFeedEvent>>.value(const <OrganizerFeedEvent>[]);
     }
 
     try {
@@ -53,14 +46,14 @@ class OrganizerFeedFirebase {
       });
     } catch (e, st) {
       _log(e, st);
-      return const Stream<List<OrganizerFeedEvent>>.empty();
+      return Stream<List<OrganizerFeedEvent>>.value(const <OrganizerFeedEvent>[]);
     }
   }
 
   Stream<List<OrganizerFeedEvent>> watchFollowedOrganizerFeed(String userId) {
     final uid = userId.trim();
     if (uid.isEmpty) {
-      return const Stream<List<OrganizerFeedEvent>>.empty();
+      return Stream<List<OrganizerFeedEvent>>.value(const <OrganizerFeedEvent>[]);
     }
 
     try {
@@ -95,7 +88,8 @@ class OrganizerFeedFirebase {
                   .where('masterLeagueId', whereIn: chunk)
                   .orderBy('createdAtMs', descending: true)
                   .limit(50)
-                  .get();
+                  .get()
+                  .timeout(const Duration(seconds: 12));
 
               results.addAll(
                 feedSnap.docs.map((d) => OrganizerFeedEvent.fromMap(d.data())),
@@ -111,12 +105,18 @@ class OrganizerFeedFirebase {
           _log(e, st);
           return <OrganizerFeedEvent>[];
         }
-      }).handleError((error, st) {
+      }).timeout(
+        const Duration(seconds: 15),
+        onTimeout: (sink) {
+          sink.add(const <OrganizerFeedEvent>[]);
+          sink.close();
+        },
+      ).handleError((error, st) {
         _log(error, st);
       });
     } catch (e, st) {
       _log(e, st);
-      return const Stream<List<OrganizerFeedEvent>>.empty();
+      return Stream<List<OrganizerFeedEvent>>.value(const <OrganizerFeedEvent>[]);
     }
   }
 
@@ -128,12 +128,69 @@ class OrganizerFeedFirebase {
     );
   }
 
+  Future<List<OrganizerFeedEvent>> fetchFollowedOrganizerFeedOnce(
+    String userId,
+  ) async {
+    final uid = userId.trim();
+    if (uid.isEmpty) return const <OrganizerFeedEvent>[];
+
+    try {
+      final followSnap = await _firestore
+          .collectionGroup('followers')
+          .where('userId', isEqualTo: uid)
+          .get()
+          .timeout(const Duration(seconds: 12));
+
+      final workspaceIds = followSnap.docs
+          .map((d) => d.reference.parent.parent?.id ?? '')
+          .map((e) => e.trim())
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList(growable: false);
+
+      if (workspaceIds.isEmpty) return const <OrganizerFeedEvent>[];
+
+      final results = <OrganizerFeedEvent>[];
+
+      const chunkSize = 10;
+      for (int i = 0; i < workspaceIds.length; i += chunkSize) {
+        final chunk = workspaceIds.sublist(
+          i,
+          (i + chunkSize < workspaceIds.length)
+              ? i + chunkSize
+              : workspaceIds.length,
+        );
+
+        try {
+          final feedSnap = await _feedCol
+              .where('masterLeagueId', whereIn: chunk)
+              .orderBy('createdAtMs', descending: true)
+              .limit(50)
+              .get()
+              .timeout(const Duration(seconds: 12));
+
+          results.addAll(
+            feedSnap.docs.map((d) => OrganizerFeedEvent.fromMap(d.data())),
+          );
+        } catch (e, st) {
+          _log(e, st);
+        }
+      }
+
+      results.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+      return results.take(100).toList(growable: false);
+    } catch (e, st) {
+      _log(e, st);
+      return const <OrganizerFeedEvent>[];
+    }
+  }
+
   Future<void> addEvent(OrganizerFeedEvent event) async {
     final id = event.id.trim().isEmpty ? _uuid.v4() : event.id.trim();
     final safe = event.copyWith(id: id);
 
     try {
-      await _feedCol.doc(id).set(safe.toMap());
+      await _feedCol.doc(id).set(safe.toMap()).timeout(const Duration(seconds: 12));
     } catch (e, st) {
       _log(e, st);
       rethrow;
