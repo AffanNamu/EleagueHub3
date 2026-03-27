@@ -186,9 +186,11 @@ class MasterLeaguesRepositoryFirebase {
         });
 
         return sorted;
+      }).handleError((error, st) {
+        _log(error, st);
       });
     } catch (_) {
-      return const Stream<List<MasterLeague>>.empty();
+      return Stream<List<MasterLeague>>.value(const <MasterLeague>[]);
     }
   }
 
@@ -205,9 +207,11 @@ class MasterLeaguesRepositoryFirebase {
             .toList(growable: false);
         list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
         return list;
+      }).handleError((error, st) {
+        _log(error, st);
       });
     } catch (_) {
-      return const Stream<List<MasterLeague>>.empty();
+      return Stream<List<MasterLeague>>.value(const <MasterLeague>[]);
     }
   }
 
@@ -225,9 +229,11 @@ class MasterLeaguesRepositoryFirebase {
             .toList(growable: false);
         list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
         return list;
+      }).handleError((error, st) {
+        _log(error, st);
       });
     } catch (_) {
-      return const Stream<List<MasterLeague>>.empty();
+      return Stream<List<MasterLeague>>.value(const <MasterLeague>[]);
     }
   }
 
@@ -255,9 +261,15 @@ class MasterLeaguesRepositoryFirebase {
       final id = masterLeagueId.trim();
       if (id.isEmpty) return Stream<bool>.value(false);
 
-      return _followersCol(id).doc(uid).snapshots().map((snap) => snap.exists);
+      return _followersCol(id)
+          .doc(uid)
+          .snapshots()
+          .map((snap) => snap.exists)
+          .handleError((error, st) {
+        _log(error, st);
+      });
     } catch (_) {
-      return const Stream<bool>.empty();
+      return Stream<bool>.value(false);
     }
   }
 
@@ -273,9 +285,11 @@ class MasterLeaguesRepositoryFirebase {
         if (v is int) return v;
         if (v is num) return v.toInt();
         return 0;
+      }).handleError((error, st) {
+        _log(error, st);
       });
     } catch (_) {
-      return const Stream<int>.empty();
+      return Stream<int>.value(0);
     }
   }
 
@@ -284,7 +298,7 @@ class MasterLeaguesRepositoryFirebase {
     try {
       _requireAuthUid();
       final id = masterLeagueId.trim();
-      if (id.isEmpty) return const Stream<List<CompetitionTemplate>>.empty();
+      if (id.isEmpty) return Stream<List<CompetitionTemplate>>.value(const <CompetitionTemplate>[]);
 
       return _templatesCol(id)
           .orderBy('updatedAtMs', descending: true)
@@ -293,9 +307,11 @@ class MasterLeaguesRepositoryFirebase {
         return snap.docs
             .map((d) => CompetitionTemplate.fromMap(d.data()))
             .toList(growable: false);
+      }).handleError((error, st) {
+        _log(error, st);
       });
     } catch (_) {
-      return const Stream<List<CompetitionTemplate>>.empty();
+      return Stream<List<CompetitionTemplate>>.value(const <CompetitionTemplate>[]);
     }
   }
 

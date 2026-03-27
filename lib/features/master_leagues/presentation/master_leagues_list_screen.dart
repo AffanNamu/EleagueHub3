@@ -12,26 +12,6 @@ import 'widgets/master_league_card.dart';
 class MasterLeaguesListScreen extends ConsumerWidget {
   const MasterLeaguesListScreen({super.key});
 
-  List<MasterLeague> _sort(List<MasterLeague> input) {
-    final sorted = [...input];
-    sorted.sort((a, b) {
-      final aMs = a.createdAt?.millisecondsSinceEpoch ?? a.updatedAtMs;
-      final bMs = b.createdAt?.millisecondsSinceEpoch ?? b.updatedAtMs;
-      return bMs.compareTo(aMs);
-    });
-    return sorted;
-  }
-
-  int _workspacePower(List<MasterLeague> leagues) {
-    int total = 0;
-    for (final ml in leagues) {
-      total += ml.analytics.totalTournamentsCreated;
-      total += ml.analytics.totalParticipantsTeams;
-      total += ml.analytics.totalMatches;
-    }
-    return total;
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
@@ -39,88 +19,28 @@ class MasterLeaguesListScreen extends ConsumerWidget {
 
     final createdAsync = ref.watch(createdMasterLeaguesProvider);
     final joinedAsync = ref.watch(joinedMasterLeaguesProvider);
-    final unlockedAsync = ref.watch(masterLeagueUnlockedProvider);
     final planAsync = ref.watch(organizerProActivePlanProvider);
 
-    Widget header({
-      required int createdCount,
-      required int joinedCount,
-      required int workspacePower,
-    }) {
-      final unlocked = unlockedAsync.asData?.value == true;
-      final plan = planAsync.asData?.value;
-
-      final String statusLine;
-      if (plan != null) {
-        statusLine = 'Organizer Pro active • Plan: ${plan.displayName}';
-      } else if (unlocked) {
-        statusLine = 'Organizer Pro active';
-      } else {
-        statusLine = 'You can pay during Master League creation';
-      }
-
-      return Glass(
-        borderRadius: 30,
-        padding: const EdgeInsets.all(18),
+    Widget sectionTitle(String title, String subtitle) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Organizer Workspace',
-              style: theme.textTheme.titleLarge?.copyWith(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w900,
-                letterSpacing: -0.35,
+                letterSpacing: -0.2,
                 color: cs.onSurface,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
-              statusLine,
+              subtitle,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: plan != null
-                    ? cs.primary
-                    : cs.onSurface.withOpacity(0.70),
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Master Leagues are organizer workspaces. Create competitions, manage staff, build trust with verification, and operate your organizer identity in one place.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface.withOpacity(0.72),
-                height: 1.35,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _metricChip(
-                  context,
-                  icon: Icons.hub_rounded,
-                  label: '$createdCount created',
-                ),
-                _metricChip(
-                  context,
-                  icon: Icons.group_outlined,
-                  label: '$joinedCount joined',
-                ),
-                _metricChip(
-                  context,
-                  icon: Icons.bolt_rounded,
-                  label: 'Workspace power $workspacePower',
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            FilledButton.icon(
-              onPressed: () => context.push('/master-leagues/create'),
-              icon: const Icon(Icons.add_circle_outline_rounded),
-              label: const Text(
-                'Create Master League',
-                style: TextStyle(fontWeight: FontWeight.w900),
+                color: cs.onSurface.withOpacity(0.62),
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -128,59 +48,48 @@ class MasterLeaguesListScreen extends ConsumerWidget {
       );
     }
 
-    Widget buildSection({
-      required String title,
-      required String subtitle,
-      required List<MasterLeague> items,
-      required String emptyTitle,
-      required String emptyMessage,
-    }) {
+    Widget buildMasterLeagueList(List<MasterLeague> items) {
+      if (items.isEmpty) {
+        return const EmptyState(
+          title: 'No Master Leagues yet',
+          message:
+              'Create your first organizer workspace to manage competitions in one place.',
+          icon: Icons.hub_rounded,
+        );
+      }
+
       return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 10, top: 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.62),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+        children: List.generate(items.length, (i) {
+          final ml = items[i];
+          return Padding(
+            padding: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 12),
+            child: MasterLeagueCard(
+              masterLeague: ml,
+              onTap: () => context.push('/master-leagues/${ml.id}'),
             ),
+          );
+        }),
+      );
+    }
+
+    Widget loadingCard() {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    Widget safeErrorCard(String title) {
+      return Glass(
+        borderRadius: 22,
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          title,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: cs.error,
+            fontWeight: FontWeight.w900,
           ),
-          if (items.isEmpty)
-            EmptyState(
-              title: emptyTitle,
-              message: emptyMessage,
-              icon: Icons.hub_rounded,
-            )
-          else
-            ...List.generate(items.length, (i) {
-              final ml = items[i];
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: i == items.length - 1 ? 0 : 12,
-                ),
-                child: MasterLeagueCard(
-                  masterLeague: ml,
-                  onTap: () => context.push('/master-leagues/${ml.id}'),
-                ),
-              );
-            }),
-        ],
+        ),
       );
     }
 
@@ -197,124 +106,122 @@ class MasterLeaguesListScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: createdAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Padding(
-                padding: const EdgeInsets.all(16),
-                child: Glass(
-                  borderRadius: 28,
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    '$e',
-                    style: TextStyle(
-                      color: cs.error,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
-              data: (createdRaw) {
-                return joinedAsync.when(
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Glass(
-                      borderRadius: 28,
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        '$e',
-                        style: TextStyle(
-                          color: cs.error,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                  data: (joinedRaw) {
-                    final created = _sort(createdRaw);
-                    final joined = _sort(joinedRaw);
-                    final power = _workspacePower([...created, ...joined]);
-
-                    return ListView(
-                      physics: const BouncingScrollPhysics(
-                        parent: AlwaysScrollableScrollPhysics(),
-                      ),
-                      padding:
-                          const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 110),
-                      children: [
-                        header(
-                          createdCount: created.length,
-                          joinedCount: joined.length,
-                          workspacePower: power,
-                        ),
-                        const SizedBox(height: 16),
-                        buildSection(
-                          title: 'Workspaces You Own',
-                          subtitle:
-                              'These are your main organizer hubs for creating and managing competitions.',
-                          items: created,
-                          emptyTitle: 'No organizer workspaces yet',
-                          emptyMessage:
-                              'Create your first Master League to launch your organizer workspace.',
-                        ),
-                        const SizedBox(height: 20),
-                        buildSection(
-                          title: 'Workspaces You Joined',
-                          subtitle:
-                              'Master Leagues where you were added as staff or member.',
-                          items: joined,
-                          emptyTitle: 'No joined workspaces yet',
-                          emptyMessage:
-                              'When an organizer adds you to a Master League, it will appear here.',
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ),
-      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/master-leagues/create'),
         icon: const Icon(Icons.add),
         label: const Text('Create'),
       ),
-    );
-  }
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 780),
+            child: RefreshIndicator(
+              onRefresh: () async {
+                ref.invalidate(createdMasterLeaguesProvider);
+                ref.invalidate(joinedMasterLeaguesProvider);
+                ref.invalidate(organizerProActivePlanProvider);
+                await Future<void>.delayed(const Duration(milliseconds: 250));
+              },
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
+                children: [
+                  Glass(
+                    borderRadius: 30,
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Organizer Workspaces',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.35,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Create and manage Master Leagues for your organizer brand, competitions, staff, and announcements.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: cs.onSurface.withOpacity(0.72),
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        planAsync.when(
+                          loading: () => Text(
+                            'Checking active plan...',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.65),
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          error: (_, __) => Text(
+                            'Unable to verify active plan right now.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.error,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          data: (plan) => Text(
+                            plan == null
+                                ? 'No active Organizer Pro plan detected.'
+                                : 'Active plan: ${plan.displayName}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: plan == null ? cs.onSurface.withOpacity(0.68) : cs.primary,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
 
-  Widget _metricChip(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-  }) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: cs.primary.withOpacity(0.08),
-        border: Border.all(color: cs.primary.withOpacity(0.16)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: cs.primary),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: cs.onSurface,
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
+                  sectionTitle(
+                    'Created by You',
+                    'Master Leagues you own and manage.',
+                  ),
+                  createdAsync.when(
+                    loading: () => loadingCard(),
+                    error: (_, __) => safeErrorCard(
+                      'Unable to load your created Master Leagues right now.',
+                    ),
+                    data: buildMasterLeagueList,
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  sectionTitle(
+                    'Joined Workspaces',
+                    'Master Leagues where you are a member, admin, or moderator.',
+                  ),
+                  joinedAsync.when(
+                    loading: () => loadingCard(),
+                    error: (_, __) => safeErrorCard(
+                      'Unable to load joined Master Leagues right now.',
+                    ),
+                    data: (items) {
+                      if (items.isEmpty) {
+                        return const EmptyState(
+                          title: 'No joined workspaces',
+                          message:
+                              'When you are added to an organizer workspace, it will appear here.',
+                          icon: Icons.groups_outlined,
+                        );
+                      }
+                      return buildMasterLeagueList(items);
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
