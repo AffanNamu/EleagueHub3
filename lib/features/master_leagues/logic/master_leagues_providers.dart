@@ -17,9 +17,12 @@ final masterLeagueEntitlementServiceProvider =
   return MasterLeagueEntitlementService();
 });
 
-final masterLeaguePaymentServiceProvider = Provider<MasterLeaguePaymentService>(
-  (ref) => ref.watch(masterLeaguePaymentServiceImplProvider),
-);
+final masterLeaguePaymentServiceProvider =
+    Provider<MasterLeaguePaymentService>((ref) {
+  throw UnimplementedError(
+    'masterLeaguePaymentServiceProvider must be overridden by the concrete payment service implementation.',
+  );
+});
 
 final organizerProActivePlanProvider =
     FutureProvider<MasterLeaguePlan?>((ref) async {
