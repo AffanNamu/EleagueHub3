@@ -100,6 +100,26 @@ class UserProfileRepository {
     }
   }
 
+  Future<UserProfile?> fetchByUserIdForBootstrap(String userId) async {
+    try {
+      final uid = userId.trim();
+      if (uid.isEmpty) return null;
+
+      final snap = await _usersCol
+          .doc(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+
+      if (!snap.exists) return null;
+      return UserProfile.fromDoc(snap);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('UserProfileRepository.fetchByUserIdForBootstrap failed: $e');
+      }
+      return null;
+    }
+  }
+
   Stream<UserProfile?> watchByUserId(String userId) {
     try {
       _requireAuthUid();
@@ -187,7 +207,7 @@ class UserProfileRepository {
   }
 
   Future<bool> profileExists(String userId) async {
-    final profile = await fetchByUserId(userId);
+    final profile = await fetchByUserIdForBootstrap(userId);
     return profile != null;
   }
 
@@ -411,10 +431,6 @@ class UserProfileRepository {
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      // NOTE:
-      // onboardingAnswers is accepted for backward compatibility with older
-      // onboarding flow callsites, but intentionally not stored here because
-      // current Firestore rules for /users/{uid} do not allow that field.
       await ref.set(
         <String, dynamic>{
           'userId': targetUid,
