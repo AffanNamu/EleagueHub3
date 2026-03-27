@@ -114,6 +114,12 @@ class MasterLeaguesRepositoryFirebase {
     );
   }
 
+  void _log(Object error, [StackTrace? st]) {
+    if (!kDebugMode) return;
+    debugPrint('[MasterLeaguesRepo] $error');
+    if (st != null) debugPrint('$st');
+  }
+
   String _trimUrl(String value) {
     final out = value.trim();
     return out.length <= 2000 ? out : out.substring(0, 2000);
@@ -415,23 +421,34 @@ class MasterLeaguesRepositoryFirebase {
             (i + chunkSize < ids.length) ? i + chunkSize : ids.length,
           );
 
-          final snap = await _col
-              .where(FieldPath.documentId, whereIn: chunk)
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 15));
+          try {
+            final snap = await _col
+                .where(FieldPath.documentId, whereIn: chunk)
+                .get(const GetOptions(source: Source.server))
+                .timeout(const Duration(seconds: 15));
 
-          out.addAll(
-            snap.docs.map((d) => MasterLeague.fromMap(d.id, d.data())),
-          );
+            out.addAll(
+              snap.docs.map((d) => MasterLeague.fromMap(d.id, d.data())),
+            );
+          } catch (e, st) {
+            _log(e, st);
+          }
         }
 
-        out.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
-        return out.take(limit).toList(growable: false);
+        if (out.isNotEmpty) {
+          out.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+          return out.take(limit).toList(growable: false);
+        }
       }
 
       return await discoverVerifiedOrganizers(limit: limit);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+      _log(e);
+      try {
+        return await discoverVerifiedOrganizers(limit: limit);
+      } catch (inner) {
+        _rethrowFriendly(inner is Object ? inner : Exception('unknown'));
+      }
     }
   }
 

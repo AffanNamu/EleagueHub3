@@ -11,110 +11,7 @@ import '../domain/organizer_feed_event.dart';
 class FollowedOrganizerFeedScreen extends StatelessWidget {
   const FollowedOrganizerFeedScreen({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final feed = OrganizerFeedFirebase();
-
-    if (uid.isEmpty) {
-      return GlassScaffold(
-        appBar: AppBar(
-          title: const Text('Followed Organizer Feed'),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
-        body: const Center(
-          child: EmptyState(
-            title: 'Sign in required',
-            message: 'Please sign in to view your followed organizer feed.',
-            icon: Icons.login_rounded,
-          ),
-        ),
-      );
-    }
-
-    return GlassScaffold(
-      appBar: AppBar(
-        title: const Text('Followed Organizer Feed'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
-      body: SafeArea(
-        child: StreamBuilder<List<OrganizerFeedEvent>>(
-          stream: feed.watchFollowedOrganizerFeed(uid),
-          builder: (context, snap) {
-            final items = snap.data ?? const <OrganizerFeedEvent>[];
-
-            if (snap.hasError) {
-              return Center(
-                child: Glass(
-                  borderRadius: 22,
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    '${snap.error}',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.error,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            if (!snap.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (items.isEmpty) {
-              return const Center(
-                child: EmptyState(
-                  title: 'No followed organizer activity yet',
-                  message:
-                      'Follow organizer workspaces to see announcements, new competitions, and verification updates here.',
-                  icon: Icons.dynamic_feed_rounded,
-                ),
-              );
-            }
-
-            return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return _FeedItemCard(item: item);
-              },
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _FeedItemCard extends StatelessWidget {
-  const _FeedItemCard({required this.item});
-
-  final OrganizerFeedEvent item;
-
-  Color _typeColor(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'announcement':
-        return const Color(0xFF8B5CF6);
-      case 'competition_created':
-        return const Color(0xFF22C55E);
-      case 'verification_approved':
-        return const Color(0xFF1D9BF0);
-      case 'verification_renewed':
-        return const Color(0xFF14B8A6);
-      default:
-        return const Color(0xFF64748B);
-    }
-  }
-
-  IconData _typeIcon(String type) {
+  IconData _feedIcon(String type) {
     switch (type.trim().toLowerCase()) {
       case 'announcement':
         return Icons.campaign_outlined;
@@ -129,156 +26,294 @@ class _FeedItemCard extends StatelessWidget {
     }
   }
 
-  String _typeLabel(String type) {
+  Color _feedColor(String type) {
     switch (type.trim().toLowerCase()) {
       case 'announcement':
-        return 'Announcement';
+        return const Color(0xFF8B5CF6);
       case 'competition_created':
-        return 'Competition';
+        return const Color(0xFF22C55E);
       case 'verification_approved':
-        return 'Verified';
+        return const Color(0xFF1D9BF0);
       case 'verification_renewed':
-        return 'Renewed';
+        return const Color(0xFF14B8A6);
       default:
-        return 'Update';
+        return const Color(0xFF64748B);
+    }
+  }
+
+  String _formatWhen(int ms) {
+    if (ms <= 0) return 'Unknown time';
+    try {
+      return DateTime.fromMillisecondsSinceEpoch(ms)
+          .toLocal()
+          .toString()
+          .split('.')
+          .first;
+    } catch (_) {
+      return 'Unknown time';
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final color = _typeColor(item.type);
+    final feed = OrganizerFeedFirebase();
 
-    return InkWell(
-      onTap: () {
-        if (item.leagueId.trim().isNotEmpty) {
-          context.push('/leagues/${item.leagueId.trim()}');
-          return;
-        }
-        if (item.masterLeagueId.trim().isNotEmpty) {
-          context.push('/master-leagues/${item.masterLeagueId.trim()}');
-        }
-      },
-      borderRadius: BorderRadius.circular(22),
-      child: Glass(
-        borderRadius: 22,
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: color.withOpacity(0.12),
-                border: Border.all(color: color.withOpacity(0.28)),
-              ),
-              child: Icon(_typeIcon(item.type), color: color),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      Text(
-                        item.title,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          color: color.withOpacity(0.12),
-                          border: Border.all(color: color.withOpacity(0.28)),
-                        ),
-                        child: Text(
-                          _typeLabel(item.type),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: color,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    item.message,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.78),
-                      fontWeight: FontWeight.w700,
-                      height: 1.35,
+    return GlassScaffold(
+      appBar: AppBar(
+        title: const Text('Followed Organizer Feed'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 780),
+            child: uid.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: EmptyState(
+                      title: 'Sign in required',
+                      message:
+                          'Please sign in to view updates from organizers you follow.',
+                      icon: Icons.dynamic_feed_rounded,
                     ),
+                  )
+                : StreamBuilder<List<OrganizerFeedEvent>>(
+                    stream: feed.watchFollowedOrganizerFeed(uid),
+                    builder: (context, snap) {
+                      final items = snap.data ?? const <OrganizerFeedEvent>[];
+
+                      if (snap.connectionState == ConnectionState.waiting &&
+                          items.isEmpty) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (snap.hasError && items.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Glass(
+                            borderRadius: 24,
+                            padding: const EdgeInsets.all(18),
+                            child: Text(
+                              'Unable to load organizer updates right now.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: cs.error,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      if (items.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: EmptyState(
+                            title: 'No updates yet',
+                            message:
+                                'Follow organizer workspaces to see their latest activity here.',
+                            icon: Icons.dynamic_feed_rounded,
+                          ),
+                        );
+                      }
+
+                      return ListView(
+                        physics: const BouncingScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics(),
+                        ),
+                        padding:
+                            const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
+                        children: [
+                          Glass(
+                            borderRadius: 28,
+                            padding: const EdgeInsets.all(18),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Organizer Feed',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.3,
+                                    color: cs.onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Latest updates from the organizer workspaces you follow.',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.72),
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          if (snap.hasError)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Glass(
+                                borderRadius: 18,
+                                padding: const EdgeInsets.all(12),
+                                child: Text(
+                                  'Some updates may be unavailable right now.',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: cs.error,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ...items.map((item) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(22),
+                                onTap: () {
+                                  if (item.leagueId.trim().isNotEmpty) {
+                                    context.push('/leagues/${item.leagueId.trim()}');
+                                    return;
+                                  }
+                                  if (item.masterLeagueId.trim().isNotEmpty) {
+                                    context.push(
+                                      '/master-leagues/${item.masterLeagueId.trim()}',
+                                    );
+                                  }
+                                },
+                                child: Glass(
+                                  borderRadius: 22,
+                                  padding: const EdgeInsets.all(14),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        width: 42,
+                                        height: 42,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: _feedColor(item.type)
+                                              .withOpacity(0.12),
+                                          border: Border.all(
+                                            color: _feedColor(item.type)
+                                                .withOpacity(0.24),
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          _feedIcon(item.type),
+                                          color: _feedColor(item.type),
+                                          size: 20,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item.title,
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                color: cs.onSurface,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              item.message,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color: cs.onSurface
+                                                    .withOpacity(0.74),
+                                                fontWeight: FontWeight.w700,
+                                                height: 1.3,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                _MetaChip(
+                                                  label: item.actorName.trim()
+                                                          .isEmpty
+                                                      ? 'Organizer'
+                                                      : item.actorName.trim(),
+                                                  icon: Icons.person_outline_rounded,
+                                                  color: cs.primary,
+                                                ),
+                                                _MetaChip(
+                                                  label: _formatWhen(
+                                                      item.createdAtMs),
+                                                  icon: Icons.schedule_rounded,
+                                                  color: cs.primary,
+                                                ),
+                                                if (item.masterLeagueId
+                                                    .trim()
+                                                    .isNotEmpty)
+                                                  _MetaChip(
+                                                    label: item.masterLeagueId
+                                                        .trim(),
+                                                    icon: Icons.hub_rounded,
+                                                    color: const Color(0xFF14B8A6),
+                                                  ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        Icons.chevron_right_rounded,
+                                        color: cs.onSurface.withOpacity(0.35),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
+                      );
+                    },
                   ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _metaChip(
-                        context,
-                        icon: Icons.person_outline_rounded,
-                        label: item.actorName.trim().isEmpty
-                            ? 'Organizer'
-                            : item.actorName.trim(),
-                      ),
-                      _metaChip(
-                        context,
-                        icon: Icons.schedule_rounded,
-                        label: item.createdAtMs > 0
-                            ? DateTime.fromMillisecondsSinceEpoch(
-                                    item.createdAtMs)
-                                .toLocal()
-                                .toString()
-                                .split('.')
-                                .first
-                            : 'Unknown time',
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: cs.onSurface.withOpacity(0.35),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _metaChip(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-  }) {
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: cs.primary.withOpacity(0.06),
-        border: Border.all(color: cs.primary.withOpacity(0.14)),
+        color: color.withOpacity(0.08),
+        border: Border.all(color: color.withOpacity(0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: cs.primary),
+          Icon(icon, size: 14, color: color),
           const SizedBox(width: 6),
           Text(
             label,

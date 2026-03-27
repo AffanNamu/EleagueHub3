@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/organizer_feed_event.dart';
@@ -21,15 +24,37 @@ class OrganizerFeedFirebase {
         .collection('followers');
   }
 
+  void _log(Object error, [StackTrace? st]) {
+    if (!kDebugMode) return;
+    debugPrint('[OrganizerFeedFirebase] $error');
+    if (st != null) {
+      debugPrint('$st');
+    }
+  }
+
   Stream<List<OrganizerFeedEvent>> watchWorkspaceFeed(String masterLeagueId) {
-    return _feedCol
-        .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
-        .orderBy('createdAtMs', descending: true)
-        .limit(50)
-        .snapshots()
-        .map((snap) => snap.docs
+    final id = masterLeagueId.trim();
+    if (id.isEmpty) {
+      return const Stream<List<OrganizerFeedEvent>>.empty();
+    }
+
+    try {
+      return _feedCol
+          .where('masterLeagueId', isEqualTo: id)
+          .orderBy('createdAtMs', descending: true)
+          .limit(50)
+          .snapshots()
+          .map((snap) {
+        return snap.docs
             .map((d) => OrganizerFeedEvent.fromMap(d.data()))
-            .toList(growable: false));
+            .toList(growable: false);
+      }).handleError((error, st) {
+        _log(error, st);
+      });
+    } catch (e, st) {
+      _log(e, st);
+      return const Stream<List<OrganizerFeedEvent>>.empty();
+    }
   }
 
   Stream<List<OrganizerFeedEvent>> watchFollowedOrganizerFeed(String userId) {
@@ -38,44 +63,61 @@ class OrganizerFeedFirebase {
       return const Stream<List<OrganizerFeedEvent>>.empty();
     }
 
-    return _firestore
-        .collectionGroup('followers')
-        .where('userId', isEqualTo: uid)
-        .snapshots()
-        .asyncMap((followSnap) async {
-      final workspaceIds = followSnap.docs
-          .map((d) => d.reference.parent.parent?.id ?? '')
-          .where((id) => id.trim().isNotEmpty)
-          .toSet()
-          .toList(growable: false);
+    try {
+      return _firestore
+          .collectionGroup('followers')
+          .where('userId', isEqualTo: uid)
+          .snapshots()
+          .asyncMap((followSnap) async {
+        try {
+          final workspaceIds = followSnap.docs
+              .map((d) => d.reference.parent.parent?.id ?? '')
+              .map((e) => e.trim())
+              .where((id) => id.isNotEmpty)
+              .toSet()
+              .toList(growable: false);
 
-      if (workspaceIds.isEmpty) return <OrganizerFeedEvent>[];
+          if (workspaceIds.isEmpty) return <OrganizerFeedEvent>[];
 
-      final results = <OrganizerFeedEvent>[];
+          final results = <OrganizerFeedEvent>[];
 
-      const chunkSize = 10;
-      for (int i = 0; i < workspaceIds.length; i += chunkSize) {
-        final chunk = workspaceIds.sublist(
-          i,
-          (i + chunkSize < workspaceIds.length)
-              ? i + chunkSize
-              : workspaceIds.length,
-        );
+          const chunkSize = 10;
+          for (int i = 0; i < workspaceIds.length; i += chunkSize) {
+            final chunk = workspaceIds.sublist(
+              i,
+              (i + chunkSize < workspaceIds.length)
+                  ? i + chunkSize
+                  : workspaceIds.length,
+            );
 
-        final feedSnap = await _feedCol
-            .where('masterLeagueId', whereIn: chunk)
-            .orderBy('createdAtMs', descending: true)
-            .limit(50)
-            .get();
+            try {
+              final feedSnap = await _feedCol
+                  .where('masterLeagueId', whereIn: chunk)
+                  .orderBy('createdAtMs', descending: true)
+                  .limit(50)
+                  .get();
 
-        results.addAll(
-          feedSnap.docs.map((d) => OrganizerFeedEvent.fromMap(d.data())),
-        );
-      }
+              results.addAll(
+                feedSnap.docs.map((d) => OrganizerFeedEvent.fromMap(d.data())),
+              );
+            } catch (e, st) {
+              _log(e, st);
+            }
+          }
 
-      results.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
-      return results.take(100).toList(growable: false);
-    });
+          results.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+          return results.take(100).toList(growable: false);
+        } catch (e, st) {
+          _log(e, st);
+          return <OrganizerFeedEvent>[];
+        }
+      }).handleError((error, st) {
+        _log(error, st);
+      });
+    } catch (e, st) {
+      _log(e, st);
+      return const Stream<List<OrganizerFeedEvent>>.empty();
+    }
   }
 
   Stream<List<OrganizerFeedEvent>> watchFollowedOrganizerFeedPreview(
@@ -88,7 +130,14 @@ class OrganizerFeedFirebase {
 
   Future<void> addEvent(OrganizerFeedEvent event) async {
     final id = event.id.trim().isEmpty ? _uuid.v4() : event.id.trim();
-    await _feedCol.doc(id).set(event.copyWith(id: id).toMap());
+    final safe = event.copyWith(id: id);
+
+    try {
+      await _feedCol.doc(id).set(safe.toMap());
+    } catch (e, st) {
+      _log(e, st);
+      rethrow;
+    }
   }
 
   Future<void> addAnnouncementPostedEvent({
