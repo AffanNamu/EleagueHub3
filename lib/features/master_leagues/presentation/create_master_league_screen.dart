@@ -196,7 +196,7 @@ class _CreateMasterLeagueScreenState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  isUpgrade ? 'Proceed to Payment' : 'Proceed to Payment',
+                  'Proceed to Payment',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: cs.onSurface,
@@ -741,7 +741,7 @@ class _CreateMasterLeagueScreenState
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.lock_payment_outlined),
+                      : const Icon(Icons.payment_rounded),
                   label: Text(
                     _processing ? 'Processing...' : 'Proceed to Payment',
                     style: const TextStyle(fontWeight: FontWeight.w900),
