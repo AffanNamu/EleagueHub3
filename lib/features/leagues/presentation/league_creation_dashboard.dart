@@ -19,6 +19,7 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../data/leagues_repository_firebase.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
@@ -46,6 +47,7 @@ class _LeagueCreationDashboardState
     extends ConsumerState<LeagueCreationDashboard> {
   final Uuid _uuid = const Uuid();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final OrganizerFeedFirebase _organizerFeed = OrganizerFeedFirebase();
 
   late final String _draftLeagueId;
 
@@ -76,6 +78,8 @@ class _LeagueCreationDashboardState
 
   bool _extrasApplied = false;
   String _masterLeagueId = '';
+
+  bool _containsRewards = false;
 
   static const Color _premiumAmber = Color(0xFFF59E0B);
 
@@ -110,6 +114,22 @@ class _LeagueCreationDashboardState
     final String? typeString =
         (extra['type'] as String?)?.trim().toLowerCase();
 
+    final String templateName =
+        (extra['templateName'] as String?)?.trim() ?? '';
+    final String templateDescription =
+        (extra['templateDescription'] as String?)?.trim() ?? '';
+    final String templatePrivacy =
+        (extra['templatePrivacy'] as String?)?.trim().toLowerCase() ?? '';
+    final bool templateHomeAwayEnabled =
+        extra['templateHomeAwayEnabled'] == true;
+    final bool templateContainsRewards =
+        extra['templateContainsRewards'] == true;
+    final int? templateMaxTeams = extra['maxTeams'] is int
+        ? extra['maxTeams'] as int
+        : (extra['maxTeams'] is num
+            ? (extra['maxTeams'] as num).toInt()
+            : null);
+
     LeagueCreationType? inferredType;
     if (initialFormat != null) {
       inferredType = _creationTypeFromFormat(initialFormat);
@@ -121,11 +141,29 @@ class _LeagueCreationDashboardState
       setState(() {
         _masterLeagueId = ml;
 
+        if (templateName.isNotEmpty) {
+          _name.text = templateName;
+        }
+        if (templateDescription.isNotEmpty) {
+          _description.text = templateDescription;
+        }
+        if (templatePrivacy == 'public') {
+          _privacy = LeaguePrivacy.public;
+        } else if (templatePrivacy == 'private') {
+          _privacy = LeaguePrivacy.private;
+        }
+
+        _containsRewards = templateContainsRewards;
+
         if (inferredType != null) {
           _type = inferredType;
 
           final fmt = _format;
-          if (fmt == LeagueFormat.uclGroup) {
+
+          if (templateMaxTeams != null &&
+              _allowedMaxTeams.contains(templateMaxTeams)) {
+            _selectedMaxTeams = templateMaxTeams;
+          } else if (fmt == LeagueFormat.uclGroup) {
             _selectedMaxTeams = 32;
           } else if (fmt == LeagueFormat.uclSwiss) {
             _selectedMaxTeams = 36;
@@ -133,7 +171,9 @@ class _LeagueCreationDashboardState
             _selectedMaxTeams = 20;
           }
 
-          if (!_supportsHomeAwayMatches) {
+          if (_supportsHomeAwayMatches) {
+            _homeAwayEnabled = templateHomeAwayEnabled;
+          } else {
             _homeAwayEnabled = false;
           }
 
@@ -791,6 +831,14 @@ class _LeagueCreationDashboardState
                   ? cs.primary
                   : cs.onSurface.withOpacity(0.75),
             ),
+          _summaryRow(
+            Icons.card_giftcard_outlined,
+            'Rewards',
+            _containsRewards ? 'Yes' : 'No',
+            valueColor: _containsRewards
+                ? cs.primary
+                : cs.onSurface.withOpacity(0.75),
+          ),
           _summaryRow(
             _creationRequiresPayment
                 ? (_paymentCompleted ? Icons.verified : Icons.lock_outline)
@@ -1575,6 +1623,14 @@ class _LeagueCreationDashboardState
                 ? cs.primary
                 : cs.onSurface.withOpacity(0.75),
           ),
+        _confirmRow(
+          Icons.card_giftcard_outlined,
+          'Rewards',
+          _containsRewards ? 'Enabled' : 'Disabled',
+          valueColor: _containsRewards
+              ? cs.primary
+              : cs.onSurface.withOpacity(0.75),
+        ),
         if (_couponsEnabled)
           _confirmRow(
             Icons.confirmation_number_outlined,
@@ -1582,22 +1638,6 @@ class _LeagueCreationDashboardState
             _couponLabel.replaceFirst('Coupons: ', ''),
             valueColor: cs.primary,
           ),
-        _confirmRow(
-          _creationRequiresPayment
-              ? (_paymentCompleted ? Icons.verified : Icons.lock_outline)
-              : Icons.verified,
-          l10n.tr('league_create_confirm_creation_fee_label'),
-          _creationRequiresPayment
-              ? (_paymentCompleted
-                    ? l10n.tr('league_create_fee_paid')
-                    : l10n.tr('league_create_fee_required'))
-              : (_inMasterLeagueMode
-                    ? 'Included in Master League'
-                    : l10n.tr('league_create_fee_free')),
-          valueColor: _creationRequiresPayment
-              ? (_paymentCompleted ? cs.primary : _premiumAmber)
-              : cs.primary,
-        ),
         const SizedBox(height: 12),
         if (_supportsHomeAwayMatches) ...[
           Container(
@@ -2090,6 +2130,24 @@ class _LeagueCreationDashboardState
       final created = await _createLeagueOnline(
         league: league,
       ).timeout(const Duration(seconds: 35));
+
+      if (_inMasterLeagueMode) {
+        try {
+          final ownerProfile =
+              await UserProfileRepository().fetchByUserId(organizerAuthUid);
+          final actorName = ownerProfile?.teamName.trim().isNotEmpty == true
+              ? ownerProfile!.teamName.trim()
+              : 'Organizer';
+
+          await _organizerFeed.addCompetitionCreatedEvent(
+            masterLeagueId: _masterLeagueId.trim(),
+            leagueId: created.id,
+            actorId: organizerAuthUid,
+            actorName: actorName,
+            competitionName: created.name,
+          );
+        } catch (_) {}
+      }
 
       if (couponsEnabled && couponCount > 0) {
         try {

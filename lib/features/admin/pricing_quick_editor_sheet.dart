@@ -155,6 +155,9 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
       usd['masterLeagueEliteFee'] ?? usd['masterLinkEliteFee'] ?? usd['masterLinkFee'],
     ),
   );
+  final usdVerificationFee = TextEditingController(
+    text: _numToText(usd['organizerVerificationFee'] ?? usd['verificationFee']),
+  );
 
   bool usdPremiumEnabled =
       (usd['premiumEnabled'] is bool) ? usd['premiumEnabled'] as bool : true;
@@ -162,6 +165,12 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
       (usd['paymentsEnabled'] is bool) ? usd['paymentsEnabled'] as bool : true;
   bool usdFlutterwaveEnabled =
       (usd['flutterwaveEnabled'] is bool) ? usd['flutterwaveEnabled'] as bool : true;
+  bool usdVerificationEnabled =
+      (usd['organizerVerificationEnabled'] is bool)
+          ? usd['organizerVerificationEnabled'] as bool
+          : ((usd['verificationEnabled'] is bool)
+              ? usd['verificationEnabled'] as bool
+              : true);
 
   final ngnCreateFee = TextEditingController(
     text: _numToText(ngn['createFee'] ?? ngn['createLeagueFee']),
@@ -185,6 +194,9 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
       ngn['masterLeagueEliteFee'] ?? ngn['masterLinkEliteFee'] ?? ngn['masterLinkFee'],
     ),
   );
+  final ngnVerificationFee = TextEditingController(
+    text: _numToText(ngn['organizerVerificationFee'] ?? ngn['verificationFee']),
+  );
 
   bool ngnPremiumEnabled =
       (ngn['premiumEnabled'] is bool) ? ngn['premiumEnabled'] as bool : true;
@@ -192,6 +204,12 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
       (ngn['paymentsEnabled'] is bool) ? ngn['paymentsEnabled'] as bool : true;
   bool ngnFlutterwaveEnabled =
       (ngn['flutterwaveEnabled'] is bool) ? ngn['flutterwaveEnabled'] as bool : true;
+  bool ngnVerificationEnabled =
+      (ngn['organizerVerificationEnabled'] is bool)
+          ? ngn['organizerVerificationEnabled'] as bool
+          : ((ngn['verificationEnabled'] is bool)
+              ? ngn['verificationEnabled'] as bool
+              : true);
 
   bool saved = false;
 
@@ -271,6 +289,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
         final ub = _parseNum(usdMlBasic.text);
         final up = _parseNum(usdMlPro.text);
         final ue = _parseNum(usdMlElite.text);
+        final uv = _parseNum(usdVerificationFee.text);
 
         final nc = _parseNum(ngnCreateFee.text);
         final na = _parseNum(ngnAccessFee.text);
@@ -280,6 +299,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
         final nb = _parseNum(ngnMlBasic.text);
         final np = _parseNum(ngnMlPro.text);
         final ne = _parseNum(ngnMlElite.text);
+        final nv = _parseNum(ngnVerificationFee.text);
 
         if (uc == null ||
             ua == null ||
@@ -289,6 +309,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
             ub == null ||
             up == null ||
             ue == null ||
+            uv == null ||
             nc == null ||
             na == null ||
             nu == null ||
@@ -296,7 +317,8 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
             npd == null ||
             nb == null ||
             np == null ||
-            ne == null) {
+            ne == null ||
+            nv == null) {
           setSheet(() => error = 'Enter valid numbers for all fields.');
           return;
         }
@@ -323,11 +345,15 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
               'masterLeagueBasicFee': ub,
               'masterLeagueProFee': up,
               'masterLeagueEliteFee': ue,
+              'organizerVerificationFee': uv,
+              'organizerVerificationEnabled': usdVerificationEnabled,
               'masterLinkBasicFee': ub,
               'masterLinkProFee': up,
               'masterLinkEliteFee': ue,
               'masterLinkFee': up,
               'masterLeagueFee': up,
+              'verificationFee': uv,
+              'verificationEnabled': usdVerificationEnabled,
               'paymentsEnabled': usdPaymentsEnabled,
               'flutterwaveEnabled': usdFlutterwaveEnabled,
             },
@@ -341,11 +367,15 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
               'masterLeagueBasicFee': nb,
               'masterLeagueProFee': np,
               'masterLeagueEliteFee': ne,
+              'organizerVerificationFee': nv,
+              'organizerVerificationEnabled': ngnVerificationEnabled,
               'masterLinkBasicFee': nb,
               'masterLinkProFee': np,
               'masterLinkEliteFee': ne,
               'masterLinkFee': np,
               'masterLeagueFee': np,
+              'verificationFee': nv,
+              'verificationEnabled': ngnVerificationEnabled,
               'paymentsEnabled': ngnPaymentsEnabled,
               'flutterwaveEnabled': ngnFlutterwaveEnabled,
             },
@@ -443,6 +473,12 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                           field('Master League Basic fee', usdMlBasic),
                           field('Master League Pro fee', usdMlPro),
                           field('Master League Elite fee', usdMlElite),
+                          field('Organizer verification fee', usdVerificationFee),
+                          SwitchListTile.adaptive(
+                            value: usdVerificationEnabled,
+                            onChanged: busy ? null : (v) => setSheet(() => usdVerificationEnabled = v),
+                            title: const Text('Organizer verification enabled'),
+                          ),
                           SwitchListTile.adaptive(
                             value: usdPaymentsEnabled,
                             onChanged: busy ? null : (v) => setSheet(() => usdPaymentsEnabled = v),
@@ -469,6 +505,12 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
                           field('Master League Basic fee', ngnMlBasic),
                           field('Master League Pro fee', ngnMlPro),
                           field('Master League Elite fee', ngnMlElite),
+                          field('Organizer verification fee', ngnVerificationFee),
+                          SwitchListTile.adaptive(
+                            value: ngnVerificationEnabled,
+                            onChanged: busy ? null : (v) => setSheet(() => ngnVerificationEnabled = v),
+                            title: const Text('Organizer verification enabled'),
+                          ),
                           SwitchListTile.adaptive(
                             value: ngnPaymentsEnabled,
                             onChanged: busy ? null : (v) => setSheet(() => ngnPaymentsEnabled = v),
@@ -553,6 +595,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   usdMlBasic.dispose();
   usdMlPro.dispose();
   usdMlElite.dispose();
+  usdVerificationFee.dispose();
 
   ngnCreateFee.dispose();
   ngnAccessFee.dispose();
@@ -562,6 +605,7 @@ Future<void> showPricingQuickEditorSheet(BuildContext context) async {
   ngnMlBasic.dispose();
   ngnMlPro.dispose();
   ngnMlElite.dispose();
+  ngnVerificationFee.dispose();
 
   if (saved && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(

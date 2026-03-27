@@ -549,14 +549,6 @@ function _planFromTxRef(txRef) {
   if (m && m[1]) return _normalizePlan(m[1].toLowerCase());
   return "";
 }
-function _uidFromTxRef(txRef) {
-  const s = String(txRef || "").trim();
-  for (const p of [/(?:^|-)UID-([A-Za-z0-9_-]{20,128})(?:-|$)/i, /(?:^|_)UID_([A-Za-z0-9_-]{20,128})(?:_|$)/i]) {
-    const m = s.match(p);
-    if (m && m[1]) return m[1].trim();
-  }
-  return "";
-}
 function _extractFlutterwaveTxIdFromReceipt(receiptId) {
   const r = String(receiptId || "").trim();
   return (r.startsWith("FLW-") && r.length > 4) ? r.slice(4).trim() : r;
@@ -636,6 +628,8 @@ async function _readPricingConfig(env) {
       masterLeagueBasicFee: 1500,
       masterLeagueProFee: 3000,
       masterLeagueEliteFee: 5000,
+      organizerVerificationFee: 10000,
+      organizerVerificationEnabled: true,
       paymentsEnabled: true,
       flutterwaveEnabled: true,
     },
@@ -651,6 +645,8 @@ async function _readPricingConfig(env) {
       masterLeagueBasicFee: 5.0,
       masterLeagueProFee: 10.0,
       masterLeagueEliteFee: 20.0,
+      organizerVerificationFee: 15.0,
+      organizerVerificationEnabled: true,
       paymentsEnabled: true,
       flutterwaveEnabled: true,
     },
@@ -688,6 +684,12 @@ async function _readPricingConfig(env) {
         raw.masterLeagueProFee ?? raw.masterLinkProFee ?? raw.masterLinkFee ?? raw.masterLeagueFee ?? dft.masterLeagueProFee,
       masterLeagueEliteFee:
         raw.masterLeagueEliteFee ?? raw.masterLinkEliteFee ?? raw.masterLinkFee ?? raw.masterLeagueFee ?? dft.masterLeagueEliteFee,
+      organizerVerificationFee:
+        raw.organizerVerificationFee ?? raw.verificationFee ?? dft.organizerVerificationFee,
+      organizerVerificationEnabled:
+        typeof raw.organizerVerificationEnabled === "boolean"
+          ? raw.organizerVerificationEnabled
+          : (typeof raw.verificationEnabled === "boolean" ? raw.verificationEnabled : dft.organizerVerificationEnabled),
       paymentsEnabled:
         typeof raw.paymentsEnabled === "boolean" ? raw.paymentsEnabled : dft.paymentsEnabled,
       flutterwaveEnabled:
@@ -716,196 +718,13 @@ function _masterLeagueExpectedFee(planCfg, planId) {
   return 0;
 }
 
-async function _activateOrganizerPro(env, verified, body) {
-  const requestedPlan = _normalizePlan(body.plan);
-  if (!requestedPlan) {
-    return { ok: false, status: 400, error: "Invalid plan. Must be one of: basic, pro, elite" };
-  }
-
-  const provider = String(body.provider || "flutterwave").trim().toLowerCase();
-  if (provider !== "flutterwave") {
-    return { ok: false, status: 400, error: "Unsupported provider." };
-  }
-
-  const receiptId = String(body.receiptId || "").trim();
-  if (!receiptId) {
-    return { ok: false, status: 400, error: "receiptId is required" };
-  }
-
-  const txId = _extractFlutterwaveTxIdFromReceipt(receiptId);
-  if (!txId) {
-    return { ok: false, status: 400, error: "Invalid receiptId" };
-  }
-
-  const verify = await _verifyFlutterwaveTransaction(env, txId);
-  const pricing = await _readPricingConfig(env);
-  const cfg = _pricingForCurrency(pricing, verify.currency);
-
-  if (cfg.paymentsEnabled !== true) {
-    return { ok: false, status: 403, error: "Payments are currently disabled." };
-  }
-  if (cfg.flutterwaveEnabled !== true) {
-    return { ok: false, status: 403, error: "Flutterwave is currently disabled." };
-  }
-
-  const expected = _masterLeagueExpectedFee(cfg, requestedPlan);
-  if (!(expected > 0)) {
-    return { ok: false, status: 403, error: "Requested Master League plan is not configured." };
-  }
-  if (!_moneyEqWithinTolerance(expected, Number(verify.amount || 0), verify.currency)) {
-    return {
-      ok: false,
-      status: 403,
-      error: `Payment amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
-    };
-  }
-
-  const planFromPayment = _planFromTxRef(verify.txRef);
-  if (planFromPayment && planFromPayment !== requestedPlan) {
-    return {
-      ok: false,
-      status: 403,
-      error: `Plan mismatch. Payment="${planFromPayment}" request="${requestedPlan}".`,
-    };
-  }
-
-  const txRefUid = _uidFromTxRef(verify.txRef);
-  if (txRefUid && txRefUid !== verified.uid) {
-    return { ok: false, status: 403, error: "Payment does not belong to signed-in user." };
-  }
-
-  const firebaseEmail = (verified.email || "").trim().toLowerCase();
-  const flwEmail = (verify.customerEmail || "").trim().toLowerCase();
-  if (firebaseEmail && flwEmail && firebaseEmail !== flwEmail) {
-    return { ok: false, status: 403, error: "Email mismatch." };
-  }
-
-  const nowMs = Date.now();
-  let existing = {};
-  try { existing = await _lookupExistingCustomClaims(env, verified.uid); } catch (_) {}
-
-  const existingActive = existing && existing.organizerPro === true;
-  const existingExpiryMs = (existing && typeof existing.organizerProExpiryMs === "number") ? existing.organizerProExpiryMs : 0;
-  const existingPlan = _normalizePlan(existing && typeof existing.organizerProPlan === "string" ? existing.organizerProPlan : "");
-  const hasActiveExisting = existingActive && existingExpiryMs > nowMs && _planOrder(existingPlan) > 0;
-  const effectivePlan = (hasActiveExisting && _planOrder(existingPlan) > _planOrder(requestedPlan)) ? existingPlan : requestedPlan;
-
-  const durationMs = 90 * 24 * 60 * 60 * 1000;
-  const baseMs = existingExpiryMs > nowMs ? existingExpiryMs : nowMs;
-  const newExpiryMs = baseMs + durationMs;
-
-  await _setFirebaseCustomClaims(env, verified.uid, {
-    ...existing,
-    organizerPro: true,
-    organizerProPlan: effectivePlan,
-    organizerProExpiryMs: newExpiryMs,
-  });
-
-  return {
-    ok: true,
-    uid: verified.uid,
-    requestedPlan,
-    plan: effectivePlan,
-    expiresAtMs: newExpiryMs,
-    extendedFromMs: baseMs,
-    txRef: verify.txRef,
-    provider: "flutterwave",
-  };
-}
-
-async function _activatePremium(env, verified, body) {
-  const provider = String(body.provider || "flutterwave").trim().toLowerCase();
-  if (provider !== "flutterwave") return { ok: false, status: 400, error: "Unsupported provider." };
-
-  const receiptId = String(body.receiptId || "").trim();
-  if (!receiptId) return { ok: false, status: 400, error: "receiptId is required" };
-
-  const txId = String(body.transactionId || "").trim() || _extractFlutterwaveTxIdFromReceipt(receiptId);
-  if (!txId) return { ok: false, status: 400, error: "Invalid receiptId / transactionId" };
-
-  const verify = await _verifyFlutterwaveTransactionGeneric(env, txId);
-  if (!verify.ok) {
-    return { ok: false, status: 403, error: `Payment not successful (${verify.topStatus}/${verify.paymentStatus})` };
-  }
-  if (!verify.txRef.startsWith("EH-PRM-")) {
-    return { ok: false, status: 403, error: "Not a premium purchase." };
-  }
-  if (!verify.currency || !["NGN", "USD"].includes(verify.currency)) {
-    return { ok: false, status: 403, error: "Unsupported currency." };
-  }
-
-  const pricing = await _readPricingConfig(env);
-  const plan = verify.currency === "NGN" ? pricing.ngn : pricing.usd;
-
-  if (plan.paymentsEnabled !== true) {
-    return { ok: false, status: 403, error: "Payments are currently disabled." };
-  }
-  if (plan.flutterwaveEnabled !== true) {
-    return { ok: false, status: 403, error: "Flutterwave is currently disabled." };
-  }
-  if (!plan.premiumEnabled) {
-    return { ok: false, status: 403, error: "Premium is currently disabled." };
-  }
-
-  if (verify.amount != null && !_moneyEqWithinTolerance(Number(plan.premiumFee || 0), Number(verify.amount || 0), verify.currency)) {
-    return {
-      ok: false,
-      status: 403,
-      error: `Amount mismatch. Expected ${plan.premiumFee} ${verify.currency}, got ${verify.amount}.`,
-    };
-  }
-
-  const firebaseEmail = (verified.email || "").trim().toLowerCase();
-  const flwEmail = (verify.customerEmail || "").trim().toLowerCase();
-  if (firebaseEmail && flwEmail && !flwEmail.endsWith("@eleaguehub.app") && firebaseEmail !== flwEmail) {
-    return { ok: false, status: 403, error: "Email mismatch." };
-  }
-
-  const nowMs = Date.now();
-  let existingExpiryMs = 0;
-  try {
-    const r = await _firestoreGetDocSA(env, `users/${verified.uid}`);
-    if (r.ok && r.doc && r.doc.fields && r.doc.fields.premiumExpiresAtMs && r.doc.fields.premiumExpiresAtMs.integerValue) {
-      existingExpiryMs = parseInt(r.doc.fields.premiumExpiresAtMs.integerValue, 10);
-    }
-  } catch (_) {}
-
-  const baseMs = existingExpiryMs > nowMs ? existingExpiryMs : nowMs;
-  const newExpiryMs = baseMs + (plan.premiumDurationDays || 30) * 24 * 60 * 60 * 1000;
-
-  await _firestorePatchDoc(env, `users/${verified.uid}`, {
-    isPremium: true,
-    premiumExpiresAtMs: newExpiryMs,
-    premiumProvider: "flutterwave",
-    premiumReceiptId: receiptId,
-    premiumTxRef: verify.txRef,
-    premiumActivatedAtMs: nowMs,
-    updatedAt: { _serverTimestamp: true },
-  });
-
-  return {
-    ok: true,
-    uid: verified.uid,
-    premiumExpiresAtMs: newExpiryMs,
-    durationDays: plan.premiumDurationDays,
-    currency: verify.currency,
-    amount: verify.amount,
-    txRef: verify.txRef,
-    provider: "flutterwave",
-  };
-}
-
 async function _verifyMasterLeaguePayment(env, verified, body) {
   const attemptId = String(body.attemptId || "").trim();
   const transactionId = String(body.transactionId || "").trim();
   const txRefFromClient = String(body.txRef || "").trim();
 
-  if (!attemptId) {
-    return { ok: false, status: 400, error: "attemptId is required" };
-  }
-  if (!transactionId) {
-    return { ok: false, status: 400, error: "transactionId is required" };
-  }
+  if (!attemptId) return { ok: false, status: 400, error: "attemptId is required" };
+  if (!transactionId) return { ok: false, status: 400, error: "transactionId is required" };
 
   const attemptRes = await _firestoreGetDocSA(env, `payment_attempts/${attemptId}`);
   if (!attemptRes.ok || !attemptRes.doc) {
@@ -943,7 +762,6 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
   }
 
   const verify = await _verifyFlutterwaveTransaction(env, transactionId);
-
   const pricing = await _readPricingConfig(env);
   const cfg = _pricingForCurrency(pricing, verify.currency);
 
@@ -996,28 +814,20 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
     }
   }
 
-  if (attemptProductType === "premium_subscription") {
-    if (!cfg.premiumEnabled) {
-      return { ok: false, status: 403, error: "Premium is currently disabled." };
+  if (attemptProductType === "organizer_verification") {
+    if (!cfg.organizerVerificationEnabled) {
+      return { ok: false, status: 403, error: "Organizer verification is currently disabled." };
     }
-    if (!_moneyEqWithinTolerance(Number(cfg.premiumFee || 0), Number(verify.amount || 0), verify.currency)) {
+    const expected = Number(cfg.organizerVerificationFee || 0);
+    if (!(expected > 0)) {
+      return { ok: false, status: 403, error: "Organizer verification pricing is not configured." };
+    }
+    if (!_moneyEqWithinTolerance(expected, Number(verify.amount || 0), verify.currency)) {
       return {
         ok: false,
         status: 403,
-        error: `Premium amount mismatch. Expected ${cfg.premiumFee} ${verify.currency}, got ${verify.amount}.`,
+        error: `Organizer verification amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
       };
-    }
-  }
-
-  if (attemptProductType === "league_creation" || attemptProductType === "league_upgrade") {
-    if (!(Number(cfg.createFee || 0) >= 0)) {
-      return { ok: false, status: 403, error: "League pricing is not configured." };
-    }
-  }
-
-  if (attemptProductType === "league_access" || attemptProductType === "coupon_redemption") {
-    if (!(Number(cfg.accessFee || 0) >= 0)) {
-      return { ok: false, status: 403, error: "League access pricing is not configured." };
     }
   }
 
@@ -1106,72 +916,6 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
   };
 }
 
-function _sanitizeCloudinaryPathPart(s) {
-  return String(s || "").trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-\/:.]/g, "_").replace(/\/{2,}/g, "/").slice(0, 240);
-}
-async function _sha1Hex(str) {
-  const data = new TextEncoder().encode(String(str || ""));
-  const digest = await crypto.subtle.digest("SHA-1", data);
-  const bytes = new Uint8Array(digest);
-  let hex = "";
-  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
-  return hex;
-}
-function _cloudinaryStringToSign(params) {
-  return Object.entries(params)
-    .filter(([_, v]) => v !== undefined && v !== null && String(v).trim() !== "")
-    .map(([k, v]) => [String(k), String(v)])
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("&");
-}
-
-function _firestoreApiBase(env) {
-  return `https://firestore.googleapis.com/v1/projects/${_requireEnvString(env, "FIREBASE_PROJECT_ID")}/databases/(default)/documents`;
-}
-
-async function _firestoreGetDoc(env, idToken, path) {
-  const url = `${_firestoreApiBase(env)}/${path.replace(/^\/+/, "")}`;
-  const res = await fetch(url, { method: "GET", headers: { authorization: `Bearer ${idToken}` } });
-  if (res.status === 404) return { ok: false, status: 404, doc: null };
-  if (!res.ok) {
-    const txt = await res.text();
-    return { ok: false, status: res.status, error: txt };
-  }
-  return { ok: true, status: 200, doc: await res.json() };
-}
-
-function _fsString(doc, field) {
-  const v = doc && doc.fields && doc.fields[field];
-  return (v && typeof v.stringValue === "string") ? v.stringValue : "";
-}
-function _fsBool(doc, field) {
-  const v = doc && doc.fields && doc.fields[field];
-  return (v && typeof v.booleanValue === "boolean") ? v.booleanValue : null;
-}
-function _parseMatchHighlightsFolder(folder) {
-  const parts = String(folder || "").trim().replace(/^\/+/, "").split("/").filter(Boolean);
-  if (parts.length !== 4 || parts[0] !== "match_highlights") return null;
-  return { leagueId: parts[1], matchId: parts[2], teamId: parts[3], folder: parts.join("/") };
-}
-const _rate = { map: new Map() };
-function _checkRate(uid, leagueId, matchId) {
-  const now = Date.now();
-  const key = `${uid}::${leagueId}::${matchId}`;
-  const cur = _rate.map.get(key);
-  if (!cur || now > cur.resetAtMs) {
-    _rate.map.set(key, { count: 1, resetAtMs: now + 3600000 });
-    return { ok: true };
-  }
-  if (cur.count >= 6) return { ok: false, error: "Rate limit exceeded." };
-  cur.count++;
-  return { ok: true };
-}
-function _isSafeCloudinaryPublicIdLeaf(publicId) {
-  const s = String(publicId || "").trim();
-  return s && !s.includes("/") && /^[A-Za-z0-9_-]{6,200}$/.test(s);
-}
-
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...CORS_HEADERS } });
@@ -1217,30 +961,6 @@ export default {
       }
     }
 
-    if (url.pathname === "/organizer-pro/activate" && request.method === "POST") {
-      let verified; try { verified = await _verifyFirebaseIdToken(env, request); } catch (e) { return jsonResponse({ error: e.message || String(e) }, 500); }
-      if (!verified.ok) return jsonResponse({ error: verified.error }, verified.status || 401);
-      let body; try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
-      try {
-        const out = await _activateOrganizerPro(env, verified, body || {});
-        return out.ok ? jsonResponse(out, 200) : jsonResponse({ error: out.error }, out.status || 400);
-      } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
-      }
-    }
-
-    if (url.pathname === "/premium/activate" && request.method === "POST") {
-      let verified; try { verified = await _verifyFirebaseIdToken(env, request); } catch (e) { return jsonResponse({ error: e.message || String(e) }, 500); }
-      if (!verified.ok) return jsonResponse({ error: verified.error }, verified.status || 401);
-      let body; try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
-      try {
-        const out = await _activatePremium(env, verified, body || {});
-        return out.ok ? jsonResponse(out, 200) : jsonResponse({ error: out.error }, out.status || 400);
-      } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
-      }
-    }
-
     if (url.pathname === "/flutterwave/verify" && request.method === "POST") {
       let verified; try { verified = await _verifyFirebaseIdToken(env, request); } catch (e) { return jsonResponse({ error: e.message || String(e) }, 500); }
       if (!verified.ok) return jsonResponse({ error: verified.error }, verified.status || 401);
@@ -1251,72 +971,6 @@ export default {
       } catch (e) {
         return jsonResponse({ error: e.message || String(e) }, 500);
       }
-    }
-
-    if (url.pathname === "/cloudinary/sign" && request.method === "POST") {
-      let verified; try { verified = await _verifyFirebaseIdToken(env, request); } catch (e) { return jsonResponse({ error: e.message || String(e) }, 500); }
-      if (!verified.ok) return jsonResponse({ error: verified.error }, verified.status || 401);
-
-      const cloudName = String(env.CLOUDINARY_CLOUD_NAME || "").trim();
-      const apiKey = String(env.CLOUDINARY_API_KEY || "").trim();
-      const apiSecret = String(env.CLOUDINARY_API_SECRET || "").trim();
-      if (!cloudName || !apiKey || !apiSecret) return jsonResponse({ error: "Worker missing Cloudinary env vars" }, 500);
-
-      let body; try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
-      const paramsIn = (body && body.params && typeof body.params === "object") ? body.params : body;
-      const folderRaw = _sanitizeCloudinaryPathPart(paramsIn.folder || "").replace(/^\/+/, "");
-      const parsed = _parseMatchHighlightsFolder(folderRaw);
-      if (!parsed) return jsonResponse({ error: "Invalid folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}" }, 400);
-
-      const publicId = _sanitizeCloudinaryPathPart(paramsIn.public_id || paramsIn.publicId || "").replace(/^\/+/, "");
-      if (!_isSafeCloudinaryPublicIdLeaf(publicId)) return jsonResponse({ error: "Invalid public_id" }, 400);
-
-      if (!(paramsIn.overwrite === true || String(paramsIn.overwrite).toLowerCase() === "true")) {
-        return jsonResponse({ error: "overwrite must be true" }, 400);
-      }
-
-      if (paramsIn.transformation || paramsIn.tags || paramsIn.eager || paramsIn.streaming_profile) {
-        return jsonResponse({ error: "Transformations/tags not allowed" }, 400);
-      }
-
-      const rl = _checkRate(verified.uid, parsed.leagueId, parsed.matchId);
-      if (!rl.ok) return jsonResponse({ error: rl.error }, 429);
-
-      const memRes = await _firestoreGetDoc(env, verified.token, `leagues/${parsed.leagueId}/memberships/${verified.uid}`);
-      if (!memRes.ok) return jsonResponse({ error: "Not allowed (membership not found)" }, 403);
-
-      const memTeamId = _fsString(memRes.doc, "teamId");
-      if (!memTeamId || memTeamId !== parsed.teamId) {
-        return jsonResponse({ error: "Not allowed (team mismatch)" }, 403);
-      }
-
-      const matchRes = await _firestoreGetDoc(env, verified.token, `leagues/${parsed.leagueId}/matches/${parsed.matchId}`);
-      if (!matchRes.ok) return jsonResponse({ error: "Not allowed (match not found)" }, 403);
-
-      if (!(_fsBool(matchRes.doc, "isPlayed") === true || _fsString(matchRes.doc, "status") === "FINISHED" || _fsString(matchRes.doc, "matchStatus") === "FINISHED")) {
-        return jsonResponse({ error: "Not allowed (match not finished)" }, 403);
-      }
-
-      const homeTeamId = _fsString(matchRes.doc, "homeTeamId");
-      const awayTeamId = _fsString(matchRes.doc, "awayTeamId");
-      if (memTeamId !== homeTeamId && memTeamId !== awayTeamId) {
-        return jsonResponse({ error: "Not allowed (team did not participate)" }, 403);
-      }
-
-      const nowSec = Math.floor(Date.now() / 1000);
-      const paramsToSign = { folder: parsed.folder, public_id: publicId, overwrite: "true", timestamp: nowSec };
-      const signature = await _sha1Hex(`${_cloudinaryStringToSign(paramsToSign)}${apiSecret}`);
-
-      return jsonResponse({
-        ok: true,
-        uid: verified.uid,
-        cloudName,
-        apiKey,
-        timestamp: nowSec,
-        signature,
-        uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`,
-        params: paramsToSign,
-      });
     }
 
     return textResponse("Not found", 404);

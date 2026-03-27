@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
 
@@ -36,6 +37,9 @@ class MasterLeaguesRepositoryFirebase {
 
   CollectionReference<Map<String, dynamic>> get _attempts =>
       _firestore.collection('payment_attempts');
+
+  CollectionReference<Map<String, dynamic>> get _verificationRequests =>
+      _firestore.collection('master_league_verification_requests');
 
   static const Set<String> _allowedSocialKeys = <String>{
     'website',
@@ -143,6 +147,14 @@ class MasterLeaguesRepositoryFirebase {
     );
   }
 
+  CollectionReference<Map<String, dynamic>> _followersCol(String masterLeagueId) {
+    return _col.doc(masterLeagueId.trim()).collection('followers');
+  }
+
+  CollectionReference<Map<String, dynamic>> _templatesCol(String masterLeagueId) {
+    return _col.doc(masterLeagueId.trim()).collection('competition_templates');
+  }
+
   Stream<List<MasterLeague>> watchMyMasterLeagues() {
     try {
       final uid = _requireAuthUid();
@@ -231,6 +243,593 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  Stream<bool> watchIsFollowing(String masterLeagueId) {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) return Stream<bool>.value(false);
+
+      return _followersCol(id).doc(uid).snapshots().map((snap) => snap.exists);
+    } catch (_) {
+      return const Stream<bool>.empty();
+    }
+  }
+
+  Stream<int> watchFollowersCount(String masterLeagueId) {
+    try {
+      _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) return Stream<int>.value(0);
+
+      return _col.doc(id).snapshots().map((snap) {
+        final data = snap.data() ?? <String, dynamic>{};
+        final v = data['followersCount'];
+        if (v is int) return v;
+        if (v is num) return v.toInt();
+        return 0;
+      });
+    } catch (_) {
+      return const Stream<int>.empty();
+    }
+  }
+
+  Stream<List<CompetitionTemplate>> watchCompetitionTemplates(
+      String masterLeagueId) {
+    try {
+      _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) return const Stream<List<CompetitionTemplate>>.empty();
+
+      return _templatesCol(id)
+          .orderBy('updatedAtMs', descending: true)
+          .snapshots(includeMetadataChanges: true)
+          .map((snap) {
+        return snap.docs
+            .map((d) => CompetitionTemplate.fromMap(d.data()))
+            .toList(growable: false);
+      });
+    } catch (_) {
+      return const Stream<List<CompetitionTemplate>>.empty();
+    }
+  }
+
+  Future<void> saveCompetitionTemplate({
+    required String masterLeagueId,
+    required CompetitionTemplate template,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final ml = await getById(id);
+      if (ml == null) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the Master League owner can manage templates.',
+        );
+      }
+
+      final templateId =
+          template.id.trim().isEmpty ? _uuid.v4() : template.id.trim();
+      final now = _nowMs();
+
+      final safeTemplate = template.copyWith(
+        id: templateId,
+        masterLeagueId: id,
+        name: _trimText(template.name, 80),
+        description: _trimText(template.description, 500),
+        createdAtMs: template.createdAtMs == 0 ? now : template.createdAtMs,
+        updatedAtMs: now,
+        createdBy: uid,
+      );
+
+      if (safeTemplate.name.trim().isEmpty) {
+        throw const UserFriendlyException(
+          'Template name is required.',
+        );
+      }
+
+      await _templatesCol(id)
+          .doc(templateId)
+          .set(safeTemplate.toMap(), SetOptions(merge: true))
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<void> deleteCompetitionTemplate({
+    required String masterLeagueId,
+    required String templateId,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      final tid = templateId.trim();
+      if (id.isEmpty || tid.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that competition template.",
+        );
+      }
+
+      final ml = await getById(id);
+      if (ml == null) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the Master League owner can manage templates.',
+        );
+      }
+
+      await _templatesCol(id)
+          .doc(tid)
+          .delete()
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<List<MasterLeague>> discoverFeaturedOrganizers({
+    int limit = 8,
+  }) async {
+    try {
+      _requireAuthUid();
+
+      final adminsSnap = await _firestore
+          .collection('app')
+          .doc('featured_organizers')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+
+      final data = adminsSnap.data() ?? <String, dynamic>{};
+      final idsRaw = data['masterLeagueIds'];
+      final ids = <String>[];
+
+      if (idsRaw is List) {
+        for (final v in idsRaw) {
+          final s = (v ?? '').toString().trim();
+          if (s.isNotEmpty) ids.add(s);
+        }
+      }
+
+      if (ids.isNotEmpty) {
+        final out = <MasterLeague>[];
+        const int chunkSize = 10;
+
+        for (int i = 0; i < ids.length; i += chunkSize) {
+          final chunk = ids.sublist(
+            i,
+            (i + chunkSize < ids.length) ? i + chunkSize : ids.length,
+          );
+
+          final snap = await _col
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 15));
+
+          out.addAll(
+            snap.docs.map((d) => MasterLeague.fromMap(d.id, d.data())),
+          );
+        }
+
+        out.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+        return out.take(limit).toList(growable: false);
+      }
+
+      return await discoverVerifiedOrganizers(limit: limit);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<List<MasterLeague>> discoverVerifiedOrganizers({
+    int limit = 12,
+  }) async {
+    try {
+      _requireAuthUid();
+
+      final snap = await _col
+          .where('verifiedBadge', isEqualTo: true)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      final list = snap.docs
+          .map((d) => MasterLeague.fromMap(d.id, d.data()))
+          .toList(growable: false);
+
+      list.sort((a, b) {
+        final followersCmp = b.followersCount.compareTo(a.followersCount);
+        if (followersCmp != 0) return followersCmp;
+        return b.updatedAtMs.compareTo(a.updatedAtMs);
+      });
+
+      return list.take(limit).toList(growable: false);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<List<MasterLeague>> discoverRecentActiveOrganizers({
+    int limit = 12,
+  }) async {
+    try {
+      _requireAuthUid();
+
+      final snap = await _col
+          .orderBy('updatedAtMs', descending: true)
+          .limit(limit * 2)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      final list = snap.docs
+          .map((d) => MasterLeague.fromMap(d.id, d.data()))
+          .where((ml) =>
+              ml.isVerifiedOrganizer ||
+              ml.organizerProfile.bio.trim().isNotEmpty)
+          .toList(growable: false);
+
+      return list.take(limit).toList(growable: false);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<void> followWorkspace(String masterLeagueId) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final ml = await getById(id);
+      if (ml == null) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+      if (ml.ownerId.trim() == uid) {
+        throw const UserFriendlyException(
+          'You cannot follow your own organizer workspace.',
+        );
+      }
+
+      final followerRef = _followersCol(id).doc(uid);
+      final mlRef = _col.doc(id);
+
+      await _firestore.runTransaction((txn) async {
+        final followerSnap = await txn.get(followerRef);
+        if (followerSnap.exists) return;
+
+        final mlSnap = await txn.get(mlRef);
+        if (!mlSnap.exists) {
+          throw const UserFriendlyException(
+            "We couldn't find that Master League.",
+          );
+        }
+
+        final data =
+            (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final currentCount = ((data['followersCount'] as num?) ?? 0).toInt();
+
+        txn.set(followerRef, <String, dynamic>{
+          'userId': uid,
+          'followedAtMs': _nowMs(),
+        });
+
+        txn.update(mlRef, <String, dynamic>{
+          'followersCount': currentCount + 1,
+          'updatedAtMs': _nowMs(),
+        });
+      });
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<void> unfollowWorkspace(String masterLeagueId) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final followerRef = _followersCol(id).doc(uid);
+      final mlRef = _col.doc(id);
+
+      await _firestore.runTransaction((txn) async {
+        final followerSnap = await txn.get(followerRef);
+        if (!followerSnap.exists) return;
+
+        final mlSnap = await txn.get(mlRef);
+        if (!mlSnap.exists) {
+          throw const UserFriendlyException(
+            "We couldn't find that Master League.",
+          );
+        }
+
+        final data =
+            (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final currentCount = ((data['followersCount'] as num?) ?? 0).toInt();
+        final nextCount = currentCount <= 0 ? 0 : currentCount - 1;
+
+        txn.delete(followerRef);
+        txn.update(mlRef, <String, dynamic>{
+          'followersCount': nextCount,
+          'updatedAtMs': _nowMs(),
+        });
+      });
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<void> toggleFollowWorkspace(String masterLeagueId) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final followerSnap = await _followersCol(id)
+          .doc(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      if (followerSnap.exists) {
+        await unfollowWorkspace(id);
+      } else {
+        await followWorkspace(id);
+      }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<void> submitVerificationRenewalRequest({
+    required String masterLeagueId,
+    required String attemptId,
+    required String paymentId,
+    required String receiptId,
+    String note = '',
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final safeMasterLeagueId = masterLeagueId.trim();
+      final safeAttemptId = attemptId.trim();
+      final safePaymentId = paymentId.trim();
+      final safeReceiptId = receiptId.trim();
+      final safeNote = _trimText(note, 1000);
+
+      if (safeMasterLeagueId.isEmpty ||
+          safeAttemptId.isEmpty ||
+          safePaymentId.isEmpty ||
+          safeReceiptId.isEmpty) {
+        throw const UserFriendlyException(
+          'Renewal payment details are incomplete.',
+        );
+      }
+
+      final ml = await getById(safeMasterLeagueId);
+      if (ml == null) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the owner can submit verification renewal.',
+        );
+      }
+
+      if (!ml.canRenewVerification) {
+        throw const UserFriendlyException(
+          'This organizer is not eligible for verification renewal.',
+        );
+      }
+
+      if (ml.isVerificationPending &&
+          ml.verificationRequestType.trim().toLowerCase() == 'renewal') {
+        throw const UserFriendlyException(
+          'A verification renewal request is already pending review.',
+        );
+      }
+
+      final paymentSnap = await _payments
+          .doc(safePaymentId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!paymentSnap.exists) {
+        throw const UserFriendlyException(
+          'Verified payment record was not found.',
+        );
+      }
+
+      final paymentData =
+          (paymentSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final paymentUid = (paymentData['userId'] as String? ?? '').trim();
+      if (paymentUid != uid) {
+        throw const UserFriendlyException(
+          'This payment does not belong to your account.',
+        );
+      }
+
+      final verification = (paymentData['verification'] is Map)
+          ? (paymentData['verification'] as Map).cast<String, dynamic>()
+          : <String, dynamic>{};
+      if (verification['verified'] != true) {
+        throw const UserFriendlyException(
+          'Payment is not verified yet. Please try again.',
+        );
+      }
+
+      final fulfilledVerificationRequestId =
+          (paymentData['fulfilledVerificationRequestId'] as String? ?? '').trim();
+      if (fulfilledVerificationRequestId.isNotEmpty) {
+        final existingReq = await _verificationRequests
+            .doc(fulfilledVerificationRequestId)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 15));
+        if (existingReq.exists) {
+          throw const UserFriendlyException(
+            'A renewal request has already been submitted for this payment.',
+          );
+        }
+      }
+
+      final attemptSnap = await _attempts
+          .doc(safeAttemptId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!attemptSnap.exists) {
+        throw const UserFriendlyException(
+          'Payment attempt was not found.',
+        );
+      }
+
+      final attemptData =
+          (attemptSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final attemptUid = (attemptData['userId'] as String? ?? '').trim();
+      if (attemptUid != uid) {
+        throw const UserFriendlyException(
+          'This payment attempt does not belong to your account.',
+        );
+      }
+
+      final requestRef = _verificationRequests.doc();
+      final now = _nowMs();
+
+      await _firestore.runTransaction((txn) async {
+        final payRef = _payments.doc(safePaymentId);
+        final attRef = _attempts.doc(safeAttemptId);
+        final mlRef = _col.doc(safeMasterLeagueId);
+
+        final payDoc = await txn.get(payRef);
+        if (!payDoc.exists) {
+          throw const UserFriendlyException(
+            'Verified payment record was not found.',
+          );
+        }
+        final payMap =
+            (payDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final payVerification = (payMap['verification'] is Map)
+            ? (payMap['verification'] as Map).cast<String, dynamic>()
+            : <String, dynamic>{};
+
+        if (payVerification['verified'] != true) {
+          throw const UserFriendlyException(
+            'Payment is not verified yet. Please try again.',
+          );
+        }
+
+        final alreadyReqId =
+            (payMap['fulfilledVerificationRequestId'] as String? ?? '').trim();
+        if (alreadyReqId.isNotEmpty) {
+          throw const UserFriendlyException(
+            'A renewal request has already been submitted for this payment.',
+          );
+        }
+
+        final mlDoc = await txn.get(mlRef);
+        if (!mlDoc.exists) {
+          throw const UserFriendlyException(
+            "We couldn't find that Master League.",
+          );
+        }
+        final mlData =
+            (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final ownerId = (mlData['ownerId'] as String? ?? '').trim();
+        if (ownerId != uid) {
+          throw const UserFriendlyException(
+            'Only the owner can submit verification renewal.',
+          );
+        }
+
+        txn.set(
+          requestRef,
+          <String, dynamic>{
+            'requestId': requestRef.id,
+            'masterLeagueId': safeMasterLeagueId,
+            'ownerId': uid,
+            'status': 'pending',
+            'requestType': 'renewal',
+            'provider':
+                (paymentData['provider'] as String? ?? 'flutterwave').trim(),
+            'receiptId': safeReceiptId,
+            'paymentId': safePaymentId,
+            'attemptId': safeAttemptId,
+            'submittedAtMs': now,
+            'reviewedAtMs': 0,
+            'reviewedBy': '',
+            'note': safeNote,
+          },
+        );
+
+        txn.update(
+          mlRef,
+          <String, dynamic>{
+            'verificationStatus': 'pending',
+            'verifiedBadge': false,
+            'verificationRequestId': requestRef.id,
+            'verificationReceiptId': safeReceiptId,
+            'verificationPaymentId': safePaymentId,
+            'verificationProvider':
+                (paymentData['provider'] as String? ?? 'flutterwave').trim(),
+            'verificationRequestedAtMs': now,
+            'verificationApprovedAtMs': 0,
+            'verificationReviewedBy': '',
+            'verificationNote': safeNote,
+            'verificationRequestType': 'renewal',
+            'updatedAtMs': now,
+          },
+        );
+
+        txn.update(
+          payRef,
+          <String, dynamic>{
+            'fulfilledVerificationRequestId': requestRef.id,
+            'fulfilledAtMs': now,
+            'updatedAtMs': now,
+          },
+        );
+
+        final nextAttempt = Map<String, dynamic>.from(attemptData)
+          ..addAll(<String, dynamic>{
+            'status': 'fulfilled',
+            'fulfilledVerificationRequestId': requestRef.id,
+            'receiptId': safeReceiptId,
+            'paymentId': safePaymentId,
+            'updatedAtMs': now,
+          });
+
+        txn.set(attRef, nextAttempt, SetOptions(merge: false));
+      });
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
   Future<void> checkMasterLeagueLimitOrThrow(MasterLeaguePlan plan) async {
     final uid = _requireAuthUid();
 
@@ -245,31 +844,6 @@ class MasterLeaguesRepositoryFirebase {
     if (!plan.unlimitedMasterLeagues && count >= plan.maxMasterLeagues) {
       throw UserFriendlyException(
         'You have reached the limit of ${plan.maxMasterLeagues} master league${plan.maxMasterLeagues == 1 ? '' : 's'} for the ${plan.displayName} plan. Upgrade to a higher plan to create more.',
-      );
-    }
-  }
-
-  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
-    final ml = await getById(masterLeagueId);
-    if (ml == null) {
-      throw const UserFriendlyException(
-        "We couldn't find that Master League.",
-      );
-    }
-
-    if (ml.plan.unlimitedCompetitions) return;
-
-    final snap = await _firestore
-        .collection('leagues')
-        .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 15));
-
-    final count = snap.docs.length;
-
-    if (count >= ml.maxLeagues) {
-      throw UserFriendlyException(
-        'You have reached the limit of ${ml.maxLeagues} competitions for your ${ml.plan.displayName} plan. Upgrade your plan to create more.',
       );
     }
   }
@@ -354,9 +928,22 @@ class MasterLeaguesRepositoryFirebase {
         'totalTournamentsCreated': 0,
         'totalParticipantsTeams': 0,
         'totalMatches': 0,
+        'followersCount': 0,
         'createdViaAttemptId': '',
         'sourcePaymentId': '',
         'sourceReceiptId': '',
+        'verificationStatus': 'none',
+        'verifiedBadge': false,
+        'verificationRequestId': '',
+        'verificationReceiptId': '',
+        'verificationPaymentId': '',
+        'verificationProvider': '',
+        'verificationRequestedAtMs': 0,
+        'verificationApprovedAtMs': 0,
+        'verificationExpiresAtMs': 0,
+        'verificationReviewedBy': '',
+        'verificationNote': '',
+        'verificationRequestType': 'initial',
       };
 
       await ref.set(docData, SetOptions(merge: false)).timeout(
@@ -547,10 +1134,23 @@ class MasterLeaguesRepositoryFirebase {
             'totalTournamentsCreated': 0,
             'totalParticipantsTeams': 0,
             'totalMatches': 0,
+            'followersCount': 0,
             'createdViaAttemptId': safeAttemptId,
             'sourcePaymentId': safePaymentId,
             'sourceReceiptId': safeReceiptId,
             'initialCompetition': competition.toMap(),
+            'verificationStatus': 'none',
+            'verifiedBadge': false,
+            'verificationRequestId': '',
+            'verificationReceiptId': '',
+            'verificationPaymentId': '',
+            'verificationProvider': '',
+            'verificationRequestedAtMs': 0,
+            'verificationApprovedAtMs': 0,
+            'verificationExpiresAtMs': 0,
+            'verificationReviewedBy': '',
+            'verificationNote': '',
+            'verificationRequestType': 'initial',
           },
         );
 
@@ -592,7 +1192,235 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
-  Future<void> requireOwnerOrThrow(String masterLeagueId) async {
+  Future<void> submitVerificationRequest({
+    required String masterLeagueId,
+    required String attemptId,
+    required String paymentId,
+    required String receiptId,
+    String note = '',
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final safeMasterLeagueId = masterLeagueId.trim();
+      final safeAttemptId = attemptId.trim();
+      final safePaymentId = paymentId.trim();
+      final safeReceiptId = receiptId.trim();
+      final safeNote = _trimText(note, 1000);
+
+      if (safeMasterLeagueId.isEmpty ||
+          safeAttemptId.isEmpty ||
+          safePaymentId.isEmpty ||
+          safeReceiptId.isEmpty) {
+        throw const UserFriendlyException(
+          'Verification payment details are incomplete.',
+        );
+      }
+
+      final ml = await getById(safeMasterLeagueId);
+      if (ml == null) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the owner can submit organizer verification.',
+        );
+      }
+      if (ml.isVerifiedOrganizer) {
+        throw const UserFriendlyException(
+          'This organizer is already verified.',
+        );
+      }
+      if (ml.isVerificationPending) {
+        throw const UserFriendlyException(
+          'A verification request is already pending review.',
+        );
+      }
+
+      final paymentSnap = await _payments
+          .doc(safePaymentId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!paymentSnap.exists) {
+        throw const UserFriendlyException(
+          'Verified payment record was not found.',
+        );
+      }
+
+      final paymentData =
+          (paymentSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final paymentUid = (paymentData['userId'] as String? ?? '').trim();
+      if (paymentUid != uid) {
+        throw const UserFriendlyException(
+          'This payment does not belong to your account.',
+        );
+      }
+
+      final verification = (paymentData['verification'] is Map)
+          ? (paymentData['verification'] as Map).cast<String, dynamic>()
+          : <String, dynamic>{};
+      if (verification['verified'] != true) {
+        throw const UserFriendlyException(
+          'Payment is not verified yet. Please try again.',
+        );
+      }
+
+      final fulfilledVerificationRequestId =
+          (paymentData['fulfilledVerificationRequestId'] as String? ?? '').trim();
+      if (fulfilledVerificationRequestId.isNotEmpty) {
+        final existingReq = await _verificationRequests
+            .doc(fulfilledVerificationRequestId)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 15));
+        if (existingReq.exists) {
+          throw const UserFriendlyException(
+            'A verification request has already been submitted for this payment.',
+          );
+        }
+      }
+
+      final attemptSnap = await _attempts
+          .doc(safeAttemptId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!attemptSnap.exists) {
+        throw const UserFriendlyException(
+          'Payment attempt was not found.',
+        );
+      }
+
+      final attemptData =
+          (attemptSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final attemptUid = (attemptData['userId'] as String? ?? '').trim();
+      if (attemptUid != uid) {
+        throw const UserFriendlyException(
+          'This payment attempt does not belong to your account.',
+        );
+      }
+
+      final requestRef = _verificationRequests.doc();
+      final now = _nowMs();
+
+      await _firestore.runTransaction((txn) async {
+        final payRef = _payments.doc(safePaymentId);
+        final attRef = _attempts.doc(safeAttemptId);
+        final mlRef = _col.doc(safeMasterLeagueId);
+
+        final payDoc = await txn.get(payRef);
+        if (!payDoc.exists) {
+          throw const UserFriendlyException('Verified payment record was not found.');
+        }
+        final payMap = (payDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final payVerification = (payMap['verification'] is Map)
+            ? (payMap['verification'] as Map).cast<String, dynamic>()
+            : <String, dynamic>{};
+
+        if (payVerification['verified'] != true) {
+          throw const UserFriendlyException(
+            'Payment is not verified yet. Please try again.',
+          );
+        }
+
+        final alreadyReqId =
+            (payMap['fulfilledVerificationRequestId'] as String? ?? '').trim();
+        if (alreadyReqId.isNotEmpty) {
+          throw const UserFriendlyException(
+            'A verification request has already been submitted for this payment.',
+          );
+        }
+
+        final mlDoc = await txn.get(mlRef);
+        if (!mlDoc.exists) {
+          throw const UserFriendlyException("We couldn't find that Master League.");
+        }
+        final mlData = (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final ownerId = (mlData['ownerId'] as String? ?? '').trim();
+        if (ownerId != uid) {
+          throw const UserFriendlyException(
+            'Only the owner can submit organizer verification.',
+          );
+        }
+
+        final currentStatus =
+            (mlData['verificationStatus'] as String? ?? 'none').trim().toLowerCase();
+        final currentVerified = (mlData['verifiedBadge'] == true);
+        if (currentVerified || currentStatus == 'approved') {
+          throw const UserFriendlyException(
+            'This organizer is already verified.',
+          );
+        }
+        if (currentStatus == 'pending') {
+          throw const UserFriendlyException(
+            'A verification request is already pending review.',
+          );
+        }
+
+        txn.set(
+          requestRef,
+          <String, dynamic>{
+            'requestId': requestRef.id,
+            'masterLeagueId': safeMasterLeagueId,
+            'ownerId': uid,
+            'status': 'pending',
+            'requestType': 'initial',
+            'provider': (paymentData['provider'] as String? ?? 'flutterwave').trim(),
+            'receiptId': safeReceiptId,
+            'paymentId': safePaymentId,
+            'attemptId': safeAttemptId,
+            'submittedAtMs': now,
+            'reviewedAtMs': 0,
+            'reviewedBy': '',
+            'note': safeNote,
+          },
+        );
+
+        txn.update(
+          mlRef,
+          <String, dynamic>{
+            'verificationStatus': 'pending',
+            'verifiedBadge': false,
+            'verificationRequestId': requestRef.id,
+            'verificationReceiptId': safeReceiptId,
+            'verificationPaymentId': safePaymentId,
+            'verificationProvider':
+                (paymentData['provider'] as String? ?? 'flutterwave').trim(),
+            'verificationRequestedAtMs': now,
+            'verificationApprovedAtMs': 0,
+            'verificationExpiresAtMs': 0,
+            'verificationReviewedBy': '',
+            'verificationNote': safeNote,
+            'verificationRequestType': 'initial',
+            'updatedAtMs': now,
+          },
+        );
+
+        txn.update(
+          payRef,
+          <String, dynamic>{
+            'fulfilledVerificationRequestId': requestRef.id,
+            'fulfilledAtMs': now,
+            'updatedAtMs': now,
+          },
+        );
+
+        final nextAttempt = Map<String, dynamic>.from(attemptData)
+          ..addAll(<String, dynamic>{
+            'status': 'fulfilled',
+            'fulfilledVerificationRequestId': requestRef.id,
+            'receiptId': safeReceiptId,
+            'paymentId': safePaymentId,
+            'updatedAtMs': now,
+          });
+
+        txn.set(attRef, nextAttempt, SetOptions(merge: false));
+      });
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<void> delete(String masterLeagueId) async {
     try {
       final uid = _requireAuthUid();
       final id = masterLeagueId.trim();
@@ -621,303 +1449,6 @@ class MasterLeaguesRepositoryFirebase {
           'Only the Master League owner can perform this action.',
         );
       }
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<String?> resolveUidFromShareId(String shareId) async {
-    try {
-      _requireAuthUid();
-
-      final sid = shareId.trim();
-      if (!_looksLikeShareId(sid)) return null;
-
-      final snap = await _users
-          .where('shareId', isEqualTo: sid)
-          .limit(1)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 15));
-
-      if (snap.docs.isEmpty) return null;
-      final uid = snap.docs.first.id.trim();
-      return uid.isEmpty ? null : uid;
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> addStaffByShortId({
-    required String masterLeagueId,
-    required String shortId,
-    required String role,
-  }) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final ownerUid = _requireAuthUid();
-      final normalizedRole = role.trim().toLowerCase();
-      if (normalizedRole != 'admin' && normalizedRole != 'moderator') {
-        throw const UserFriendlyException('Invalid role.');
-      }
-
-      final sid = shortId.trim();
-      if (!_looksLikeShareId(sid)) {
-        throw const UserFriendlyException(
-          'Invalid short id. Example: eS44e35f',
-        );
-      }
-
-      final uid = await resolveUidFromShareId(sid);
-      if (uid == null || uid.isEmpty) {
-        throw const UserFriendlyException(
-          'We could not find a user with that short id.',
-        );
-      }
-
-      if (uid == ownerUid) {
-        throw const UserFriendlyException(
-          'You are already the owner of this Master League.',
-        );
-      }
-
-      final now = _nowMs();
-      await _col.doc(masterLeagueId.trim()).update(<String, dynamic>{
-        'memberIds': FieldValue.arrayUnion([uid]),
-        'roles.$uid': normalizedRole,
-        'staffShareIds.$uid': sid,
-        'updatedAtMs': now,
-      }).timeout(const Duration(seconds: 12));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> addStaffByShareId({
-    required String masterLeagueId,
-    required String shareId,
-    required MasterLeagueStaffRole role,
-  }) async {
-    await addStaffByShortId(
-      masterLeagueId: masterLeagueId,
-      shortId: shareId,
-      role: role.id,
-    );
-  }
-
-  Future<void> changeStaffRole({
-    required String masterLeagueId,
-    required String memberUid,
-    required MasterLeagueStaffRole role,
-    String? shareId,
-  }) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final uid = memberUid.trim();
-      if (uid.isEmpty) {
-        throw const UserFriendlyException('Invalid user.');
-      }
-
-      final ml = await getById(masterLeagueId);
-      if (ml != null && ml.ownerId.trim() == uid) {
-        throw const UserFriendlyException('You cannot change the owner.');
-      }
-
-      final now = _nowMs();
-      final data = <String, dynamic>{
-        'memberIds': FieldValue.arrayUnion([uid]),
-        'roles.$uid': role.id,
-        'updatedAtMs': now,
-      };
-
-      final sid = shareId?.trim() ?? '';
-      if (sid.isNotEmpty && _looksLikeShareId(sid)) {
-        data['staffShareIds.$uid'] = sid;
-      }
-
-      await _col
-          .doc(masterLeagueId.trim())
-          .update(data)
-          .timeout(const Duration(seconds: 12));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> removeStaffRole({
-    required String masterLeagueId,
-    required String staffUid,
-  }) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final uid = staffUid.trim();
-      if (uid.isEmpty) {
-        throw const UserFriendlyException('Invalid user.');
-      }
-
-      final ml = await getById(masterLeagueId);
-      if (ml != null && ml.ownerId.trim() == uid) {
-        throw const UserFriendlyException('You cannot change the owner.');
-      }
-
-      final now = _nowMs();
-      await _col.doc(masterLeagueId.trim()).update(<String, dynamic>{
-        'roles.$uid': FieldValue.delete(),
-        'staffShareIds.$uid': FieldValue.delete(),
-        'updatedAtMs': now,
-      }).timeout(const Duration(seconds: 12));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> removeStaff({
-    required String masterLeagueId,
-    required String memberUid,
-  }) async {
-    await removeStaffRole(
-      masterLeagueId: masterLeagueId,
-      staffUid: memberUid,
-    );
-  }
-
-  Future<void> updateOrganizerProfile({
-    required String masterLeagueId,
-    required OrganizerProfile profile,
-  }) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final safe = _normalizedProfile(profile);
-
-      await _col.doc(masterLeagueId.trim()).update(<String, dynamic>{
-        'bannerUrl': safe.bannerUrl,
-        'logoUrl': safe.logoUrl,
-        'bio': safe.bio,
-        'badge': safe.badge,
-        'socialLinks': safe.socialLinks,
-        'updatedAtMs': _nowMs(),
-      }).timeout(const Duration(seconds: 15));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> saveOrganizerProfile({
-    required String masterLeagueId,
-    String? bannerUrl,
-    String? logoUrl,
-    String? bio,
-    String? badge,
-    Map<String, String>? socialLinks,
-  }) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final current = await getById(masterLeagueId);
-      final existing = current?.organizerProfile ?? const OrganizerProfile.empty();
-
-      final next = _normalizedProfile(
-        existing.copyWith(
-          bannerUrl: bannerUrl ?? existing.bannerUrl,
-          logoUrl: logoUrl ?? existing.logoUrl,
-          bio: bio ?? existing.bio,
-          badge: badge ?? existing.badge,
-          socialLinks: socialLinks ?? existing.socialLinks,
-        ),
-      );
-
-      await updateOrganizerProfile(
-        masterLeagueId: masterLeagueId,
-        profile: next,
-      );
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> rename({
-    required String masterLeagueId,
-    required String newName,
-  }) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final name = newName.trim();
-      if (name.isEmpty) {
-        throw const UserFriendlyException('Please enter a name.');
-      }
-      if (name.length > 60) {
-        throw const UserFriendlyException('Name is too long.');
-      }
-
-      await _col.doc(masterLeagueId.trim()).update(<String, dynamic>{
-        'name': name,
-        'updatedAtMs': _nowMs(),
-      }).timeout(const Duration(seconds: 12));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> addMember({
-    required String masterLeagueId,
-    required String memberUid,
-  }) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final m = memberUid.trim();
-      if (m.isEmpty || m.length < 10) {
-        throw const UserFriendlyException('Invalid member.');
-      }
-
-      await _col.doc(masterLeagueId.trim()).update(<String, dynamic>{
-        'memberIds': FieldValue.arrayUnion([m]),
-        'updatedAtMs': _nowMs(),
-      }).timeout(const Duration(seconds: 12));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> removeMember({
-    required String masterLeagueId,
-    required String memberUid,
-  }) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final m = memberUid.trim();
-      if (m.isEmpty) {
-        throw const UserFriendlyException('Invalid member.');
-      }
-
-      final ml = await getById(masterLeagueId);
-      if (ml != null && ml.ownerId.trim() == m) {
-        throw const UserFriendlyException(
-          'The owner cannot be removed from the Master League.',
-        );
-      }
-
-      await _col.doc(masterLeagueId.trim()).update(<String, dynamic>{
-        'memberIds': FieldValue.arrayRemove([m]),
-        'roles.$m': FieldValue.delete(),
-        'staffShareIds.$m': FieldValue.delete(),
-        'updatedAtMs': _nowMs(),
-      }).timeout(const Duration(seconds: 12));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> delete(String masterLeagueId) async {
-    try {
-      await requireOwnerOrThrow(masterLeagueId);
-
-      final id = masterLeagueId.trim();
 
       try {
         final childLeagues = await _firestore

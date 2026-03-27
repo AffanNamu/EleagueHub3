@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/admin/developer_analytics_dashboard_screen.dart';
+import '../../features/admin/organizer_verification_requests_screen.dart';
 import '../../features/admin/pricing_admin_screen.dart';
 import '../../features/admin/pricing_admins_screen.dart';
 import '../../features/auth/data/user_profile_repository.dart';
@@ -43,8 +44,10 @@ import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/marketplace/presentation/admin_marketplace_upload_screen.dart';
 import '../../features/marketplace/presentation/marketplace_screen.dart';
 import '../../features/master_leagues/presentation/create_master_league_screen.dart';
+import '../../features/master_leagues/presentation/followed_organizer_feed_screen.dart';
 import '../../features/master_leagues/presentation/master_league_details_screen.dart';
 import '../../features/master_leagues/presentation/master_leagues_list_screen.dart';
+import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
 import '../services/app_admins_service.dart';
@@ -90,7 +93,6 @@ class AuthRouterRefresh extends ChangeNotifier {
       if (needsEmailVerification) return;
 
       if (_profileState == _ProfileState.unknown) {
-        // ignore: discarded_futures
         _checkProfileFor(uid);
       }
     });
@@ -127,9 +129,11 @@ class AuthRouterRefresh extends ChangeNotifier {
       !needsEmailVerification &&
       (_profileState == _ProfileState.unknown || _profileState == _ProfileState.checking);
 
-  bool get needsOnboarding => isSignedIn && !needsEmailVerification && _profileState == _ProfileState.missing;
+  bool get needsOnboarding =>
+      isSignedIn && !needsEmailVerification && _profileState == _ProfileState.missing;
 
-  bool get hasProfile => isSignedIn && !needsEmailVerification && _profileState == _ProfileState.exists;
+  bool get hasProfile =>
+      isSignedIn && !needsEmailVerification && _profileState == _ProfileState.exists;
 
   Future<void> refreshAuthUser() async {
     final u = FirebaseAuth.instance.currentUser;
@@ -147,7 +151,6 @@ class AuthRouterRefresh extends ChangeNotifier {
     if (needsEmailVerification) return;
 
     if (_profileState == _ProfileState.unknown) {
-      // ignore: discarded_futures
       _checkProfileFor(uid);
     }
   }
@@ -194,12 +197,15 @@ class AuthRouterRefresh extends ChangeNotifier {
     _setProfileState(_ProfileState.checking);
 
     try {
-      final exists = await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
+      final exists =
+          await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
       _retryAttempt = 0;
       _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
       return;
     } catch (e) {
-      final fallback = (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
+      final fallback = (prev == _ProfileState.exists)
+          ? _ProfileState.exists
+          : _ProfileState.unknown;
       _setProfileState(fallback);
 
       if (kDebugMode) {
@@ -207,7 +213,6 @@ class AuthRouterRefresh extends ChangeNotifier {
       }
 
       if (_isNetworkError(e is Object ? e : Exception('unknown'))) return;
-
       if (_retryAttempt >= 5) return;
 
       final delay = _retryDelayForAttempt(_retryAttempt);
@@ -217,7 +222,6 @@ class AuthRouterRefresh extends ChangeNotifier {
         if (_user?.uid != uid) return;
         if (!ConnectivityService.instance.isConnected.value) return;
         if (needsEmailVerification) return;
-        // ignore: discarded_futures
         _checkProfileFor(uid);
       });
     }
@@ -259,6 +263,7 @@ final appRouter = GoRouter(
     final inPricingAdmin = loc == '/admin/pricing';
     final inPricingAdmins = loc == '/admin/pricing-admins';
     final inAnalyticsAdmin = loc == '/admin/analytics';
+    final inVerificationAdmin = loc == '/admin/verification-requests';
     final inMarketplaceAdminUpload = loc == '/admin/marketplace-upload';
     final inGlobalChatRequestsAdmin = loc == '/admin/global-chat-requests';
 
@@ -282,7 +287,7 @@ final appRouter = GoRouter(
       return '/onboarding';
     }
 
-    if (inPricingAdmin || inPricingAdmins || inAnalyticsAdmin) {
+    if (inPricingAdmin || inPricingAdmins || inAnalyticsAdmin || inVerificationAdmin) {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       if (!_isPricingAdminUidSync(uid)) return '/';
     }
@@ -348,8 +353,14 @@ final appRouter = GoRouter(
       path: '/call',
       builder: (context, state) => const CallRoomScreen(),
     ),
-
-    // ── Pricing Admin (pricing-admin UIDs only) ──────────────────────────
+    GoRoute(
+      path: '/organizer-feed',
+      builder: (context, state) => const FollowedOrganizerFeedScreen(),
+    ),
+    GoRoute(
+      path: '/organizer-discovery',
+      builder: (context, state) => const PublicOrganizerDiscoveryScreen(),
+    ),
     GoRoute(
       path: '/admin/pricing',
       builder: (context, state) => const PricingAdminScreen(),
@@ -358,25 +369,22 @@ final appRouter = GoRouter(
       path: '/admin/pricing-admins',
       builder: (context, state) => const PricingAdminsScreen(),
     ),
-
-    // ── Developer Analytics Dashboard (pricing admins) ───────────────────
     GoRoute(
       path: '/admin/analytics',
       builder: (context, state) => const DeveloperAnalyticsDashboardScreen(),
     ),
-
-    // ── Marketplace Admin Upload (super-admin only) ──────────────────────
+    GoRoute(
+      path: '/admin/verification-requests',
+      builder: (context, state) => const OrganizerVerificationRequestsScreen(),
+    ),
     GoRoute(
       path: '/admin/marketplace-upload',
       builder: (context, state) => const AdminMarketplaceUploadScreen(),
     ),
-
-    // ── Global Chat Requests Admin (super-admin only) ────────────────────
     GoRoute(
       path: '/admin/global-chat-requests',
       builder: (context, state) => const GlobalChatAdminRequestsScreen(),
     ),
-
     GoRoute(
       path: '/',
       builder: (context, state) => const HomeShell(),
@@ -391,22 +399,18 @@ final appRouter = GoRouter(
             ),
           ],
         ),
-
         GoRoute(
           path: 'marketplace',
           builder: (context, state) => const MarketplaceScreen(),
         ),
-
         GoRoute(
           path: 'global-live',
           builder: (context, state) => const GlobalLiveLeaguesScreen(),
         ),
-
         GoRoute(
           path: 'global-chat',
           builder: (context, state) => const GlobalChatScreen(),
         ),
-
         GoRoute(
           path: 'live/join',
           builder: (context, state) => const JoinMatchScreen(),
@@ -447,8 +451,6 @@ final appRouter = GoRouter(
             );
           },
         ),
-
-        // ── Master Leagues ───────────────────────────────────────────────
         GoRoute(
           path: 'master-leagues',
           builder: (context, state) => const MasterLeaguesListScreen(),
@@ -465,8 +467,6 @@ final appRouter = GoRouter(
             ),
           ],
         ),
-
-        // ── Leagues ──────────────────────────────────────────────────────
         GoRoute(
           path: 'leagues',
           builder: (context, state) => const LeaguesListScreen(),
@@ -518,7 +518,6 @@ final appRouter = GoRouter(
                 return AddTeamsScreen(leagueId: leagueId, format: format);
               },
             ),
-
             GoRoute(
               path: ':id',
               builder: (context, state) => LeagueDetailScreen(
@@ -562,7 +561,6 @@ final appRouter = GoRouter(
                 ),
               ],
             ),
-
             GoRoute(
               path: ':leagueId/fixtures',
               builder: (context, state) => LeagueAccessGuard(

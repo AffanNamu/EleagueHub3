@@ -101,6 +101,20 @@ abstract class MasterLeaguePaymentService {
     required MasterLeagueCompetitionDraft competition,
   });
 
+  Future<MasterLeaguePaymentResult> payForOrganizerVerification({
+    required BuildContext context,
+    required String userId,
+    required String masterLeagueId,
+    required String masterLeagueName,
+  });
+
+  Future<MasterLeaguePaymentResult> payForOrganizerVerificationRenewal({
+    required BuildContext context,
+    required String userId,
+    required String masterLeagueId,
+    required String masterLeagueName,
+  });
+
   String get providerName;
 }
 
@@ -455,6 +469,616 @@ class FlutterwaveMasterLeaguePaymentService
         kind: 'master_league_creation',
         leagueId: '',
         leagueName: trimmedMasterLeagueName,
+        success: false,
+        provider: providerName,
+        currency: currencyUsed,
+        amount: totalAmount,
+        receiptId: null,
+        errorMessage: msg,
+        userId: effectiveUserId,
+      );
+
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: msg,
+        currency: currencyUsed,
+        totalAmount: totalAmount,
+        attemptId: attemptId,
+      );
+    } catch (e) {
+      if (attemptId.isNotEmpty) {
+        try {
+          await PaymentsService.instance.markClientFailed(
+            attemptId: attemptId,
+            errorMessage: e.toString(),
+          );
+        } catch (_) {}
+      }
+
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: e.toString(),
+        currency: currencyUsed,
+        totalAmount: totalAmount,
+        attemptId: attemptId,
+      );
+    }
+  }
+
+  @override
+  Future<MasterLeaguePaymentResult> payForOrganizerVerification({
+    required BuildContext context,
+    required String userId,
+    required String masterLeagueId,
+    required String masterLeagueName,
+  }) async {
+    String currencyUsed = '';
+    String totalAmount = '0';
+    String attemptId = '';
+
+    final effectiveUserId = _resolveEffectiveUserId(userId);
+
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Please sign in to continue.',
+        );
+      }
+      final authUid = currentUser.uid.trim();
+      if (authUid.isEmpty) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Please sign in to continue.',
+        );
+      }
+
+      final safeMasterLeagueId = masterLeagueId.trim();
+      final safeMasterLeagueName = masterLeagueName.trim();
+
+      if (safeMasterLeagueId.isEmpty || safeMasterLeagueName.isEmpty) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Master League information is missing.',
+        );
+      }
+
+      final remotePlan = await RemotePricingService.instance.getPlanForLocale(
+        _effectiveLocale(context),
+      );
+
+      if (!remotePlan.paymentsEnabled) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Payments are temporarily disabled by the administrator.',
+        );
+      }
+
+      if (!remotePlan.flutterwaveEnabled) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
+        );
+      }
+
+      if (!remotePlan.organizerVerificationEnabled) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Organizer verification is currently disabled.',
+        );
+      }
+
+      FlutterwaveConfig.assertConfigured();
+
+      currencyUsed = remotePlan.currency.trim().toUpperCase();
+      final rounded = _roundMoney(
+        currencyUsed,
+        remotePlan.organizerVerificationFee,
+      );
+
+      if (rounded <= 0) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Organizer verification price is invalid. Please contact support.',
+        );
+      }
+
+      totalAmount = _toFlutterwaveAmount(rounded);
+
+      attemptId = await PaymentsService.instance.createAttempt(
+        PaymentAttemptCreate(
+          provider: providerName,
+          currency: currencyUsed,
+          amount: rounded,
+          amountStr: totalAmount,
+          userId: authUid,
+          leagueId: '',
+          leagueName: safeMasterLeagueName,
+          masterLeagueId: safeMasterLeagueId,
+          productType: 'organizer_verification',
+          productSubType: 'master_league_organizer_verification',
+          metadata: <String, dynamic>{
+            'masterLeagueId': safeMasterLeagueId,
+            'masterLeagueName': safeMasterLeagueName,
+            'verificationMode': 'initial',
+          },
+          items: [
+            PaymentLineItem(
+              productType: 'organizer_verification',
+              productSubType: 'master_league_organizer_verification',
+              quantity: 1,
+              amount: rounded,
+            ),
+          ],
+        ),
+      );
+
+      await AppAnalyticsService.instance.logPaymentAttempt(
+        kind: 'organizer_verification',
+        leagueId: safeMasterLeagueId,
+        leagueName: safeMasterLeagueName,
+        provider: providerName,
+        currency: currencyUsed,
+        amount: totalAmount,
+        userId: effectiveUserId,
+      );
+
+      final String email = (currentUser.email?.trim().isNotEmpty ?? false)
+          ? currentUser.email!.trim()
+          : 'user_$effectiveUserId@eleaguehub.app';
+      final String phone = (currentUser.phoneNumber?.trim().isNotEmpty ?? false)
+          ? currentUser.phoneNumber!.trim()
+          : '0000000000';
+      final String name = (currentUser.displayName?.trim().isNotEmpty ?? false)
+          ? currentUser.displayName!.trim()
+          : 'EleagueHub User';
+
+      final customer = Customer(
+        name: name,
+        phoneNumber: phone,
+        email: email,
+      );
+
+      final txRef =
+          'EH-ORGV-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+
+      final flutterwave = Flutterwave(
+        publicKey: FlutterwaveConfig.publicKey,
+        currency: currencyUsed,
+        redirectUrl: FlutterwaveConfig.redirectUrl,
+        txRef: txRef,
+        amount: totalAmount,
+        customer: customer,
+        paymentOptions: _paymentOptionsForCurrency(currencyUsed),
+        customization: Customization(
+          title: 'EleagueHub',
+          description: 'Organizer verification: $safeMasterLeagueName',
+        ),
+        isTestMode: FlutterwaveConfig.isTestMode,
+      );
+
+      final ChargeResponse response = await flutterwave.charge(context);
+
+      if (_isChargeSuccessful(response)) {
+        final txId = (response.transactionId ?? '').toString().trim();
+        if (txId.isEmpty) {
+          if (attemptId.isNotEmpty) {
+            await PaymentsService.instance.markClientFailed(
+              attemptId: attemptId,
+              errorMessage: 'Missing transactionId.',
+            );
+          }
+          return MasterLeaguePaymentResult.failed(
+            provider: providerName,
+            errorMessage: 'Missing transaction id.',
+            currency: currencyUsed,
+            totalAmount: totalAmount,
+            attemptId: attemptId,
+          );
+        }
+
+        final resolvedTxRef =
+            (response.txRef?.toString().trim().isNotEmpty ?? false)
+                ? response.txRef!.toString().trim()
+                : txRef;
+
+        final verification =
+            await PaymentsService.instance.verifyFlutterwavePayment(
+          attemptId: attemptId,
+          transactionId: txId,
+          txRef: resolvedTxRef,
+        );
+
+        if (!verification.success) {
+          await AppAnalyticsService.instance.logPaymentResult(
+            kind: 'organizer_verification',
+            leagueId: safeMasterLeagueId,
+            leagueName: safeMasterLeagueName,
+            success: false,
+            provider: providerName,
+            currency: currencyUsed,
+            amount: totalAmount,
+            receiptId: null,
+            errorMessage:
+                verification.errorMessage ?? 'Payment verification failed.',
+            userId: effectiveUserId,
+          );
+
+          return MasterLeaguePaymentResult.failed(
+            provider: providerName,
+            errorMessage:
+                verification.errorMessage ?? 'Payment verification failed.',
+            currency: currencyUsed,
+            totalAmount: totalAmount,
+            attemptId: attemptId,
+            paymentId: verification.paymentId,
+            transactionId: txId,
+            txRef: resolvedTxRef,
+          );
+        }
+
+        await AppAnalyticsService.instance.logPaymentResult(
+          kind: 'organizer_verification',
+          leagueId: safeMasterLeagueId,
+          leagueName: safeMasterLeagueName,
+          success: true,
+          provider: providerName,
+          currency: verification.currency.isNotEmpty
+              ? verification.currency
+              : currencyUsed,
+          amount: verification.amountStr.isNotEmpty
+              ? verification.amountStr
+              : totalAmount,
+          receiptId: verification.receiptId,
+          errorMessage: null,
+          userId: effectiveUserId,
+        );
+
+        return MasterLeaguePaymentResult.paid(
+          receiptId: verification.receiptId,
+          paidAtMs: verification.paidAtMs,
+          provider: verification.provider,
+          currency: verification.currency.isNotEmpty
+              ? verification.currency
+              : currencyUsed,
+          totalAmount:
+              verification.amountStr.isNotEmpty ? verification.amountStr : totalAmount,
+          attemptId: attemptId,
+          paymentId: verification.paymentId,
+          transactionId: verification.transactionId,
+          txRef: verification.txRef,
+        );
+      }
+
+      final status = (response.status ?? '').toString().trim().toLowerCase();
+      final msg = status == 'cancelled' || status == 'cancel'
+          ? 'Payment was cancelled.'
+          : status.isNotEmpty
+              ? 'Payment not successful (status: $status).'
+              : 'Payment cancelled or not successful.';
+
+      if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: msg,
+        );
+      }
+
+      await AppAnalyticsService.instance.logPaymentResult(
+        kind: 'organizer_verification',
+        leagueId: safeMasterLeagueId,
+        leagueName: safeMasterLeagueName,
+        success: false,
+        provider: providerName,
+        currency: currencyUsed,
+        amount: totalAmount,
+        receiptId: null,
+        errorMessage: msg,
+        userId: effectiveUserId,
+      );
+
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: msg,
+        currency: currencyUsed,
+        totalAmount: totalAmount,
+        attemptId: attemptId,
+      );
+    } catch (e) {
+      if (attemptId.isNotEmpty) {
+        try {
+          await PaymentsService.instance.markClientFailed(
+            attemptId: attemptId,
+            errorMessage: e.toString(),
+          );
+        } catch (_) {}
+      }
+
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: e.toString(),
+        currency: currencyUsed,
+        totalAmount: totalAmount,
+        attemptId: attemptId,
+      );
+    }
+  }
+
+  @override
+  Future<MasterLeaguePaymentResult> payForOrganizerVerificationRenewal({
+    required BuildContext context,
+    required String userId,
+    required String masterLeagueId,
+    required String masterLeagueName,
+  }) async {
+    String currencyUsed = '';
+    String totalAmount = '0';
+    String attemptId = '';
+
+    final effectiveUserId = _resolveEffectiveUserId(userId);
+
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Please sign in to continue.',
+        );
+      }
+      final authUid = currentUser.uid.trim();
+      if (authUid.isEmpty) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Please sign in to continue.',
+        );
+      }
+
+      final safeMasterLeagueId = masterLeagueId.trim();
+      final safeMasterLeagueName = masterLeagueName.trim();
+
+      if (safeMasterLeagueId.isEmpty || safeMasterLeagueName.isEmpty) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage: 'Master League information is missing.',
+        );
+      }
+
+      final remotePlan = await RemotePricingService.instance.getPlanForLocale(
+        _effectiveLocale(context),
+      );
+
+      if (!remotePlan.paymentsEnabled) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Payments are temporarily disabled by the administrator.',
+        );
+      }
+
+      if (!remotePlan.flutterwaveEnabled) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
+        );
+      }
+
+      if (!remotePlan.organizerVerificationRenewalEnabled) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Verification renewal is currently disabled.',
+        );
+      }
+
+      FlutterwaveConfig.assertConfigured();
+
+      currencyUsed = remotePlan.currency.trim().toUpperCase();
+      final rounded = _roundMoney(
+        currencyUsed,
+        remotePlan.organizerVerificationRenewalFee,
+      );
+
+      if (rounded <= 0) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
+          errorMessage:
+              'Verification renewal price is invalid. Please contact support.',
+        );
+      }
+
+      totalAmount = _toFlutterwaveAmount(rounded);
+
+      attemptId = await PaymentsService.instance.createAttempt(
+        PaymentAttemptCreate(
+          provider: providerName,
+          currency: currencyUsed,
+          amount: rounded,
+          amountStr: totalAmount,
+          userId: authUid,
+          leagueId: '',
+          leagueName: safeMasterLeagueName,
+          masterLeagueId: safeMasterLeagueId,
+          productType: 'organizer_verification_renewal',
+          productSubType: 'master_league_organizer_verification_renewal',
+          metadata: <String, dynamic>{
+            'masterLeagueId': safeMasterLeagueId,
+            'masterLeagueName': safeMasterLeagueName,
+            'verificationMode': 'renewal',
+            'verificationDurationDays':
+                remotePlan.organizerVerificationDurationDays,
+          },
+          items: [
+            PaymentLineItem(
+              productType: 'organizer_verification_renewal',
+              productSubType: 'master_league_organizer_verification_renewal',
+              quantity: 1,
+              amount: rounded,
+            ),
+          ],
+        ),
+      );
+
+      await AppAnalyticsService.instance.logPaymentAttempt(
+        kind: 'organizer_verification_renewal',
+        leagueId: safeMasterLeagueId,
+        leagueName: safeMasterLeagueName,
+        provider: providerName,
+        currency: currencyUsed,
+        amount: totalAmount,
+        userId: effectiveUserId,
+      );
+
+      final String email = (currentUser.email?.trim().isNotEmpty ?? false)
+          ? currentUser.email!.trim()
+          : 'user_$effectiveUserId@eleaguehub.app';
+      final String phone = (currentUser.phoneNumber?.trim().isNotEmpty ?? false)
+          ? currentUser.phoneNumber!.trim()
+          : '0000000000';
+      final String name = (currentUser.displayName?.trim().isNotEmpty ?? false)
+          ? currentUser.displayName!.trim()
+          : 'EleagueHub User';
+
+      final customer = Customer(
+        name: name,
+        phoneNumber: phone,
+        email: email,
+      );
+
+      final txRef =
+          'EH-ORGR-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+
+      final flutterwave = Flutterwave(
+        publicKey: FlutterwaveConfig.publicKey,
+        currency: currencyUsed,
+        redirectUrl: FlutterwaveConfig.redirectUrl,
+        txRef: txRef,
+        amount: totalAmount,
+        customer: customer,
+        paymentOptions: _paymentOptionsForCurrency(currencyUsed),
+        customization: Customization(
+          title: 'EleagueHub',
+          description: 'Verification renewal: $safeMasterLeagueName',
+        ),
+        isTestMode: FlutterwaveConfig.isTestMode,
+      );
+
+      final ChargeResponse response = await flutterwave.charge(context);
+
+      if (_isChargeSuccessful(response)) {
+        final txId = (response.transactionId ?? '').toString().trim();
+        if (txId.isEmpty) {
+          if (attemptId.isNotEmpty) {
+            await PaymentsService.instance.markClientFailed(
+              attemptId: attemptId,
+              errorMessage: 'Missing transactionId.',
+            );
+          }
+          return MasterLeaguePaymentResult.failed(
+            provider: providerName,
+            errorMessage: 'Missing transaction id.',
+            currency: currencyUsed,
+            totalAmount: totalAmount,
+            attemptId: attemptId,
+          );
+        }
+
+        final resolvedTxRef =
+            (response.txRef?.toString().trim().isNotEmpty ?? false)
+                ? response.txRef!.toString().trim()
+                : txRef;
+
+        final verification =
+            await PaymentsService.instance.verifyFlutterwavePayment(
+          attemptId: attemptId,
+          transactionId: txId,
+          txRef: resolvedTxRef,
+        );
+
+        if (!verification.success) {
+          await AppAnalyticsService.instance.logPaymentResult(
+            kind: 'organizer_verification_renewal',
+            leagueId: safeMasterLeagueId,
+            leagueName: safeMasterLeagueName,
+            success: false,
+            provider: providerName,
+            currency: currencyUsed,
+            amount: totalAmount,
+            receiptId: null,
+            errorMessage:
+                verification.errorMessage ?? 'Payment verification failed.',
+            userId: effectiveUserId,
+          );
+
+          return MasterLeaguePaymentResult.failed(
+            provider: providerName,
+            errorMessage:
+                verification.errorMessage ?? 'Payment verification failed.',
+            currency: currencyUsed,
+            totalAmount: totalAmount,
+            attemptId: attemptId,
+            paymentId: verification.paymentId,
+            transactionId: txId,
+            txRef: resolvedTxRef,
+          );
+        }
+
+        await AppAnalyticsService.instance.logPaymentResult(
+          kind: 'organizer_verification_renewal',
+          leagueId: safeMasterLeagueId,
+          leagueName: safeMasterLeagueName,
+          success: true,
+          provider: providerName,
+          currency: verification.currency.isNotEmpty
+              ? verification.currency
+              : currencyUsed,
+          amount: verification.amountStr.isNotEmpty
+              ? verification.amountStr
+              : totalAmount,
+          receiptId: verification.receiptId,
+          errorMessage: null,
+          userId: effectiveUserId,
+        );
+
+        return MasterLeaguePaymentResult.paid(
+          receiptId: verification.receiptId,
+          paidAtMs: verification.paidAtMs,
+          provider: verification.provider,
+          currency: verification.currency.isNotEmpty
+              ? verification.currency
+              : currencyUsed,
+          totalAmount:
+              verification.amountStr.isNotEmpty ? verification.amountStr : totalAmount,
+          attemptId: attemptId,
+          paymentId: verification.paymentId,
+          transactionId: verification.transactionId,
+          txRef: verification.txRef,
+        );
+      }
+
+      final status = (response.status ?? '').toString().trim().toLowerCase();
+      final msg = status == 'cancelled' || status == 'cancel'
+          ? 'Payment was cancelled.'
+          : status.isNotEmpty
+              ? 'Payment not successful (status: $status).'
+              : 'Payment cancelled or not successful.';
+
+      if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: msg,
+        );
+      }
+
+      await AppAnalyticsService.instance.logPaymentResult(
+        kind: 'organizer_verification_renewal',
+        leagueId: safeMasterLeagueId,
+        leagueName: safeMasterLeagueName,
         success: false,
         provider: providerName,
         currency: currencyUsed,

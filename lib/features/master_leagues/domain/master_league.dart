@@ -20,6 +20,25 @@ enum MasterLeagueStaffRole {
   }
 }
 
+enum OrganizerVerificationStatus {
+  none('none'),
+  pending('pending'),
+  approved('approved'),
+  rejected('rejected');
+
+  const OrganizerVerificationStatus(this.id);
+
+  final String id;
+
+  static OrganizerVerificationStatus fromString(String? raw) {
+    final normalized = (raw ?? '').trim().toLowerCase();
+    for (final value in values) {
+      if (value.id == normalized) return value;
+    }
+    return OrganizerVerificationStatus.none;
+  }
+}
+
 class OrganizerProfile {
   final String bannerUrl;
   final String logoUrl;
@@ -192,10 +211,24 @@ class MasterLeague {
   final OrganizerProfile organizerProfile;
   final OrganizerAnalytics analytics;
   final int updatedAtMs;
+  final int followersCount;
   final String createdViaAttemptId;
   final String sourcePaymentId;
   final String sourceReceiptId;
   final MasterLeagueCompetitionDraft? initialCompetition;
+
+  final OrganizerVerificationStatus verificationStatus;
+  final bool verifiedBadge;
+  final String verificationRequestId;
+  final String verificationReceiptId;
+  final String verificationPaymentId;
+  final String verificationProvider;
+  final int verificationRequestedAtMs;
+  final int verificationApprovedAtMs;
+  final int verificationExpiresAtMs;
+  final String verificationReviewedBy;
+  final String verificationNote;
+  final String verificationRequestType;
 
   const MasterLeague({
     required this.id,
@@ -210,13 +243,46 @@ class MasterLeague {
     required this.organizerProfile,
     required this.analytics,
     required this.updatedAtMs,
+    required this.followersCount,
     required this.createdViaAttemptId,
     required this.sourcePaymentId,
     required this.sourceReceiptId,
     required this.initialCompetition,
+    required this.verificationStatus,
+    required this.verifiedBadge,
+    required this.verificationRequestId,
+    required this.verificationReceiptId,
+    required this.verificationPaymentId,
+    required this.verificationProvider,
+    required this.verificationRequestedAtMs,
+    required this.verificationApprovedAtMs,
+    required this.verificationExpiresAtMs,
+    required this.verificationReviewedBy,
+    required this.verificationNote,
+    required this.verificationRequestType,
   });
 
   bool get isActive => purchaseStatus.trim().toLowerCase() == 'active';
+
+  bool get isVerifiedOrganizer =>
+      verifiedBadge ||
+      verificationStatus == OrganizerVerificationStatus.approved;
+
+  bool get isVerificationPending =>
+      verificationStatus == OrganizerVerificationStatus.pending;
+
+  bool get isVerificationRejected =>
+      verificationStatus == OrganizerVerificationStatus.rejected;
+
+  bool get verificationExpired =>
+      verificationExpiresAtMs > 0 &&
+      verificationExpiresAtMs <= DateTime.now().millisecondsSinceEpoch;
+
+  bool get canRenewVerification =>
+      isVerifiedOrganizer || verificationExpired || isVerificationRejected;
+
+  bool get lastVerificationWasRenewal =>
+      verificationRequestType.trim().toLowerCase() == 'renewal';
 
   int get maxLeagues => plan.maxLeagues;
   int get maxTeamsPerLeague => plan.maxTeamsPerLeague;
@@ -278,11 +344,24 @@ class MasterLeague {
       'staffShareIds': staffShareIds.map((k, v) => MapEntry(k.trim(), v.trim())),
       'plan': plan.id,
       'updatedAtMs': updatedAtMs,
+      'followersCount': followersCount,
       'createdViaAttemptId': createdViaAttemptId.trim(),
       'sourcePaymentId': sourcePaymentId.trim(),
       'sourceReceiptId': sourceReceiptId.trim(),
       if (initialCompetition != null)
         'initialCompetition': initialCompetition!.toMap(),
+      'verificationStatus': verificationStatus.id,
+      'verifiedBadge': verifiedBadge,
+      'verificationRequestId': verificationRequestId.trim(),
+      'verificationReceiptId': verificationReceiptId.trim(),
+      'verificationPaymentId': verificationPaymentId.trim(),
+      'verificationProvider': verificationProvider.trim(),
+      'verificationRequestedAtMs': verificationRequestedAtMs,
+      'verificationApprovedAtMs': verificationApprovedAtMs,
+      'verificationExpiresAtMs': verificationExpiresAtMs,
+      'verificationReviewedBy': verificationReviewedBy.trim(),
+      'verificationNote': verificationNote.trim(),
+      'verificationRequestType': verificationRequestType.trim(),
       ...organizerProfile.toFirestoreMap(),
       ...analytics.toFirestoreMap(),
     };
@@ -324,6 +403,16 @@ class MasterLeague {
     if (v is int) return v;
     if (v is num) return v.toInt();
     return 0;
+  }
+
+  static bool _toBool(dynamic v) {
+    if (v is bool) return v;
+    if (v is num) return v.toInt() == 1;
+    if (v is String) {
+      final s = v.trim().toLowerCase();
+      return s == 'true' || s == '1' || s == 'yes';
+    }
+    return false;
   }
 
   static DateTime? _toDateTime(dynamic v) {
@@ -429,10 +518,31 @@ class MasterLeague {
       organizerProfile: organizerProfile,
       analytics: analytics,
       updatedAtMs: _toInt(map['updatedAtMs']),
+      followersCount: _toInt(map['followersCount']),
       createdViaAttemptId: (map['createdViaAttemptId'] as String? ?? '').trim(),
       sourcePaymentId: (map['sourcePaymentId'] as String? ?? '').trim(),
       sourceReceiptId: (map['sourceReceiptId'] as String? ?? '').trim(),
       initialCompetition: initialCompetition,
+      verificationStatus: OrganizerVerificationStatus.fromString(
+        map['verificationStatus'] as String?,
+      ),
+      verifiedBadge: _toBool(map['verifiedBadge']),
+      verificationRequestId:
+          (map['verificationRequestId'] as String? ?? '').trim(),
+      verificationReceiptId:
+          (map['verificationReceiptId'] as String? ?? '').trim(),
+      verificationPaymentId:
+          (map['verificationPaymentId'] as String? ?? '').trim(),
+      verificationProvider:
+          (map['verificationProvider'] as String? ?? '').trim(),
+      verificationRequestedAtMs: _toInt(map['verificationRequestedAtMs']),
+      verificationApprovedAtMs: _toInt(map['verificationApprovedAtMs']),
+      verificationExpiresAtMs: _toInt(map['verificationExpiresAtMs']),
+      verificationReviewedBy:
+          (map['verificationReviewedBy'] as String? ?? '').trim(),
+      verificationNote: (map['verificationNote'] as String? ?? '').trim(),
+      verificationRequestType:
+          (map['verificationRequestType'] as String? ?? 'initial').trim(),
     );
   }
 
@@ -449,10 +559,23 @@ class MasterLeague {
     OrganizerProfile? organizerProfile,
     OrganizerAnalytics? analytics,
     int? updatedAtMs,
+    int? followersCount,
     String? createdViaAttemptId,
     String? sourcePaymentId,
     String? sourceReceiptId,
     MasterLeagueCompetitionDraft? initialCompetition,
+    OrganizerVerificationStatus? verificationStatus,
+    bool? verifiedBadge,
+    String? verificationRequestId,
+    String? verificationReceiptId,
+    String? verificationPaymentId,
+    String? verificationProvider,
+    int? verificationRequestedAtMs,
+    int? verificationApprovedAtMs,
+    int? verificationExpiresAtMs,
+    String? verificationReviewedBy,
+    String? verificationNote,
+    String? verificationRequestType,
   }) {
     return MasterLeague(
       id: id ?? this.id,
@@ -467,10 +590,30 @@ class MasterLeague {
       organizerProfile: organizerProfile ?? this.organizerProfile,
       analytics: analytics ?? this.analytics,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+      followersCount: followersCount ?? this.followersCount,
       createdViaAttemptId: createdViaAttemptId ?? this.createdViaAttemptId,
       sourcePaymentId: sourcePaymentId ?? this.sourcePaymentId,
       sourceReceiptId: sourceReceiptId ?? this.sourceReceiptId,
       initialCompetition: initialCompetition ?? this.initialCompetition,
+      verificationStatus: verificationStatus ?? this.verificationStatus,
+      verifiedBadge: verifiedBadge ?? this.verifiedBadge,
+      verificationRequestId: verificationRequestId ?? this.verificationRequestId,
+      verificationReceiptId:
+          verificationReceiptId ?? this.verificationReceiptId,
+      verificationPaymentId:
+          verificationPaymentId ?? this.verificationPaymentId,
+      verificationProvider: verificationProvider ?? this.verificationProvider,
+      verificationRequestedAtMs:
+          verificationRequestedAtMs ?? this.verificationRequestedAtMs,
+      verificationApprovedAtMs:
+          verificationApprovedAtMs ?? this.verificationApprovedAtMs,
+      verificationExpiresAtMs:
+          verificationExpiresAtMs ?? this.verificationExpiresAtMs,
+      verificationReviewedBy:
+          verificationReviewedBy ?? this.verificationReviewedBy,
+      verificationNote: verificationNote ?? this.verificationNote,
+      verificationRequestType:
+          verificationRequestType ?? this.verificationRequestType,
     );
   }
 }

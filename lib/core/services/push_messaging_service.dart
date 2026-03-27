@@ -6,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
 import '../routing/app_router.dart';
+import 'followed_organizer_notifications_service.dart';
 import 'notification_service.dart';
 
 class PushMessagingService {
@@ -31,7 +32,8 @@ class PushMessagingService {
   }
 
   String _leagueTopic(String leagueId) => 'league_${leagueId.trim()}';
-  String _muteTopic(String uid, String leagueId) => 'mute_${uid.trim()}_${leagueId.trim()}';
+  String _muteTopic(String uid, String leagueId) =>
+      'mute_${uid.trim()}_${leagueId.trim()}';
 
   Future<void> subscribeToLeagueTopic(String leagueId) async {
     final id = leagueId.trim();
@@ -41,7 +43,6 @@ class PushMessagingService {
       await _messaging.subscribeToTopic(_leagueTopic(id));
     } catch (_) {}
 
-    // Subscribe this user/device to a "mute-self" topic so backend can exclude sender via FCM condition.
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isNotEmpty) {
       try {
@@ -75,7 +76,16 @@ class PushMessagingService {
     } catch (_) {}
 
     try {
-      await _messaging.requestPermission(alert: true, badge: true, sound: true, provisional: false);
+      await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+    } catch (_) {}
+
+    try {
+      await FollowedOrganizerNotificationsService.instance.init();
     } catch (_) {}
 
     _onOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen((m) {
@@ -101,17 +111,25 @@ class PushMessagingService {
       final leagueId = (data['leagueId'] ?? '').toString().trim();
       final senderId = (data['senderId'] ?? '').toString().trim();
 
-      // Suppress if user is inside this chat.
-      if (leagueId.isNotEmpty && activeLeagueChatId.value?.trim() == leagueId) return;
+      if (leagueId.isNotEmpty && activeLeagueChatId.value?.trim() == leagueId) {
+        return;
+      }
 
-      // Suppress self-sent messages in foreground.
       final myUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       if (myUid.isNotEmpty && senderId.isNotEmpty && myUid == senderId) return;
 
-      if (type == 'league_chat' || (leagueId.isNotEmpty && (data['route'] ?? '').toString().trim().isNotEmpty)) {
-        final leagueName = (data['leagueName'] ?? m.notification?.title ?? 'League').toString().trim();
+      if (type == 'league_chat' ||
+          (leagueId.isNotEmpty &&
+              (data['route'] ?? '').toString().trim().isNotEmpty)) {
+        final leagueName =
+            (data['leagueName'] ?? m.notification?.title ?? 'League')
+                .toString()
+                .trim();
         final senderName = (data['senderName'] ?? '').toString().trim();
-        final preview = (data['preview'] ?? m.notification?.body ?? 'New message').toString().trim();
+        final preview =
+            (data['preview'] ?? m.notification?.body ?? 'New message')
+                .toString()
+                .trim();
         final messageId = (data['messageId'] ?? '').toString().trim();
         final route = (data['route'] ?? '').toString().trim();
 
@@ -139,7 +157,6 @@ class PushMessagingService {
       _tokenSub = _messaging.onTokenRefresh.listen((t) {
         final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
         if (uid.isEmpty) return;
-        // ignore: discarded_futures
         _syncSpecificTokenToFirestore(uid: uid, token: t);
       });
     });
@@ -153,7 +170,10 @@ class PushMessagingService {
     } catch (_) {}
   }
 
-  Future<void> _syncSpecificTokenToFirestore({required String uid, required String token}) async {
+  Future<void> _syncSpecificTokenToFirestore({
+    required String uid,
+    required String token,
+  }) async {
     final u = uid.trim();
     final t = token.trim();
     if (u.isEmpty || t.isEmpty) return;
@@ -181,5 +201,6 @@ class PushMessagingService {
     _tokenSub?.cancel();
     _onMessageSub?.cancel();
     _onOpenedSub?.cancel();
+    FollowedOrganizerNotificationsService.instance.dispose();
   }
 }

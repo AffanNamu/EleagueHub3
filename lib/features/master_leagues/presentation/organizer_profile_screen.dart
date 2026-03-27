@@ -7,9 +7,12 @@ import 'package:go_router/go_router.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../leagues/data/league_announcements_firebase.dart';
 import '../../leagues/models/league.dart';
+import '../../leagues/models/league_announcement.dart';
 import '../domain/master_league.dart';
 import '../logic/master_leagues_providers.dart';
 
@@ -29,7 +32,11 @@ class OrganizerProfileScreen extends ConsumerStatefulWidget {
 class _OrganizerProfileScreenState
     extends ConsumerState<OrganizerProfileScreen> {
   bool _saving = false;
+  bool _followBusy = false;
   String _hydratedForId = '';
+
+  final LeagueAnnouncementsFirebase _announcements =
+      LeagueAnnouncementsFirebase();
 
   final _bannerCtrl = TextEditingController();
   final _logoCtrl = TextEditingController();
@@ -110,6 +117,11 @@ class _OrganizerProfileScreenState
       sorted.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
       return sorted;
     }).handleError((_) => <League>[]);
+  }
+
+  Stream<LeagueAnnouncement?> _watchPinnedWorkspaceAnnouncement(
+      String masterLeagueId) {
+    return _announcements.watchPinnedMasterLeagueAnnouncement(masterLeagueId);
   }
 
   void _loadControllersFrom(MasterLeague ml) {
@@ -197,6 +209,151 @@ class _OrganizerProfileScreenState
     } catch (e) {
       _snack('$e', error: true);
     } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _toggleFollow(MasterLeague ml, bool isFollowing) async {
+    if (_followBusy) return;
+    if (_uid.isEmpty) {
+      _snack('Please sign in to follow this organizer.', error: true);
+      return;
+    }
+    if (ml.ownerId.trim() == _uid) {
+      _snack('You cannot follow your own organizer workspace.', error: true);
+      return;
+    }
+
+    setState(() => _followBusy = true);
+    try {
+      final repo = ref.read(masterLeaguesRepositoryProvider);
+      if (isFollowing) {
+        await repo.unfollowWorkspace(ml.id);
+        _snack('Unfollowed organizer workspace.');
+      } else {
+        await repo.followWorkspace(ml.id);
+        _snack('Now following organizer workspace.');
+      }
+    } catch (e) {
+      _snack('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _followBusy = false);
+    }
+  }
+
+  Future<void> _renewVerification(MasterLeague ml) async {
+    if (_uid.isEmpty) {
+      _snack('Please sign in to continue.', error: true);
+      return;
+    }
+    if (ml.ownerId.trim() != _uid) {
+      _snack('Only the owner can renew verification.', error: true);
+      return;
+    }
+    if (!ml.canRenewVerification) {
+      _snack('This organizer cannot renew verification right now.', error: true);
+      return;
+    }
+    if (ml.isVerificationPending &&
+        ml.verificationRequestType.trim().toLowerCase() == 'renewal') {
+      _snack('A renewal request is already pending review.', error: true);
+      return;
+    }
+
+    final noteCtrl = TextEditingController();
+    final shouldContinue = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          title: const Text('Renew Verification'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'A paid renewal request will be submitted for re-review. Approval is required before expiry is extended.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteCtrl,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Renewal note for admin (optional)',
+                  alignLabelWithHint: true,
+                  prefixIcon: Icon(Icons.refresh_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.primary.withOpacity(0.18)),
+                ),
+                child: const Text(
+                  'Renewals keep organizer trust current and require another review cycle.',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Proceed to Payment'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldContinue != true) {
+      noteCtrl.dispose();
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
+      final repo = ref.read(masterLeaguesRepositoryProvider);
+      final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+      final payment = await paymentSvc.payForOrganizerVerificationRenewal(
+        context: context,
+        userId: userId,
+        masterLeagueId: ml.id,
+        masterLeagueName: ml.name,
+      );
+
+      if (!mounted) return;
+
+      if (!payment.success) {
+        _snack(
+          payment.errorMessage ?? 'Verification renewal payment failed.',
+          error: true,
+        );
+        return;
+      }
+
+      await repo.submitVerificationRenewalRequest(
+        masterLeagueId: ml.id,
+        attemptId: payment.attemptId,
+        paymentId: payment.paymentId,
+        receiptId: payment.receiptId ?? '',
+        note: noteCtrl.text.trim(),
+      );
+
+      if (!mounted) return;
+      _snack('Verification renewal request submitted for review.');
+    } catch (e) {
+      _snack('$e', error: true);
+    } finally {
+      noteCtrl.dispose();
       if (mounted) setState(() => _saving = false);
     }
   }
@@ -361,6 +518,7 @@ class _OrganizerProfileScreenState
   Widget _pill({
     required String text,
     required Color color,
+    IconData? icon,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -369,13 +527,22 @@ class _OrganizerProfileScreenState
         color: color.withOpacity(0.12),
         border: Border.all(color: color.withOpacity(0.28)),
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w900,
-          fontSize: 12,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -387,6 +554,804 @@ class _OrganizerProfileScreenState
         message:
             'This page is visible only to the Master League owner, admins, and moderators.',
         icon: Icons.lock_outline_rounded,
+      ),
+    );
+  }
+
+  Widget _buildPinnedAnnouncementSection(
+    MasterLeague ml,
+    ThemeData theme,
+    ColorScheme cs,
+  ) {
+    return StreamBuilder<LeagueAnnouncement?>(
+      stream: _watchPinnedWorkspaceAnnouncement(ml.id),
+      builder: (context, snap) {
+        final pinned = snap.data;
+        if (pinned == null) return const SizedBox.shrink();
+
+        return Glass(
+          borderRadius: 24,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SectionHeader(
+                'Official Organizer Notice',
+                padding: EdgeInsets.zero,
+                trailing: Icon(Icons.push_pin_rounded, color: cs.primary),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                pinned.title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: cs.onSurface,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                pinned.message,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: cs.onSurface.withOpacity(0.82),
+                  fontWeight: FontWeight.w700,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _metaChip(
+                    cs,
+                    icon: Icons.person_outline_rounded,
+                    label: pinned.authorName.trim().isEmpty
+                        ? 'Organizer'
+                        : pinned.authorName.trim(),
+                  ),
+                  _metaChip(
+                    cs,
+                    icon: Icons.schedule_rounded,
+                    label: pinned.pinnedAtMs > 0
+                        ? DateTime.fromMillisecondsSinceEpoch(
+                                pinned.pinnedAtMs)
+                            .toLocal()
+                            .toString()
+                            .split('.')
+                            .first
+                        : 'Pinned',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _metaChip(
+    ColorScheme cs, {
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: cs.primary.withOpacity(0.06),
+        border: Border.all(color: cs.primary.withOpacity(0.14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: cs.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _verificationStatusCard(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+    Color statusColor;
+    String statusTitle;
+    String statusBody;
+
+    if (ml.isVerifiedOrganizer) {
+      statusColor = const Color(0xFF1D9BF0);
+      statusTitle = 'Verified Organizer';
+      statusBody =
+          'This organizer has been manually reviewed and approved. This badge helps participants identify authentic organizers and avoid scams.';
+    } else if (ml.isVerificationPending) {
+      statusColor = const Color(0xFFF59E0B);
+      statusTitle = ml.lastVerificationWasRenewal
+          ? 'Renewal Pending Review'
+          : 'Verification Pending';
+      statusBody = ml.lastVerificationWasRenewal
+          ? 'A paid renewal request has been submitted and is waiting for admin review.'
+          : 'A paid verification request has been submitted and is waiting for admin review.';
+    } else if (ml.isVerificationRejected) {
+      statusColor = cs.error;
+      statusTitle = 'Verification Rejected';
+      statusBody =
+          'The verification request was reviewed and rejected. Please contact support or submit again later.';
+    } else if (ml.verificationExpired) {
+      statusColor = const Color(0xFFF59E0B);
+      statusTitle = 'Verification Expired';
+      statusBody =
+          'This organizer was previously verified, but the verification period has expired and should be renewed.';
+    } else {
+      statusColor = cs.onSurface.withOpacity(0.60);
+      statusTitle = 'Not Verified';
+      statusBody =
+          'This organizer is not yet verified. Verified badges help participants identify trusted organizer identities.';
+    }
+
+    String expiryLabel = 'No expiry';
+    if (ml.verificationExpiresAtMs > 0) {
+      expiryLabel = DateTime.fromMillisecondsSinceEpoch(
+        ml.verificationExpiresAtMs,
+      ).toLocal().toString().split('.').first;
+    }
+
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            'Trust & Verification',
+            padding: EdgeInsets.zero,
+            trailing: Icon(
+              Icons.verified_user_outlined,
+              color: statusColor,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            statusTitle,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: statusColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            statusBody,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.75),
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _metricRow(
+            theme: theme,
+            cs: cs,
+            label: 'Verification expires',
+            value: expiryLabel,
+          ),
+          if (ml.verificationNote.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Review note: ${ml.verificationNote.trim()}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.65),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+          if (ml.isOwner(_uid) && ml.canRenewVerification && !ml.isVerificationPending) ...[
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () => _renewVerification(ml),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text(
+                'Renew Verification',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _identityHero(
+    MasterLeague ml,
+    ThemeData theme,
+    ColorScheme cs,
+    String ownerName,
+    bool isFollowing,
+    int followersCount,
+  ) {
+    final trustColor = ml.isVerifiedOrganizer
+        ? const Color(0xFF1D9BF0)
+        : (ml.isVerificationPending
+            ? const Color(0xFFF59E0B)
+            : cs.onSurface.withOpacity(0.60));
+
+    final trustLabel = ml.isVerifiedOrganizer
+        ? 'Verified Organizer'
+        : (ml.isVerificationPending
+            ? (ml.lastVerificationWasRenewal
+                ? 'Renewal Pending'
+                : 'Verification Pending')
+            : (ml.verificationExpired ? 'Expired' : 'Unverified'));
+
+    final canFollow = _uid.isNotEmpty && ml.ownerId.trim() != _uid;
+
+    return Glass(
+      borderRadius: 30,
+      padding: const EdgeInsets.all(18),
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: LinearGradient(
+            colors: [
+              cs.primary.withOpacity(0.20),
+              cs.secondary.withOpacity(0.08),
+              cs.onSurface.withOpacity(0.02),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (ml.organizerProfile.bannerUrl.trim().isNotEmpty) ...[
+                _imageBox(
+                  url: ml.organizerProfile.bannerUrl.trim(),
+                  height: 150,
+                  radius: BorderRadius.circular(22),
+                ),
+                const SizedBox(height: 14),
+              ],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 34,
+                    backgroundColor: cs.primary.withOpacity(0.14),
+                    backgroundImage: ml.organizerProfile.logoUrl.trim().isNotEmpty
+                        ? NetworkImage(ml.organizerProfile.logoUrl.trim())
+                        : null,
+                    child: ml.organizerProfile.logoUrl.trim().isEmpty
+                        ? Icon(Icons.hub_rounded, color: cs.primary, size: 30)
+                        : null,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              ml.name.trim().isEmpty ? 'Organizer' : ml.name.trim(),
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.3,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                            _pill(
+                              text: trustLabel,
+                              color: trustColor,
+                              icon: ml.isVerifiedOrganizer
+                                  ? Icons.verified_rounded
+                                  : (ml.isVerificationPending
+                                      ? Icons.hourglass_top_rounded
+                                      : Icons.shield_outlined),
+                            ),
+                            _pill(
+                              text: ml.plan.displayName,
+                              color: cs.primary,
+                            ),
+                            if (ml.organizerProfile.badge.trim().isNotEmpty)
+                              _pill(
+                                text: ml.organizerProfile.badge.trim(),
+                                color: const Color(0xFFF59E0B),
+                              ),
+                            _pill(
+                              text: '$followersCount follower${followersCount == 1 ? '' : 's'}',
+                              color: const Color(0xFF22C55E),
+                              icon: Icons.favorite_border_rounded,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          ownerName.isNotEmpty
+                              ? 'Managed by $ownerName'
+                              : 'Managed by ${ml.ownerId}',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: cs.onSurface.withOpacity(0.72),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          ml.organizerProfile.bio.trim().isEmpty
+                              ? 'No organizer bio yet.'
+                              : ml.organizerProfile.bio.trim(),
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: cs.onSurface.withOpacity(0.82),
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (canFollow) ...[
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _followBusy
+                            ? null
+                            : () => _toggleFollow(ml, isFollowing),
+                        icon: _followBusy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Icon(
+                                isFollowing
+                                    ? Icons.favorite_rounded
+                                    : Icons.favorite_border_rounded,
+                              ),
+                        label: Text(
+                          isFollowing ? 'Following' : 'Follow Organizer',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _trustMetrics(MasterLeague ml, ThemeData theme, ColorScheme cs, int followersCount) {
+    final cards = [
+      _TrustMetric(
+        icon: Icons.verified_user_outlined,
+        label: 'Trust Status',
+        value: ml.isVerifiedOrganizer
+            ? 'Verified'
+            : (ml.isVerificationPending ? 'Pending' : (ml.verificationExpired ? 'Expired' : 'Unverified')),
+        tint: ml.isVerifiedOrganizer
+            ? const Color(0xFF1D9BF0)
+            : (ml.isVerificationPending
+                ? const Color(0xFFF59E0B)
+                : cs.onSurface.withOpacity(0.60)),
+      ),
+      _TrustMetric(
+        icon: Icons.emoji_events_outlined,
+        label: 'Competitions Hosted',
+        value: '${ml.analytics.totalTournamentsCreated}',
+        tint: cs.primary,
+      ),
+      _TrustMetric(
+        icon: Icons.groups_rounded,
+        label: 'Teams Hosted',
+        value: '${ml.analytics.totalParticipantsTeams}',
+        tint: const Color(0xFF22C55E),
+      ),
+      _TrustMetric(
+        icon: Icons.sports_score_rounded,
+        label: 'Matches Managed',
+        value: '${ml.analytics.totalMatches}',
+        tint: const Color(0xFF8B5CF6),
+      ),
+      _TrustMetric(
+        icon: Icons.favorite_border_rounded,
+        label: 'Followers',
+        value: '$followersCount',
+        tint: const Color(0xFFEF4444),
+      ),
+      _TrustMetric(
+        icon: Icons.security_rounded,
+        label: 'Workspace Identity',
+        value: ml.plan.displayName,
+        tint: const Color(0xFF14B8A6),
+      ),
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      itemCount: cards.length,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1.7,
+      ),
+      itemBuilder: (context, index) {
+        final item = cards[index];
+        return Glass(
+          borderRadius: 20,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: item.tint.withOpacity(0.12),
+                  border: Border.all(color: item.tint.withOpacity(0.24)),
+                ),
+                child: Icon(item.icon, color: item.tint),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.value,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.label,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.62),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _socialLinksSection(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+    final links = ml.organizerProfile.socialLinks;
+
+    Widget socialTile(String key, String value) {
+      return Glass(
+        borderRadius: 18,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.link_rounded, color: cs.primary, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    key,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.62),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            'Official Links',
+            padding: EdgeInsets.zero,
+            trailing: Icon(Icons.public_rounded, color: cs.primary),
+          ),
+          const SizedBox(height: 10),
+          if (links.isEmpty)
+            Text(
+              'No official links published yet.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.65),
+                fontWeight: FontWeight.w700,
+              ),
+            )
+          else
+            ...links.entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: socialTile(e.key, e.value),
+                )),
+          if (ml.isOwner(_uid)) ...[
+            const SizedBox(height: 12),
+            _socialEditor(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _aboutSection(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            'About Organizer',
+            padding: EdgeInsets.zero,
+            trailing: Icon(Icons.subject_outlined, color: cs.primary),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            ml.organizerProfile.bio.trim().isEmpty
+                ? 'No bio yet.'
+                : ml.organizerProfile.bio.trim(),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: cs.onSurface.withOpacity(0.82),
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (ml.isOwner(_uid)) ...[
+            const SizedBox(height: 14),
+            TextField(
+              controller: _bioCtrl,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                labelText: 'Organizer bio',
+                prefixIcon: Icon(Icons.subject_outlined),
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _appearanceSection(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            'Brand Appearance',
+            padding: EdgeInsets.zero,
+            trailing: Icon(Icons.palette_outlined, color: cs.primary),
+          ),
+          const SizedBox(height: 10),
+          if (!ml.isOwner(_uid))
+            Text(
+              'Only the owner can edit banner, logo, and badge.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.65),
+                fontWeight: FontWeight.w700,
+              ),
+            )
+          else ...[
+            TextField(
+              controller: _badgeCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Organizer badge (optional)',
+                prefixIcon: Icon(Icons.verified_outlined),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _bannerCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Banner image URL (optional)',
+                prefixIcon: Icon(Icons.image_outlined),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _logoCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Logo image URL (optional)',
+                prefixIcon: Icon(Icons.image_outlined),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _competitionHistory(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            'Competition History',
+            padding: EdgeInsets.zero,
+            trailing: Icon(Icons.history_rounded, color: cs.primary),
+          ),
+          const SizedBox(height: 10),
+          StreamBuilder<List<League>>(
+            stream: _watchCompetitions(ml.id),
+            builder: (context, leaguesSnap) {
+              final leagues = leaguesSnap.data ?? const <League>[];
+              if (leaguesSnap.connectionState == ConnectionState.waiting &&
+                  leagues.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+
+              if (leagues.isEmpty) {
+                return Text(
+                  'No competitions yet.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
+                    fontWeight: FontWeight.w700,
+                  ),
+                );
+              }
+
+              return Column(
+                children: leagues.take(20).map((l) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: InkWell(
+                      onTap: () => context.push('/leagues/${l.id}'),
+                      borderRadius: BorderRadius.circular(18),
+                      child: Glass(
+                        borderRadius: 18,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.emoji_events_outlined,
+                              color: cs.primary,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                l.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: cs.onSurface,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              l.format.displayName,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.65),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(growable: false),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ownerActions(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+    if (!ml.isOwner(_uid)) return const SizedBox.shrink();
+
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            'Owner Actions',
+            padding: EdgeInsets.zero,
+            trailing: Icon(Icons.settings_suggest_outlined, color: cs.primary),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : () => _save(ml),
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: const Text(
+                    'Save Profile',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => context.push('/master-leagues/${ml.id}'),
+                  icon: const Icon(Icons.dashboard_customize_outlined),
+                  label: const Text(
+                    'Back to Workspace',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -410,7 +1375,7 @@ class _OrganizerProfileScreenState
         if (ml == null) {
           return GlassScaffold(
             appBar: AppBar(
-              title: const Text('Organizer Profile'),
+              title: const Text('Organizer Trust Page'),
               backgroundColor: Colors.transparent,
               elevation: 0,
             ),
@@ -427,7 +1392,7 @@ class _OrganizerProfileScreenState
         if (!ml.canSeeOrganizerProfile(_uid)) {
           return GlassScaffold(
             appBar: AppBar(
-              title: const Text('Organizer Profile'),
+              title: const Text('Organizer Trust Page'),
               backgroundColor: Colors.transparent,
               elevation: 0,
             ),
@@ -436,398 +1401,105 @@ class _OrganizerProfileScreenState
         }
 
         _loadControllersFrom(ml);
-        final isOwner = ml.isOwner(_uid);
 
-        return GlassScaffold(
-          appBar: AppBar(
-            title: const Text('Organizer Profile'),
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            actions: [
-              if (isOwner)
-                TextButton(
-                  onPressed: _saving ? null : () => _save(ml),
-                  child: Text(
-                    _saving ? 'Saving...' : 'Save',
-                    style: TextStyle(
-                      color: _saving
-                          ? cs.onSurface.withOpacity(0.55)
-                          : cs.primary,
-                      fontWeight: FontWeight.w900,
+        final followAsync = ref.watch(masterLeagueFollowStateProvider(ml.id));
+        final followersCountAsync =
+            ref.watch(masterLeagueFollowersCountProvider(ml.id));
+
+        return FutureBuilder<UserProfile?>(
+          future: UserProfileRepository().fetchByUserId(ml.ownerId),
+          builder: (context, ownerSnap) {
+            final ownerName = ownerSnap.data?.teamName.trim() ?? '';
+            final isFollowing = followAsync.valueOrNull ?? false;
+            final followersCount = followersCountAsync.valueOrNull ?? 0;
+
+            return GlassScaffold(
+              appBar: AppBar(
+                title: const Text('Organizer Trust Page'),
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                actions: [
+                  if (ml.isOwner(_uid))
+                    TextButton(
+                      onPressed: _saving ? null : () => _save(ml),
+                      child: Text(
+                        _saving ? 'Saving...' : 'Save',
+                        style: TextStyle(
+                          color: _saving
+                              ? cs.onSurface.withOpacity(0.55)
+                              : cs.primary,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              body: SafeArea(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 920),
+                    child: ListView(
+                      padding:
+                          const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
+                      children: [
+                        _identityHero(
+                          ml,
+                          theme,
+                          cs,
+                          ownerName,
+                          isFollowing,
+                          followersCount,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildPinnedAnnouncementSection(ml, theme, cs),
+                        const SizedBox(height: 16),
+                        _trustMetrics(ml, theme, cs, followersCount),
+                        const SizedBox(height: 16),
+                        _verificationStatusCard(ml, theme, cs),
+                        const SizedBox(height: 16),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 6,
+                              child: _aboutSection(ml, theme, cs),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 5,
+                              child: _appearanceSection(ml, theme, cs),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _socialLinksSection(ml, theme, cs),
+                        const SizedBox(height: 16),
+                        _competitionHistory(ml, theme, cs),
+                        const SizedBox(height: 16),
+                        _ownerActions(ml, theme, cs),
+                      ],
                     ),
                   ),
                 ),
-            ],
-          ),
-          body: SafeArea(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 820),
-                child: ListView(
-                  padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
-                  children: [
-                    Glass(
-                      borderRadius: 28,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          FutureBuilder<UserProfile?>(
-                            future: UserProfileRepository().fetchByUserId(
-                              ml.ownerId,
-                            ),
-                            builder: (context, ownerSnap) {
-                              final ownerName =
-                                  ownerSnap.data?.teamName.trim() ?? '';
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    ml.name.trim().isEmpty
-                                        ? 'Organizer'
-                                        : ml.name.trim(),
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: -0.2,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    ownerName.isNotEmpty
-                                        ? 'Owner: $ownerName'
-                                        : 'Owner: ${ml.ownerId}',
-                                    style:
-                                        theme.textTheme.bodySmall?.copyWith(
-                                      color: cs.onSurface.withOpacity(0.70),
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _pill(
-                                text: ml.plan.displayName,
-                                color: cs.primary,
-                              ),
-                              if (ml.organizerProfile.badge.trim().isNotEmpty)
-                                _pill(
-                                  text: ml.organizerProfile.badge.trim(),
-                                  color: const Color(0xFFF59E0B),
-                                ),
-                              if (isOwner)
-                                _pill(
-                                  text: 'Owner',
-                                  color: const Color(0xFF22C55E),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          _imageBox(
-                            url: ml.organizerProfile.bannerUrl,
-                            height: 140,
-                            radius: BorderRadius.circular(22),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _imageBox(
-                                  url: ml.organizerProfile.logoUrl,
-                                  height: 120,
-                                  radius: BorderRadius.circular(22),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Glass(
-                                  borderRadius: 22,
-                                  padding: const EdgeInsets.all(14),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Organizer Analytics',
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                          fontWeight: FontWeight.w900,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      _metricRow(
-                                        theme: theme,
-                                        cs: cs,
-                                        label: 'Total tournaments',
-                                        value:
-                                            '${ml.analytics.totalTournamentsCreated}',
-                                      ),
-                                      _metricRow(
-                                        theme: theme,
-                                        cs: cs,
-                                        label: 'Total participant teams',
-                                        value:
-                                            '${ml.analytics.totalParticipantsTeams}',
-                                      ),
-                                      _metricRow(
-                                        theme: theme,
-                                        cs: cs,
-                                        label: 'Total matches',
-                                        value:
-                                            '${ml.analytics.totalMatches}',
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'Structure ready (can be rolled up later).',
-                                        style:
-                                            theme.textTheme.bodySmall?.copyWith(
-                                          color: cs.onSurface.withOpacity(0.60),
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Glass(
-                      borderRadius: 28,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'About',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            ml.organizerProfile.bio.trim().isEmpty
-                                ? 'No bio yet.'
-                                : ml.organizerProfile.bio.trim(),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: cs.onSurface.withOpacity(0.80),
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (isOwner) ...[
-                            const SizedBox(height: 14),
-                            TextField(
-                              controller: _bioCtrl,
-                              maxLines: 5,
-                              decoration: const InputDecoration(
-                                labelText: 'Organizer bio',
-                                prefixIcon: Icon(Icons.subject_outlined),
-                                alignLabelWithHint: true,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Glass(
-                      borderRadius: 28,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Social Links',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          if (ml.organizerProfile.socialLinks.isEmpty)
-                            Text(
-                              'No social links yet.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.65),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            )
-                          else
-                            ...ml.organizerProfile.socialLinks.entries.map((e) {
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Text(
-                                  '${e.key}: ${e.value}',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: cs.onSurface.withOpacity(0.80),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              );
-                            }),
-                          if (isOwner) ...[
-                            const SizedBox(height: 14),
-                            _socialEditor(),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Glass(
-                      borderRadius: 28,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Appearance',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          if (!isOwner)
-                            Text(
-                              'Only the owner can edit banner, logo, and badge.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.65),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            )
-                          else ...[
-                            TextField(
-                              controller: _badgeCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Organizer badge (optional)',
-                                prefixIcon: Icon(Icons.verified_outlined),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: _bannerCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Banner image URL (optional)',
-                                prefixIcon: Icon(Icons.image_outlined),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: _logoCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Logo image URL (optional)',
-                                prefixIcon: Icon(Icons.image_outlined),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Glass(
-                      borderRadius: 28,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Tournament History',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          StreamBuilder<List<League>>(
-                            stream: _watchCompetitions(ml.id),
-                            builder: (context, leaguesSnap) {
-                              final leagues =
-                                  leaguesSnap.data ?? const <League>[];
-                              if (leaguesSnap.connectionState ==
-                                      ConnectionState.waiting &&
-                                  leagues.isEmpty) {
-                                return const Padding(
-                                  padding: EdgeInsets.all(8),
-                                  child: Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                );
-                              }
-
-                              if (leagues.isEmpty) {
-                                return Text(
-                                  'No competitions yet.',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: cs.onSurface.withOpacity(0.65),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                );
-                              }
-
-                              return Column(
-                                children: leagues.take(20).map((l) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
-                                    child: InkWell(
-                                      onTap: () => context.push('/leagues/${l.id}'),
-                                      borderRadius: BorderRadius.circular(16),
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.emoji_events_outlined,
-                                            color: cs.primary,
-                                            size: 18,
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Text(
-                                              l.name,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme
-                                                  .textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                          ),
-                                          Text(
-                                            l.format.displayName,
-                                            style: theme.textTheme.bodySmall
-                                                ?.copyWith(
-                                              color: cs.onSurface
-                                                  .withOpacity(0.65),
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                }).toList(growable: false),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
   }
+}
+
+class _TrustMetric {
+  const _TrustMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.tint,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color tint;
 }

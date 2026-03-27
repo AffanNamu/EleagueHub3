@@ -63,6 +63,17 @@ class AppPricingAdminService {
     out['masterLeagueEliteFee'] ??=
         (out['masterLinkEliteFee'] ?? out['masterLinkFee'] ?? out['masterLeagueFee']);
 
+    out['organizerVerificationFee'] ??= (out['verificationFee'] ?? 0);
+    out['organizerVerificationEnabled'] ??=
+        (out['verificationEnabled'] ?? true);
+
+    out['organizerVerificationRenewalFee'] ??=
+        (out['verificationRenewalFee'] ?? out['organizerVerificationFee'] ?? out['verificationFee'] ?? 0);
+    out['organizerVerificationRenewalEnabled'] ??=
+        (out['verificationRenewalEnabled'] ?? true);
+    out['organizerVerificationDurationDays'] ??=
+        (out['verificationDurationDays'] ?? 90);
+
     out['paymentsEnabled'] ??= true;
     out['flutterwaveEnabled'] ??= true;
 
@@ -118,6 +129,30 @@ class AppPricingAdminService {
         dft.masterLeagueEliteFee,
       );
 
+      final verificationFee = toDouble(
+        src['organizerVerificationFee'] ?? src['verificationFee'],
+        dft.organizerVerificationFee,
+      );
+      final verificationEnabled = toBool(
+        src['organizerVerificationEnabled'] ?? src['verificationEnabled'],
+        dft.organizerVerificationEnabled,
+      );
+
+      final renewalFee = toDouble(
+        src['organizerVerificationRenewalFee'] ?? src['verificationRenewalFee'],
+        dft.organizerVerificationRenewalFee,
+      );
+      final renewalEnabled = toBool(
+        src['organizerVerificationRenewalEnabled'] ??
+            src['verificationRenewalEnabled'],
+        dft.organizerVerificationRenewalEnabled,
+      );
+      final renewalDays = toInt(
+        src['organizerVerificationDurationDays'] ??
+            src['verificationDurationDays'],
+        dft.organizerVerificationDurationDays,
+      );
+
       return <String, dynamic>{
         'createFee': toDouble(src['createFee'], dft.createLeagueFee),
         'accessFee': toDouble(src['accessFee'], dft.accessFee),
@@ -135,13 +170,22 @@ class AppPricingAdminService {
         'masterLeagueBasicFee': basicFee,
         'masterLeagueProFee': proFee,
         'masterLeagueEliteFee': eliteFee,
+        'organizerVerificationFee': verificationFee,
+        'organizerVerificationEnabled': verificationEnabled,
+        'organizerVerificationRenewalFee': renewalFee,
+        'organizerVerificationRenewalEnabled': renewalEnabled,
+        'organizerVerificationDurationDays': renewalDays,
 
-        // backward-compatible mirrors
         'masterLinkBasicFee': basicFee,
         'masterLinkProFee': proFee,
         'masterLinkEliteFee': eliteFee,
         'masterLinkFee': proFee,
         'masterLeagueFee': proFee,
+        'verificationFee': verificationFee,
+        'verificationEnabled': verificationEnabled,
+        'verificationRenewalFee': renewalFee,
+        'verificationRenewalEnabled': renewalEnabled,
+        'verificationDurationDays': renewalDays,
 
         'paymentsEnabled': toBool(src['paymentsEnabled'], true),
         'flutterwaveEnabled': toBool(src['flutterwaveEnabled'], true),
@@ -176,11 +220,23 @@ class AppPricingAdminService {
         'masterLeagueBasicFee': p.masterLeagueBasicFee,
         'masterLeagueProFee': p.masterLeagueProFee,
         'masterLeagueEliteFee': p.masterLeagueEliteFee,
+        'organizerVerificationFee': p.organizerVerificationFee,
+        'organizerVerificationEnabled': p.organizerVerificationEnabled,
+        'organizerVerificationRenewalFee': p.organizerVerificationRenewalFee,
+        'organizerVerificationRenewalEnabled':
+            p.organizerVerificationRenewalEnabled,
+        'organizerVerificationDurationDays':
+            p.organizerVerificationDurationDays,
         'masterLinkBasicFee': p.masterLeagueBasicFee,
         'masterLinkProFee': p.masterLeagueProFee,
         'masterLinkEliteFee': p.masterLeagueEliteFee,
         'masterLinkFee': p.masterLeagueProFee,
         'masterLeagueFee': p.masterLeagueProFee,
+        'verificationFee': p.organizerVerificationFee,
+        'verificationEnabled': p.organizerVerificationEnabled,
+        'verificationRenewalFee': p.organizerVerificationRenewalFee,
+        'verificationRenewalEnabled': p.organizerVerificationRenewalEnabled,
+        'verificationDurationDays': p.organizerVerificationDurationDays,
         'paymentsEnabled': p.paymentsEnabled,
         'flutterwaveEnabled': p.flutterwaveEnabled,
       };

@@ -22,6 +22,13 @@ class RemotePricingPlan {
   final double masterLeagueProFee;
   final double masterLeagueEliteFee;
 
+  final double organizerVerificationFee;
+  final bool organizerVerificationEnabled;
+
+  final double organizerVerificationRenewalFee;
+  final bool organizerVerificationRenewalEnabled;
+  final int organizerVerificationDurationDays;
+
   final bool paymentsEnabled;
   final bool flutterwaveEnabled;
 
@@ -39,6 +46,11 @@ class RemotePricingPlan {
     required this.masterLeagueBasicFee,
     required this.masterLeagueProFee,
     required this.masterLeagueEliteFee,
+    required this.organizerVerificationFee,
+    required this.organizerVerificationEnabled,
+    required this.organizerVerificationRenewalFee,
+    required this.organizerVerificationRenewalEnabled,
+    required this.organizerVerificationDurationDays,
     required this.paymentsEnabled,
     required this.flutterwaveEnabled,
   });
@@ -57,6 +69,11 @@ class RemotePricingPlan {
     double? masterLeagueBasicFee,
     double? masterLeagueProFee,
     double? masterLeagueEliteFee,
+    double? organizerVerificationFee,
+    bool? organizerVerificationEnabled,
+    double? organizerVerificationRenewalFee,
+    bool? organizerVerificationRenewalEnabled,
+    int? organizerVerificationDurationDays,
     bool? paymentsEnabled,
     bool? flutterwaveEnabled,
   }) {
@@ -74,6 +91,18 @@ class RemotePricingPlan {
       masterLeagueBasicFee: masterLeagueBasicFee ?? this.masterLeagueBasicFee,
       masterLeagueProFee: masterLeagueProFee ?? this.masterLeagueProFee,
       masterLeagueEliteFee: masterLeagueEliteFee ?? this.masterLeagueEliteFee,
+      organizerVerificationFee:
+          organizerVerificationFee ?? this.organizerVerificationFee,
+      organizerVerificationEnabled:
+          organizerVerificationEnabled ?? this.organizerVerificationEnabled,
+      organizerVerificationRenewalFee:
+          organizerVerificationRenewalFee ?? this.organizerVerificationRenewalFee,
+      organizerVerificationRenewalEnabled:
+          organizerVerificationRenewalEnabled ??
+              this.organizerVerificationRenewalEnabled,
+      organizerVerificationDurationDays:
+          organizerVerificationDurationDays ??
+              this.organizerVerificationDurationDays,
       paymentsEnabled: paymentsEnabled ?? this.paymentsEnabled,
       flutterwaveEnabled: flutterwaveEnabled ?? this.flutterwaveEnabled,
     );
@@ -93,6 +122,11 @@ class RemotePricingPlan {
         masterLeagueBasicFee: 5.0,
         masterLeagueProFee: 10.0,
         masterLeagueEliteFee: 20.0,
+        organizerVerificationFee: 15.0,
+        organizerVerificationEnabled: true,
+        organizerVerificationRenewalFee: 12.0,
+        organizerVerificationRenewalEnabled: true,
+        organizerVerificationDurationDays: 90,
         paymentsEnabled: true,
         flutterwaveEnabled: true,
       );
@@ -111,6 +145,11 @@ class RemotePricingPlan {
         masterLeagueBasicFee: 1500.0,
         masterLeagueProFee: 3000.0,
         masterLeagueEliteFee: 5000.0,
+        organizerVerificationFee: 10000.0,
+        organizerVerificationEnabled: true,
+        organizerVerificationRenewalFee: 8000.0,
+        organizerVerificationRenewalEnabled: true,
+        organizerVerificationDurationDays: 90,
         paymentsEnabled: true,
         flutterwaveEnabled: true,
       );
@@ -171,6 +210,26 @@ class RemotePricingPlan {
         map['masterLinkFee'] ??
         map['masterLeagueFee'];
 
+    final verificationFee = map['organizerVerificationFee'] ??
+        map['verificationFee'] ??
+        defaults.organizerVerificationFee;
+
+    final verificationEnabled = map['organizerVerificationEnabled'] ??
+        map['verificationEnabled'] ??
+        defaults.organizerVerificationEnabled;
+
+    final renewalFee = map['organizerVerificationRenewalFee'] ??
+        map['verificationRenewalFee'] ??
+        defaults.organizerVerificationRenewalFee;
+
+    final renewalEnabled = map['organizerVerificationRenewalEnabled'] ??
+        map['verificationRenewalEnabled'] ??
+        defaults.organizerVerificationRenewalEnabled;
+
+    final renewalDays = map['organizerVerificationDurationDays'] ??
+        map['verificationDurationDays'] ??
+        defaults.organizerVerificationDurationDays;
+
     return RemotePricingPlan(
       currency: currency,
       createLeagueFee:
@@ -206,6 +265,26 @@ class RemotePricingPlan {
           _numToDouble(mlPro, fallback: defaults.masterLeagueProFee),
       masterLeagueEliteFee:
           _numToDouble(mlElite, fallback: defaults.masterLeagueEliteFee),
+      organizerVerificationFee: _numToDouble(
+        verificationFee,
+        fallback: defaults.organizerVerificationFee,
+      ),
+      organizerVerificationEnabled: _boolFromAny(
+        verificationEnabled,
+        fallback: defaults.organizerVerificationEnabled,
+      ),
+      organizerVerificationRenewalFee: _numToDouble(
+        renewalFee,
+        fallback: defaults.organizerVerificationRenewalFee,
+      ),
+      organizerVerificationRenewalEnabled: _boolFromAny(
+        renewalEnabled,
+        fallback: defaults.organizerVerificationRenewalEnabled,
+      ),
+      organizerVerificationDurationDays: _numToInt(
+        renewalDays,
+        fallback: defaults.organizerVerificationDurationDays,
+      ),
       paymentsEnabled:
           _boolFromAny(paymentsEnabled, fallback: defaults.paymentsEnabled),
       flutterwaveEnabled:

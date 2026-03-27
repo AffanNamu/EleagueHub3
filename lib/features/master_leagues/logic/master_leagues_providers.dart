@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/master_leagues_repository_firebase.dart';
+import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
 import 'master_league_entitlement_service.dart';
@@ -77,4 +78,41 @@ final organizerProPlanProvider =
   } catch (_) {
     return null;
   }
+});
+
+final masterLeagueFollowStateProvider =
+    StreamProvider.autoDispose.family<bool, String>((ref, masterLeagueId) {
+  final repo = ref.watch(masterLeaguesRepositoryProvider);
+  return repo.watchIsFollowing(masterLeagueId);
+});
+
+final masterLeagueFollowersCountProvider =
+    StreamProvider.autoDispose.family<int, String>((ref, masterLeagueId) {
+  final repo = ref.watch(masterLeaguesRepositoryProvider);
+  return repo.watchFollowersCount(masterLeagueId);
+});
+
+final masterLeagueCompetitionTemplatesProvider =
+    StreamProvider.autoDispose.family<List<CompetitionTemplate>, String>(
+        (ref, masterLeagueId) {
+  final repo = ref.watch(masterLeaguesRepositoryProvider);
+  return repo.watchCompetitionTemplates(masterLeagueId);
+});
+
+final featuredOrganizerWorkspacesProvider =
+    FutureProvider.autoDispose<List<MasterLeague>>((ref) async {
+  final repo = ref.watch(masterLeaguesRepositoryProvider);
+  return repo.discoverFeaturedOrganizers(limit: 8);
+});
+
+final verifiedOrganizerWorkspacesProvider =
+    FutureProvider.autoDispose<List<MasterLeague>>((ref) async {
+  final repo = ref.watch(masterLeaguesRepositoryProvider);
+  return repo.discoverVerifiedOrganizers(limit: 12);
+});
+
+final recentActiveOrganizerWorkspacesProvider =
+    FutureProvider.autoDispose<List<MasterLeague>>((ref) async {
+  final repo = ref.watch(masterLeaguesRepositoryProvider);
+  return repo.discoverRecentActiveOrganizers(limit: 12);
 });

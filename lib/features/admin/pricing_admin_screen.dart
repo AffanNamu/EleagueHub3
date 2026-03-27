@@ -31,6 +31,11 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
   final _ngnMlBasic = TextEditingController();
   final _ngnMlPro = TextEditingController();
   final _ngnMlElite = TextEditingController();
+  final _ngnVerificationFee = TextEditingController();
+  bool _ngnVerificationEnabled = true;
+  final _ngnVerificationRenewalFee = TextEditingController();
+  bool _ngnVerificationRenewalEnabled = true;
+  final _ngnVerificationDays = TextEditingController();
   bool _ngnPaymentsEnabled = true;
   bool _ngnFlutterwaveEnabled = true;
 
@@ -46,6 +51,11 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
   final _usdMlBasic = TextEditingController();
   final _usdMlPro = TextEditingController();
   final _usdMlElite = TextEditingController();
+  final _usdVerificationFee = TextEditingController();
+  bool _usdVerificationEnabled = true;
+  final _usdVerificationRenewalFee = TextEditingController();
+  bool _usdVerificationRenewalEnabled = true;
+  final _usdVerificationDays = TextEditingController();
   bool _usdPaymentsEnabled = true;
   bool _usdFlutterwaveEnabled = true;
 
@@ -67,6 +77,9 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
     _ngnMlBasic.dispose();
     _ngnMlPro.dispose();
     _ngnMlElite.dispose();
+    _ngnVerificationFee.dispose();
+    _ngnVerificationRenewalFee.dispose();
+    _ngnVerificationDays.dispose();
 
     _usdCreate.dispose();
     _usdAccess.dispose();
@@ -78,6 +91,9 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
     _usdMlBasic.dispose();
     _usdMlPro.dispose();
     _usdMlElite.dispose();
+    _usdVerificationFee.dispose();
+    _usdVerificationRenewalFee.dispose();
+    _usdVerificationDays.dispose();
     super.dispose();
   }
 
@@ -108,6 +124,24 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
         _ngnMlBasic.text = '${ngn['masterLeagueBasicFee'] ?? ngn['masterLinkBasicFee'] ?? ''}';
         _ngnMlPro.text = '${ngn['masterLeagueProFee'] ?? ngn['masterLinkProFee'] ?? ngn['masterLinkFee'] ?? ''}';
         _ngnMlElite.text = '${ngn['masterLeagueEliteFee'] ?? ngn['masterLinkEliteFee'] ?? ''}';
+        _ngnVerificationFee.text =
+            '${ngn['organizerVerificationFee'] ?? ngn['verificationFee'] ?? ''}';
+        _ngnVerificationEnabled =
+            (ngn['organizerVerificationEnabled'] is bool)
+                ? ngn['organizerVerificationEnabled'] as bool
+                : ((ngn['verificationEnabled'] is bool)
+                    ? ngn['verificationEnabled'] as bool
+                    : true);
+        _ngnVerificationRenewalFee.text =
+            '${ngn['organizerVerificationRenewalFee'] ?? ngn['verificationRenewalFee'] ?? ''}';
+        _ngnVerificationRenewalEnabled =
+            (ngn['organizerVerificationRenewalEnabled'] is bool)
+                ? ngn['organizerVerificationRenewalEnabled'] as bool
+                : ((ngn['verificationRenewalEnabled'] is bool)
+                    ? ngn['verificationRenewalEnabled'] as bool
+                    : true);
+        _ngnVerificationDays.text =
+            '${ngn['organizerVerificationDurationDays'] ?? ngn['verificationDurationDays'] ?? '90'}';
         _ngnPaymentsEnabled =
             (ngn['paymentsEnabled'] is bool) ? ngn['paymentsEnabled'] as bool : true;
         _ngnFlutterwaveEnabled =
@@ -128,6 +162,24 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
         _usdMlBasic.text = '${usd['masterLeagueBasicFee'] ?? usd['masterLinkBasicFee'] ?? ''}';
         _usdMlPro.text = '${usd['masterLeagueProFee'] ?? usd['masterLinkProFee'] ?? usd['masterLinkFee'] ?? ''}';
         _usdMlElite.text = '${usd['masterLeagueEliteFee'] ?? usd['masterLinkEliteFee'] ?? ''}';
+        _usdVerificationFee.text =
+            '${usd['organizerVerificationFee'] ?? usd['verificationFee'] ?? ''}';
+        _usdVerificationEnabled =
+            (usd['organizerVerificationEnabled'] is bool)
+                ? usd['organizerVerificationEnabled'] as bool
+                : ((usd['verificationEnabled'] is bool)
+                    ? usd['verificationEnabled'] as bool
+                    : true);
+        _usdVerificationRenewalFee.text =
+            '${usd['organizerVerificationRenewalFee'] ?? usd['verificationRenewalFee'] ?? ''}';
+        _usdVerificationRenewalEnabled =
+            (usd['organizerVerificationRenewalEnabled'] is bool)
+                ? usd['organizerVerificationRenewalEnabled'] as bool
+                : ((usd['verificationRenewalEnabled'] is bool)
+                    ? usd['verificationRenewalEnabled'] as bool
+                    : true);
+        _usdVerificationDays.text =
+            '${usd['organizerVerificationDurationDays'] ?? usd['verificationDurationDays'] ?? '90'}';
         _usdPaymentsEnabled =
             (usd['paymentsEnabled'] is bool) ? usd['paymentsEnabled'] as bool : true;
         _usdFlutterwaveEnabled =
@@ -168,6 +220,14 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
             'masterLeagueBasicFee': _parse(_ngnMlBasic.text),
             'masterLeagueProFee': _parse(_ngnMlPro.text),
             'masterLeagueEliteFee': _parse(_ngnMlElite.text),
+            'organizerVerificationFee': _parse(_ngnVerificationFee.text),
+            'organizerVerificationEnabled': _ngnVerificationEnabled,
+            'organizerVerificationRenewalFee':
+                _parse(_ngnVerificationRenewalFee.text),
+            'organizerVerificationRenewalEnabled':
+                _ngnVerificationRenewalEnabled,
+            'organizerVerificationDurationDays':
+                _parseInt(_ngnVerificationDays.text),
             'paymentsEnabled': _ngnPaymentsEnabled,
             'flutterwaveEnabled': _ngnFlutterwaveEnabled,
           };
@@ -185,6 +245,14 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
             'masterLeagueBasicFee': _parse(_usdMlBasic.text),
             'masterLeagueProFee': _parse(_usdMlPro.text),
             'masterLeagueEliteFee': _parse(_usdMlElite.text),
+            'organizerVerificationFee': _parse(_usdVerificationFee.text),
+            'organizerVerificationEnabled': _usdVerificationEnabled,
+            'organizerVerificationRenewalFee':
+                _parse(_usdVerificationRenewalFee.text),
+            'organizerVerificationRenewalEnabled':
+                _usdVerificationRenewalEnabled,
+            'organizerVerificationDurationDays':
+                _parseInt(_usdVerificationDays.text),
             'paymentsEnabled': _usdPaymentsEnabled,
             'flutterwaveEnabled': _usdFlutterwaveEnabled,
           };
@@ -370,6 +438,26 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
                       _rowNum('Basic fee (NGN)', _ngnMlBasic),
                       _rowNum('Pro fee (NGN)', _ngnMlPro),
                       _rowNum('Elite fee (NGN)', _ngnMlElite),
+                      _sectionDivider('Organizer Verification'),
+                      _rowNum('Verification fee (NGN)', _ngnVerificationFee),
+                      SwitchListTile.adaptive(
+                        value: _ngnVerificationEnabled,
+                        onChanged: (v) => setState(() => _ngnVerificationEnabled = v),
+                        title: const Text('Organizer verification enabled'),
+                      ),
+                      _rowNum(
+                        'Verification renewal fee (NGN)',
+                        _ngnVerificationRenewalFee,
+                      ),
+                      SwitchListTile.adaptive(
+                        value: _ngnVerificationRenewalEnabled,
+                        onChanged: (v) => setState(() => _ngnVerificationRenewalEnabled = v),
+                        title: const Text('Verification renewal enabled'),
+                      ),
+                      _rowNum(
+                        'Verification duration (days)',
+                        _ngnVerificationDays,
+                      ),
                       _sectionDivider('Provider flags'),
                       SwitchListTile.adaptive(
                         value: _ngnPaymentsEnabled,
@@ -409,6 +497,26 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
                       _rowNum('Basic fee (USD)', _usdMlBasic),
                       _rowNum('Pro fee (USD)', _usdMlPro),
                       _rowNum('Elite fee (USD)', _usdMlElite),
+                      _sectionDivider('Organizer Verification'),
+                      _rowNum('Verification fee (USD)', _usdVerificationFee),
+                      SwitchListTile.adaptive(
+                        value: _usdVerificationEnabled,
+                        onChanged: (v) => setState(() => _usdVerificationEnabled = v),
+                        title: const Text('Organizer verification enabled'),
+                      ),
+                      _rowNum(
+                        'Verification renewal fee (USD)',
+                        _usdVerificationRenewalFee,
+                      ),
+                      SwitchListTile.adaptive(
+                        value: _usdVerificationRenewalEnabled,
+                        onChanged: (v) => setState(() => _usdVerificationRenewalEnabled = v),
+                        title: const Text('Verification renewal enabled'),
+                      ),
+                      _rowNum(
+                        'Verification duration (days)',
+                        _usdVerificationDays,
+                      ),
                       _sectionDivider('Provider flags'),
                       SwitchListTile.adaptive(
                         value: _usdPaymentsEnabled,

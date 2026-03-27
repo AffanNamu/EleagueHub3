@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -13,6 +14,8 @@ import '../../leagues/presentation/leagues_list_screen.dart';
 import '../../live/logic/quick_messages_controller.dart';
 import '../../live/presentation/live_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
+import '../../master_leagues/data/organizer_feed_firebase.dart';
+import '../../master_leagues/domain/organizer_feed_event.dart';
 import '../../profile/presentation/profile_screen.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
@@ -267,8 +270,6 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
               ),
             ),
           ),
-
-          // Match GlassScaffold premium ambient glow (light mode only).
           if (isLight)
             Positioned(
               top: -120,
@@ -289,7 +290,6 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
                 ),
               ),
             ),
-
           Scaffold(
             backgroundColor: Colors.transparent,
             extendBody: true,
@@ -415,6 +415,8 @@ class _HomeTab extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final t = theme.textTheme;
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final feed = OrganizerFeedFirebase();
 
     final secondary = cs.onSurface.withOpacity(0.55);
     final tertiary = cs.onSurface.withOpacity(0.45);
@@ -518,8 +520,8 @@ class _HomeTab extends StatelessWidget {
         const SizedBox(height: 12),
         _QuickActionCard(
           icon: Icons.hub_rounded,
-          title: _trOr(l10n, 'home_quick_master_leagues_title', 'Master Leagues'),
-          subtitle: _trOr(l10n, 'home_quick_master_leagues_subtitle', 'Premium: create multiple competitions'),
+          title: _trOr(l10n, 'home_quick_master_leagues_title', 'Organizer Workspace'),
+          subtitle: _trOr(l10n, 'home_quick_master_leagues_subtitle', 'Create trusted organizer hubs with multiple competitions'),
           gradient: [
             cs.primary.withOpacity(0.22),
             cs.secondary.withOpacity(0.06),
@@ -539,6 +541,190 @@ class _HomeTab extends StatelessWidget {
           onTap: () => context.push('/call'),
           isWide: true,
         ),
+        const SizedBox(height: 20),
+
+        // Followed organizer feed preview
+        Glass(
+          borderRadius: 24,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Followed Organizer Feed',
+                      style: t.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => context.push('/organizer-feed'),
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: const Text(
+                      'Open',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (uid.isEmpty)
+                Text(
+                  'Sign in to see updates from organizers you follow.',
+                  style: t.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
+                    fontWeight: FontWeight.w700,
+                  ),
+                )
+              else
+                StreamBuilder<List<OrganizerFeedEvent>>(
+                  stream: feed.watchFollowedOrganizerFeedPreview(uid),
+                  builder: (context, snap) {
+                    final items = snap.data ?? const <OrganizerFeedEvent>[];
+
+                    if (snap.connectionState == ConnectionState.waiting &&
+                        items.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+
+                    if (items.isEmpty) {
+                      return Text(
+                        'No followed organizer updates yet. Follow organizer workspaces to see their latest activity here.',
+                        style: t.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.65),
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                        ),
+                      );
+                    }
+
+                    return Column(
+                      children: items.map((item) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: InkWell(
+                            onTap: () {
+                              if (item.leagueId.trim().isNotEmpty) {
+                                context.push('/leagues/${item.leagueId.trim()}');
+                                return;
+                              }
+                              if (item.masterLeagueId.trim().isNotEmpty) {
+                                context.push('/master-leagues/${item.masterLeagueId.trim()}');
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(18),
+                            child: Glass(
+                              borderRadius: 18,
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _feedIcon(item.type),
+                                    color: _feedColor(item.type),
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item.title,
+                                          style: t.bodyMedium?.copyWith(
+                                            color: cs.onSurface,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          item.message,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: t.bodySmall?.copyWith(
+                                            color: cs.onSurface.withOpacity(0.70),
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.25,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: cs.onSurface.withOpacity(0.35),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(growable: false),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // Public organizer discovery entry
+        Glass(
+          borderRadius: 24,
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: cs.primary.withOpacity(0.12),
+                  border: Border.all(color: cs.primary.withOpacity(0.22)),
+                ),
+                child: Icon(Icons.travel_explore_rounded, color: cs.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Organizer Discovery',
+                      style: t.titleSmall?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Browse featured, verified, and active organizer workspaces.',
+                      style: t.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.68),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              FilledButton.tonal(
+                onPressed: () => context.push('/organizer-discovery'),
+                child: const Text(
+                  'Open',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+        ),
+
         const SizedBox(height: 24),
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
@@ -557,9 +743,27 @@ class _HomeTab extends StatelessWidget {
             children: [
               _ExploreRow(
                 icon: Icons.hub_rounded,
-                title: _trOr(l10n, 'home_explore_master_leagues', 'Master Leagues'),
-                subtitle: _trOr(l10n, 'home_explore_master_leagues_sub', 'Premium container for multiple competitions'),
+                title: _trOr(l10n, 'home_explore_master_leagues', 'Organizer Workspaces'),
+                subtitle: _trOr(l10n, 'home_explore_master_leagues_sub', 'Trusted organizer hubs for multiple competitions'),
                 onTap: () => context.push('/master-leagues'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
+              ),
+              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
+              _ExploreRow(
+                icon: Icons.travel_explore_rounded,
+                title: 'Organizer Discovery',
+                subtitle: 'Featured, verified, and active organizers',
+                onTap: () => context.push('/organizer-discovery'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
+              ),
+              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
+              _ExploreRow(
+                icon: Icons.dynamic_feed_rounded,
+                title: 'Organizer Feed',
+                subtitle: 'Latest updates from organizers you follow',
+                onTap: () => context.push('/organizer-feed'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -604,6 +808,36 @@ class _HomeTab extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  IconData _feedIcon(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'announcement':
+        return Icons.campaign_outlined;
+      case 'competition_created':
+        return Icons.emoji_events_outlined;
+      case 'verification_approved':
+        return Icons.verified_rounded;
+      case 'verification_renewed':
+        return Icons.refresh_rounded;
+      default:
+        return Icons.bolt_rounded;
+    }
+  }
+
+  Color _feedColor(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'announcement':
+        return const Color(0xFF8B5CF6);
+      case 'competition_created':
+        return const Color(0xFF22C55E);
+      case 'verification_approved':
+        return const Color(0xFF1D9BF0);
+      case 'verification_renewed':
+        return const Color(0xFF14B8A6);
+      default:
+        return const Color(0xFF64748B);
+    }
   }
 }
 

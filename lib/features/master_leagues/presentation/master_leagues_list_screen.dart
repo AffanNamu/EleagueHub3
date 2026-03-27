@@ -15,13 +15,21 @@ class MasterLeaguesListScreen extends ConsumerWidget {
   List<MasterLeague> _sort(List<MasterLeague> input) {
     final sorted = [...input];
     sorted.sort((a, b) {
-      final aMs =
-          a.createdAt?.millisecondsSinceEpoch ?? a.updatedAtMs;
-      final bMs =
-          b.createdAt?.millisecondsSinceEpoch ?? b.updatedAtMs;
+      final aMs = a.createdAt?.millisecondsSinceEpoch ?? a.updatedAtMs;
+      final bMs = b.createdAt?.millisecondsSinceEpoch ?? b.updatedAtMs;
       return bMs.compareTo(aMs);
     });
     return sorted;
+  }
+
+  int _workspacePower(List<MasterLeague> leagues) {
+    int total = 0;
+    for (final ml in leagues) {
+      total += ml.analytics.totalTournamentsCreated;
+      total += ml.analytics.totalParticipantsTeams;
+      total += ml.analytics.totalMatches;
+    }
+    return total;
   }
 
   @override
@@ -34,7 +42,11 @@ class MasterLeaguesListScreen extends ConsumerWidget {
     final unlockedAsync = ref.watch(masterLeagueUnlockedProvider);
     final planAsync = ref.watch(organizerProActivePlanProvider);
 
-    Widget header() {
+    Widget header({
+      required int createdCount,
+      required int joinedCount,
+      required int workspacePower,
+    }) {
       final unlocked = unlockedAsync.asData?.value == true;
       final plan = planAsync.asData?.value;
 
@@ -48,16 +60,16 @@ class MasterLeaguesListScreen extends ConsumerWidget {
       }
 
       return Glass(
-        borderRadius: 28,
-        padding: const EdgeInsets.all(16),
+        borderRadius: 30,
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Master Leagues',
+              'Organizer Workspace',
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w900,
-                letterSpacing: -0.3,
+                letterSpacing: -0.35,
                 color: cs.onSurface,
               ),
             ),
@@ -65,20 +77,44 @@ class MasterLeaguesListScreen extends ConsumerWidget {
             Text(
               statusLine,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: plan != null ? cs.primary : cs.onSurface.withOpacity(0.70),
+                color: plan != null
+                    ? cs.primary
+                    : cs.onSurface.withOpacity(0.70),
                 fontWeight: FontWeight.w900,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Text(
-              'Create a Master League, complete Flutterwave payment, and your league will be created only after secure verification. You can also view leagues you joined here.',
+              'Master Leagues are organizer workspaces. Create competitions, manage staff, build trust with verification, and operate your organizer identity in one place.',
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface.withOpacity(0.70),
+                color: cs.onSurface.withOpacity(0.72),
                 height: 1.35,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _metricChip(
+                  context,
+                  icon: Icons.hub_rounded,
+                  label: '$createdCount created',
+                ),
+                _metricChip(
+                  context,
+                  icon: Icons.group_outlined,
+                  label: '$joinedCount joined',
+                ),
+                _metricChip(
+                  context,
+                  icon: Icons.bolt_rounded,
+                  label: 'Workspace power $workspacePower',
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
             FilledButton.icon(
               onPressed: () => context.push('/master-leagues/create'),
               icon: const Icon(Icons.add_circle_outline_rounded),
@@ -94,6 +130,7 @@ class MasterLeaguesListScreen extends ConsumerWidget {
 
     Widget buildSection({
       required String title,
+      required String subtitle,
       required List<MasterLeague> items,
       required String emptyTitle,
       required String emptyMessage,
@@ -103,12 +140,25 @@ class MasterLeaguesListScreen extends ConsumerWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 10, top: 4),
-            child: Text(
-              title,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.2,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.62),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
           if (items.isEmpty)
@@ -150,7 +200,7 @@ class MasterLeaguesListScreen extends ConsumerWidget {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720),
+            constraints: const BoxConstraints(maxWidth: 760),
             child: createdAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Padding(
@@ -187,6 +237,7 @@ class MasterLeaguesListScreen extends ConsumerWidget {
                   data: (joinedRaw) {
                     final created = _sort(createdRaw);
                     final joined = _sort(joinedRaw);
+                    final power = _workspacePower([...created, ...joined]);
 
                     return ListView(
                       physics: const BouncingScrollPhysics(
@@ -195,22 +246,30 @@ class MasterLeaguesListScreen extends ConsumerWidget {
                       padding:
                           const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 110),
                       children: [
-                        header(),
-                        const SizedBox(height: 14),
-                        buildSection(
-                          title: 'Created by You',
-                          items: created,
-                          emptyTitle: 'No created Master Leagues yet',
-                          emptyMessage:
-                              'When you complete payment and create one, it will appear here.',
+                        header(
+                          createdCount: created.length,
+                          joinedCount: joined.length,
+                          workspacePower: power,
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 16),
                         buildSection(
-                          title: 'Joined by You',
-                          items: joined,
-                          emptyTitle: 'No joined Master Leagues yet',
+                          title: 'Workspaces You Own',
+                          subtitle:
+                              'These are your main organizer hubs for creating and managing competitions.',
+                          items: created,
+                          emptyTitle: 'No organizer workspaces yet',
                           emptyMessage:
-                              'Master Leagues where you are added as staff or member will appear here.',
+                              'Create your first Master League to launch your organizer workspace.',
+                        ),
+                        const SizedBox(height: 20),
+                        buildSection(
+                          title: 'Workspaces You Joined',
+                          subtitle:
+                              'Master Leagues where you were added as staff or member.',
+                          items: joined,
+                          emptyTitle: 'No joined workspaces yet',
+                          emptyMessage:
+                              'When an organizer adds you to a Master League, it will appear here.',
                         ),
                       ],
                     );
@@ -225,6 +284,37 @@ class MasterLeaguesListScreen extends ConsumerWidget {
         onPressed: () => context.push('/master-leagues/create'),
         icon: const Icon(Icons.add),
         label: const Text('Create'),
+      ),
+    );
+  }
+
+  Widget _metricChip(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: cs.primary.withOpacity(0.08),
+        border: Border.all(color: cs.primary.withOpacity(0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: cs.primary),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }
