@@ -30,7 +30,8 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserver {
+class _HomeShellState extends ConsumerState<HomeShell>
+    with WidgetsBindingObserver {
   int _index = 0;
 
   late final List<Widget> _tabs;
@@ -73,29 +74,38 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   }
 
   Future<void> _loadOverlayStateAndMaybeStart() async {
-    final prefs = ref.read(prefsServiceProvider);
-    final enabled = prefs.liveOverlayEnabled();
-    final granted = await OverlayPlatform.isOverlayPermissionGranted();
-    if (!mounted) return;
-    setState(() {
-      _overlayEnabled = enabled;
-      _overlayGranted = granted;
-    });
-    if (enabled && granted) {
-      await OverlayPlatform.startGlobalOverlay();
-    }
+    try {
+      final prefs = ref.read(prefsServiceProvider);
+      final enabled = prefs.liveOverlayEnabled();
+      final granted = await OverlayPlatform.isOverlayPermissionGranted();
+      if (!mounted) return;
+      setState(() {
+        _overlayEnabled = enabled;
+        _overlayGranted = granted;
+      });
+      if (enabled && granted) {
+        await OverlayPlatform.startGlobalOverlay();
+      }
+    } catch (_) {}
   }
 
   Future<void> _toggleOverlayFromHome() async {
     final prefs = ref.read(prefsServiceProvider);
     final l10n = context.l10n;
+
     if (_overlayEnabled) {
       final sure = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text(_trOr(l10n, 'live_overlay_turn_off_title', 'Turn off overlay?')),
+          title: Text(
+            _trOr(l10n, 'live_overlay_turn_off_title', 'Turn off overlay?'),
+          ),
           content: Text(
-            _trOr(l10n, 'live_overlay_turn_off_body', 'This will hide the floating voice/message controls.'),
+            _trOr(
+              l10n,
+              'live_overlay_turn_off_body',
+              'This will hide the floating voice/message controls.',
+            ),
           ),
           actions: [
             TextButton(
@@ -123,7 +133,9 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_trOr(l10n, 'live_overlay_enable_title', 'Enable floating overlay?')),
+        title: Text(
+          _trOr(l10n, 'live_overlay_enable_title', 'Enable floating overlay?'),
+        ),
         content: Text(
           _trOr(
             l10n,
@@ -168,7 +180,11 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
       SnackBar(
         behavior: SnackBarBehavior.floating,
         content: Text(
-          _trOr(l10n, 'live_overlay_permission_snackbar', 'Grant the overlay permission, then return to the app.'),
+          _trOr(
+            l10n,
+            'live_overlay_permission_snackbar',
+            'Grant the overlay permission, then return to the app.',
+          ),
         ),
       ),
     );
@@ -182,6 +198,12 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
     });
   }
 
+  void _safePush(String route) {
+    try {
+      context.push(route);
+    } catch (_) {}
+  }
+
   void _onDestinationSelected(int i) {
     if (i == 2) {
       if (i != _index) {
@@ -190,7 +212,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
           _built[i] = true;
         });
       }
-      context.push('/global-live');
+      _safePush('/global-live');
       return;
     }
     _selectTab(i);
@@ -254,10 +276,15 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
 
     final overlayIcon = !_overlayEnabled
         ? Icons.picture_in_picture_alt_outlined
-        : (_overlayGranted ? Icons.picture_in_picture_alt : Icons.warning_amber_rounded);
+        : (_overlayGranted
+            ? Icons.picture_in_picture_alt
+            : Icons.warning_amber_rounded);
 
-    final overlayIconColor =
-        !_overlayEnabled ? null : (_overlayGranted ? const Color(0xFF22C55E) : const Color(0xFFF59E0B));
+    final overlayIconColor = !_overlayEnabled
+        ? null
+        : (_overlayGranted
+            ? const Color(0xFF22C55E)
+            : const Color(0xFFF59E0B));
 
     return WillPopScope(
       onWillPop: _handleSystemBack,
@@ -301,15 +328,27 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
                 IconButton(
                   tooltip: _overlayEnabled
                       ? (_overlayGranted
-                          ? _trOr(l10n, 'live_overlay_on_tooltip', 'Overlay is ON')
-                          : _trOr(l10n, 'live_overlay_permission_needed_tooltip', 'Overlay needs permission'))
-                      : _trOr(l10n, 'live_overlay_off_tooltip', 'Overlay is OFF'),
+                          ? _trOr(
+                              l10n,
+                              'live_overlay_on_tooltip',
+                              'Overlay is ON',
+                            )
+                          : _trOr(
+                              l10n,
+                              'live_overlay_permission_needed_tooltip',
+                              'Overlay needs permission',
+                            ))
+                      : _trOr(
+                          l10n,
+                          'live_overlay_off_tooltip',
+                          'Overlay is OFF',
+                        ),
                   onPressed: _toggleOverlayFromHome,
                   icon: Icon(overlayIcon, color: overlayIconColor),
                 ),
                 IconButton(
                   tooltip: l10n.homeSettingsTooltip,
-                  onPressed: () => context.push('/settings'),
+                  onPressed: () => _safePush('/settings'),
                   icon: const Icon(Icons.settings_outlined),
                 ),
               ],
@@ -342,18 +381,26 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
                         backgroundColor: Colors.transparent,
                         surfaceTintColor: Colors.transparent,
                         indicatorColor: colorScheme.primary.withOpacity(0.18),
-                        labelTextStyle: WidgetStateProperty.resolveWith((states) {
-                          final selected = states.contains(WidgetState.selected);
+                        labelTextStyle:
+                            WidgetStateProperty.resolveWith((states) {
+                          final selected =
+                              states.contains(WidgetState.selected);
                           return TextStyle(
-                            color: selected ? colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.55),
+                            color: selected
+                                ? colorScheme.primary
+                                : theme.colorScheme.onSurface.withOpacity(0.55),
                             fontSize: 11,
-                            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                            fontWeight:
+                                selected ? FontWeight.w800 : FontWeight.w600,
                           );
                         }),
                         iconTheme: WidgetStateProperty.resolveWith((states) {
-                          final selected = states.contains(WidgetState.selected);
+                          final selected =
+                              states.contains(WidgetState.selected);
                           return IconThemeData(
-                            color: selected ? colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.55),
+                            color: selected
+                                ? colorScheme.primary
+                                : theme.colorScheme.onSurface.withOpacity(0.55),
                             size: 24,
                           );
                         }),
@@ -366,7 +413,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
                       indicatorColor: colorScheme.primary.withOpacity(0.18),
                       selectedIndex: _index,
                       onDestinationSelected: _onDestinationSelected,
-                      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                      labelBehavior:
+                          NavigationDestinationLabelBehavior.alwaysShow,
                       destinations: [
                         NavigationDestination(
                           icon: const Icon(Icons.home_outlined),
@@ -409,6 +457,12 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
 class _HomeTab extends StatelessWidget {
   const _HomeTab();
 
+  void _safePush(BuildContext context, String route) {
+    try {
+      context.push(route);
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -416,14 +470,15 @@ class _HomeTab extends StatelessWidget {
     final cs = theme.colorScheme;
     final t = theme.textTheme;
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-    final feed = OrganizerFeedFirebase();
 
     final secondary = cs.onSurface.withOpacity(0.55);
     final tertiary = cs.onSurface.withOpacity(0.45);
     final faint = cs.onSurface.withOpacity(0.30);
 
     return ListView(
-      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
       children: [
         Glass(
@@ -444,7 +499,11 @@ class _HomeTab extends StatelessWidget {
                     ],
                   ),
                 ),
-                child: Icon(Icons.sports_esports_rounded, color: cs.primary, size: 26),
+                child: Icon(
+                  Icons.sports_esports_rounded,
+                  color: cs.primary,
+                  size: 26,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -499,7 +558,7 @@ class _HomeTab extends StatelessWidget {
                   cs.primary.withOpacity(0.20),
                   cs.primary.withOpacity(0.05),
                 ],
-                onTap: () => context.push('/leagues/create'),
+                onTap: () => _safePush(context, '/leagues/create'),
               ),
             ),
             const SizedBox(width: 12),
@@ -512,7 +571,7 @@ class _HomeTab extends StatelessWidget {
                   const Color(0xFF00E676).withOpacity(0.20),
                   const Color(0xFF00E676).withOpacity(0.05),
                 ],
-                onTap: () => context.push('/live/join'),
+                onTap: () => _safePush(context, '/live/join'),
               ),
             ),
           ],
@@ -520,162 +579,42 @@ class _HomeTab extends StatelessWidget {
         const SizedBox(height: 12),
         _QuickActionCard(
           icon: Icons.hub_rounded,
-          title: _trOr(l10n, 'home_quick_master_leagues_title', 'Organizer Workspace'),
-          subtitle: _trOr(l10n, 'home_quick_master_leagues_subtitle', 'Create trusted organizer hubs with multiple competitions'),
+          title: _trOr(
+            l10n,
+            'home_quick_master_leagues_title',
+            'Organizer Workspace',
+          ),
+          subtitle: _trOr(
+            l10n,
+            'home_quick_master_leagues_subtitle',
+            'Create trusted organizer hubs with multiple competitions',
+          ),
           gradient: [
             cs.primary.withOpacity(0.22),
             cs.secondary.withOpacity(0.06),
           ],
-          onTap: () => context.push('/master-leagues'),
+          onTap: () => _safePush(context, '/master-leagues'),
           isWide: true,
         ),
         const SizedBox(height: 12),
         _QuickActionCard(
           icon: Icons.headset_mic_rounded,
           title: _trOr(l10n, 'home_quick_voice_room_title', 'Voice Room'),
-          subtitle: _trOr(l10n, 'home_quick_voice_room_subtitle', 'Create/Join with 8-digit code'),
+          subtitle: _trOr(
+            l10n,
+            'home_quick_voice_room_subtitle',
+            'Create/Join with 8-digit code',
+          ),
           gradient: [
             Colors.purple.withOpacity(0.20),
             Colors.purple.withOpacity(0.05),
           ],
-          onTap: () => context.push('/call'),
+          onTap: () => _safePush(context, '/call'),
           isWide: true,
         ),
         const SizedBox(height: 20),
-
-        // Followed organizer feed preview
-        Glass(
-          borderRadius: 24,
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Followed Organizer Feed',
-                      style: t.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: cs.onSurface,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => context.push('/organizer-feed'),
-                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                    label: const Text(
-                      'Open',
-                      style: TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              if (uid.isEmpty)
-                Text(
-                  'Sign in to see updates from organizers you follow.',
-                  style: t.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.65),
-                    fontWeight: FontWeight.w700,
-                  ),
-                )
-              else
-                StreamBuilder<List<OrganizerFeedEvent>>(
-                  stream: feed.watchFollowedOrganizerFeedPreview(uid),
-                  builder: (context, snap) {
-                    final items = snap.data ?? const <OrganizerFeedEvent>[];
-
-                    if (snap.connectionState == ConnectionState.waiting &&
-                        items.isEmpty) {
-                      return const Padding(
-                        padding: EdgeInsets.all(8),
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-
-                    if (items.isEmpty) {
-                      return Text(
-                        'No followed organizer updates yet. Follow organizer workspaces to see their latest activity here.',
-                        style: t.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.65),
-                          fontWeight: FontWeight.w700,
-                          height: 1.35,
-                        ),
-                      );
-                    }
-
-                    return Column(
-                      children: items.map((item) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: InkWell(
-                            onTap: () {
-                              if (item.leagueId.trim().isNotEmpty) {
-                                context.push('/leagues/${item.leagueId.trim()}');
-                                return;
-                              }
-                              if (item.masterLeagueId.trim().isNotEmpty) {
-                                context.push('/master-leagues/${item.masterLeagueId.trim()}');
-                              }
-                            },
-                            borderRadius: BorderRadius.circular(18),
-                            child: Glass(
-                              borderRadius: 18,
-                              padding: const EdgeInsets.all(12),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _feedIcon(item.type),
-                                    color: _feedColor(item.type),
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.title,
-                                          style: t.bodyMedium?.copyWith(
-                                            color: cs.onSurface,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          item.message,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: t.bodySmall?.copyWith(
-                                            color: cs.onSurface.withOpacity(0.70),
-                                            fontWeight: FontWeight.w700,
-                                            height: 1.25,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    Icons.chevron_right_rounded,
-                                    color: cs.onSurface.withOpacity(0.35),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(growable: false),
-                    );
-                  },
-                ),
-            ],
-          ),
-        ),
-
+        _FollowedOrganizerFeedPreview(uid: uid),
         const SizedBox(height: 20),
-
-        // Public organizer discovery entry
         Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(16),
@@ -715,7 +654,7 @@ class _HomeTab extends StatelessWidget {
                 ),
               ),
               FilledButton.tonal(
-                onPressed: () => context.push('/organizer-discovery'),
+                onPressed: () => _safePush(context, '/organizer-discovery'),
                 child: const Text(
                   'Open',
                   style: TextStyle(fontWeight: FontWeight.w900),
@@ -724,7 +663,6 @@ class _HomeTab extends StatelessWidget {
             ],
           ),
         ),
-
         const SizedBox(height: 24),
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
@@ -743,9 +681,17 @@ class _HomeTab extends StatelessWidget {
             children: [
               _ExploreRow(
                 icon: Icons.hub_rounded,
-                title: _trOr(l10n, 'home_explore_master_leagues', 'Organizer Workspaces'),
-                subtitle: _trOr(l10n, 'home_explore_master_leagues_sub', 'Trusted organizer hubs for multiple competitions'),
-                onTap: () => context.push('/master-leagues'),
+                title: _trOr(
+                  l10n,
+                  'home_explore_master_leagues',
+                  'Organizer Workspaces',
+                ),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_master_leagues_sub',
+                  'Trusted organizer hubs for multiple competitions',
+                ),
+                onTap: () => _safePush(context, '/master-leagues'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -754,7 +700,7 @@ class _HomeTab extends StatelessWidget {
                 icon: Icons.travel_explore_rounded,
                 title: 'Organizer Discovery',
                 subtitle: 'Featured, verified, and active organizers',
-                onTap: () => context.push('/organizer-discovery'),
+                onTap: () => _safePush(context, '/organizer-discovery'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -763,7 +709,7 @@ class _HomeTab extends StatelessWidget {
                 icon: Icons.dynamic_feed_rounded,
                 title: 'Organizer Feed',
                 subtitle: 'Latest updates from organizers you follow',
-                onTap: () => context.push('/organizer-feed'),
+                onTap: () => _safePush(context, '/organizer-feed'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -771,26 +717,46 @@ class _HomeTab extends StatelessWidget {
               _ExploreRow(
                 icon: Icons.forum_rounded,
                 title: _trOr(l10n, 'home_explore_global_chat', 'Global Chat'),
-                subtitle: _trOr(l10n, 'home_explore_global_chat_sub', 'Request access & chat in realtime'),
-                onTap: () => context.push('/global-chat'),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_global_chat_sub',
+                  'Request access & chat in realtime',
+                ),
+                onTap: () => _safePush(context, '/global-chat'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
               Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
               _ExploreRow(
                 icon: Icons.public_rounded,
-                title: _trOr(l10n, 'home_explore_global_leagues', 'Global Leagues'),
-                subtitle: _trOr(l10n, 'home_explore_global_leagues_sub', 'Discover & join public leagues'),
-                onTap: () => context.push('/global-live'),
+                title: _trOr(
+                  l10n,
+                  'home_explore_global_leagues',
+                  'Global Leagues',
+                ),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_global_leagues_sub',
+                  'Discover & join public leagues',
+                ),
+                onTap: () => _safePush(context, '/global-live'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
               Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
               _ExploreRow(
                 icon: Icons.storefront_rounded,
-                title: _trOr(l10n, 'home_explore_marketplace', 'Marketplace'),
-                subtitle: _trOr(l10n, 'home_explore_marketplace_sub', 'Browse gaming gear & accessories'),
-                onTap: () => context.push('/marketplace'),
+                title: _trOr(
+                  l10n,
+                  'home_explore_marketplace',
+                  'Marketplace',
+                ),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_marketplace_sub',
+                  'Browse gaming gear & accessories',
+                ),
+                onTap: () => _safePush(context, '/marketplace'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -798,8 +764,12 @@ class _HomeTab extends StatelessWidget {
               _ExploreRow(
                 icon: Icons.emoji_events_rounded,
                 title: _trOr(l10n, 'home_explore_my_leagues', 'My Leagues'),
-                subtitle: _trOr(l10n, 'home_explore_my_leagues_sub', 'View and manage your leagues'),
-                onTap: () => context.push('/leagues'),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_my_leagues_sub',
+                  'View and manage your leagues',
+                ),
+                onTap: () => _safePush(context, '/leagues'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -807,6 +777,220 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FollowedOrganizerFeedPreview extends StatelessWidget {
+  const _FollowedOrganizerFeedPreview({
+    required this.uid,
+  });
+
+  final String uid;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final t = theme.textTheme;
+
+    if (uid.isEmpty) {
+      return Glass(
+        borderRadius: 24,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Followed Organizer Feed',
+              style: t.titleMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: cs.onSurface,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Sign in to see updates from organizers you follow.',
+              style: t.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.65),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    OrganizerFeedFirebase? feed;
+    try {
+      feed = OrganizerFeedFirebase();
+    } catch (_) {
+      feed = null;
+    }
+
+    if (feed == null) {
+      return Glass(
+        borderRadius: 24,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Followed Organizer Feed',
+              style: t.titleMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: cs.onSurface,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Organizer feed is temporarily unavailable.',
+              style: t.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.65),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Followed Organizer Feed',
+                  style: t.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  try {
+                    context.push('/organizer-feed');
+                  } catch (_) {}
+                },
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: const Text(
+                  'Open',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          StreamBuilder<List<OrganizerFeedEvent>>(
+            stream: feed.watchFollowedOrganizerFeedPreview(uid),
+            builder: (context, snap) {
+              final items = snap.data ?? const <OrganizerFeedEvent>[];
+
+              if (snap.hasError) {
+                return Text(
+                  'Unable to load organizer updates right now.',
+                  style: t.bodySmall?.copyWith(
+                    color: cs.error,
+                    fontWeight: FontWeight.w800,
+                  ),
+                );
+              }
+
+              if (snap.connectionState == ConnectionState.waiting &&
+                  items.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              if (items.isEmpty) {
+                return Text(
+                  'No followed organizer updates yet. Follow organizer workspaces to see their latest activity here.',
+                  style: t.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.65),
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                );
+              }
+
+              return Column(
+                children: items.map((item) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: InkWell(
+                      onTap: () {
+                        try {
+                          if (item.leagueId.trim().isNotEmpty) {
+                            context.push('/leagues/${item.leagueId.trim()}');
+                            return;
+                          }
+                          if (item.masterLeagueId.trim().isNotEmpty) {
+                            context.push(
+                              '/master-leagues/${item.masterLeagueId.trim()}',
+                            );
+                          }
+                        } catch (_) {}
+                      },
+                      borderRadius: BorderRadius.circular(18),
+                      child: Glass(
+                        borderRadius: 18,
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _feedIcon(item.type),
+                              color: _feedColor(item.type),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.title,
+                                    style: t.bodyMedium?.copyWith(
+                                      color: cs.onSurface,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    item.message,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: t.bodySmall?.copyWith(
+                                      color: cs.onSurface.withOpacity(0.70),
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: cs.onSurface.withOpacity(0.35),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(growable: false),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -850,6 +1034,7 @@ class _QuickActionCard extends StatefulWidget {
     required this.onTap,
     this.isWide = false,
   });
+
   final IconData icon;
   final String title;
   final String subtitle;
@@ -861,7 +1046,8 @@ class _QuickActionCard extends StatefulWidget {
   State<_QuickActionCard> createState() => _QuickActionCardState();
 }
 
-class _QuickActionCardState extends State<_QuickActionCard> with SingleTickerProviderStateMixin {
+class _QuickActionCardState extends State<_QuickActionCard>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _scale;
 
@@ -895,7 +1081,8 @@ class _QuickActionCardState extends State<_QuickActionCard> with SingleTickerPro
 
     return AnimatedBuilder(
       animation: _scale,
-      builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
+      builder: (context, child) =>
+          Transform.scale(scale: _scale.value, child: child),
       child: GestureDetector(
         onTapDown: (_) => _ctrl.forward(),
         onTapUp: (_) {
@@ -925,7 +1112,9 @@ class _QuickActionCardState extends State<_QuickActionCard> with SingleTickerPro
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: cs.onSurface.withOpacity(0.06),
-                          border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                          border: Border.all(
+                            color: cs.onSurface.withOpacity(0.10),
+                          ),
                         ),
                         child: Icon(widget.icon, color: cs.primary, size: 22),
                       ),
@@ -954,7 +1143,11 @@ class _QuickActionCardState extends State<_QuickActionCard> with SingleTickerPro
                           ],
                         ),
                       ),
-                      Icon(Icons.arrow_forward_ios_rounded, size: 16, color: faint),
+                      Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        size: 16,
+                        color: faint,
+                      ),
                     ],
                   )
                 : Column(
@@ -966,7 +1159,9 @@ class _QuickActionCardState extends State<_QuickActionCard> with SingleTickerPro
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: cs.onSurface.withOpacity(0.06),
-                          border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                          border: Border.all(
+                            color: cs.onSurface.withOpacity(0.10),
+                          ),
                         ),
                         child: Icon(widget.icon, color: cs.primary, size: 20),
                       ),

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/admin/developer_analytics_dashboard_screen.dart';
@@ -78,7 +79,7 @@ class AuthRouterRefresh extends ChangeNotifier {
         return;
       }
 
-      _checkProfileFor(_user!.uid);
+      unawaited(_checkProfileFor(_user!.uid));
     });
 
     _connSub = ConnectivityService.instance.connectionStream.listen((online) {
@@ -89,11 +90,10 @@ class AuthRouterRefresh extends ChangeNotifier {
 
       final uid = _user?.uid;
       if (uid == null) return;
-
       if (needsEmailVerification) return;
 
       if (_profileState == _ProfileState.unknown) {
-        _checkProfileFor(uid);
+        unawaited(_checkProfileFor(uid));
       }
     });
   }
@@ -102,11 +102,9 @@ class AuthRouterRefresh extends ChangeNotifier {
   late final StreamSubscription<bool> _connSub;
 
   User? _user;
-
   final UserProfileRepository _profiles = UserProfileRepository();
 
   _ProfileState _profileState = _ProfileState.unknown;
-
   Timer? _retryTimer;
   int _retryAttempt = 0;
 
@@ -127,13 +125,18 @@ class AuthRouterRefresh extends ChangeNotifier {
   bool get isCheckingProfile =>
       isSignedIn &&
       !needsEmailVerification &&
-      (_profileState == _ProfileState.unknown || _profileState == _ProfileState.checking);
+      (_profileState == _ProfileState.unknown ||
+          _profileState == _ProfileState.checking);
 
   bool get needsOnboarding =>
-      isSignedIn && !needsEmailVerification && _profileState == _ProfileState.missing;
+      isSignedIn &&
+      !needsEmailVerification &&
+      _profileState == _ProfileState.missing;
 
   bool get hasProfile =>
-      isSignedIn && !needsEmailVerification && _profileState == _ProfileState.exists;
+      isSignedIn &&
+      !needsEmailVerification &&
+      _profileState == _ProfileState.exists;
 
   Future<void> refreshAuthUser() async {
     final u = FirebaseAuth.instance.currentUser;
@@ -151,7 +154,7 @@ class AuthRouterRefresh extends ChangeNotifier {
     if (needsEmailVerification) return;
 
     if (_profileState == _ProfileState.unknown) {
-      _checkProfileFor(uid);
+      await _checkProfileFor(uid);
     }
   }
 
@@ -222,7 +225,7 @@ class AuthRouterRefresh extends ChangeNotifier {
         if (_user?.uid != uid) return;
         if (!ConnectivityService.instance.isConnected.value) return;
         if (needsEmailVerification) return;
-        _checkProfileFor(uid);
+        unawaited(_checkProfileFor(uid));
       });
     }
   }
@@ -245,27 +248,42 @@ bool _isPricingAdminUidSync(String uid) {
 
 const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
+bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
+    r.needsOnboarding;
+
 final appRouter = GoRouter(
   initialLocation: '/bootstrap',
   refreshListenable: authRouterRefresh,
+  debugLogDiagnostics: kDebugMode,
   redirect: (context, state) {
     AppAdminsService.instance.ensureStarted();
 
     final loc = state.matchedLocation;
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
     final inLogin = loc == '/login';
     final inForgot = loc == '/forgot-password';
     final inReset = loc == '/reset-password';
     final inVerifyEmail = loc == '/verify-email';
-
     final inOnboarding = loc == '/onboarding';
     final inBootstrap = loc == '/bootstrap';
+
     final inPricingAdmin = loc == '/admin/pricing';
     final inPricingAdmins = loc == '/admin/pricing-admins';
     final inAnalyticsAdmin = loc == '/admin/analytics';
     final inVerificationAdmin = loc == '/admin/verification-requests';
     final inMarketplaceAdminUpload = loc == '/admin/marketplace-upload';
     final inGlobalChatRequestsAdmin = loc == '/admin/global-chat-requests';
+
+    if (kDebugMode) {
+      debugPrint(
+        '[RouterRedirect] loc=$loc signedIn=${authRouterRefresh.isSignedIn} '
+        'verify=${authRouterRefresh.needsEmailVerification} '
+        'checking=${authRouterRefresh.isCheckingProfile} '
+        'needsOnboarding=${authRouterRefresh.needsOnboarding} '
+        'hasProfile=${authRouterRefresh.hasProfile}',
+      );
+    }
 
     if (!authRouterRefresh.isSignedIn) {
       if (inLogin || inForgot || inReset || inVerifyEmail) return null;
@@ -287,23 +305,25 @@ final appRouter = GoRouter(
       return '/onboarding';
     }
 
-    if (inPricingAdmin || inPricingAdmins || inAnalyticsAdmin || inVerificationAdmin) {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (inPricingAdmin ||
+        inPricingAdmins ||
+        inAnalyticsAdmin ||
+        inVerificationAdmin) {
       if (!_isPricingAdminUidSync(uid)) return '/';
     }
 
     if (inMarketplaceAdminUpload) {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (uid.trim() != _superAdminUid) return '/';
+      if (uid != _superAdminUid) return '/';
     }
 
     if (inGlobalChatRequestsAdmin) {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (uid.trim() != _superAdminUid) return '/';
+      if (uid != _superAdminUid) return '/';
     }
 
     if (authRouterRefresh.hasProfile) {
-      if (inLogin || inOnboarding || inBootstrap || inVerifyEmail) return '/';
+      if (inLogin || inOnboarding || inBootstrap || inVerifyEmail) {
+        return '/';
+      }
       return null;
     }
 
@@ -375,7 +395,8 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/admin/verification-requests',
-      builder: (context, state) => const OrganizerVerificationRequestsScreen(),
+      builder: (context, state) =>
+          const OrganizerVerificationRequestsScreen(),
     ),
     GoRoute(
       path: '/admin/marketplace-upload',
@@ -514,7 +535,8 @@ final appRouter = GoRouter(
               builder: (context, state) {
                 final extra = state.extra as Map<String, dynamic>? ?? {};
                 final leagueId = extra['leagueId'] as String? ?? 'mock-id';
-                final format = extra['format'] as LeagueFormat? ?? LeagueFormat.classic;
+                final format =
+                    extra['format'] as LeagueFormat? ?? LeagueFormat.classic;
                 return AddTeamsScreen(leagueId: leagueId, format: format);
               },
             ),
@@ -528,35 +550,45 @@ final appRouter = GoRouter(
                   path: 'standings',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: LeagueStandingsScreen(id: state.pathParameters['id']!),
+                    child: LeagueStandingsScreen(
+                      id: state.pathParameters['id']!,
+                    ),
                   ),
                 ),
                 GoRoute(
                   path: 'knockout',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: KnockoutBracketScreen(leagueId: state.pathParameters['id']!),
+                    child: KnockoutBracketScreen(
+                      leagueId: state.pathParameters['id']!,
+                    ),
                   ),
                 ),
                 GoRoute(
                   path: 'knockout-admin',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: AdminKnockoutScoreMgmtScreen(leagueId: state.pathParameters['id']!),
+                    child: AdminKnockoutScoreMgmtScreen(
+                      leagueId: state.pathParameters['id']!,
+                    ),
                   ),
                 ),
                 GoRoute(
                   path: 'space',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: LeagueSpaceRoomScreen(leagueId: state.pathParameters['id']!),
+                    child: LeagueSpaceRoomScreen(
+                      leagueId: state.pathParameters['id']!,
+                    ),
                   ),
                 ),
                 GoRoute(
                   path: 'chat',
                   builder: (context, state) => LeagueAccessGuard(
                     leagueId: state.pathParameters['id']!,
-                    child: LeagueChatScreen(leagueId: state.pathParameters['id']!),
+                    child: LeagueChatScreen(
+                      leagueId: state.pathParameters['id']!,
+                    ),
                   ),
                 ),
               ],
@@ -565,14 +597,18 @@ final appRouter = GoRouter(
               path: ':leagueId/fixtures',
               builder: (context, state) => LeagueAccessGuard(
                 leagueId: state.pathParameters['leagueId']!,
-                child: FixturesScreen(leagueId: state.pathParameters['leagueId']!),
+                child: FixturesScreen(
+                  leagueId: state.pathParameters['leagueId']!,
+                ),
               ),
             ),
             GoRoute(
               path: ':leagueId/admin-scores',
               builder: (context, state) => LeagueAccessGuard(
                 leagueId: state.pathParameters['leagueId']!,
-                child: AdminScoreMgmtScreen(leagueId: state.pathParameters['leagueId']!),
+                child: AdminScoreMgmtScreen(
+                  leagueId: state.pathParameters['leagueId']!,
+                ),
               ),
             ),
             GoRoute(
@@ -597,5 +633,3 @@ final appRouter = GoRouter(
     ),
   ],
 );
-
-bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) => r.needsOnboarding;
