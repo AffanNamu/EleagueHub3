@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/master_leagues_repository_firebase.dart';
 import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
+import '../domain/master_league_plan.dart';
 import 'master_league_entitlement_service.dart';
 import 'master_league_payment_service.dart';
 
@@ -16,9 +17,14 @@ final masterLeagueEntitlementServiceProvider =
   return MasterLeagueEntitlementService();
 });
 
-final masterLeaguePaymentServiceProvider =
-    Provider<MasterLeaguePaymentService>((ref) {
-  return MasterLeaguePaymentService();
+final masterLeaguePaymentServiceProvider = Provider<MasterLeaguePaymentService>(
+  (ref) => ref.watch(masterLeaguePaymentServiceImplProvider),
+);
+
+final organizerProActivePlanProvider =
+    FutureProvider<MasterLeaguePlan?>((ref) async {
+  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  return entitlement.getActivePlan(forceRefresh: false);
 });
 
 final myMasterLeaguesProvider = StreamProvider<List<MasterLeague>>((ref) {
@@ -43,8 +49,7 @@ final masterLeagueByIdProvider =
 });
 
 final masterLeagueUnlockedProvider = FutureProvider<bool>((ref) async {
-  final entitlement =
-      ref.watch(masterLeagueEntitlementServiceProvider);
+  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
   final plan = await entitlement.getActivePlan(forceRefresh: false);
   return plan != null;
 });
