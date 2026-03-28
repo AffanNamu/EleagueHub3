@@ -294,7 +294,7 @@ class MasterLeague {
       memberIds: _readMemberIds(map, ownerId),
       roles: _readRoles(map, ownerId),
       updatedAtMs: _asInt(map['updatedAtMs']),
-      plan: MasterLeaguePlanX.fromId(planId),
+      plan: masterLeaguePlanFromId(planId),
       createdAt: map['createdAt'] is Timestamp ? map['createdAt'] as Timestamp : null,
       purchaseStatus: (map['purchaseStatus'] as String? ?? '').trim(),
       organizerProfile: OrganizerProfile.fromRootMap(map),
@@ -336,6 +336,11 @@ class MasterLeague {
   }
 
   bool isOwner(String uid) => ownerId.trim().isNotEmpty && ownerId.trim() == uid.trim();
+
+  bool get isActive {
+    final status = purchaseStatus.trim().toLowerCase();
+    return status.isEmpty || status == 'active';
+  }
 
   bool get isVerifiedOrganizer =>
       verifiedBadge || verificationStatus.trim().toLowerCase() == 'approved';
