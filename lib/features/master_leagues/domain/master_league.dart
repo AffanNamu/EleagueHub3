@@ -141,6 +141,14 @@ class MasterLeagueAnalytics {
   }
 }
 
+MasterLeaguePlan _planFromId(String id) {
+  final clean = id.trim().toLowerCase();
+  for (final plan in MasterLeaguePlan.values) {
+    if (plan.id.trim().toLowerCase() == clean) return plan;
+  }
+  return MasterLeaguePlan.basic;
+}
+
 class MasterLeague {
   const MasterLeague({
     required this.id,
@@ -294,7 +302,7 @@ class MasterLeague {
       memberIds: _readMemberIds(map, ownerId),
       roles: _readRoles(map, ownerId),
       updatedAtMs: _asInt(map['updatedAtMs']),
-      plan: masterLeaguePlanFromId(planId),
+      plan: _planFromId(planId),
       createdAt: map['createdAt'] is Timestamp ? map['createdAt'] as Timestamp : null,
       purchaseStatus: (map['purchaseStatus'] as String? ?? '').trim(),
       organizerProfile: OrganizerProfile.fromRootMap(map),

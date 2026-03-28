@@ -15,6 +15,7 @@ import '../../leagues/models/league.dart';
 import '../../leagues/models/league_announcement.dart';
 import '../data/organizer_feed_firebase.dart';
 import '../domain/master_league.dart';
+import '../domain/organizer_feed_event.dart';
 import '../logic/master_leagues_providers.dart';
 
 class OrganizerProfileScreen extends ConsumerStatefulWidget {
@@ -362,13 +363,11 @@ class _OrganizerProfileScreenState
 
   Future<void> _postProfileUpdateFeedEvent(MasterLeague ml) async {
     try {
-      final actorName = (await UserProfileRepository().fetchByUserId(_uid))
-                  ?.teamName
-                  .trim()
-                  .isNotEmpty ==
-              true
-          ? (await UserProfileRepository().fetchByUserId(_uid))!.teamName.trim()
-          : 'Organizer';
+      final profile = await UserProfileRepository().fetchByUserId(_uid);
+      final actorName =
+          (profile?.teamName.trim().isNotEmpty == true)
+              ? profile!.teamName.trim()
+              : 'Organizer';
 
       await _organizerFeed.addEvent(
         OrganizerFeedEvent(
@@ -376,7 +375,8 @@ class _OrganizerProfileScreenState
           masterLeagueId: ml.id,
           type: 'announcement',
           title: 'Organizer profile updated',
-          message: 'Brand profile, links, or organizer identity details were updated.',
+          message:
+              'Brand profile, links, or organizer identity details were updated.',
           createdAtMs: DateTime.now().millisecondsSinceEpoch,
           actorId: _uid,
           actorName: actorName,
