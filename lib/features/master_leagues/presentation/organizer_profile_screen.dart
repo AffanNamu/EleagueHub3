@@ -13,6 +13,7 @@ import '../../auth/models/user_profile.dart';
 import '../../leagues/data/league_announcements_firebase.dart';
 import '../../leagues/models/league.dart';
 import '../../leagues/models/league_announcement.dart';
+import '../data/organizer_feed_firebase.dart';
 import '../domain/master_league.dart';
 import '../logic/master_leagues_providers.dart';
 
@@ -37,6 +38,7 @@ class _OrganizerProfileScreenState
 
   final LeagueAnnouncementsFirebase _announcements =
       LeagueAnnouncementsFirebase();
+  final OrganizerFeedFirebase _organizerFeed = OrganizerFeedFirebase();
 
   final _bannerCtrl = TextEditingController();
   final _logoCtrl = TextEditingController();
@@ -356,6 +358,32 @@ class _OrganizerProfileScreenState
       noteCtrl.dispose();
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  Future<void> _postProfileUpdateFeedEvent(MasterLeague ml) async {
+    try {
+      final actorName = (await UserProfileRepository().fetchByUserId(_uid))
+                  ?.teamName
+                  .trim()
+                  .isNotEmpty ==
+              true
+          ? (await UserProfileRepository().fetchByUserId(_uid))!.teamName.trim()
+          : 'Organizer';
+
+      await _organizerFeed.addEvent(
+        OrganizerFeedEvent(
+          id: '',
+          masterLeagueId: ml.id,
+          type: 'announcement',
+          title: 'Organizer profile updated',
+          message: 'Brand profile, links, or organizer identity details were updated.',
+          createdAtMs: DateTime.now().millisecondsSinceEpoch,
+          actorId: _uid,
+          actorName: actorName,
+          leagueId: '',
+        ),
+      );
+    } catch (_) {}
   }
 
   Widget _imageBox({
@@ -1321,7 +1349,12 @@ class _OrganizerProfileScreenState
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _saving ? null : () => _save(ml),
+                  onPressed: _saving
+                      ? null
+                      : () async {
+                          await _save(ml);
+                          await _postProfileUpdateFeedEvent(ml);
+                        },
                   icon: _saving
                       ? const SizedBox(
                           width: 16,
@@ -1421,7 +1454,12 @@ class _OrganizerProfileScreenState
                 actions: [
                   if (ml.isOwner(_uid))
                     TextButton(
-                      onPressed: _saving ? null : () => _save(ml),
+                      onPressed: _saving
+                          ? null
+                          : () async {
+                              await _save(ml);
+                              await _postProfileUpdateFeedEvent(ml);
+                            },
                       child: Text(
                         _saving ? 'Saving...' : 'Save',
                         style: TextStyle(

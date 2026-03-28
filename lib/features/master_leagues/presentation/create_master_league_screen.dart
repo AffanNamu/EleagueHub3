@@ -26,8 +26,7 @@ class _CreateMasterLeagueScreenState
     extends ConsumerState<CreateMasterLeagueScreen> {
   final _masterLeagueNameCtrl = TextEditingController();
   final _competitionNameCtrl = TextEditingController();
-  final _entryFeeCtrl = TextEditingController();
-  final _maxParticipantsCtrl = TextEditingController(text: '16');
+  final _rewardsPlanCtrl = TextEditingController();
 
   bool _processing = false;
   bool _loadingEntitlement = true;
@@ -88,8 +87,7 @@ class _CreateMasterLeagueScreenState
   void dispose() {
     _masterLeagueNameCtrl.dispose();
     _competitionNameCtrl.dispose();
-    _entryFeeCtrl.dispose();
-    _maxParticipantsCtrl.dispose();
+    _rewardsPlanCtrl.dispose();
     super.dispose();
   }
 
@@ -127,33 +125,15 @@ class _CreateMasterLeagueScreenState
       return null;
     }
 
-    final entryFeeRaw = _entryFeeCtrl.text.trim();
-    final entryFee = double.tryParse(entryFeeRaw);
-    if (entryFeeRaw.isEmpty || entryFee == null) {
-      _showMessage('Please enter a valid entry fee.', error: true);
-      return null;
-    }
-    if (entryFee < 0) {
-      _showMessage('Entry fee cannot be negative.', error: true);
-      return null;
-    }
-
-    final maxParticipantsRaw = _maxParticipantsCtrl.text.trim();
-    final maxParticipants = int.tryParse(maxParticipantsRaw);
-    if (maxParticipantsRaw.isEmpty || maxParticipants == null) {
-      _showMessage('Please enter a valid max participants value.', error: true);
-      return null;
-    }
-    if (maxParticipants < 2) {
-      _showMessage('Max participants must be at least 2.', error: true);
-      return null;
-    }
+    final rewardsPlan = _rewardsPlanCtrl.text.trim();
+    final hasRewards =
+        rewardsPlan.isNotEmpty && rewardsPlan.toLowerCase() != 'no rewards';
 
     return MasterLeagueCompetitionDraft(
       name: competitionName,
-      entryFee: entryFee,
-      maxParticipants: maxParticipants,
-      currency: 'NGN',
+      entryFee: 0,
+      maxParticipants: 0,
+      currency: hasRewards ? rewardsPlan : 'NONE',
     );
   }
 
@@ -171,10 +151,15 @@ class _CreateMasterLeagueScreenState
     final cs = theme.colorScheme;
 
     final String priceLine =
-        price != null ? 'Creation fee: ${price.display}' : 'Creation fee unavailable';
+        price != null ? 'Workspace fee: ${price.display}' : 'Workspace fee unavailable';
     final String planLine = 'Plan: ${plan.displayName}';
+    final rewardsText = competition.currency.trim().isEmpty ||
+            competition.currency.trim().toUpperCase() == 'NONE'
+        ? 'No rewards specified yet'
+        : competition.currency.trim();
+
     final String competitionLine =
-        'Competition: ${competition.name} • Entry fee: ${competition.entryFee.toStringAsFixed(2)} • Max: ${competition.maxParticipants}';
+        'First competition: ${competition.name} • Rewards: $rewardsText';
 
     final actualCurrency = (price?.currency ?? '').trim().toUpperCase();
     final String? warning =
@@ -204,7 +189,7 @@ class _CreateMasterLeagueScreenState
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Master League will only be created after successful and verified payment.',
+                  'Your organizer workspace will only be created after successful and verified payment.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: cs.onSurface.withOpacity(0.72),
                     fontWeight: FontWeight.w600,
@@ -580,6 +565,55 @@ class _CreateMasterLeagueScreenState
     );
   }
 
+  Widget _infoCard(ThemeData theme, ColorScheme cs) {
+    return Glass(
+      borderRadius: 22,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Suggested setup',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: cs.onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Instead of charging participants through the app, let organizers describe their reward structure clearly. Example: "Winner gets cash prize", "Top 3 get medals", or "No rewards yet".',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.70),
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'My suggestion:',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.primary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '• Keep workspace creation payment as your platform fee.\n'
+            '• Remove participant entry fee from this screen.\n'
+            '• Replace it with "Rewards plan".\n'
+            '• Let organizers decide later per competition whether rewards exist.\n'
+            '• In future, add a separate optional competition reward builder.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.74),
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -685,38 +719,27 @@ class _CreateMasterLeagueScreenState
                         enabled: !_processing,
                         textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
-                          labelText: 'Competition Name',
+                          labelText: 'First Competition Name',
                           prefixIcon: Icon(Icons.emoji_events_outlined),
                         ),
                       ),
                       const SizedBox(height: 12),
                       TextField(
-                        controller: _entryFeeCtrl,
+                        controller: _rewardsPlanCtrl,
                         enabled: !_processing,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Entry Fee',
-                          prefixIcon: Icon(Icons.payments_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _maxParticipantsCtrl,
-                        enabled: !_processing,
-                        keyboardType: TextInputType.number,
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => _create(),
                         decoration: const InputDecoration(
-                          labelText: 'Max Participants',
-                          prefixIcon: Icon(Icons.groups_outlined),
+                          labelText: 'Rewards Plan',
+                          hintText: 'Example: Winner gets cash prize',
+                          prefixIcon: Icon(Icons.card_giftcard_outlined),
                         ),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 14),
+                _infoCard(theme, cs),
                 const SizedBox(height: 14),
                 Padding(
                   padding: const EdgeInsets.only(left: 4, bottom: 10),
@@ -751,7 +774,7 @@ class _CreateMasterLeagueScreenState
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'Your Master League is created only after Flutterwave payment succeeds and is verified.',
+                    'Your Master League is created only after workspace payment succeeds and is verified.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurface.withOpacity(0.60),
                       fontWeight: FontWeight.w700,
