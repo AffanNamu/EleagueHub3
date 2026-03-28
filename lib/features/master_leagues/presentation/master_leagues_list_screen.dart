@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../data/master_leagues_repository_firebase.dart';
 import '../domain/master_league.dart';
 import '../logic/master_leagues_providers.dart';
 import 'widgets/master_league_card.dart';
@@ -21,181 +20,116 @@ class MasterLeaguesListScreen extends ConsumerStatefulWidget {
 
 class _MasterLeaguesListScreenState
     extends ConsumerState<MasterLeaguesListScreen> {
-  bool _createdTimedOut = false;
-  bool _joinedTimedOut = false;
+  bool _loading = true;
+  String? _error;
 
-  Timer? _createdTimer;
-  Timer? _joinedTimer;
+  List<MasterLeague> _created = const <MasterLeague>[];
+  List<MasterLeague> _joined = const <MasterLeague>[];
 
   @override
   void initState() {
     super.initState();
-    _startTimeouts();
+    _load();
   }
 
-  void _startTimeouts() {
-    _createdTimer?.cancel();
-    _joinedTimer?.cancel();
+  Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
-    _createdTimedOut = false;
-    _joinedTimedOut = false;
+    try {
+      final repo = ref.read(masterLeaguesRepositoryProvider);
 
-    _createdTimer = Timer(const Duration(seconds: 10), () {
+      final created = await repo.fetchCreatedMasterLeaguesOnce();
+      final joined = await repo.fetchJoinedMasterLeaguesOnce();
+
       if (!mounted) return;
-      setState(() => _createdTimedOut = true);
-    });
-
-    _joinedTimer = Timer(const Duration(seconds: 10), () {
+      setState(() {
+        _created = created;
+        _joined = joined;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _joinedTimedOut = true);
-    });
+      setState(() {
+        _created = const <MasterLeague>[];
+        _joined = const <MasterLeague>[];
+        _loading = false;
+        _error = '$e';
+      });
+    }
   }
 
-  @override
-  void dispose() {
-    _createdTimer?.cancel();
-    _joinedTimer?.cancel();
-    super.dispose();
+  Widget _sectionTitle(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.2,
+              color: cs.onSurface,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.62),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMasterLeagueList(
+    BuildContext context,
+    List<MasterLeague> items,
+  ) {
+    if (items.isEmpty) {
+      return const EmptyState(
+        title: 'No Master Leagues yet',
+        message:
+            'Create your first organizer workspace to manage competitions in one place.',
+        icon: Icons.hub_rounded,
+      );
+    }
+
+    return Column(
+      children: List.generate(items.length, (i) {
+        final ml = items[i];
+        return Padding(
+          padding: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 12),
+          child: MasterLeagueCard(
+            masterLeague: ml,
+            onTap: () => context.push('/master-leagues/${ml.id}'),
+          ),
+        );
+      }),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-
-    final createdAsync = ref.watch(createdMasterLeaguesProvider);
-    final joinedAsync = ref.watch(joinedMasterLeaguesProvider);
     final planAsync = ref.watch(organizerProActivePlanProvider);
-
-    Widget sectionTitle(String title, String subtitle) {
-      return Padding(
-        padding: const EdgeInsets.only(left: 4, bottom: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.2,
-                color: cs.onSurface,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.62),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    Widget buildMasterLeagueList(List<MasterLeague> items) {
-      if (items.isEmpty) {
-        return const EmptyState(
-          title: 'No Master Leagues yet',
-          message:
-              'Create your first organizer workspace to manage competitions in one place.',
-          icon: Icons.hub_rounded,
-        );
-      }
-
-      return Column(
-        children: List.generate(items.length, (i) {
-          final ml = items[i];
-          return Padding(
-            padding: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 12),
-            child: MasterLeagueCard(
-              masterLeague: ml,
-              onTap: () => context.push('/master-leagues/${ml.id}'),
-            ),
-          );
-        }),
-      );
-    }
-
-    Widget loadingCard() {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 20),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    Widget safeMessageCard({
-      required String title,
-      bool error = false,
-    }) {
-      return Glass(
-        borderRadius: 22,
-        padding: const EdgeInsets.all(16),
-        child: Text(
-          title,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: error ? cs.error : cs.onSurface.withOpacity(0.82),
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      );
-    }
-
-    Widget createdSection() {
-      return createdAsync.when(
-        loading: () {
-          if (_createdTimedOut) {
-            return const EmptyState(
-              title: 'No Master Leagues yet',
-              message:
-                  'If you have not created any organizer workspace yet, this is normal.',
-              icon: Icons.hub_rounded,
-            );
-          }
-          return loadingCard();
-        },
-        error: (_, __) => const EmptyState(
-          title: 'No Master Leagues yet',
-          message: 'You have not created any organizer workspace yet.',
-          icon: Icons.hub_rounded,
-        ),
-        data: buildMasterLeagueList,
-      );
-    }
-
-    Widget joinedSection() {
-      return joinedAsync.when(
-        loading: () {
-          if (_joinedTimedOut) {
-            return const EmptyState(
-              title: 'No joined workspaces',
-              message:
-                  'When you are added to an organizer workspace, it will appear here.',
-              icon: Icons.groups_outlined,
-            );
-          }
-          return loadingCard();
-        },
-        error: (_, __) => const EmptyState(
-          title: 'No joined workspaces',
-          message:
-              'When you are added to an organizer workspace, it will appear here.',
-          icon: Icons.groups_outlined,
-        ),
-        data: (items) {
-          if (items.isEmpty) {
-            return const EmptyState(
-              title: 'No joined workspaces',
-              message:
-                  'When you are added to an organizer workspace, it will appear here.',
-              icon: Icons.groups_outlined,
-            );
-          }
-          return buildMasterLeagueList(items);
-        },
-      );
-    }
 
     return GlassScaffold(
       appBar: AppBar(
@@ -220,13 +154,7 @@ class _MasterLeaguesListScreenState
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 780),
             child: RefreshIndicator(
-              onRefresh: () async {
-                ref.invalidate(createdMasterLeaguesProvider);
-                ref.invalidate(joinedMasterLeaguesProvider);
-                ref.invalidate(organizerProActivePlanProvider);
-                _startTimeouts();
-                await Future<void>.delayed(const Duration(milliseconds: 250));
-              },
+              onRefresh: _load,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(
                   parent: BouncingScrollPhysics(),
@@ -289,25 +217,56 @@ class _MasterLeaguesListScreenState
                   ),
                   const SizedBox(height: 18),
 
-                  sectionTitle(
-                    'Created by You',
-                    'Master Leagues you own and manage.',
-                  ),
-                  createdSection(),
+                  if (_loading) ...[
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 40),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  ] else ...[
+                    if (_error != null)
+                      Glass(
+                        borderRadius: 22,
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          _error!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: cs.error,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
 
-                  const SizedBox(height: 20),
+                    _sectionTitle(
+                      context,
+                      title: 'Created by You',
+                      subtitle: 'Master Leagues you own and manage.',
+                    ),
+                    _created.isEmpty
+                        ? const EmptyState(
+                            title: 'No Master Leagues yet',
+                            message:
+                                'You have not created any organizer workspace yet.',
+                            icon: Icons.hub_rounded,
+                          )
+                        : _buildMasterLeagueList(context, _created),
 
-                  sectionTitle(
-                    'Joined Workspaces',
-                    'Master Leagues where you are a member, admin, or moderator.',
-                  ),
-                  joinedSection(),
+                    const SizedBox(height: 20),
 
-                  const SizedBox(height: 18),
-                  safeMessageCard(
-                    title:
-                        'If you have never created or joined a Master League before, seeing empty sections here is normal.',
-                  ),
+                    _sectionTitle(
+                      context,
+                      title: 'Joined Workspaces',
+                      subtitle:
+                          'Master Leagues where you are a member, admin, or moderator.',
+                    ),
+                    _joined.isEmpty
+                        ? const EmptyState(
+                            title: 'No joined workspaces',
+                            message:
+                                'When you are added to an organizer workspace, it will appear here.',
+                            icon: Icons.groups_outlined,
+                          )
+                        : _buildMasterLeagueList(context, _joined),
+                  ],
                 ],
               ),
             ),

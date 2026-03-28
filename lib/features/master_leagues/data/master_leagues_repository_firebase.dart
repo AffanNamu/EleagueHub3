@@ -153,11 +153,13 @@ class MasterLeaguesRepositoryFirebase {
     );
   }
 
-  CollectionReference<Map<String, dynamic>> _followersCol(String masterLeagueId) {
+  CollectionReference<Map<String, dynamic>> _followersCol(
+      String masterLeagueId) {
     return _col.doc(masterLeagueId.trim()).collection('followers');
   }
 
-  CollectionReference<Map<String, dynamic>> _templatesCol(String masterLeagueId) {
+  CollectionReference<Map<String, dynamic>> _templatesCol(
+      String masterLeagueId) {
     return _col.doc(masterLeagueId.trim()).collection('competition_templates');
   }
 
@@ -204,7 +206,6 @@ class MasterLeaguesRepositoryFirebase {
             .map((d) => MasterLeague.fromMap(d.id, d.data()))
             .where((ml) => ml.ownerId.trim() == uid)
             .toList(growable: false);
-
         list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
         return list;
       }).handleError((error, st) {
@@ -226,7 +227,6 @@ class MasterLeaguesRepositoryFirebase {
                 ml.ownerId.trim() != uid &&
                 (ml.memberIds.contains(uid) || ml.roles.containsKey(uid)))
             .toList(growable: false);
-
         list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
         return list;
       }).handleError((error, st) {
@@ -261,13 +261,7 @@ class MasterLeaguesRepositoryFirebase {
       final id = masterLeagueId.trim();
       if (id.isEmpty) return Stream<bool>.value(false);
 
-      return _followersCol(id)
-          .doc(uid)
-          .snapshots()
-          .map((snap) => snap.exists)
-          .handleError((error, st) {
-        _log(error, st);
-      });
+      return _followersCol(id).doc(uid).snapshots().map((snap) => snap.exists);
     } catch (_) {
       return Stream<bool>.value(false);
     }
@@ -285,8 +279,6 @@ class MasterLeaguesRepositoryFirebase {
         if (v is int) return v;
         if (v is num) return v.toInt();
         return 0;
-      }).handleError((error, st) {
-        _log(error, st);
       });
     } catch (_) {
       return Stream<int>.value(0);
@@ -298,7 +290,11 @@ class MasterLeaguesRepositoryFirebase {
     try {
       _requireAuthUid();
       final id = masterLeagueId.trim();
-      if (id.isEmpty) return Stream<List<CompetitionTemplate>>.value(const <CompetitionTemplate>[]);
+      if (id.isEmpty) {
+        return Stream<List<CompetitionTemplate>>.value(
+          const <CompetitionTemplate>[],
+        );
+      }
 
       return _templatesCol(id)
           .orderBy('updatedAtMs', descending: true)
@@ -307,12 +303,44 @@ class MasterLeaguesRepositoryFirebase {
         return snap.docs
             .map((d) => CompetitionTemplate.fromMap(d.data()))
             .toList(growable: false);
-      }).handleError((error, st) {
-        _log(error, st);
       });
     } catch (_) {
-      return Stream<List<CompetitionTemplate>>.value(const <CompetitionTemplate>[]);
+      return Stream<List<CompetitionTemplate>>.value(
+        const <CompetitionTemplate>[],
+      );
     }
+  }
+
+  Future<List<MasterLeague>> fetchCreatedMasterLeaguesOnce() async {
+    final uid = _requireAuthUid();
+    final snap = await _col
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
+
+    final list = snap.docs
+        .map((d) => MasterLeague.fromMap(d.id, d.data()))
+        .where((ml) => ml.ownerId.trim() == uid)
+        .toList(growable: false);
+
+    list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+    return list;
+  }
+
+  Future<List<MasterLeague>> fetchJoinedMasterLeaguesOnce() async {
+    final uid = _requireAuthUid();
+    final snap = await _col
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 15));
+
+    final list = snap.docs
+        .map((d) => MasterLeague.fromMap(d.id, d.data()))
+        .where((ml) =>
+            ml.ownerId.trim() != uid &&
+            (ml.memberIds.contains(uid) || ml.roles.containsKey(uid)))
+        .toList(growable: false);
+
+    list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+    return list;
   }
 
   Future<void> saveCompetitionTemplate({
@@ -878,6 +906,30 @@ class MasterLeaguesRepositoryFirebase {
       throw UserFriendlyException(
         'You have reached the limit of ${plan.maxMasterLeagues} master league${plan.maxMasterLeagues == 1 ? '' : 's'} for the ${plan.displayName} plan. Upgrade to a higher plan to create more.',
       );
+    }
+  }
+
+  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) {
+        throw const UserFriendlyException("We couldn't find that Master League.");
+      }
+
+      final ml = await getById(id);
+      if (ml == null) {
+        throw const UserFriendlyException("We couldn't find that Master League.");
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the Master League owner can create competitions.',
+        );
+      }
+
+      return;
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
 
@@ -1710,32 +1762,6 @@ class MasterLeaguesRepositoryFirebase {
       } catch (_) {}
 
       await _col.doc(id).delete().timeout(const Duration(seconds: 15));
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
-    }
-  }
-
-  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
-    try {
-      final uid = _requireAuthUid();
-      final id = masterLeagueId.trim();
-      if (id.isEmpty) {
-        throw const UserFriendlyException(
-          "We couldn't find that Master League.",
-        );
-      }
-
-      final ml = await getById(id);
-      if (ml == null) {
-        throw const UserFriendlyException(
-          "We couldn't find that Master League.",
-        );
-      }
-      if (ml.ownerId.trim() != uid) {
-        throw const UserFriendlyException(
-          'Only the Master League owner can create competitions.',
-        );
-      }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
