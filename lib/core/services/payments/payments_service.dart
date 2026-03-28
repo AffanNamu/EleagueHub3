@@ -152,14 +152,12 @@ class PaymentsService {
   }
 
   Uri _verifyFlutterwaveUri() {
-    final base = BackendConfig.workerBaseUrl.trim();
-    if (base.isEmpty) {
-      throw StateError(
-        'Payment verification service is not configured. '
-        'Missing EH_WORKER_BASE_URL.',
-      );
-    }
-    return Uri.parse('$base/flutterwave/verify');
+    final uri = BackendConfig.workerFlutterwaveVerifyUrl();
+    if (uri != null) return uri;
+
+    throw StateError(
+      'Payment verification service is not configured. Missing EH_WORKER_BASE_URL.',
+    );
   }
 
   Future<Map<String, dynamic>> _postJson({
@@ -181,7 +179,7 @@ class PaymentsService {
       final raw = await res.transform(utf8.decoder).join();
 
       if (kDebugMode) {
-        debugPrint('[PaymentsService] ${uri.path} -> ${res.statusCode} $raw');
+        debugPrint('[PaymentsService] POST $uri -> ${res.statusCode} $raw');
       }
 
       Map<String, dynamic> parsed = <String, dynamic>{};
@@ -196,6 +194,14 @@ class PaymentsService {
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
         final msg = (parsed['error'] as String?)?.trim();
+
+        if (res.statusCode == 404) {
+          throw StateError(
+            'Payment verification endpoint was not found (404). '
+            'Please confirm EH_WORKER_BASE_URL points to the deployed worker with /flutterwave/verify.',
+          );
+        }
+
         throw StateError(
           msg?.isNotEmpty == true
               ? msg!
@@ -204,6 +210,14 @@ class PaymentsService {
       }
 
       return parsed;
+    } on SocketException {
+      throw StateError(
+        'Network error while contacting payment verification service.',
+      );
+    } on TimeoutException {
+      throw StateError(
+        'Payment verification timed out. Please try again.',
+      );
     } finally {
       client.close(force: true);
     }
@@ -244,9 +258,26 @@ class PaymentsService {
 
     try {
       final idToken = await user.getIdToken(true);
+      final safeToken = idToken?.trim() ?? '';
+      if (safeToken.isEmpty) {
+        return PaymentVerificationResult.failed(
+          provider: 'flutterwave',
+          errorMessage: 'Unable to get authentication token. Please sign in again.',
+        );
+      }
+
+      final verifyUri = _verifyFlutterwaveUri();
+
+      if (kDebugMode) {
+        debugPrint('[PaymentsService] verifyFlutterwavePayment uri=$verifyUri');
+        debugPrint(
+          '[PaymentsService] attemptId=$safeAttemptId txId=$safeTransactionId txRef=$safeTxRef uid=$uid',
+        );
+      }
+
       final parsed = await _postJson(
-        uri: _verifyFlutterwaveUri(),
-        idToken: idToken ?? '',
+        uri: verifyUri,
+        idToken: safeToken,
         body: <String, dynamic>{
           'attemptId': safeAttemptId,
           'transactionId': safeTransactionId,

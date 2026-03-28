@@ -9,6 +9,12 @@ class BackendConfig {
 
   static bool get workerEnabled => workerBaseUrl.trim().isNotEmpty;
 
+  static String get _normalizedFunctionsBase {
+    final base = functionsBaseUrl.trim();
+    if (base.isEmpty) return '';
+    return base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+    }
+
   static String get _normalizedWorkerBase {
     final base = workerBaseUrl.trim();
     if (base.isEmpty) return '';
@@ -16,12 +22,9 @@ class BackendConfig {
   }
 
   static Uri? verifyFlutterwavePaymentUrl() {
-    final base = functionsBaseUrl.trim();
+    final base = _normalizedFunctionsBase;
     if (base.isEmpty) return null;
-
-    final normalized =
-        base.endsWith('/') ? base.substring(0, base.length - 1) : base;
-    return Uri.parse('$normalized/verifyFlutterwavePayment');
+    return Uri.parse('$base/verifyFlutterwavePayment');
   }
 
   static Uri? workerFlutterwaveVerifyUrl() {

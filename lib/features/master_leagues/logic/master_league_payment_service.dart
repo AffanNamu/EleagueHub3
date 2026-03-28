@@ -170,6 +170,27 @@ class FlutterwaveMasterLeaguePaymentService
     return response.success == true || status == 'successful';
   }
 
+  String _cleanErrorMessage(Object error) {
+    final raw = error.toString().trim();
+
+    if (raw.contains('Payment verification endpoint was not found (404)')) {
+      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    }
+    if (raw.contains('Payment verification failed (404)')) {
+      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    }
+    if (raw.contains('Bad state:')) {
+      return raw.replaceFirst('Bad state:', '').trim();
+    }
+    if (raw.contains('SocketException')) {
+      return 'Network error while verifying payment. Please check your internet and try again.';
+    }
+    if (raw.contains('timed out')) {
+      return 'Payment verification timed out. Please try again.';
+    }
+    return raw;
+  }
+
   Future<MasterLeaguePaymentResult> _runPayment({
     required BuildContext context,
     required String userId,
@@ -293,10 +314,8 @@ class FlutterwaveMasterLeaguePaymentService
 
       if (kDebugMode) {
         debugPrint(
-          '[MasterLeaguePayment] charge result: '
-          'success=${response.success} '
-          'status=${response.status} '
-          'txRef=${response.txRef} '
+          '[MasterLeaguePayment] charge result: success=${response.success} '
+          'status=${response.status} txRef=${response.txRef} '
           'transactionId=${response.transactionId}',
         );
       }
@@ -329,6 +348,10 @@ class FlutterwaveMasterLeaguePaymentService
         );
 
         if (!verification.success) {
+          final cleanError = _cleanErrorMessage(
+            verification.errorMessage ?? 'Payment verification failed.',
+          );
+
           await AppAnalyticsService.instance.logPaymentResult(
             kind: analyticsKind,
             leagueId: leagueId,
@@ -338,15 +361,13 @@ class FlutterwaveMasterLeaguePaymentService
             currency: currency,
             amount: totalAmount,
             receiptId: null,
-            errorMessage:
-                verification.errorMessage ?? 'Payment verification failed.',
+            errorMessage: cleanError,
             userId: effectiveUserId,
           );
 
           return MasterLeaguePaymentResult.failed(
             provider: providerName,
-            errorMessage:
-                verification.errorMessage ?? 'Payment verification failed.',
+            errorMessage: cleanError,
             currency: currency,
             totalAmount: totalAmount,
             attemptId: attemptId,
@@ -423,18 +444,20 @@ class FlutterwaveMasterLeaguePaymentService
         attemptId: attemptId,
       );
     } catch (e) {
+      final cleanError = _cleanErrorMessage(e);
+
       if (attemptId.isNotEmpty) {
         try {
           await PaymentsService.instance.markClientFailed(
             attemptId: attemptId,
-            errorMessage: e.toString(),
+            errorMessage: cleanError,
           );
         } catch (_) {}
       }
 
       return MasterLeaguePaymentResult.failed(
         provider: providerName,
-        errorMessage: e.toString(),
+        errorMessage: cleanError,
         currency: currency,
         attemptId: attemptId,
       );
@@ -493,7 +516,8 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Flutterwave payments are currently unavailable.',
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
         );
       }
 
@@ -553,7 +577,7 @@ class FlutterwaveMasterLeaguePaymentService
     } catch (e) {
       return MasterLeaguePaymentResult.failed(
         provider: providerName,
-        errorMessage: e.toString(),
+        errorMessage: _cleanErrorMessage(e),
       );
     }
   }
@@ -591,14 +615,16 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Flutterwave payments are currently unavailable.',
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
         );
       }
 
       if (!remotePlan.organizerVerificationEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Organizer verification is currently disabled.',
+          errorMessage:
+              'Organizer verification is currently disabled.',
         );
       }
 
@@ -633,7 +659,7 @@ class FlutterwaveMasterLeaguePaymentService
     } catch (e) {
       return MasterLeaguePaymentResult.failed(
         provider: providerName,
-        errorMessage: e.toString(),
+        errorMessage: _cleanErrorMessage(e),
       );
     }
   }
@@ -671,14 +697,16 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Flutterwave payments are currently unavailable.',
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
         );
       }
 
       if (!remotePlan.organizerVerificationRenewalEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Verification renewal is currently disabled.',
+          errorMessage:
+              'Verification renewal is currently disabled.',
         );
       }
 
@@ -715,7 +743,7 @@ class FlutterwaveMasterLeaguePaymentService
     } catch (e) {
       return MasterLeaguePaymentResult.failed(
         provider: providerName,
-        errorMessage: e.toString(),
+        errorMessage: _cleanErrorMessage(e),
       );
     }
   }
