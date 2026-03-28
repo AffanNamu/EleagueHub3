@@ -300,11 +300,7 @@ class MasterLeaguesRepositoryFirebase {
     try {
       _requireAuthUid();
       final id = masterLeagueId.trim();
-      if (id.isEmpty) {
-        return Stream<List<CompetitionTemplate>>.value(
-          const <CompetitionTemplate>[],
-        );
-      }
+      if (id.isEmpty) return Stream<List<CompetitionTemplate>>.value(const <CompetitionTemplate>[]);
 
       return _templatesCol(id)
           .orderBy('updatedAtMs', descending: true)
@@ -317,9 +313,7 @@ class MasterLeaguesRepositoryFirebase {
         _log(error, st);
       });
     } catch (_) {
-      return Stream<List<CompetitionTemplate>>.value(
-        const <CompetitionTemplate>[],
-      );
+      return Stream<List<CompetitionTemplate>>.value(const <CompetitionTemplate>[]);
     }
   }
 
@@ -886,6 +880,30 @@ class MasterLeaguesRepositoryFirebase {
       throw UserFriendlyException(
         'You have reached the limit of ${plan.maxMasterLeagues} master league${plan.maxMasterLeagues == 1 ? '' : 's'} for the ${plan.displayName} plan. Upgrade to a higher plan to create more.',
       );
+    }
+  }
+
+  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) {
+        throw const UserFriendlyException("We couldn't find that Master League.");
+      }
+
+      final ml = await getById(id);
+      if (ml == null) {
+        throw const UserFriendlyException("We couldn't find that Master League.");
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the Master League owner can create competitions.',
+        );
+      }
+
+      return;
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
 
