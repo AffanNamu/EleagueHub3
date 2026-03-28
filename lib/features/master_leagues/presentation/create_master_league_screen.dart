@@ -271,6 +271,7 @@ class _CreateMasterLeagueScreenState
 
     try {
       final repo = ref.read(masterLeaguesRepositoryProvider);
+      final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
       final effectivePlan = _activePlan ?? _selectedPlan;
 
       await repo.checkMasterLeagueLimitOrThrow(effectivePlan);
@@ -316,6 +317,51 @@ class _CreateMasterLeagueScreenState
         return;
       }
 
+      // ============================================================
+      // FIX: Activate Organizer Pro BEFORE creating Master League.
+      //
+      // This calls the /organizer-pro/activate endpoint which:
+      //   1. Verifies the Flutterwave transaction (server-side)
+      //   2. Sets Firebase custom claims (organizerPro=true, plan, expiry)
+      //   3. Creates the entitlement document in Firestore
+      //
+      // Without this step, the Firestore security rules block the
+      // Master League creation because the user doesn't have the
+      // organizerPro claim yet.
+      // ============================================================
+      try {
+        if (kDebugMode) {
+          debugPrint('[CreateML] Activating Organizer Pro for plan: ${effectivePlan.id}...');
+        }
+
+        await entitlementSvc.activateAfterPayment(
+          plan: effectivePlan,
+          payment: payment,
+        );
+
+        if (kDebugMode) {
+          debugPrint('[CreateML] Organizer Pro activated successfully.');
+        }
+
+        // Force refresh the Firebase ID token so the new custom claims
+        // are included in subsequent Firestore requests.
+        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      } catch (activationError) {
+        if (kDebugMode) {
+          debugPrint('[CreateML] Organizer Pro activation failed: $activationError');
+          debugPrint('[CreateML] Proceeding with Master League creation anyway...');
+        }
+        // Don't block Master League creation if activation fails.
+        // The payment is verified and the master league doc will be
+        // created with the payment proof. The user can retry activation later.
+        //
+        // Still try to force-refresh the token in case claims were partially set.
+        try {
+          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        } catch (_) {}
+      }
+
+      // Now create the Master League with the verified payment proof.
       final created = await repo.createAfterVerifiedPayment(
         masterLeagueName: masterLeagueName,
         plan: effectivePlan,
