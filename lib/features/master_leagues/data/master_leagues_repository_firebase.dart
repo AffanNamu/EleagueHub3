@@ -1204,7 +1204,7 @@ class MasterLeaguesRepositoryFirebase {
           <String, dynamic>{
             'name': safeName,
             'ownerId': uid,
-            'createdAt': FieldValue.serverTimestamp(),
+            'createdAt': Timestamp.now(),
             'purchaseStatus': 'active',
             'memberIds': <String>[uid],
             'roles': <String, String>{uid: 'owner'},

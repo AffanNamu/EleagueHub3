@@ -19,9 +19,7 @@ final masterLeagueEntitlementServiceProvider =
 
 final masterLeaguePaymentServiceProvider =
     Provider<MasterLeaguePaymentService>((ref) {
-  throw UnimplementedError(
-    'masterLeaguePaymentServiceProvider must be overridden by the concrete payment service implementation.',
-  );
+  return FlutterwaveMasterLeaguePaymentService();
 });
 
 final organizerProActivePlanProvider =

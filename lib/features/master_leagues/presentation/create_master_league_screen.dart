@@ -10,7 +10,6 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../data/master_leagues_repository_firebase.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
-import '../logic/master_league_entitlement_service.dart';
 import '../logic/master_league_pricing_service.dart';
 import '../logic/master_leagues_providers.dart';
 
@@ -46,13 +45,6 @@ class _CreateMasterLeagueScreenState
     if (plan == MasterLeaguePlan.pro) return 2;
     if (plan == MasterLeaguePlan.elite) return 3;
     return 0;
-  }
-
-  bool _planSatisfies({
-    required MasterLeaguePlan actual,
-    required MasterLeaguePlan requested,
-  }) {
-    return _planOrder(actual) >= _planOrder(requested);
   }
 
   bool _canSelectPlan(MasterLeaguePlan plan) {
@@ -259,26 +251,6 @@ class _CreateMasterLeagueScreenState
     return result == true;
   }
 
-  Future<bool> _ensureOrganizerProActive(MasterLeaguePlan desiredPlan) async {
-    final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
-    final currentPlan = await entitlementSvc.getActivePlan(forceRefresh: true);
-
-    if (currentPlan != null &&
-        _planSatisfies(actual: currentPlan, requested: desiredPlan)) {
-      if (mounted) {
-        setState(() {
-          _activePlan = currentPlan;
-          if (_planOrder(_selectedPlan) < _planOrder(currentPlan)) {
-            _selectedPlan = currentPlan;
-          }
-        });
-      }
-      return true;
-    }
-
-    return true;
-  }
-
   Future<void> _create() async {
     if (_processing) return;
 
@@ -299,15 +271,8 @@ class _CreateMasterLeagueScreenState
 
     try {
       final repo = ref.read(masterLeaguesRepositoryProvider);
-      final desiredPlan = _selectedPlan;
+      final effectivePlan = _activePlan ?? _selectedPlan;
 
-      final activated = await _ensureOrganizerProActive(desiredPlan);
-      if (!activated) {
-        if (mounted) setState(() => _processing = false);
-        return;
-      }
-
-      final effectivePlan = _activePlan ?? desiredPlan;
       await repo.checkMasterLeagueLimitOrThrow(effectivePlan);
 
       final price = await _loadPriceForPlan(effectivePlan);
@@ -365,8 +330,6 @@ class _CreateMasterLeagueScreenState
       _showMessage('Master League created successfully.');
       context.go('/master-leagues/${created.id}');
     } on UserFriendlyException catch (e) {
-      _showMessage(e.message, error: true);
-    } on MasterLeagueEntitlementException catch (e) {
       _showMessage(e.message, error: true);
     } catch (e) {
       if (kDebugMode) {
@@ -508,31 +471,6 @@ class _CreateMasterLeagueScreenState
                                 ),
                               ),
                             ),
-                          if (_activePlan != null &&
-                              _planOrder(plan) > _planOrder(_activePlan))
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF59E0B).withOpacity(0.14),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color:
-                                      const Color(0xFFF59E0B).withOpacity(0.30),
-                                ),
-                              ),
-                              child: const Text(
-                                'UPGRADE',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.5,
-                                  color: Color(0xFFF59E0B),
-                                ),
-                              ),
-                            ),
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -650,7 +588,7 @@ class _CreateMasterLeagueScreenState
                       const SizedBox(height: 12),
                       if (_loadingEntitlement)
                         Text(
-                          'Checking subscription...',
+                          'Checking active plan...',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: cs.onSurface.withOpacity(0.70),
                             fontWeight: FontWeight.w800,

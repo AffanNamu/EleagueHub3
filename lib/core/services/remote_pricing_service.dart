@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -96,7 +97,8 @@ class RemotePricingPlan {
       organizerVerificationEnabled:
           organizerVerificationEnabled ?? this.organizerVerificationEnabled,
       organizerVerificationRenewalFee:
-          organizerVerificationRenewalFee ?? this.organizerVerificationRenewalFee,
+          organizerVerificationRenewalFee ??
+              this.organizerVerificationRenewalFee,
       organizerVerificationRenewalEnabled:
           organizerVerificationRenewalEnabled ??
               this.organizerVerificationRenewalEnabled,
@@ -332,9 +334,15 @@ class RemotePricingService {
   _RemotePricingCache? _cache;
 
   Future<DocumentSnapshot<Map<String, dynamic>>> _getPricingDoc() async {
-    final primary = await _firestore.collection('app_config').doc('pricing').get();
+    final primary = await _firestore
+        .collection('app_config')
+        .doc('pricing')
+        .get(const GetOptions(source: Source.server));
     if (primary.exists) return primary;
-    return _firestore.collection('app').doc('pricing').get();
+    return _firestore
+        .collection('app')
+        .doc('pricing')
+        .get(const GetOptions(source: Source.server));
   }
 
   Future<_RemotePricingCache> _fetch() async {
@@ -405,31 +413,82 @@ class RemotePricingService {
     final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
     final useNgn = forced.isNotEmpty
         ? _isNigeriaCountryCode(forced)
-        : (locale?.countryCode ?? '').trim().toUpperCase() == 'NG';
+        : (await CountryResolverService.instance.resolveCountryCode(
+                    locale: locale))
+                .trim()
+                .toUpperCase() ==
+            'NG';
 
-    yield* _firestore
+    yield* _watchPricingDocs().map((cache) => useNgn ? cache.ngn : cache.usd);
+  }
+
+  Stream<_RemotePricingCache> _watchPricingDocs() async* {
+    await for (final snap in _firestore
         .collection('app_config')
         .doc('pricing')
-        .snapshots(includeMetadataChanges: true)
-        .map((snap) {
-      final raw = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ngnMap =
-          (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final usdMap =
-          (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+        .snapshots(includeMetadataChanges: true)) {
+      if (snap.exists) {
+        final raw = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final ngnMap =
+            (raw['ngn'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+        final usdMap =
+            (raw['usd'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
-      final ngn = RemotePricingPlan.fromMap(
-        currency: 'NGN',
-        map: ngnMap,
-        defaults: RemotePricingPlan.defaultsNgn(),
-      );
-      final usd = RemotePricingPlan.fromMap(
-        currency: 'USD',
-        map: usdMap,
-        defaults: RemotePricingPlan.defaultsUsd(),
-      );
-      return useNgn ? ngn : usd;
-    });
+        final cache = _RemotePricingCache(
+          fetchedAt: DateTime.now(),
+          ngn: RemotePricingPlan.fromMap(
+            currency: 'NGN',
+            map: ngnMap,
+            defaults: RemotePricingPlan.defaultsNgn(),
+          ),
+          usd: RemotePricingPlan.fromMap(
+            currency: 'USD',
+            map: usdMap,
+            defaults: RemotePricingPlan.defaultsUsd(),
+          ),
+        );
+        _cache = cache;
+        yield cache;
+      } else {
+        try {
+          final fallback = await _firestore
+              .collection('app')
+              .doc('pricing')
+              .get(const GetOptions(source: Source.server));
+
+          final raw =
+              (fallback.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+          final ngnMap = (raw['ngn'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{};
+          final usdMap = (raw['usd'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{};
+
+          final cache = _RemotePricingCache(
+            fetchedAt: DateTime.now(),
+            ngn: RemotePricingPlan.fromMap(
+              currency: 'NGN',
+              map: ngnMap,
+              defaults: RemotePricingPlan.defaultsNgn(),
+            ),
+            usd: RemotePricingPlan.fromMap(
+              currency: 'USD',
+              map: usdMap,
+              defaults: RemotePricingPlan.defaultsUsd(),
+            ),
+          );
+          _cache = cache;
+          yield cache;
+        } catch (_) {
+          final cache = _RemotePricingCache(
+            fetchedAt: DateTime.now(),
+            ngn: RemotePricingPlan.defaultsNgn(),
+            usd: RemotePricingPlan.defaultsUsd(),
+          );
+          _cache = cache;
+          yield cache;
+        }
+      }
+    }
   }
 
   double _roundMoney(String currency, double v) {
@@ -482,14 +541,16 @@ class RemotePricingService {
 
     final threshold = plan.couponThreshold;
     final thresholdConfigured = threshold != null && threshold > 0;
-    final pct = (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
+    final pct =
+        (plan.couponDiscountPercent <= 0) ? 0 : plan.couponDiscountPercent;
 
     bool bulkApplied = false;
     double discountedSubtotalUnrounded = rawSubtotalUnrounded;
 
     if (thresholdConfigured && rawSubtotalUnrounded >= threshold!) {
       bulkApplied = true;
-      discountedSubtotalUnrounded = rawSubtotalUnrounded * ((100.0 - pct) / 100.0);
+      discountedSubtotalUnrounded =
+          rawSubtotalUnrounded * ((100.0 - pct) / 100.0);
     }
 
     return OrganizerCouponPricing(

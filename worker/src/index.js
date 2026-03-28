@@ -630,6 +630,9 @@ async function _readPricingConfig(env) {
       masterLeagueEliteFee: 5000,
       organizerVerificationFee: 10000,
       organizerVerificationEnabled: true,
+      organizerVerificationRenewalFee: 8000,
+      organizerVerificationRenewalEnabled: true,
+      organizerVerificationDurationDays: 90,
       paymentsEnabled: true,
       flutterwaveEnabled: true,
     },
@@ -647,12 +650,18 @@ async function _readPricingConfig(env) {
       masterLeagueEliteFee: 20.0,
       organizerVerificationFee: 15.0,
       organizerVerificationEnabled: true,
+      organizerVerificationRenewalFee: 12.0,
+      organizerVerificationRenewalEnabled: true,
+      organizerVerificationDurationDays: 90,
       paymentsEnabled: true,
       flutterwaveEnabled: true,
     },
   };
 
-  const result = await _firestoreGetDocSA(env, "app_config/pricing");
+  let result = await _firestoreGetDocSA(env, "app_config/pricing");
+  if (!result.ok || !result.doc || !result.doc.fields) {
+    result = await _firestoreGetDocSA(env, "app/pricing");
+  }
   if (!result.ok || !result.doc || !result.doc.fields) return defaults;
 
   const fields = result.doc.fields;
@@ -690,6 +699,16 @@ async function _readPricingConfig(env) {
         typeof raw.organizerVerificationEnabled === "boolean"
           ? raw.organizerVerificationEnabled
           : (typeof raw.verificationEnabled === "boolean" ? raw.verificationEnabled : dft.organizerVerificationEnabled),
+      organizerVerificationRenewalFee:
+        raw.organizerVerificationRenewalFee ?? raw.verificationRenewalFee ?? dft.organizerVerificationRenewalFee,
+      organizerVerificationRenewalEnabled:
+        typeof raw.organizerVerificationRenewalEnabled === "boolean"
+          ? raw.organizerVerificationRenewalEnabled
+          : (typeof raw.verificationRenewalEnabled === "boolean"
+              ? raw.verificationRenewalEnabled
+              : dft.organizerVerificationRenewalEnabled),
+      organizerVerificationDurationDays:
+        raw.organizerVerificationDurationDays ?? raw.verificationDurationDays ?? dft.organizerVerificationDurationDays,
       paymentsEnabled:
         typeof raw.paymentsEnabled === "boolean" ? raw.paymentsEnabled : dft.paymentsEnabled,
       flutterwaveEnabled:
@@ -831,12 +850,29 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
     }
   }
 
+  if (attemptProductType === "organizer_verification_renewal") {
+    if (!cfg.organizerVerificationRenewalEnabled) {
+      return { ok: false, status: 403, error: "Organizer verification renewal is currently disabled." };
+    }
+    const expected = Number(cfg.organizerVerificationRenewalFee || 0);
+    if (!(expected > 0)) {
+      return { ok: false, status: 403, error: "Organizer verification renewal pricing is not configured." };
+    }
+    if (!_moneyEqWithinTolerance(expected, Number(verify.amount || 0), verify.currency)) {
+      return {
+        ok: false,
+        status: 403,
+        error: `Organizer verification renewal amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
+      };
+    }
+  }
+
   const paidAtMs = Date.now();
   const paymentId = `flutterwave_${verify.txId}`;
   const receiptId = `FLW-${verify.txId}`;
   const attemptStatus = String(attempt.status || "").trim().toLowerCase();
 
-  if (attemptStatus === "fulfilled") {
+  if (attemptStatus === "fulfilled" || attemptStatus === "verified") {
     const existingPaymentRes = await _firestoreGetDocSA(env, `payments/${paymentId}`);
     if (existingPaymentRes.ok && existingPaymentRes.doc) {
       const existingPayment = _fromFirestoreDoc(existingPaymentRes.doc);
@@ -852,7 +888,7 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
         status: "success",
         currency: verify.currency,
         amount: Number(verify.amount || 0),
-        amountStr: String(attempt.amountStr || "").trim(),
+        amountStr: String(existingPayment.amountStr || attempt.amountStr || "").trim(),
         raw: verify.raw || {},
       };
     }
