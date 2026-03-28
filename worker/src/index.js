@@ -94,44 +94,130 @@ function kindFrom(body, roomName) {
 
 let _firebaseCertCache = { keysByKid: new Map(), expiresAtMs: 0 };
 
-function _base64UrlToBase64(input) {
-  const s = String(input || "").trim().replace(/-/g, "+").replace(/_/g, "/");
-  const padLen = (4 - (s.length % 4)) % 4;
-  return s + "=".repeat(padLen);
+// ============================================================
+// Safe base64 decoder — no atob() anywhere
+// ============================================================
+
+const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const B64_LOOKUP = new Uint8Array(256).fill(255);
+for (let i = 0; i < B64_CHARS.length; i++) {
+  B64_LOOKUP[B64_CHARS.charCodeAt(i)] = i;
+}
+B64_LOOKUP["=".charCodeAt(0)] = 0;
+
+function _safeBase64Decode(input) {
+  const str = String(input || "").trim();
+  if (!str) return new Uint8Array(0);
+
+  let b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  const padLen = (4 - (b64.length % 4)) % 4;
+  b64 += "=".repeat(padLen);
+  b64 = b64.replace(/[^A-Za-z0-9+/=]/g, "");
+
+  const len = b64.length;
+  const padChars = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  const outLen = (len * 3) / 4 - padChars;
+  const out = new Uint8Array(outLen);
+
+  let j = 0;
+  for (let i = 0; i < len; i += 4) {
+    const a = B64_LOOKUP[b64.charCodeAt(i)];
+    const b = B64_LOOKUP[b64.charCodeAt(i + 1)];
+    const c = B64_LOOKUP[b64.charCodeAt(i + 2)];
+    const d = B64_LOOKUP[b64.charCodeAt(i + 3)];
+    if (a === 255 || b === 255) continue;
+    if (j < outLen) out[j++] = (a << 2) | (b >> 4);
+    if (j < outLen) out[j++] = ((b & 0x0f) << 4) | (c >> 2);
+    if (j < outLen) out[j++] = ((c & 0x03) << 6) | d;
+  }
+
+  return out;
 }
 
 function _b64UrlToUint8Array(b64url) {
-  const base64 = _base64UrlToBase64(b64url);
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) {
-    bytes[i] = bin.charCodeAt(i);
-  }
-  return bytes;
+  return _safeBase64Decode(b64url);
 }
 
 function _uint8ArrayToB64Url(bytes) {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let bin = "";
-  for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  let result = "";
+  for (let i = 0; i < u8.length; i += 3) {
+    const a = u8[i];
+    const b = i + 1 < u8.length ? u8[i + 1] : 0;
+    const c = i + 2 < u8.length ? u8[i + 2] : 0;
+    result += B64_CHARS[(a >> 2) & 0x3f];
+    result += B64_CHARS[((a & 0x03) << 4) | ((b >> 4) & 0x0f)];
+    if (i + 1 < u8.length) {
+      result += B64_CHARS[((b & 0x0f) << 2) | ((c >> 6) & 0x03)];
+    }
+    if (i + 2 < u8.length) {
+      result += B64_CHARS[c & 0x3f];
+    }
+  }
+  return result.replace(/\+/g, "-").replace(/\//g, "_");
 }
 
 function _utf8ToB64Url(s) {
   return _uint8ArrayToB64Url(new TextEncoder().encode(String(s || "")));
 }
 
+// ============================================================
+// PEM to DER with proper ASN.1 extraction
+// ============================================================
+
 function _pemToDerBytes(pem) {
-  const lines = String(pem || "")
-    .trim()
-    .split("\n")
+  const raw = String(pem || "").trim();
+  if (!raw) throw new Error("Empty PEM input");
+
+  const lines = raw
+    .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("-----"));
-  const b64 = lines.join("");
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes.buffer;
+
+  const b64 = lines.join("").replace(/\s+/g, "");
+  if (!b64) throw new Error("No base64 content found in PEM");
+
+  const bytes = _safeBase64Decode(b64);
+  if (bytes.length === 0) throw new Error("PEM decoded to empty bytes");
+
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+// ============================================================
+// Strict PKCS8 DER parser — strips trailing bytes
+// ============================================================
+
+function _readAsn1Length(bytes, offset) {
+  if (offset >= bytes.length) throw new Error("ASN.1: unexpected end reading length");
+  const first = bytes[offset];
+  if (first < 0x80) {
+    return { length: first, bytesRead: 1 };
+  }
+  const numLenBytes = first & 0x7f;
+  if (numLenBytes === 0) throw new Error("ASN.1: indefinite length not supported");
+  if (numLenBytes > 4) throw new Error("ASN.1: length too large");
+  let len = 0;
+  for (let i = 0; i < numLenBytes; i++) {
+    if (offset + 1 + i >= bytes.length) throw new Error("ASN.1: unexpected end in length bytes");
+    len = (len << 8) | bytes[offset + 1 + i];
+  }
+  return { length: len, bytesRead: 1 + numLenBytes };
+}
+
+function _extractExactPkcs8Der(derBuffer) {
+  const bytes = new Uint8Array(derBuffer);
+  if (bytes.length < 4) return derBuffer;
+
+  if (bytes[0] !== 0x30) return derBuffer;
+
+  const { length: seqLen, bytesRead } = _readAsn1Length(bytes, 1);
+  const totalValidLen = 1 + bytesRead + seqLen;
+
+  if (totalValidLen >= bytes.length) return derBuffer;
+
+  console.log(`[PKCS8] Stripping ${bytes.length - totalValidLen} trailing bytes (had ${bytes.length}, valid ${totalValidLen})`);
+  const clean = bytes.slice(0, totalValidLen);
+  return clean.buffer.slice(clean.byteOffset, clean.byteOffset + clean.byteLength);
 }
 
 function _extractSpkiFromX509Der(derBuffer) {
@@ -245,13 +331,31 @@ async function _loadFirebaseCerts() {
 }
 
 function _decodeJwtParts(token) {
-  const parts = String(token || "").split(".");
-  if (parts.length !== 3) throw new Error("Invalid JWT format");
+  const raw = String(token || "").trim();
+  const parts = raw.split(".");
+  if (parts.length !== 3) throw new Error("Invalid JWT format: expected 3 parts, got " + parts.length);
 
-  const headerJson = new TextDecoder().decode(_b64UrlToUint8Array(parts[0]));
-  const payloadJson = new TextDecoder().decode(_b64UrlToUint8Array(parts[1]));
-  const header = JSON.parse(headerJson);
-  const payload = JSON.parse(payloadJson);
+  const headerBytes = _b64UrlToUint8Array(parts[0]);
+  const payloadBytes = _b64UrlToUint8Array(parts[1]);
+
+  if (headerBytes.length === 0) throw new Error("JWT header decoded to empty");
+  if (payloadBytes.length === 0) throw new Error("JWT payload decoded to empty");
+
+  const headerJson = new TextDecoder().decode(headerBytes);
+  const payloadJson = new TextDecoder().decode(payloadBytes);
+
+  let header, payload;
+  try {
+    header = JSON.parse(headerJson);
+  } catch (e) {
+    throw new Error("JWT header is not valid JSON: " + e.message);
+  }
+  try {
+    payload = JSON.parse(payloadJson);
+  } catch (e) {
+    throw new Error("JWT payload is not valid JSON: " + e.message);
+  }
+
   const signature = _b64UrlToUint8Array(parts[2]);
   const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
 
@@ -277,6 +381,15 @@ async function _verifyFirebaseIdToken(env, request) {
 
   const token = m[1].trim();
   if (!token) return { ok: false, status: 401, error: "Empty bearer token" };
+
+  const dotCount = (token.match(/\./g) || []).length;
+  if (dotCount !== 2) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Invalid token format: not a valid JWT",
+    };
+  }
 
   let decoded;
   try {
@@ -374,11 +487,14 @@ async function _importServiceAccountSigningKey(env) {
   if (_saSigningKeyCache.key && _saSigningKeyCache.forEmail === email) {
     return _saSigningKeyCache.key;
   }
+
   const pem = _serviceAccountPrivateKeyPem(env);
-  const der = _pemToDerBytes(pem);
+  const rawDer = _pemToDerBytes(pem);
+  const cleanDer = _extractExactPkcs8Der(rawDer);
+
   const key = await crypto.subtle.importKey(
     "pkcs8",
-    der,
+    cleanDer,
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["sign"]
@@ -867,10 +983,28 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
     return { ok: false, status: 403, error: "Flutterwave is currently disabled." };
   }
 
+  // ============================================================
+  // FIXED: Email mismatch — log for audit, do NOT block payment.
+  //
+  // Security is already enforced by:
+  //   1. Firebase ID token verified (user is authenticated)
+  //   2. payment_attempt.userId === verified.uid (attempt belongs to user)
+  //   3. Amount and currency match exactly
+  //   4. Flutterwave transaction verified as successful
+  //
+  // Users legitimately pay with a different email than their
+  // Firebase login (e.g. Google sign-in vs personal email on
+  // Flutterwave). The payment document is always created under
+  // the correct Firebase UID regardless of Flutterwave email.
+  // ============================================================
   const firebaseEmail = (verified.email || "").trim().toLowerCase();
   const flwEmail = (verify.customerEmail || "").trim().toLowerCase();
-  if (firebaseEmail && flwEmail && !flwEmail.endsWith("@eleaguehub.app") && firebaseEmail !== flwEmail) {
-    return { ok: false, status: 403, error: "Email mismatch." };
+  if (firebaseEmail && flwEmail && firebaseEmail !== flwEmail) {
+    console.warn(
+      `[email-mismatch] firebase=${firebaseEmail} flw=${flwEmail} uid=${verified.uid} attempt=${attemptId} tx=${transactionId}`
+    );
+    // Mismatch is logged for audit trail but payment proceeds.
+    // The Firestore document is created for verified.uid (the authenticated Firebase user).
   }
 
   if (txRefFromClient && verify.txRef && txRefFromClient !== verify.txRef) {
@@ -993,6 +1127,8 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
     paidAtMs,
     createdAtMs: paidAtMs,
     updatedAtMs: paidAtMs,
+    firebaseEmail: firebaseEmail,
+    flutterwaveEmail: flwEmail,
     verification: {
       mode: "server",
       verified: true,
@@ -1193,90 +1329,94 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/" && request.method === "POST") {
-      if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
-        return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
-      }
-
-      let body;
       try {
-        body = await request.json();
-      } catch {
-        return jsonResponse({ error: "Invalid JSON" }, 400);
+        if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+          return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
+        }
+
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
+
+        const userId = (body.userId || "").toString().trim();
+        const role = (body.role || "participant").toString().trim();
+        const side = (body.side || "").toString().trim();
+        const roomName = resolveRoomName(body);
+
+        if (!userId) return jsonResponse({ error: "userId required" }, 400);
+        if (!roomName) {
+          return jsonResponse(
+            { error: "One of leagueId, matchId, callId, or roomName is required" },
+            400
+          );
+        }
+
+        const kind = kindFrom(body, roomName);
+        const metadata = JSON.stringify({
+          role: role || "participant",
+          side: side || null,
+          leagueId: (body.leagueId || "").toString().trim() || null,
+          matchId: (body.matchId || "").toString().trim() || null,
+          callId: (body.callId || "").toString().trim() || null,
+          kind,
+        });
+
+        const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
+          identity: userId,
+          ttl: "2h",
+          metadata,
+        });
+        at.addGrant({
+          room: roomName,
+          roomJoin: true,
+          canSubscribe: true,
+          canPublishData: true,
+          canPublish: true,
+          roomAdmin: role === "host",
+        });
+
+        return jsonResponse({
+          token: await at.toJwt(),
+          url: env.LIVEKIT_URL,
+          roomName,
+          role,
+          kind,
+        });
+      } catch (e) {
+        return jsonResponse({ error: "LiveKit token error: " + (e.message || String(e)) }, 500);
       }
-
-      const userId = (body.userId || "").toString().trim();
-      const role = (body.role || "participant").toString().trim();
-      const side = (body.side || "").toString().trim();
-      const roomName = resolveRoomName(body);
-
-      if (!userId) return jsonResponse({ error: "userId required" }, 400);
-      if (!roomName) {
-        return jsonResponse(
-          { error: "One of leagueId, matchId, callId, or roomName is required" },
-          400
-        );
-      }
-
-      const kind = kindFrom(body, roomName);
-      const metadata = JSON.stringify({
-        role: role || "participant",
-        side: side || null,
-        leagueId: (body.leagueId || "").toString().trim() || null,
-        matchId: (body.matchId || "").toString().trim() || null,
-        callId: (body.callId || "").toString().trim() || null,
-        kind,
-      });
-
-      const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
-        identity: userId,
-        ttl: "2h",
-        metadata,
-      });
-      at.addGrant({
-        room: roomName,
-        roomJoin: true,
-        canSubscribe: true,
-        canPublishData: true,
-        canPublish: true,
-        roomAdmin: role === "host",
-      });
-
-      return jsonResponse({
-        token: await at.toJwt(),
-        url: env.LIVEKIT_URL,
-        roomName,
-        role,
-        kind,
-      });
     }
 
     if (url.pathname === "/admin" && request.method === "POST") {
-      if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
-        return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
-      }
-
-      let body;
       try {
-        body = await request.json();
-      } catch {
-        return jsonResponse({ error: "Invalid JSON" }, 400);
-      }
+        if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+          return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
+        }
 
-      const action = (body.action || "").toString().trim();
-      const targetUserId = (body.targetUserId || "").toString().trim();
-      const roomName = resolveRoomName(body);
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
 
-      if (!action || !targetUserId) {
-        return jsonResponse({ error: "action, targetUserId required" }, 400);
-      }
-      if (!roomName) {
-        return jsonResponse(
-          { error: "One of leagueId, matchId, callId, or roomName is required" },
-          400
-        );
-      }
+        const action = (body.action || "").toString().trim();
+        const targetUserId = (body.targetUserId || "").toString().trim();
+        const roomName = resolveRoomName(body);
 
-      try {
+        if (!action || !targetUserId) {
+          return jsonResponse({ error: "action, targetUserId required" }, 400);
+        }
+        if (!roomName) {
+          return jsonResponse(
+            { error: "One of leagueId, matchId, callId, or roomName is required" },
+            400
+          );
+        }
+
         if (action === "mute") {
           return jsonResponse({
             ok: true,
@@ -1293,94 +1433,95 @@ export default {
         }
         return jsonResponse({ error: "Unsupported action" }, 400);
       } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
+        return jsonResponse({ error: "Admin error: " + (e.message || String(e)) }, 500);
       }
     }
 
     if (url.pathname === "/flutterwave/verify" && request.method === "POST") {
-      let verified;
       try {
-        verified = await _verifyFirebaseIdToken(env, request);
-      } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
-      }
-      if (!verified.ok) {
-        return jsonResponse({ error: verified.error }, verified.status || 401);
-      }
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
 
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return jsonResponse({ error: "Invalid JSON" }, 400);
-      }
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
 
-      try {
         const out = await _verifyMasterLeaguePayment(env, verified, body || {});
         return out.ok
           ? jsonResponse(out, 200)
           : jsonResponse({ error: out.error }, out.status || 400);
       } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
+        console.error("[flutterwave/verify] Unhandled:", e.message || String(e), e.stack || "");
+        return jsonResponse({ error: "Payment verification error: " + (e.message || String(e)) }, 500);
       }
     }
 
     if (url.pathname === "/organizer-pro/activate" && request.method === "POST") {
-      let verified;
       try {
-        verified = await _verifyFirebaseIdToken(env, request);
-      } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
-      }
-      if (!verified.ok) {
-        return jsonResponse({ error: verified.error }, verified.status || 401);
-      }
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
 
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return jsonResponse({ error: "Invalid JSON" }, 400);
-      }
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
 
-      try {
         const out = await _activateOrganizerPro(env, verified, body || {});
         return out.ok
           ? jsonResponse(out, 200)
           : jsonResponse({ error: out.error }, out.status || 400);
       } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
+        return jsonResponse({ error: "Organizer Pro error: " + (e.message || String(e)) }, 500);
       }
     }
 
     if (url.pathname === "/premium/activate" && request.method === "POST") {
-      let verified;
       try {
-        verified = await _verifyFirebaseIdToken(env, request);
-      } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
-      }
-      if (!verified.ok) {
-        return jsonResponse({ error: verified.error }, verified.status || 401);
-      }
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
 
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return jsonResponse({ error: "Invalid JSON" }, 400);
-      }
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
 
-      try {
         const out = await _activatePremium(env, verified, body || {});
         return out.ok
           ? jsonResponse(out, 200)
           : jsonResponse({ error: out.error }, out.status || 400);
       } catch (e) {
-        return jsonResponse({ error: e.message || String(e) }, 500);
+        return jsonResponse({ error: "Premium error: " + (e.message || String(e)) }, 500);
       }
     }
 
-    return textResponse("Not found", 404);
+    return jsonResponse({ error: "Not found", path: url.pathname }, 404);
   },
 };
