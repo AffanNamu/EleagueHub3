@@ -26,10 +26,10 @@ class _CreateMasterLeagueScreenState
     extends ConsumerState<CreateMasterLeagueScreen> {
   final _masterLeagueNameCtrl = TextEditingController();
   final _competitionNameCtrl = TextEditingController();
-  final _rewardsPlanCtrl = TextEditingController();
 
   bool _processing = false;
   bool _loadingEntitlement = true;
+  bool _enableRewards = false;
 
   MasterLeaguePlan _selectedPlan = MasterLeaguePlan.pro;
   MasterLeaguePlan? _activePlan;
@@ -87,7 +87,6 @@ class _CreateMasterLeagueScreenState
   void dispose() {
     _masterLeagueNameCtrl.dispose();
     _competitionNameCtrl.dispose();
-    _rewardsPlanCtrl.dispose();
     super.dispose();
   }
 
@@ -125,15 +124,11 @@ class _CreateMasterLeagueScreenState
       return null;
     }
 
-    final rewardsPlan = _rewardsPlanCtrl.text.trim();
-    final hasRewards =
-        rewardsPlan.isNotEmpty && rewardsPlan.toLowerCase() != 'no rewards';
-
     return MasterLeagueCompetitionDraft(
       name: competitionName,
       entryFee: 0,
-      maxParticipants: 0,
-      currency: hasRewards ? rewardsPlan : 'NONE',
+      maxParticipants: 2,
+      currency: _enableRewards ? 'REWARDS_ENABLED' : 'NONE',
     );
   }
 
@@ -141,9 +136,9 @@ class _CreateMasterLeagueScreenState
     required MasterLeaguePrice? price,
     required bool preferNgn,
     required MasterLeaguePlan plan,
-    required bool isUpgrade,
     required String masterLeagueName,
-    required MasterLeagueCompetitionDraft competition,
+    required String competitionName,
+    required bool rewardsEnabled,
   }) async {
     if (!mounted) return false;
 
@@ -153,13 +148,8 @@ class _CreateMasterLeagueScreenState
     final String priceLine =
         price != null ? 'Workspace fee: ${price.display}' : 'Workspace fee unavailable';
     final String planLine = 'Plan: ${plan.displayName}';
-    final rewardsText = competition.currency.trim().isEmpty ||
-            competition.currency.trim().toUpperCase() == 'NONE'
-        ? 'No rewards specified yet'
-        : competition.currency.trim();
-
     final String competitionLine =
-        'First competition: ${competition.name} • Rewards: $rewardsText';
+        'First competition: $competitionName • Rewards: ${rewardsEnabled ? 'Enabled' : 'Disabled'}';
 
     final actualCurrency = (price?.currency ?? '').trim().toUpperCase();
     final String? warning =
@@ -181,7 +171,7 @@ class _CreateMasterLeagueScreenState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  isUpgrade ? 'Proceed to Payment' : 'Proceed to Payment',
+                  'Proceed to Payment',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: cs.onSurface,
@@ -330,9 +320,9 @@ class _CreateMasterLeagueScreenState
         price: price,
         preferNgn: preferNgn,
         plan: effectivePlan,
-        isUpgrade: false,
         masterLeagueName: masterLeagueName,
-        competition: competition,
+        competitionName: competition.name,
+        rewardsEnabled: _enableRewards,
       );
 
       if (!shouldProceed) {
@@ -565,7 +555,7 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  Widget _infoCard(ThemeData theme, ColorScheme cs) {
+  Widget _noteCard(ThemeData theme, ColorScheme cs) {
     return Glass(
       borderRadius: 22,
       padding: const EdgeInsets.all(14),
@@ -573,7 +563,7 @@ class _CreateMasterLeagueScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Suggested setup',
+            'Note',
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w900,
               color: cs.onSurface,
@@ -581,30 +571,9 @@ class _CreateMasterLeagueScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            'Instead of charging participants through the app, let organizers describe their reward structure clearly. Example: "Winner gets cash prize", "Top 3 get medals", or "No rewards yet".',
+            'Use this screen to create your organizer workspace and first competition. If rewards are enabled, you will complete the full reward setup later inside the competition using your built-in rewards system.',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.70),
-              fontWeight: FontWeight.w700,
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'My suggestion:',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.primary,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '• Keep workspace creation payment as your platform fee.\n'
-            '• Remove participant entry fee from this screen.\n'
-            '• Replace it with "Rewards plan".\n'
-            '• Let organizers decide later per competition whether rewards exist.\n'
-            '• In future, add a separate optional competition reward builder.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.74),
+              color: cs.onSurface.withOpacity(0.72),
               fontWeight: FontWeight.w700,
               height: 1.35,
             ),
@@ -671,7 +640,7 @@ class _CreateMasterLeagueScreenState
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Fill in your Master League and first competition details. Payment will be collected first, then the Master League will be created after secure verification.',
+                        'Enter a workspace name and first competition name. Rewards can be enabled here and fully configured later inside your competition reward system.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: cs.onSurface.withOpacity(0.70),
                           fontWeight: FontWeight.w600,
@@ -717,29 +686,33 @@ class _CreateMasterLeagueScreenState
                       TextField(
                         controller: _competitionNameCtrl,
                         enabled: !_processing,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'First Competition Name',
-                          prefixIcon: Icon(Icons.emoji_events_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _rewardsPlanCtrl,
-                        enabled: !_processing,
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => _create(),
                         decoration: const InputDecoration(
-                          labelText: 'Rewards Plan',
-                          hintText: 'Example: Winner gets cash prize',
-                          prefixIcon: Icon(Icons.card_giftcard_outlined),
+                          labelText: 'Competition Name',
+                          prefixIcon: Icon(Icons.emoji_events_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SwitchListTile.adaptive(
+                        value: _enableRewards,
+                        onChanged: _processing
+                            ? null
+                            : (v) => setState(() => _enableRewards = v),
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Enable rewards for first competition',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                        subtitle: const Text(
+                          'Full reward details will be configured later inside the competition.',
                         ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 14),
-                _infoCard(theme, cs),
+                _noteCard(theme, cs),
                 const SizedBox(height: 14),
                 Padding(
                   padding: const EdgeInsets.only(left: 4, bottom: 10),
