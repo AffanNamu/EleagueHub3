@@ -86,7 +86,7 @@ class OrganizerProfile {
       bannerUrl: bannerUrl ?? this.bannerUrl,
       logoUrl: logoUrl ?? this.logoUrl,
       bio: bio ?? this.bio,
-      socialLinks: socialLinks ?? this.socialLinks,
+      socialLinks: socialLinks ?? Map<String, String>.from(this.socialLinks),
       badge: badge ?? this.badge,
     );
   }
@@ -109,7 +109,7 @@ class OrganizerProfile {
       bannerUrl: (map['bannerUrl'] as String? ?? '').trim(),
       logoUrl: (map['logoUrl'] as String? ?? '').trim(),
       bio: (map['bio'] as String? ?? '').trim(),
-      socialLinks: links,
+      socialLinks: Map<String, String>.from(links),
       badge: (map['badge'] as String? ?? '').trim(),
     );
   }
@@ -237,8 +237,8 @@ class MasterLeague {
   }
 
   static Map<String, String> _asStringMap(dynamic v) {
+    final out = <String, String>{};
     if (v is Map) {
-      final out = <String, String>{};
       for (final entry in v.entries) {
         final k = entry.key.toString().trim();
         final val = entry.value?.toString().trim() ?? '';
@@ -246,9 +246,8 @@ class MasterLeague {
           out[k] = val;
         }
       }
-      return out;
     }
-    return const <String, String>{};
+    return out;
   }
 
   static String _readOwnerId(Map<String, dynamic> map) {
@@ -299,8 +298,8 @@ class MasterLeague {
       id: id.trim(),
       name: (map['name'] as String? ?? '').trim(),
       ownerId: ownerId,
-      memberIds: _readMemberIds(map, ownerId),
-      roles: _readRoles(map, ownerId),
+      memberIds: List<String>.from(_readMemberIds(map, ownerId)),
+      roles: Map<String, String>.from(_readRoles(map, ownerId)),
       updatedAtMs: _asInt(map['updatedAtMs']),
       plan: _planFromId(planId),
       createdAt: map['createdAt'] is Timestamp ? map['createdAt'] as Timestamp : null,
@@ -315,7 +314,7 @@ class MasterLeague {
           ? MasterLeagueCompetitionDraft.fromMap(initialRaw)
           : (initialRaw is Map
               ? MasterLeagueCompetitionDraft.fromMap(
-                  initialRaw.cast<String, dynamic>(),
+                  Map<String, dynamic>.from(initialRaw),
                 )
               : null),
       verificationStatus: (map['verificationStatus'] as String? ?? 'none').trim(),
