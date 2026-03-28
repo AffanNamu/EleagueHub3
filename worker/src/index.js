@@ -10,12 +10,19 @@ const CORS_HEADERS = {
 function jsonResponse(obj, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { ...CORS_HEADERS, "content-type": "application/json", ...extraHeaders },
+    headers: {
+      ...CORS_HEADERS,
+      "content-type": "application/json",
+      ...extraHeaders,
+    },
   });
 }
 
 function textResponse(text, status = 200, extraHeaders = {}) {
-  return new Response(text, { status, headers: { ...CORS_HEADERS, ...extraHeaders } });
+  return new Response(text, {
+    status,
+    headers: { ...CORS_HEADERS, ...extraHeaders },
+  });
 }
 
 function sanitizeRoomTokenPart(s) {
@@ -87,14 +94,19 @@ function kindFrom(body, roomName) {
 
 let _firebaseCertCache = { keysByKid: new Map(), expiresAtMs: 0 };
 
+function _base64UrlToBase64(input) {
+  const s = String(input || "").trim().replace(/-/g, "+").replace(/_/g, "/");
+  const padLen = (4 - (s.length % 4)) % 4;
+  return s + "=".repeat(padLen);
+}
+
 function _b64UrlToUint8Array(b64url) {
-  const s = String(b64url || "")
-    .replace(/-/g, "+")
-    .replace(/_/g, "/")
-    .padEnd(Math.ceil(String(b64url || "").length / 4) * 4, "=");
-  const bin = atob(s);
+  const base64 = _base64UrlToBase64(b64url);
+  const bin = atob(base64);
   const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
   return bytes;
 }
 
@@ -235,14 +247,14 @@ async function _loadFirebaseCerts() {
 function _decodeJwtParts(token) {
   const parts = String(token || "").split(".");
   if (parts.length !== 3) throw new Error("Invalid JWT format");
-  const header = JSON.parse(
-    new TextDecoder().decode(_b64UrlToUint8Array(parts[0]))
-  );
-  const payload = JSON.parse(
-    new TextDecoder().decode(_b64UrlToUint8Array(parts[1]))
-  );
+
+  const headerJson = new TextDecoder().decode(_b64UrlToUint8Array(parts[0]));
+  const payloadJson = new TextDecoder().decode(_b64UrlToUint8Array(parts[1]));
+  const header = JSON.parse(headerJson);
+  const payload = JSON.parse(payloadJson);
   const signature = _b64UrlToUint8Array(parts[2]);
   const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+
   return { header, payload, signature, signingInput };
 }
 
@@ -269,8 +281,12 @@ async function _verifyFirebaseIdToken(env, request) {
   let decoded;
   try {
     decoded = _decodeJwtParts(token);
-  } catch (_) {
-    return { ok: false, status: 401, error: "Invalid token (decode failed)" };
+  } catch (e) {
+    return {
+      ok: false,
+      status: 401,
+      error: `Invalid token (decode failed): ${e.message || String(e)}`,
+    };
   }
 
   const { header, payload, signature, signingInput } = decoded;
@@ -307,7 +323,7 @@ async function _verifyFirebaseIdToken(env, request) {
     return {
       ok: false,
       status: 503,
-      error: "Unable to load Firebase public keys: " + e.message,
+      error: "Unable to load Firebase public keys: " + (e.message || String(e)),
     };
   }
 
@@ -374,11 +390,7 @@ async function _importServiceAccountSigningKey(env) {
 async function _signRs256(env, signingInputUtf8) {
   const key = await _importServiceAccountSigningKey(env);
   const data = new TextEncoder().encode(String(signingInputUtf8 || ""));
-  const sig = await crypto.subtle.sign(
-    { name: "RSASSA-PKCS1-v1_5" },
-    key,
-    data
-  );
+  const sig = await crypto.subtle.sign({ name: "RSASSA-PKCS1-v1_5" }, key, data);
   return _uint8ArrayToB64Url(new Uint8Array(sig));
 }
 
@@ -661,7 +673,9 @@ async function _verifyFlutterwaveTransactionGeneric(env, transactionId) {
 async function _verifyFlutterwaveTransaction(env, transactionId) {
   const result = await _verifyFlutterwaveTransactionGeneric(env, transactionId);
   if (!result.ok) {
-    throw new Error(`Flutterwave transaction not successful (status=${result.topStatus}, data.status=${result.paymentStatus})`);
+    throw new Error(
+      `Flutterwave transaction not successful (status=${result.topStatus}, data.status=${result.paymentStatus})`
+    );
   }
   if (!result.currency || !["NGN", "USD"].includes(result.currency)) {
     throw new Error("Unsupported currency");
@@ -1031,7 +1045,7 @@ async function _activateOrganizerPro(env, verified, body) {
     return { ok: false, status: 400, error: "receiptId is required." };
   }
 
-  const txId = _extractFlutterwaveTxIdFromReceipt(receiptId);
+  const txId = receiptId.startsWith("FLW-") ? receiptId.slice(4).trim() : receiptId;
   if (!txId) {
     return { ok: false, status: 400, error: "Invalid receiptId." };
   }
@@ -1114,7 +1128,7 @@ async function _activatePremium(env, verified, body) {
     return { ok: false, status: 400, error: "receiptId is required." };
   }
 
-  const txId = _extractFlutterwaveTxIdFromReceipt(receiptId);
+  const txId = receiptId.startsWith("FLW-") ? receiptId.slice(4).trim() : receiptId;
   if (!txId) {
     return { ok: false, status: 400, error: "Invalid receiptId." };
   }
