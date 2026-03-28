@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,11 +11,55 @@ import '../domain/master_league.dart';
 import '../logic/master_leagues_providers.dart';
 import 'widgets/master_league_card.dart';
 
-class MasterLeaguesListScreen extends ConsumerWidget {
+class MasterLeaguesListScreen extends ConsumerStatefulWidget {
   const MasterLeaguesListScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MasterLeaguesListScreen> createState() =>
+      _MasterLeaguesListScreenState();
+}
+
+class _MasterLeaguesListScreenState
+    extends ConsumerState<MasterLeaguesListScreen> {
+  bool _createdTimedOut = false;
+  bool _joinedTimedOut = false;
+
+  Timer? _createdTimer;
+  Timer? _joinedTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimeouts();
+  }
+
+  void _startTimeouts() {
+    _createdTimer?.cancel();
+    _joinedTimer?.cancel();
+
+    _createdTimedOut = false;
+    _joinedTimedOut = false;
+
+    _createdTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      setState(() => _createdTimedOut = true);
+    });
+
+    _joinedTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      setState(() => _joinedTimedOut = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _createdTimer?.cancel();
+    _joinedTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
@@ -79,17 +125,75 @@ class MasterLeaguesListScreen extends ConsumerWidget {
       );
     }
 
-    Widget safeErrorCard(String title) {
+    Widget safeMessageCard({
+      required String title,
+      bool error = false,
+    }) {
       return Glass(
         borderRadius: 22,
         padding: const EdgeInsets.all(16),
         child: Text(
           title,
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: cs.error,
+            color: error ? cs.error : cs.onSurface.withOpacity(0.82),
             fontWeight: FontWeight.w900,
           ),
         ),
+      );
+    }
+
+    Widget createdSection() {
+      return createdAsync.when(
+        loading: () {
+          if (_createdTimedOut) {
+            return const EmptyState(
+              title: 'No Master Leagues yet',
+              message:
+                  'If you have not created any organizer workspace yet, this is normal.',
+              icon: Icons.hub_rounded,
+            );
+          }
+          return loadingCard();
+        },
+        error: (_, __) => const EmptyState(
+          title: 'No Master Leagues yet',
+          message: 'You have not created any organizer workspace yet.',
+          icon: Icons.hub_rounded,
+        ),
+        data: buildMasterLeagueList,
+      );
+    }
+
+    Widget joinedSection() {
+      return joinedAsync.when(
+        loading: () {
+          if (_joinedTimedOut) {
+            return const EmptyState(
+              title: 'No joined workspaces',
+              message:
+                  'When you are added to an organizer workspace, it will appear here.',
+              icon: Icons.groups_outlined,
+            );
+          }
+          return loadingCard();
+        },
+        error: (_, __) => const EmptyState(
+          title: 'No joined workspaces',
+          message:
+              'When you are added to an organizer workspace, it will appear here.',
+          icon: Icons.groups_outlined,
+        ),
+        data: (items) {
+          if (items.isEmpty) {
+            return const EmptyState(
+              title: 'No joined workspaces',
+              message:
+                  'When you are added to an organizer workspace, it will appear here.',
+              icon: Icons.groups_outlined,
+            );
+          }
+          return buildMasterLeagueList(items);
+        },
       );
     }
 
@@ -120,6 +224,7 @@ class MasterLeaguesListScreen extends ConsumerWidget {
                 ref.invalidate(createdMasterLeaguesProvider);
                 ref.invalidate(joinedMasterLeaguesProvider);
                 ref.invalidate(organizerProActivePlanProvider);
+                _startTimeouts();
                 await Future<void>.delayed(const Duration(milliseconds: 250));
               },
               child: ListView(
@@ -172,7 +277,9 @@ class MasterLeaguesListScreen extends ConsumerWidget {
                                 ? 'No active Organizer Pro plan detected.'
                                 : 'Active plan: ${plan.displayName}',
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: plan == null ? cs.onSurface.withOpacity(0.68) : cs.primary,
+                              color: plan == null
+                                  ? cs.onSurface.withOpacity(0.68)
+                                  : cs.primary,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
@@ -186,13 +293,7 @@ class MasterLeaguesListScreen extends ConsumerWidget {
                     'Created by You',
                     'Master Leagues you own and manage.',
                   ),
-                  createdAsync.when(
-                    loading: () => loadingCard(),
-                    error: (_, __) => safeErrorCard(
-                      'Unable to load your created Master Leagues right now.',
-                    ),
-                    data: buildMasterLeagueList,
-                  ),
+                  createdSection(),
 
                   const SizedBox(height: 20),
 
@@ -200,22 +301,12 @@ class MasterLeaguesListScreen extends ConsumerWidget {
                     'Joined Workspaces',
                     'Master Leagues where you are a member, admin, or moderator.',
                   ),
-                  joinedAsync.when(
-                    loading: () => loadingCard(),
-                    error: (_, __) => safeErrorCard(
-                      'Unable to load joined Master Leagues right now.',
-                    ),
-                    data: (items) {
-                      if (items.isEmpty) {
-                        return const EmptyState(
-                          title: 'No joined workspaces',
-                          message:
-                              'When you are added to an organizer workspace, it will appear here.',
-                          icon: Icons.groups_outlined,
-                        );
-                      }
-                      return buildMasterLeagueList(items);
-                    },
+                  joinedSection(),
+
+                  const SizedBox(height: 18),
+                  safeMessageCard(
+                    title:
+                        'If you have never created or joined a Master League before, seeing empty sections here is normal.',
                   ),
                 ],
               ),

@@ -153,13 +153,11 @@ class MasterLeaguesRepositoryFirebase {
     );
   }
 
-  CollectionReference<Map<String, dynamic>> _followersCol(
-      String masterLeagueId) {
+  CollectionReference<Map<String, dynamic>> _followersCol(String masterLeagueId) {
     return _col.doc(masterLeagueId.trim()).collection('followers');
   }
 
-  CollectionReference<Map<String, dynamic>> _templatesCol(
-      String masterLeagueId) {
+  CollectionReference<Map<String, dynamic>> _templatesCol(String masterLeagueId) {
     return _col.doc(masterLeagueId.trim()).collection('competition_templates');
   }
 
@@ -167,12 +165,13 @@ class MasterLeaguesRepositoryFirebase {
     try {
       final uid = _requireAuthUid();
 
-      return _col
-          .where('memberIds', arrayContains: uid)
-          .snapshots(includeMetadataChanges: true)
-          .map((snap) {
+      return _col.snapshots(includeMetadataChanges: true).map((snap) {
         final list = snap.docs
             .map((d) => MasterLeague.fromMap(d.id, d.data()))
+            .where((ml) =>
+                ml.ownerId.trim() == uid ||
+                ml.memberIds.contains(uid) ||
+                ml.roles.containsKey(uid))
             .toList(growable: false);
 
         final sorted = [...list];
@@ -200,13 +199,12 @@ class MasterLeaguesRepositoryFirebase {
     try {
       final uid = _requireAuthUid();
 
-      return _col
-          .where('ownerId', isEqualTo: uid)
-          .snapshots(includeMetadataChanges: true)
-          .map((snap) {
+      return _col.snapshots(includeMetadataChanges: true).map((snap) {
         final list = snap.docs
             .map((d) => MasterLeague.fromMap(d.id, d.data()))
+            .where((ml) => ml.ownerId.trim() == uid)
             .toList(growable: false);
+
         list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
         return list;
       }).handleError((error, st) {
@@ -221,14 +219,14 @@ class MasterLeaguesRepositoryFirebase {
     try {
       final uid = _requireAuthUid();
 
-      return _col
-          .where('memberIds', arrayContains: uid)
-          .snapshots(includeMetadataChanges: true)
-          .map((snap) {
+      return _col.snapshots(includeMetadataChanges: true).map((snap) {
         final list = snap.docs
             .map((d) => MasterLeague.fromMap(d.id, d.data()))
-            .where((ml) => ml.ownerId.trim() != uid)
+            .where((ml) =>
+                ml.ownerId.trim() != uid &&
+                (ml.memberIds.contains(uid) || ml.roles.containsKey(uid)))
             .toList(growable: false);
+
         list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
         return list;
       }).handleError((error, st) {
@@ -880,30 +878,6 @@ class MasterLeaguesRepositoryFirebase {
       throw UserFriendlyException(
         'You have reached the limit of ${plan.maxMasterLeagues} master league${plan.maxMasterLeagues == 1 ? '' : 's'} for the ${plan.displayName} plan. Upgrade to a higher plan to create more.',
       );
-    }
-  }
-
-  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
-    try {
-      final uid = _requireAuthUid();
-      final id = masterLeagueId.trim();
-      if (id.isEmpty) {
-        throw const UserFriendlyException("We couldn't find that Master League.");
-      }
-
-      final ml = await getById(id);
-      if (ml == null) {
-        throw const UserFriendlyException("We couldn't find that Master League.");
-      }
-      if (ml.ownerId.trim() != uid) {
-        throw const UserFriendlyException(
-          'Only the Master League owner can create competitions.',
-        );
-      }
-
-      return;
-    } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
 
@@ -1736,6 +1710,32 @@ class MasterLeaguesRepositoryFirebase {
       } catch (_) {}
 
       await _col.doc(id).delete().timeout(const Duration(seconds: 15));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<void> checkLeagueLimitOrThrow(String masterLeagueId) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final ml = await getById(id);
+      if (ml == null) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the Master League owner can create competitions.',
+        );
+      }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
