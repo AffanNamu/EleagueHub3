@@ -19,7 +19,11 @@ function textResponse(text, status = 200, extraHeaders = {}) {
 }
 
 function sanitizeRoomTokenPart(s) {
-  return String(s || "").trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-:.]/g, "_").slice(0, 180);
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_\-:.]/g, "_")
+    .slice(0, 180);
 }
 
 function resolveRoomName(body) {
@@ -44,7 +48,10 @@ function toHttpBaseUrl(livekitUrl) {
 }
 
 async function makeAdminJwt(env, roomName) {
-  const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, { identity: "worker-admin", ttl: "5m" });
+  const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
+    identity: "worker-admin",
+    ttl: "5m",
+  });
   at.addGrant({ room: roomName, roomAdmin: true });
   return at.toJwt();
 }
@@ -54,7 +61,10 @@ async function mutePublishedTrack(env, roomName, identity, muted) {
   const httpBase = toHttpBaseUrl(env.LIVEKIT_URL);
   const res = await fetch(`${httpBase}/twirp/livekit.RoomService/MutePublishedTrack`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${adminJwt}` },
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${adminJwt}`,
+    },
     body: JSON.stringify({ room: roomName, identity, muted }),
   });
   if (!res.ok) {
@@ -78,7 +88,10 @@ function kindFrom(body, roomName) {
 let _firebaseCertCache = { keysByKid: new Map(), expiresAtMs: 0 };
 
 function _b64UrlToUint8Array(b64url) {
-  const s = String(b64url || "").replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(String(b64url || "").length / 4) * 4, "=");
+  const s = String(b64url || "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(String(b64url || "").length / 4) * 4, "=");
   const bin = atob(s);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -97,7 +110,11 @@ function _utf8ToB64Url(s) {
 }
 
 function _pemToDerBytes(pem) {
-  const lines = String(pem || "").trim().split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("-----"));
+  const lines = String(pem || "")
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("-----"));
   const b64 = lines.join("");
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
@@ -144,7 +161,10 @@ function _extractSpkiFromX509Der(derBuffer) {
   skipTlv();
   skipTlv();
   const spkiRaw = readTlvRaw();
-  return spkiRaw.buffer.slice(spkiRaw.byteOffset, spkiRaw.byteOffset + spkiRaw.byteLength);
+  return spkiRaw.buffer.slice(
+    spkiRaw.byteOffset,
+    spkiRaw.byteOffset + spkiRaw.byteLength
+  );
 }
 
 function _parseCacheControlMaxAgeSeconds(h) {
@@ -215,8 +235,12 @@ async function _loadFirebaseCerts() {
 function _decodeJwtParts(token) {
   const parts = String(token || "").split(".");
   if (parts.length !== 3) throw new Error("Invalid JWT format");
-  const header = JSON.parse(new TextDecoder().decode(_b64UrlToUint8Array(parts[0])));
-  const payload = JSON.parse(new TextDecoder().decode(_b64UrlToUint8Array(parts[1])));
+  const header = JSON.parse(
+    new TextDecoder().decode(_b64UrlToUint8Array(parts[0]))
+  );
+  const payload = JSON.parse(
+    new TextDecoder().decode(_b64UrlToUint8Array(parts[1]))
+  );
   const signature = _b64UrlToUint8Array(parts[2]);
   const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
   return { header, payload, signature, signingInput };
@@ -226,9 +250,18 @@ async function _verifyFirebaseIdToken(env, request) {
   const projectId = String(env.FIREBASE_PROJECT_ID || "").trim();
   if (!projectId) throw new Error("Worker missing FIREBASE_PROJECT_ID env var");
 
-  const auth = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+  const auth =
+    request.headers.get("authorization") ||
+    request.headers.get("Authorization") ||
+    "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m) return { ok: false, status: 401, error: "Missing Authorization: Bearer <Firebase ID token>" };
+  if (!m) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Missing Authorization: Bearer <Firebase ID token>",
+    };
+  }
 
   const token = m[1].trim();
   if (!token) return { ok: false, status: 401, error: "Empty bearer token" };
@@ -244,22 +277,38 @@ async function _verifyFirebaseIdToken(env, request) {
   const kid = header && header.kid ? String(header.kid) : "";
   const alg = header && header.alg ? String(header.alg) : "";
 
-  if (!kid || alg !== "RS256") return { ok: false, status: 401, error: "Invalid token header" };
+  if (!kid || alg !== "RS256") {
+    return { ok: false, status: 401, error: "Invalid token header" };
+  }
 
   const nowSec = Math.floor(Date.now() / 1000);
   const iss = `https://securetoken.google.com/${projectId}`;
 
-  if (payload.aud !== projectId) return { ok: false, status: 401, error: "Invalid token audience" };
-  if (payload.iss !== iss) return { ok: false, status: 401, error: "Invalid token issuer" };
-  if (!payload.sub || typeof payload.sub !== "string") return { ok: false, status: 401, error: "Invalid token subject" };
-  if (payload.exp && typeof payload.exp === "number" && payload.exp < nowSec) return { ok: false, status: 401, error: "Token expired" };
-  if (payload.iat && typeof payload.iat === "number" && payload.iat > nowSec + 60) return { ok: false, status: 401, error: "Token issued in the future" };
+  if (payload.aud !== projectId) {
+    return { ok: false, status: 401, error: "Invalid token audience" };
+  }
+  if (payload.iss !== iss) {
+    return { ok: false, status: 401, error: "Invalid token issuer" };
+  }
+  if (!payload.sub || typeof payload.sub !== "string") {
+    return { ok: false, status: 401, error: "Invalid token subject" };
+  }
+  if (payload.exp && typeof payload.exp === "number" && payload.exp < nowSec) {
+    return { ok: false, status: 401, error: "Token expired" };
+  }
+  if (payload.iat && typeof payload.iat === "number" && payload.iat > nowSec + 60) {
+    return { ok: false, status: 401, error: "Token issued in the future" };
+  }
 
   let keys;
   try {
     keys = await _loadFirebaseCerts();
   } catch (e) {
-    return { ok: false, status: 503, error: "Unable to load Firebase public keys: " + e.message };
+    return {
+      ok: false,
+      status: 503,
+      error: "Unable to load Firebase public keys: " + e.message,
+    };
   }
 
   const key = keys.get(kid);
@@ -267,7 +316,12 @@ async function _verifyFirebaseIdToken(env, request) {
 
   let valid = false;
   try {
-    valid = await crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, key, signature, signingInput);
+    valid = await crypto.subtle.verify(
+      { name: "RSASSA-PKCS1-v1_5" },
+      key,
+      signature,
+      signingInput
+    );
   } catch (_) {
     valid = false;
   }
@@ -301,10 +355,18 @@ function _serviceAccountPrivateKeyPem(env) {
 
 async function _importServiceAccountSigningKey(env) {
   const email = _requireEnvString(env, "FIREBASE_CLIENT_EMAIL");
-  if (_saSigningKeyCache.key && _saSigningKeyCache.forEmail === email) return _saSigningKeyCache.key;
+  if (_saSigningKeyCache.key && _saSigningKeyCache.forEmail === email) {
+    return _saSigningKeyCache.key;
+  }
   const pem = _serviceAccountPrivateKeyPem(env);
   const der = _pemToDerBytes(pem);
-  const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    der,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
   _saSigningKeyCache = { key, forEmail: email };
   return key;
 }
@@ -312,13 +374,19 @@ async function _importServiceAccountSigningKey(env) {
 async function _signRs256(env, signingInputUtf8) {
   const key = await _importServiceAccountSigningKey(env);
   const data = new TextEncoder().encode(String(signingInputUtf8 || ""));
-  const sig = await crypto.subtle.sign({ name: "RSASSA-PKCS1-v1_5" }, key, data);
+  const sig = await crypto.subtle.sign(
+    { name: "RSASSA-PKCS1-v1_5" },
+    key,
+    data
+  );
   return _uint8ArrayToB64Url(new Uint8Array(sig));
 }
 
 async function _serviceAccountAccessToken(env) {
   const now = Date.now();
-  if (_googleAccessTokenCache.accessToken && now + 15000 < _googleAccessTokenCache.expiresAtMs) return _googleAccessTokenCache.accessToken;
+  if (_googleAccessTokenCache.accessToken && now + 15000 < _googleAccessTokenCache.expiresAtMs) {
+    return _googleAccessTokenCache.accessToken;
+  }
 
   const tokenUri = String(env.FIREBASE_TOKEN_URI || "https://oauth2.googleapis.com/token").trim();
   const clientEmail = _requireEnvString(env, "FIREBASE_CLIENT_EMAIL");
@@ -332,7 +400,8 @@ async function _serviceAccountAccessToken(env) {
     aud: tokenUri,
     iat,
     exp,
-    scope: "https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore",
+    scope:
+      "https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore",
   };
 
   const encodedHeader = _utf8ToB64Url(JSON.stringify(header));
@@ -369,6 +438,7 @@ async function _serviceAccountAccessToken(env) {
 function _identityToolkitBase(env) {
   return `https://identitytoolkit.googleapis.com/v1/projects/${_requireEnvString(env, "FIREBASE_PROJECT_ID")}`;
 }
+
 function _claimsString(claimsObj) {
   return JSON.stringify(claimsObj || {});
 }
@@ -377,7 +447,10 @@ async function _lookupExistingCustomClaims(env, uid) {
   const accessToken = await _serviceAccountAccessToken(env);
   const res = await fetch(`${_identityToolkitBase(env)}/accounts:lookup`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
     body: JSON.stringify({ localId: [String(uid || "").trim()] }),
   });
   if (!res.ok) {
@@ -398,8 +471,14 @@ async function _setFirebaseCustomClaims(env, uid, claimsObj) {
   const accessToken = await _serviceAccountAccessToken(env);
   const res = await fetch(`${_identityToolkitBase(env)}/accounts:update`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify({ localId: String(uid || "").trim(), customAttributes: _claimsString(claimsObj) }),
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      localId: String(uid || "").trim(),
+      customAttributes: _claimsString(claimsObj),
+    }),
   });
   if (!res.ok) {
     const txt = await res.text();
@@ -470,8 +549,8 @@ async function _firestorePatchDoc(env, docPath, fieldsObj) {
   const accessToken = await _serviceAccountAccessToken(env);
   const cleanPath = String(docPath || "").trim().replace(/^\/+/, "");
   const updateMaskParams = Object.keys(fieldsObj)
-      .map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
-      .join("&");
+    .map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+    .join("&");
   const url = `${_firestoreRestBase(env)}/${cleanPath}?${updateMaskParams}`;
   const firestoreFields = {};
   for (const [key, value] of Object.entries(fieldsObj)) {
@@ -479,7 +558,10 @@ async function _firestorePatchDoc(env, docPath, fieldsObj) {
   }
   const res = await fetch(url, {
     method: "PATCH",
-    headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
     body: JSON.stringify({ fields: firestoreFields }),
   });
   if (!res.ok) {
@@ -528,30 +610,6 @@ async function _firestoreCreateDocSA(env, docPath, fieldsObj) {
   }
 
   return res.json();
-}
-
-function _normalizePlan(planId) {
-  const p = String(planId || "").trim().toLowerCase();
-  return p === "basic" || p === "pro" || p === "elite" ? p : "";
-}
-function _planOrder(planId) {
-  const p = String(planId || "").trim().toLowerCase();
-  if (p === "basic") return 1;
-  if (p === "pro") return 2;
-  if (p === "elite") return 3;
-  return 0;
-}
-function _planFromTxRef(txRef) {
-  const s = String(txRef || "").trim();
-  let m = s.match(/^EH-MLK-([A-Z]+)-/);
-  if (m && m[1]) return _normalizePlan(m[1].toLowerCase());
-  m = s.match(/^EH-ML-([A-Z]+)-/);
-  if (m && m[1]) return _normalizePlan(m[1].toLowerCase());
-  return "";
-}
-function _extractFlutterwaveTxIdFromReceipt(receiptId) {
-  const r = String(receiptId || "").trim();
-  return (r.startsWith("FLW-") && r.length > 4) ? r.slice(4).trim() : r;
 }
 
 function _moneyEqWithinTolerance(expected, actual, currency) {
@@ -715,6 +773,10 @@ async function _readPricingConfig(env) {
         typeof raw.flutterwaveEnabled === "boolean" ? raw.flutterwaveEnabled : dft.flutterwaveEnabled,
       premiumEnabled:
         typeof raw.premiumEnabled === "boolean" ? raw.premiumEnabled : dft.premiumEnabled,
+      premiumFee:
+        raw.premiumFee ?? dft.premiumFee,
+      premiumDurationDays:
+        raw.premiumDurationDays ?? dft.premiumDurationDays,
     };
   }
 
@@ -952,20 +1014,195 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
   };
 }
 
+async function _activateOrganizerPro(env, verified, body) {
+  const uid = String(verified.uid || "").trim();
+  const plan = String(body.plan || "").trim().toLowerCase();
+  const provider = String(body.provider || "").trim().toLowerCase();
+  const receiptId = String(body.receiptId || "").trim();
+
+  if (!uid) return { ok: false, status: 401, error: "Unauthenticated." };
+  if (!["basic", "pro", "elite"].includes(plan)) {
+    return { ok: false, status: 400, error: "Invalid plan." };
+  }
+  if (provider !== "flutterwave") {
+    return { ok: false, status: 400, error: "Unsupported provider." };
+  }
+  if (!receiptId) {
+    return { ok: false, status: 400, error: "receiptId is required." };
+  }
+
+  const txId = _extractFlutterwaveTxIdFromReceipt(receiptId);
+  if (!txId) {
+    return { ok: false, status: 400, error: "Invalid receiptId." };
+  }
+
+  const verify = await _verifyFlutterwaveTransaction(env, txId);
+  const pricing = await _readPricingConfig(env);
+  const cfg = _pricingForCurrency(pricing, verify.currency);
+
+  if (!cfg.paymentsEnabled) {
+    return { ok: false, status: 403, error: "Payments are currently disabled." };
+  }
+  if (!cfg.flutterwaveEnabled) {
+    return { ok: false, status: 403, error: "Flutterwave is currently disabled." };
+  }
+
+  const expected = _masterLeagueExpectedFee(cfg, plan);
+  if (!(expected > 0)) {
+    return { ok: false, status: 403, error: "Organizer Pro pricing is not configured." };
+  }
+
+  if (!_moneyEqWithinTolerance(expected, Number(verify.amount || 0), verify.currency)) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
+    };
+  }
+
+  const nowMs = Date.now();
+  const expiryMs = nowMs + 365 * 24 * 60 * 60 * 1000;
+
+  const currentClaims = await _lookupExistingCustomClaims(env, uid);
+  const nextClaims = {
+    ...currentClaims,
+    organizerPro: true,
+    organizerProPlan: plan,
+    organizerProExpiryMs: expiryMs,
+  };
+
+  await _setFirebaseCustomClaims(env, uid, nextClaims);
+
+  await _firestorePatchDoc(env, `users/${uid}/entitlements/master_league`, {
+    active: true,
+    plan,
+    provider: "flutterwave",
+    receiptId,
+    transactionId: verify.txId,
+    currency: verify.currency,
+    amount: Number(verify.amount || 0),
+    activatedAtMs: nowMs,
+    expiresAtMs: expiryMs,
+    updatedAtMs: nowMs,
+  });
+
+  return {
+    ok: true,
+    status: 200,
+    success: true,
+    uid,
+    plan,
+    expiryMs,
+    provider: "flutterwave",
+    receiptId,
+    transactionId: verify.txId,
+    currency: verify.currency,
+    amount: Number(verify.amount || 0),
+  };
+}
+
+async function _activatePremium(env, verified, body) {
+  const uid = String(verified.uid || "").trim();
+  const provider = String(body.provider || "").trim().toLowerCase();
+  const receiptId = String(body.receiptId || "").trim();
+
+  if (!uid) return { ok: false, status: 401, error: "Unauthenticated." };
+  if (provider !== "flutterwave") {
+    return { ok: false, status: 400, error: "Unsupported provider." };
+  }
+  if (!receiptId) {
+    return { ok: false, status: 400, error: "receiptId is required." };
+  }
+
+  const txId = _extractFlutterwaveTxIdFromReceipt(receiptId);
+  if (!txId) {
+    return { ok: false, status: 400, error: "Invalid receiptId." };
+  }
+
+  const verify = await _verifyFlutterwaveTransaction(env, txId);
+  const pricing = await _readPricingConfig(env);
+  const cfg = _pricingForCurrency(pricing, verify.currency);
+
+  if (!cfg.paymentsEnabled) {
+    return { ok: false, status: 403, error: "Payments are currently disabled." };
+  }
+  if (!cfg.flutterwaveEnabled) {
+    return { ok: false, status: 403, error: "Flutterwave is currently disabled." };
+  }
+  if (!cfg.premiumEnabled) {
+    return { ok: false, status: 403, error: "Premium is currently disabled." };
+  }
+
+  const expected = Number(cfg.premiumFee || 0);
+  if (!(expected > 0)) {
+    return { ok: false, status: 403, error: "Premium pricing is not configured." };
+  }
+
+  if (!_moneyEqWithinTolerance(expected, Number(verify.amount || 0), verify.currency)) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Premium amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
+    };
+  }
+
+  const nowMs = Date.now();
+  const durationDays = Number(cfg.premiumDurationDays || 30);
+  const expiresAtMs = nowMs + durationDays * 24 * 60 * 60 * 1000;
+
+  await _firestorePatchDoc(env, `users/${uid}`, {
+    isPremium: true,
+    premiumExpiresAtMs: expiresAtMs,
+    updatedAt: nowMs,
+  });
+
+  return {
+    ok: true,
+    status: 200,
+    success: true,
+    uid,
+    provider: "flutterwave",
+    receiptId,
+    transactionId: verify.txId,
+    currency: verify.currency,
+    amount: Number(verify.amount || 0),
+    premiumExpiresAtMs: expiresAtMs,
+  };
+}
+
 export default {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...CORS_HEADERS } });
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: { ...CORS_HEADERS } });
+    }
+
     const url = new URL(request.url);
 
     if (url.pathname === "/" && request.method === "POST") {
-      if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
-      let body; try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
+      if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+        return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON" }, 400);
+      }
+
       const userId = (body.userId || "").toString().trim();
       const role = (body.role || "participant").toString().trim();
       const side = (body.side || "").toString().trim();
       const roomName = resolveRoomName(body);
+
       if (!userId) return jsonResponse({ error: "userId required" }, 400);
-      if (!roomName) return jsonResponse({ error: "One of leagueId, matchId, callId, or roomName is required" }, 400);
+      if (!roomName) {
+        return jsonResponse(
+          { error: "One of leagueId, matchId, callId, or roomName is required" },
+          400
+        );
+      }
+
       const kind = kindFrom(body, roomName);
       const metadata = JSON.stringify({
         role: role || "participant",
@@ -975,22 +1212,71 @@ export default {
         callId: (body.callId || "").toString().trim() || null,
         kind,
       });
-      const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, { identity: userId, ttl: "2h", metadata });
-      at.addGrant({ room: roomName, roomJoin: true, canSubscribe: true, canPublishData: true, canPublish: true, roomAdmin: role === "host" });
-      return jsonResponse({ token: await at.toJwt(), url: env.LIVEKIT_URL, roomName, role, kind });
+
+      const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
+        identity: userId,
+        ttl: "2h",
+        metadata,
+      });
+      at.addGrant({
+        room: roomName,
+        roomJoin: true,
+        canSubscribe: true,
+        canPublishData: true,
+        canPublish: true,
+        roomAdmin: role === "host",
+      });
+
+      return jsonResponse({
+        token: await at.toJwt(),
+        url: env.LIVEKIT_URL,
+        roomName,
+        role,
+        kind,
+      });
     }
 
     if (url.pathname === "/admin" && request.method === "POST") {
-      if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
-      let body; try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
+      if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+        return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON" }, 400);
+      }
+
       const action = (body.action || "").toString().trim();
       const targetUserId = (body.targetUserId || "").toString().trim();
       const roomName = resolveRoomName(body);
-      if (!action || !targetUserId) return jsonResponse({ error: "action, targetUserId required" }, 400);
-      if (!roomName) return jsonResponse({ error: "One of leagueId, matchId, callId, or roomName is required" }, 400);
+
+      if (!action || !targetUserId) {
+        return jsonResponse({ error: "action, targetUserId required" }, 400);
+      }
+      if (!roomName) {
+        return jsonResponse(
+          { error: "One of leagueId, matchId, callId, or roomName is required" },
+          400
+        );
+      }
+
       try {
-        if (action === "mute") return jsonResponse({ ok: true, action, out: await mutePublishedTrack(env, roomName, targetUserId, true) });
-        if (action === "unmute") return jsonResponse({ ok: true, action, out: await mutePublishedTrack(env, roomName, targetUserId, false) });
+        if (action === "mute") {
+          return jsonResponse({
+            ok: true,
+            action,
+            out: await mutePublishedTrack(env, roomName, targetUserId, true),
+          });
+        }
+        if (action === "unmute") {
+          return jsonResponse({
+            ok: true,
+            action,
+            out: await mutePublishedTrack(env, roomName, targetUserId, false),
+          });
+        }
         return jsonResponse({ error: "Unsupported action" }, 400);
       } catch (e) {
         return jsonResponse({ error: e.message || String(e) }, 500);
@@ -998,12 +1284,84 @@ export default {
     }
 
     if (url.pathname === "/flutterwave/verify" && request.method === "POST") {
-      let verified; try { verified = await _verifyFirebaseIdToken(env, request); } catch (e) { return jsonResponse({ error: e.message || String(e) }, 500); }
-      if (!verified.ok) return jsonResponse({ error: verified.error }, verified.status || 401);
-      let body; try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
+      let verified;
+      try {
+        verified = await _verifyFirebaseIdToken(env, request);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+      if (!verified.ok) {
+        return jsonResponse({ error: verified.error }, verified.status || 401);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON" }, 400);
+      }
+
       try {
         const out = await _verifyMasterLeaguePayment(env, verified, body || {});
-        return out.ok ? jsonResponse(out, 200) : jsonResponse({ error: out.error }, out.status || 400);
+        return out.ok
+          ? jsonResponse(out, 200)
+          : jsonResponse({ error: out.error }, out.status || 400);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+    }
+
+    if (url.pathname === "/organizer-pro/activate" && request.method === "POST") {
+      let verified;
+      try {
+        verified = await _verifyFirebaseIdToken(env, request);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+      if (!verified.ok) {
+        return jsonResponse({ error: verified.error }, verified.status || 401);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON" }, 400);
+      }
+
+      try {
+        const out = await _activateOrganizerPro(env, verified, body || {});
+        return out.ok
+          ? jsonResponse(out, 200)
+          : jsonResponse({ error: out.error }, out.status || 400);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+    }
+
+    if (url.pathname === "/premium/activate" && request.method === "POST") {
+      let verified;
+      try {
+        verified = await _verifyFirebaseIdToken(env, request);
+      } catch (e) {
+        return jsonResponse({ error: e.message || String(e) }, 500);
+      }
+      if (!verified.ok) {
+        return jsonResponse({ error: verified.error }, verified.status || 401);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON" }, 400);
+      }
+
+      try {
+        const out = await _activatePremium(env, verified, body || {});
+        return out.ok
+          ? jsonResponse(out, 200)
+          : jsonResponse({ error: out.error }, out.status || 400);
       } catch (e) {
         return jsonResponse({ error: e.message || String(e) }, 500);
       }
