@@ -15,11 +15,16 @@ class MasterLeagueCard extends StatelessWidget {
   final VoidCallback onTap;
 
   String _createdLabel() {
-    final dt = masterLeague.createdAt;
-    if (dt == null) return '';
-    final month = dt.month.toString().padLeft(2, '0');
-    final day = dt.day.toString().padLeft(2, '0');
-    return '${dt.year}-$month-$day';
+    final ts = masterLeague.createdAt;
+    if (ts == null) return '';
+    try {
+      final dt = ts.toDate().toLocal();
+      final month = dt.month.toString().padLeft(2, '0');
+      final day = dt.day.toString().padLeft(2, '0');
+      return '${dt.year}-$month-$day';
+    } catch (_) {
+      return '';
+    }
   }
 
   int _workspaceScore() {
@@ -53,6 +58,10 @@ class MasterLeagueCard extends StatelessWidget {
             ? 'Organizer workspace created by you'
             : 'Organizer workspace you joined')
         : 'Inactive organizer workspace';
+
+    final rewardsText = initialCompetition == null
+        ? ''
+        : (initialCompetition.rewardsPlan.trim());
 
     return InkWell(
       onTap: onTap,
@@ -114,7 +123,8 @@ class MasterLeagueCard extends StatelessWidget {
                               color: masterLeague.isActive
                                   ? const Color(0xFF22C55E)
                                   : const Color(0xFFF59E0B),
-                              label: masterLeague.isActive ? 'ACTIVE' : 'INACTIVE',
+                              label:
+                                  masterLeague.isActive ? 'ACTIVE' : 'INACTIVE',
                             ),
                             _chip(
                               theme: theme,
@@ -194,9 +204,7 @@ class MasterLeagueCard extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                bio.isEmpty
-                    ? 'No organizer bio added yet.'
-                    : bio,
+                bio.isEmpty ? 'No organizer bio added yet.' : bio,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -219,7 +227,9 @@ class MasterLeagueCard extends StatelessWidget {
                     border: Border.all(color: cs.primary.withOpacity(0.14)),
                   ),
                   child: Text(
-                    'First competition: ${initialCompetition.name} • Entry fee ${initialCompetition.entryFee.toStringAsFixed(2)} • Max ${initialCompetition.maxParticipants}',
+                    rewardsText.isEmpty
+                        ? 'First competition: ${initialCompetition.name}'
+                        : 'First competition: ${initialCompetition.name} • Rewards: $rewardsText',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -235,9 +245,12 @@ class MasterLeagueCard extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _stat(context, '${masterLeague.analytics.totalTournamentsCreated} tournaments'),
-                  _stat(context, '${masterLeague.analytics.totalParticipantsTeams} teams'),
-                  _stat(context, '${masterLeague.analytics.totalMatches} matches'),
+                  _stat(context,
+                      '${masterLeague.analytics.totalTournamentsCreated} tournaments'),
+                  _stat(context,
+                      '${masterLeague.analytics.totalParticipantsTeams} teams'),
+                  _stat(context,
+                      '${masterLeague.analytics.totalMatches} matches'),
                   _stat(context, '${masterLeague.memberIds.length} members'),
                   if (created.isNotEmpty) _stat(context, 'Created $created'),
                 ],
