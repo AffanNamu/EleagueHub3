@@ -20,6 +20,7 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
     final featuredAsync = ref.watch(featuredOrganizerWorkspacesProvider);
     final verifiedAsync = ref.watch(verifiedOrganizerWorkspacesProvider);
     final recentAsync = ref.watch(recentActiveOrganizerWorkspacesProvider);
+    final allAsync = ref.watch(allOrganizerWorkspacesProvider);
 
     Widget section({
       required String title,
@@ -116,6 +117,7 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
                 ref.invalidate(featuredOrganizerWorkspacesProvider);
                 ref.invalidate(verifiedOrganizerWorkspacesProvider);
                 ref.invalidate(recentActiveOrganizerWorkspacesProvider);
+                ref.invalidate(allOrganizerWorkspacesProvider);
                 await Future<void>.delayed(const Duration(milliseconds: 250));
               },
               child: ListView(
@@ -173,6 +175,14 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
                     data: recentAsync,
                     emptyTitle: 'No active organizers yet',
                     emptyMessage: 'Recently active organizer workspaces will appear here.',
+                  ),
+                  const SizedBox(height: 20),
+                  section(
+                    title: 'All Organizers',
+                    subtitle: 'All organizer workspaces on the platform.',
+                    data: allAsync,
+                    emptyTitle: 'No organizers yet',
+                    emptyMessage: 'Organizer workspaces will appear here as they are created.',
                   ),
                 ],
               ),

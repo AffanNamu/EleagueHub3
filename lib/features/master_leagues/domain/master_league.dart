@@ -391,4 +391,8 @@ class MasterLeague {
         return 64;
     }
   }
+
+  bool get isDiscoverable {
+    return name.trim().isNotEmpty && isActive;
+  }
 }

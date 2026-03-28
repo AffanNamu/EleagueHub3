@@ -21,9 +21,12 @@ class OrganizerFeedEvent {
     required this.leagueId,
   });
 
+  /// Firestore security rules expect these exact keys:
+  ///   'id', 'masterLeagueId', 'type', 'title', 'message',
+  ///   'createdAtMs', 'actorId', 'actorName', 'leagueId'
   Map<String, dynamic> toMap() {
     return <String, dynamic>{
-      'feedId': id.trim(),
+      'id': id.trim(),
       'masterLeagueId': masterLeagueId.trim(),
       'type': type.trim(),
       'title': title.trim(),
@@ -37,7 +40,7 @@ class OrganizerFeedEvent {
 
   factory OrganizerFeedEvent.fromMap(Map<String, dynamic> map) {
     return OrganizerFeedEvent(
-      id: (map['feedId'] as String? ?? map['id'] as String? ?? '').trim(),
+      id: (map['id'] as String? ?? map['feedId'] as String? ?? '').trim(),
       masterLeagueId: (map['masterLeagueId'] as String? ?? '').trim(),
       type: (map['type'] as String? ?? '').trim(),
       title: (map['title'] as String? ?? '').trim(),

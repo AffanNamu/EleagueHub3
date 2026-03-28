@@ -485,11 +485,12 @@ class MasterLeaguesRepositoryFirebase {
         }
       }
 
-      return await discoverVerifiedOrganizers(limit: limit);
+      // Fallback to all organizers instead of verified-only.
+      return await discoverAllOrganizers(limit: limit);
     } catch (e) {
       _log(e);
       try {
-        return await discoverVerifiedOrganizers(limit: limit);
+        return await discoverAllOrganizers(limit: limit);
       } catch (inner) {
         _rethrowFriendly(inner is Object ? inner : Exception('unknown'));
       }
@@ -531,18 +532,39 @@ class MasterLeaguesRepositoryFirebase {
 
       final snap = await _col
           .orderBy('updatedAtMs', descending: true)
-          .limit(limit * 2)
+          .limit(limit * 3)
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
 
       final list = snap.docs
           .map((d) => MasterLeague.fromMap(d.id, d.data()))
-          .where((ml) =>
-              ml.isVerifiedOrganizer ||
-              ml.organizerProfile.bio.trim().isNotEmpty)
+          .where((ml) => ml.name.trim().isNotEmpty && ml.isActive)
           .toList(growable: false);
 
       return list.take(limit).toList(growable: false);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<List<MasterLeague>> discoverAllOrganizers({
+    int limit = 20,
+  }) async {
+    try {
+      _requireAuthUid();
+
+      final snap = await _col
+          .orderBy('updatedAtMs', descending: true)
+          .limit(limit)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      final list = snap.docs
+          .map((d) => MasterLeague.fromMap(d.id, d.data()))
+          .where((ml) => ml.name.trim().isNotEmpty && ml.isActive)
+          .toList(growable: false);
+
+      return list;
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
