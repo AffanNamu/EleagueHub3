@@ -62,7 +62,8 @@ class LeaguesRepositoryFirebase {
     if (error is FirebaseException) {
       if (kDebugMode) {
         debugPrint(
-          '[LeaguesRepoFirebase] FirebaseException code=${error.code} message=${error.message}',
+          '[LeaguesRepoFirebase] FirebaseException code=${error.code} '
+          'message=${error.message}',
         );
       }
       switch (error.code) {
@@ -92,20 +93,16 @@ class LeaguesRepositoryFirebase {
   League _docToLeague(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final raw = doc.data();
     final map = <String, dynamic>{...raw};
-
     final existingId = (map['id'] as String?)?.trim() ?? '';
     if (existingId.isEmpty) map['id'] = doc.id;
-
     return League.fromRemoteMap(map);
   }
 
   League _snapToLeague(DocumentSnapshot<Map<String, dynamic>> doc) {
     final raw = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
     final map = <String, dynamic>{...raw};
-
     final existingId = (map['id'] as String?)?.trim() ?? '';
     if (existingId.isEmpty) map['id'] = doc.id;
-
     return League.fromRemoteMap(map);
   }
 
@@ -132,10 +129,8 @@ class LeaguesRepositoryFirebase {
         (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
             .trim();
 
-    // Owner always has access
     if (ownerId.isNotEmpty && ownerId == authUid) return;
 
-    // Check roles map for admin/owner role
     final roles = <String, String>{};
     final rawRoles = data['roles'];
     if (rawRoles is Map) {
@@ -149,7 +144,6 @@ class LeaguesRepositoryFirebase {
     final userRole = roles[authUid] ?? '';
     if (userRole == 'owner' || userRole == 'admin') return;
 
-    // Check memberIds as fallback
     final memberIds = <String>{};
     final rawMembers = data['memberIds'];
     if (rawMembers is List) {
@@ -186,7 +180,8 @@ class LeaguesRepositoryFirebase {
   }
 
   String _competitionLimitMessage(MasterLeaguePlan plan) {
-    return 'You have reached the limit of ${plan.maxLeagues} competitions for your ${plan.displayName} plan.';
+    return 'You have reached the limit of ${plan.maxLeagues} competitions '
+        'for your ${plan.displayName} plan.';
   }
 
   Future<List<String>> _candidateCompetitionLeagueIdsForMasterLeague({
@@ -312,25 +307,33 @@ class LeaguesRepositoryFirebase {
     return leagueData;
   }
 
-  /// Creates a league document and its organizer membership in a single
-  /// batch write (no preceding read).
+  /// Creates a league document first, then writes the organizer membership
+  /// as a separate operation.
   ///
-  /// WHY batch instead of transaction:
+  /// WHY two separate writes instead of a batch or transaction:
   ///
-  /// Firestore transactions call `txn.get(docRef)` before writing. That
-  /// get() is evaluated against the collection's `allow get` rule:
+  /// 1) Transactions fail because txn.get() on a non-existent league
+  ///    triggers the `allow get` rule which denies access (the doc
+  ///    doesn't exist yet so canReadLeague returns false).
   ///
-  ///   allow get: if canReadLeague(leagueId);
+  /// 2) Batches fail because in a batch, documents created by earlier
+  ///    operations are NOT visible to security rules evaluating later
+  ///    operations in the same batch. The membership create rule's
+  ///    canManageLeague(leagueId) branch calls isOwner(leagueId)
+  ///    which does get() on the league doc — but it doesn't exist
+  ///    from the rules' perspective yet.
   ///
-  /// `canReadLeague` loads the league document via `leagueDoc(leagueId)`
-  /// and checks ownership / membership / privacy. When the document does
-  /// not exist yet (creation), every branch that tests `ld.exists()` fails,
-  /// so the rule denies the read with `permission-denied` — even though the
-  /// subsequent `txn.set()` (a create) would pass the `allow create` rule.
+  ///    The membership create rule has a self-write branch:
+  ///      signedIn() && request.auth.uid == membershipId && ...
+  ///    This branch should pass, but canManageLeague is evaluated
+  ///    first and its get() calls count toward the 10-get limit and
+  ///    may cause the entire rule evaluation to fail on some Firestore
+  ///    versions.
   ///
-  /// A batch write never reads first, so only the `allow create` rule is
-  /// evaluated against `request.resource.data`, which contains all required
-  /// fields. Duplicate-prevention is handled by the slot-based ID system.
+  /// Solution: Write the league doc first (triggers `allow create`),
+  /// then write the membership doc (triggers `allow create` where
+  /// the league now exists so canManageLeague passes OR the self-write
+  /// branch passes).
   Future<String> _createLeagueAtExactId({
     required League league,
     required String id,
@@ -364,20 +367,47 @@ class LeaguesRepositoryFirebase {
     if (kDebugMode) {
       debugPrint(
         '[LeaguesRepoFirebase] Creating league id=$id '
-        'masterLeague=$requestedMasterLeagueId',
+        'masterLeague=$requestedMasterLeagueId '
+        'authUid=$authUid',
+      );
+      debugPrint(
+        '[LeaguesRepoFirebase] writeData keys: ${writeData.keys.toList()}',
+      );
+      debugPrint(
+        '[LeaguesRepoFirebase] organizerUid=${writeData['organizerUid']} '
+        'memberIds=${writeData['memberIds']} '
+        'masterLeagueId=${writeData['masterLeagueId']}',
       );
     }
 
-    final batch = _firestore.batch();
-
-    batch.set(leagueRef, writeData, SetOptions(merge: false));
-
-    batch.set(membershipRef, membership.toRemoteMap(), SetOptions(merge: false));
-
-    await batch.commit().timeout(const Duration(seconds: 25));
+    // Step 1: Create the league document
+    await leagueRef
+        .set(writeData, SetOptions(merge: false))
+        .timeout(const Duration(seconds: 20));
 
     if (kDebugMode) {
-      debugPrint('[LeaguesRepoFirebase] Successfully created league $id');
+      debugPrint('[LeaguesRepoFirebase] League doc created: $id');
+    }
+
+    // Step 2: Create the organizer membership
+    // Now the league exists, so canManageLeague / isOwner will pass.
+    try {
+      await membershipRef
+          .set(membership.toRemoteMap(), SetOptions(merge: false))
+          .timeout(const Duration(seconds: 15));
+
+      if (kDebugMode) {
+        debugPrint('[LeaguesRepoFirebase] Membership created for $authUid');
+      }
+    } catch (e) {
+      // If membership write fails, still return the league ID.
+      // The organizer is already in memberIds, so they have access.
+      // The membership can be created later via saveLeague or join flow.
+      if (kDebugMode) {
+        debugPrint(
+          '[LeaguesRepoFirebase] Membership write failed (non-fatal): $e',
+        );
+      }
     }
 
     return id;
@@ -423,7 +453,6 @@ class LeaguesRepositoryFirebase {
           );
         }
         lastError = e;
-        // On permission-denied or already-exists try the next slot
         if (e is FirebaseException &&
             (e.code == 'permission-denied' || e.code == 'already-exists')) {
           continue;
@@ -579,26 +608,56 @@ class LeaguesRepositoryFirebase {
         }
       }
 
-      final batch = _firestore.batch();
-      batch.set(
-        leagueRef,
-        _buildLeagueWriteData(
+      if (!existing.exists) {
+        // New standalone league — use two-step creation
+        // (same approach as master league competitions)
+        final writeData = _buildLeagueWriteData(
           fixed: fixed,
           authUid: authUid,
           now: now,
           requestedMasterLeagueId: requestedMasterLeagueId,
-          forCreate: !existing.exists,
-        ),
-        SetOptions(merge: existing.exists),
-      );
+          forCreate: true,
+        );
 
-      batch.set(
-        membershipRef,
-        membership.toRemoteMap(),
-        SetOptions(merge: true),
-      );
+        await leagueRef
+            .set(writeData, SetOptions(merge: false))
+            .timeout(const Duration(seconds: 20));
 
-      await batch.commit().timeout(const Duration(seconds: 25));
+        try {
+          await membershipRef
+              .set(membership.toRemoteMap(), SetOptions(merge: false))
+              .timeout(const Duration(seconds: 15));
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint(
+              '[LeaguesRepoFirebase] Membership write failed (non-fatal): $e',
+            );
+          }
+        }
+      } else {
+        // Existing league — batch update is safe because league exists
+        final batch = _firestore.batch();
+        batch.set(
+          leagueRef,
+          _buildLeagueWriteData(
+            fixed: fixed,
+            authUid: authUid,
+            now: now,
+            requestedMasterLeagueId: requestedMasterLeagueId,
+            forCreate: false,
+          ),
+          SetOptions(merge: true),
+        );
+
+        batch.set(
+          membershipRef,
+          membership.toRemoteMap(),
+          SetOptions(merge: true),
+        );
+
+        await batch.commit().timeout(const Duration(seconds: 25));
+      }
+
       return id;
     } catch (e) {
       if (kDebugMode) {
