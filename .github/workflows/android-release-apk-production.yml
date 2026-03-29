@@ -1,0 +1,306 @@
+name: Android CI (Release APK - Production)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: android-release-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    env:
+      CLOUDINARY_CLOUD_NAME: dbw9zpkxi
+      CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
+      ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+
+      FLUTTER_CHANNEL: stable
+      FLUTTER_VERSION: 3.24.5
+
+      PUB_CACHE: ${{ github.workspace }}/.pub-cache
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+
+    steps:
+      - name: Checkout (manual git with retries/backoff)
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          echo "Repo: ${REPO}"
+          echo "SHA : ${SHA}"
+
+          export GIT_TERMINAL_PROMPT=0
+
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            echo "Checkout attempt ${i}/6..."
+
+            find . -mindepth 1 -maxdepth 1 \
+              ! -name ".git" \
+              -exec rm -rf {} + || true
+            rm -rf .git || true
+
+            git init -q
+            git config gc.auto 0
+
+            git remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
+
+            if git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${SHA}"; then
+              git checkout --detach -q FETCH_HEAD
+              echo "Checked out: $(git rev-parse HEAD)"
+              ok=1
+              break
+            fi
+
+            sleep_for=$((i * 15))
+            echo "Checkout failed; sleeping ${sleep_for}s before retry..."
+            sleep "${sleep_for}"
+          done
+
+          if [ "${ok}" -ne 1 ]; then
+            echo "ERROR: Failed to checkout repository after multiple attempts. This is usually a GitHub outage (500/502)."
+            exit 1
+          fi
+
+      - name: Prepare deterministic cache directories (prevents cache warnings)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${PUB_CACHE}"
+          mkdir -p "${GRADLE_USER_HOME}"
+          mkdir -p "${{ runner.temp }}/flutter"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Gradle (workspace GRADLE_USER_HOME)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/caches
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle-wrapper.properties', '**/*.gradle*', '**/settings.gradle*') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install Linux deps for Flutter
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xz-utils \
+            unzip \
+            curl \
+            git \
+            libglu1-mesa
+          sudo apt-get clean
+
+      - name: Cache Flutter SDK
+        id: cache-flutter
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-${{ runner.os }}-${{ env.FLUTTER_CHANNEL }}-${{ env.FLUTTER_VERSION }}
+
+      - name: Download Flutter SDK (direct, with retries)
+        if: steps.cache-flutter.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+
+          FLUTTER_ROOT_BASE="${{ runner.temp }}/flutter"
+          mkdir -p "${FLUTTER_ROOT_BASE}"
+
+          TARBALL="flutter_linux_${FLUTTER_VERSION}-${FLUTTER_CHANNEL}.tar.xz"
+          URL="https://storage.googleapis.com/flutter_infra_release/releases/${FLUTTER_CHANNEL}/linux/${TARBALL}"
+
+          echo "Downloading Flutter from: ${URL}"
+          cd "${{ runner.temp }}"
+
+          curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
+            -o "${TARBALL}" "${URL}"
+
+          tar -xJf "${TARBALL}" -C "${FLUTTER_ROOT_BASE}"
+
+      - name: Add Flutter to PATH
+        run: |
+          set -euo pipefail
+          echo "${{ runner.temp }}/flutter/flutter/bin" >> "$GITHUB_PATH"
+          echo "FLUTTER_ROOT=${{ runner.temp }}/flutter/flutter" >> "$GITHUB_ENV"
+
+      - name: Flutter sanity check
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter config --no-analytics
+          flutter doctor -v
+
+      - name: Write android/local.properties
+        run: |
+          set -euo pipefail
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "${SDK_DIR}" ]; then
+            echo "ERROR: ANDROID_SDK_ROOT/ANDROID_HOME not set on runner."
+            exit 1
+          fi
+          echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
+          echo "sdk.dir=${SDK_DIR}" >> android/local.properties
+
+      - name: Restore stable debug keystore
+        if: ${{ env.ANDROID_DEBUG_KEYSTORE_B64 != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          python3 - <<'PY'
+          import os, base64, pathlib
+          b64 = os.environ.get("ANDROID_DEBUG_KEYSTORE_B64", "").strip().replace("\n","").replace("\r","")
+          b64 += "=" * ((4 - (len(b64) % 4)) % 4)
+          data = base64.b64decode(b64, validate=False)
+          out = pathlib.Path.home() / ".android" / "debug.keystore"
+          out.write_bytes(data)
+          print("Wrote:", out)
+          PY
+
+      - name: Verify keystore is valid (best-effort)
+        run: |
+          set -euo pipefail
+          if [ -f ~/.android/debug.keystore ]; then
+            echo "Keystore size: $(wc -c < ~/.android/debug.keystore) bytes"
+            keytool -list -v \
+              -alias androiddebugkey \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -keypass android | grep -E "SHA1:|SHA-1:" || true
+          else
+            echo "No debug.keystore found (skipping)."
+          fi
+
+      - name: Cache Pub packages (workspace PUB_CACHE)
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get
+
+      - name: Clean old launcher icons
+        run: |
+          set -euo pipefail
+          rm -rf android/app/src/main/res/mipmap-*
+          rm -f android/app/src/main/res/drawable/ic_launcher*
+          rm -rf android/app/src/main/res/drawable-anydpi*
+          find android/app/src/main/res/ -type f -name "*launcher*" -delete
+
+      - name: Download new launcher icon
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
+            -o assets/icon.png "https://drive.google.com/uc?export=download&id=1wWRfUNxW0bk6bggD_WwZFtF_vsxVuyT9"
+
+      - name: Generate launcher icons
+        run: |
+          set -euo pipefail
+          flutter pub run flutter_launcher_icons
+
+      - name: Build RELEASE APK
+        env:
+          EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
+          FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
+          FLW_PUBLIC_KEY_LIVE: ${{ secrets.FLW_PUBLIC_KEY_LIVE }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EH_WORKER_BASE_URL:-}" ]; then
+            echo "::error::EH_WORKER_BASE_URL secret is not set. Payment verification will not work."
+            echo "Go to GitHub → Settings → Secrets → Actions → New repository secret"
+            echo "Name: EH_WORKER_BASE_URL"
+            echo "Value: https://livekit-token-worker.esportlyic.workers.dev"
+            exit 1
+          fi
+
+          echo "Worker URL configured: ${EH_WORKER_BASE_URL}"
+
+          DART_DEFINES=""
+          DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}"
+          DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
+          DART_DEFINES="${DART_DEFINES} --dart-define=EH_WORKER_BASE_URL=${EH_WORKER_BASE_URL}"
+
+          if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=false"
+            echo "Using LIVE Flutterwave key"
+          elif [ -n "${FLW_PUBLIC_KEY_TEST:-}" ]; then
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_TEST=${FLW_PUBLIC_KEY_TEST}"
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=true"
+            echo "Using TEST Flutterwave key"
+          else
+            echo "No Flutterwave key secrets set — using defaults from FlutterwaveConfig"
+          fi
+
+          flutter build apk --release --no-tree-shake-icons ${DART_DEFINES}
+
+      - name: Verify APK is signed (best-effort)
+        run: |
+          set -euo pipefail
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK not found at $APK"
+            exit 1
+          fi
+
+          echo "APK size: $(wc -c < "$APK") bytes"
+
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "${SDK_DIR}" ]; then
+            echo "WARNING: ANDROID_SDK_ROOT/ANDROID_HOME not set; cannot run apksigner."
+            exit 0
+          fi
+
+          if [ ! -d "${SDK_DIR}/build-tools" ]; then
+            echo "WARNING: build-tools directory not found; cannot run apksigner."
+            exit 0
+          fi
+
+          BUILD_TOOLS_VER="$(ls "${SDK_DIR}/build-tools" | sort -V | tail -1)"
+          APKSIGNER="${SDK_DIR}/build-tools/${BUILD_TOOLS_VER}/apksigner"
+
+          if [ ! -f "${APKSIGNER}" ]; then
+            echo "WARNING: apksigner not found at ${APKSIGNER}"
+            exit 0
+          fi
+
+          "${APKSIGNER}" verify --print-certs "$APK" || echo "WARNING: APK signature verification failed"
+
+      - name: Show build outputs
+        run: |
+          set -euo pipefail
+          ls -la build/app/outputs/flutter-apk || true
+
+      - name: Upload RELEASE APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
