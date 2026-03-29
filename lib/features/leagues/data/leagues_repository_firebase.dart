@@ -307,33 +307,6 @@ class LeaguesRepositoryFirebase {
     return leagueData;
   }
 
-  /// Creates a league document first, then writes the organizer membership
-  /// as a separate operation.
-  ///
-  /// WHY two separate writes instead of a batch or transaction:
-  ///
-  /// 1) Transactions fail because txn.get() on a non-existent league
-  ///    triggers the `allow get` rule which denies access (the doc
-  ///    doesn't exist yet so canReadLeague returns false).
-  ///
-  /// 2) Batches fail because in a batch, documents created by earlier
-  ///    operations are NOT visible to security rules evaluating later
-  ///    operations in the same batch. The membership create rule's
-  ///    canManageLeague(leagueId) branch calls isOwner(leagueId)
-  ///    which does get() on the league doc — but it doesn't exist
-  ///    from the rules' perspective yet.
-  ///
-  ///    The membership create rule has a self-write branch:
-  ///      signedIn() && request.auth.uid == membershipId && ...
-  ///    This branch should pass, but canManageLeague is evaluated
-  ///    first and its get() calls count toward the 10-get limit and
-  ///    may cause the entire rule evaluation to fail on some Firestore
-  ///    versions.
-  ///
-  /// Solution: Write the league doc first (triggers `allow create`),
-  /// then write the membership doc (triggers `allow create` where
-  /// the league now exists so canManageLeague passes OR the self-write
-  /// branch passes).
   Future<String> _createLeagueAtExactId({
     required League league,
     required String id,
@@ -375,6 +348,8 @@ class LeaguesRepositoryFirebase {
       );
       debugPrint(
         '[LeaguesRepoFirebase] organizerUid=${writeData['organizerUid']} '
+        'ownerUid=${writeData['ownerUid']} '
+        'ownerId=${writeData['ownerId']} '
         'memberIds=${writeData['memberIds']} '
         'masterLeagueId=${writeData['masterLeagueId']}',
       );
@@ -390,7 +365,6 @@ class LeaguesRepositoryFirebase {
     }
 
     // Step 2: Create the organizer membership
-    // Now the league exists, so canManageLeague / isOwner will pass.
     try {
       await membershipRef
           .set(membership.toRemoteMap(), SetOptions(merge: false))
@@ -400,9 +374,6 @@ class LeaguesRepositoryFirebase {
         debugPrint('[LeaguesRepoFirebase] Membership created for $authUid');
       }
     } catch (e) {
-      // If membership write fails, still return the league ID.
-      // The organizer is already in memberIds, so they have access.
-      // The membership can be created later via saveLeague or join flow.
       if (kDebugMode) {
         debugPrint(
           '[LeaguesRepoFirebase] Membership write failed (non-fatal): $e',
@@ -610,7 +581,6 @@ class LeaguesRepositoryFirebase {
 
       if (!existing.exists) {
         // New standalone league — use two-step creation
-        // (same approach as master league competitions)
         final writeData = _buildLeagueWriteData(
           fixed: fixed,
           authUid: authUid,
@@ -619,14 +589,38 @@ class LeaguesRepositoryFirebase {
           forCreate: true,
         );
 
+        if (kDebugMode) {
+          debugPrint(
+            '[LeaguesRepoFirebase] Creating standalone league id=$id '
+            'writeData keys: ${writeData.keys.toList()}',
+          );
+          debugPrint(
+            '[LeaguesRepoFirebase] organizerUid=${writeData['organizerUid']} '
+            'ownerUid=${writeData['ownerUid']} '
+            'ownerId=${writeData['ownerId']} '
+            'memberIds=${writeData['memberIds']} '
+            'masterLeagueId=${writeData['masterLeagueId']}',
+          );
+        }
+
         await leagueRef
             .set(writeData, SetOptions(merge: false))
             .timeout(const Duration(seconds: 20));
+
+        if (kDebugMode) {
+          debugPrint('[LeaguesRepoFirebase] Standalone league doc created: $id');
+        }
 
         try {
           await membershipRef
               .set(membership.toRemoteMap(), SetOptions(merge: false))
               .timeout(const Duration(seconds: 15));
+
+          if (kDebugMode) {
+            debugPrint(
+              '[LeaguesRepoFirebase] Standalone membership created for $authUid',
+            );
+          }
         } catch (e) {
           if (kDebugMode) {
             debugPrint(
