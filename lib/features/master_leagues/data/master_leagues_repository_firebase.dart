@@ -485,7 +485,6 @@ class MasterLeaguesRepositoryFirebase {
         }
       }
 
-      // Fallback to all organizers instead of verified-only.
       return await discoverAllOrganizers(limit: limit);
     } catch (e) {
       _log(e);
@@ -842,7 +841,10 @@ class MasterLeaguesRepositoryFirebase {
         }
         final mlData =
             (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final ownerId = (mlData['ownerId'] as String? ?? '').trim();
+        final ownerId = (mlData['ownerId'] as String? ??
+                mlData['ownerUid'] as String? ??
+                '')
+            .trim();
         if (ownerId != uid) {
           throw const UserFriendlyException(
             'Only the owner can submit verification renewal.',
@@ -1020,6 +1022,7 @@ class MasterLeaguesRepositoryFirebase {
       final docData = <String, dynamic>{
         'name': trimmed,
         'ownerId': uid,
+        'ownerUid': uid,
         'createdAt': Timestamp.now(),
         'purchaseStatus': 'active',
         'memberIds': <String>[uid],
@@ -1226,6 +1229,7 @@ class MasterLeaguesRepositoryFirebase {
           <String, dynamic>{
             'name': safeName,
             'ownerId': uid,
+            'ownerUid': uid,
             'createdAt': Timestamp.now(),
             'purchaseStatus': 'active',
             'memberIds': <String>[uid],
@@ -1442,7 +1446,10 @@ class MasterLeaguesRepositoryFirebase {
           throw const UserFriendlyException("We couldn't find that Master League.");
         }
         final mlData = (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final ownerId = (mlData['ownerId'] as String? ?? '').trim();
+        final ownerId = (mlData['ownerId'] as String? ??
+                mlData['ownerUid'] as String? ??
+                '')
+            .trim();
         if (ownerId != uid) {
           throw const UserFriendlyException(
             'Only the owner can submit organizer verification.',
@@ -1559,7 +1566,7 @@ class MasterLeaguesRepositoryFirebase {
       }
 
       final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ownerId = (data['ownerId'] as String? ?? '').trim();
+      final ownerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
       if (ownerId != uid) {
         throw const UserFriendlyException(
           'Only the Master League owner can rename it.',
@@ -1614,7 +1621,7 @@ class MasterLeaguesRepositoryFirebase {
       }
 
       final mlData = (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ownerId = (mlData['ownerId'] as String? ?? '').trim();
+      final ownerId = (mlData['ownerId'] as String? ?? mlData['ownerUid'] as String? ?? '').trim();
       if (ownerId != uid) {
         throw const UserFriendlyException(
           'Only the Master League owner can add staff.',
@@ -1655,7 +1662,7 @@ class MasterLeaguesRepositoryFirebase {
         }
 
         final data = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final currentOwnerId = (data['ownerId'] as String? ?? '').trim();
+        final currentOwnerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
         if (currentOwnerId != uid) {
           throw const UserFriendlyException(
             'Only the Master League owner can add staff.',
@@ -1715,7 +1722,7 @@ class MasterLeaguesRepositoryFirebase {
       }
 
       final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ownerId = (data['ownerId'] as String? ?? '').trim();
+      final ownerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
       if (ownerId != uid) {
         throw const UserFriendlyException(
           'Only the Master League owner can edit the organizer profile.',

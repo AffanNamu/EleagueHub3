@@ -281,7 +281,6 @@ class LeaguesRepositoryFirebase {
       'updatedAtMs': now,
     };
 
-    // Ensure memberIds is a proper list containing authUid
     final rawMemberIds = leagueData['memberIds'];
     final memberIds = <String>{authUid};
     if (rawMemberIds is List) {
@@ -304,9 +303,7 @@ class LeaguesRepositoryFirebase {
       leagueData['masterLeagueId'] = requestedMasterLeagueId;
     }
 
-    // Remove any null values that could cause issues with Firestore rules
     leagueData.removeWhere((key, value) => value == null);
-
     return leagueData;
   }
 
@@ -342,72 +339,22 @@ class LeaguesRepositoryFirebase {
 
     if (kDebugMode) {
       debugPrint(
-        '[LeaguesRepoFirebase] Creating league id=$id '
-        'masterLeague=$requestedMasterLeagueId '
-        'authUid=$authUid',
+        '[LeaguesRepoFirebase] Creating league id=$id masterLeague=$requestedMasterLeagueId authUid=$authUid',
       );
-      debugPrint(
-        '[LeaguesRepoFirebase] writeData keys: ${writeData.keys.toList()}',
-      );
-      debugPrint(
-        '[LeaguesRepoFirebase] organizerUid=${writeData['organizerUid']} '
-        'ownerUid=${writeData['ownerUid']} '
-        'ownerId=${writeData['ownerId']} '
-        'memberIds=${writeData['memberIds']} '
-        'masterLeagueId=${writeData['masterLeagueId']}',
-      );
-
-      // Debug: verify master league ownership before attempting write
-      if (requestedMasterLeagueId.isNotEmpty) {
-        try {
-          final mlSnap = await _masterLeaguesCol
-              .doc(requestedMasterLeagueId)
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 10));
-          if (mlSnap.exists) {
-            final mlData = mlSnap.data() ?? {};
-            debugPrint(
-              '[LeaguesRepoFirebase] Master League doc exists: '
-              'ownerId=${mlData['ownerId']} '
-              'ownerUid=${mlData['ownerUid']} '
-              'matchesAuth=${mlData['ownerId'] == authUid || mlData['ownerUid'] == authUid}',
-            );
-          } else {
-            debugPrint(
-              '[LeaguesRepoFirebase] WARNING: Master League doc does NOT exist: $requestedMasterLeagueId',
-            );
-          }
-        } catch (e) {
-          debugPrint(
-            '[LeaguesRepoFirebase] Debug master league check failed: $e',
-          );
-        }
-      }
+      debugPrint('[LeaguesRepoFirebase] writeData=$writeData');
     }
 
-    // Step 1: Create the league document
     await leagueRef
         .set(writeData, SetOptions(merge: false))
         .timeout(const Duration(seconds: 20));
 
-    if (kDebugMode) {
-      debugPrint('[LeaguesRepoFirebase] League doc created: $id');
-    }
-
-    // Step 2: Create the organizer membership
     try {
       await membershipRef
           .set(membership.toRemoteMap(), SetOptions(merge: false))
           .timeout(const Duration(seconds: 15));
-
-      if (kDebugMode) {
-        debugPrint('[LeaguesRepoFirebase] Membership created for $authUid');
-      }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint(
-          '[LeaguesRepoFirebase] Membership write failed (non-fatal): $e',
-        );
+        debugPrint('[LeaguesRepoFirebase] Membership write failed (non-fatal): $e');
       }
     }
 
@@ -424,9 +371,7 @@ class LeaguesRepositoryFirebase {
     );
 
     if (kDebugMode) {
-      debugPrint(
-        '[LeaguesRepoFirebase] Competition slot candidates: $candidates',
-      );
+      debugPrint('[LeaguesRepoFirebase] Competition slot candidates: $candidates');
     }
 
     Object? lastError;
@@ -440,18 +385,11 @@ class LeaguesRepositoryFirebase {
           requestedMasterLeagueId: masterLeagueId,
         );
       } on _CompetitionSlotTakenException {
-        if (kDebugMode) {
-          debugPrint(
-            '[LeaguesRepoFirebase] Slot $candidateId taken, trying next',
-          );
-        }
         lastError = const _CompetitionSlotTakenException();
         continue;
       } catch (e) {
         if (kDebugMode) {
-          debugPrint(
-            '[LeaguesRepoFirebase] Error creating at $candidateId: $e',
-          );
+          debugPrint('[LeaguesRepoFirebase] Error creating at $candidateId: $e');
         }
         lastError = e;
         if (e is FirebaseException &&
@@ -531,8 +469,7 @@ class LeaguesRepositoryFirebase {
 
       if (kDebugMode) {
         debugPrint(
-          '[LeaguesRepoFirebase] saveLeague: id="${league.id}" '
-          'masterLeagueId="$requestedMasterLeagueId"',
+          '[LeaguesRepoFirebase] saveLeague: id="${league.id}" masterLeagueId="$requestedMasterLeagueId"',
         );
       }
 
@@ -544,11 +481,6 @@ class LeaguesRepositoryFirebase {
       }
 
       if (requestedMasterLeagueId.isNotEmpty && league.id.trim().isEmpty) {
-        if (kDebugMode) {
-          debugPrint(
-            '[LeaguesRepoFirebase] Creating new master league competition',
-          );
-        }
         return await _createMasterLeagueCompetitionWithReservedSlot(
           league: league,
           authUid: authUid,
@@ -612,12 +544,6 @@ class LeaguesRepositoryFirebase {
           requestedMasterLeagueId: requestedMasterLeagueId,
           forCreate: true,
         );
-
-        if (kDebugMode) {
-          debugPrint(
-            '[LeaguesRepoFirebase] Creating standalone league id=$id',
-          );
-        }
 
         await leagueRef
             .set(writeData, SetOptions(merge: false))
