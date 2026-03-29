@@ -60,6 +60,11 @@ class LeaguesRepositoryFirebase {
     }
 
     if (error is FirebaseException) {
+      if (kDebugMode) {
+        debugPrint(
+          '[LeaguesRepoFirebase] FirebaseException code=${error.code} message=${error.message}',
+        );
+      }
       switch (error.code) {
         case 'unavailable':
         case 'deadline-exceeded':
@@ -68,7 +73,7 @@ class LeaguesRepositoryFirebase {
           );
         case 'permission-denied':
           throw const UserFriendlyException(
-            'You don’t have access to this league.',
+            'You don\'t have permission to do this. Please check your access and try again.',
           );
         case 'unauthenticated':
           throw const UserFriendlyException(
@@ -127,11 +132,38 @@ class LeaguesRepositoryFirebase {
         (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
             .trim();
 
-    if (ownerId.isEmpty || ownerId != authUid) {
-      throw const UserFriendlyException(
-        'Only the Master League owner can create competitions inside it.',
-      );
+    // Owner always has access
+    if (ownerId.isNotEmpty && ownerId == authUid) return;
+
+    // Check roles map for admin/owner role
+    final roles = <String, String>{};
+    final rawRoles = data['roles'];
+    if (rawRoles is Map) {
+      for (final entry in rawRoles.entries) {
+        final k = entry.key.toString().trim();
+        final v = (entry.value ?? '').toString().trim().toLowerCase();
+        if (k.isNotEmpty && v.isNotEmpty) roles[k] = v;
+      }
     }
+
+    final userRole = roles[authUid] ?? '';
+    if (userRole == 'owner' || userRole == 'admin') return;
+
+    // Check memberIds as fallback
+    final memberIds = <String>{};
+    final rawMembers = data['memberIds'];
+    if (rawMembers is List) {
+      for (final v in rawMembers) {
+        final s = (v ?? '').toString().trim();
+        if (s.isNotEmpty) memberIds.add(s);
+      }
+    }
+
+    if (memberIds.contains(authUid) && roles.containsKey(authUid)) return;
+
+    throw const UserFriendlyException(
+      'Only the Master League owner can create competitions inside it.',
+    );
   }
 
   Future<MasterLeaguePlan> _getMasterLeaguePlan(String masterLeagueId) async {
@@ -251,6 +283,7 @@ class LeaguesRepositoryFirebase {
       'organizerUid': authUid,
       'ownerUid': authUid,
       'ownerId': authUid,
+      'isPrivate': fixed.isPrivate,
       'updatedAtMs': now,
     };
 
@@ -279,6 +312,25 @@ class LeaguesRepositoryFirebase {
     return leagueData;
   }
 
+  /// Creates a league document and its organizer membership in a single
+  /// batch write (no preceding read).
+  ///
+  /// WHY batch instead of transaction:
+  ///
+  /// Firestore transactions call `txn.get(docRef)` before writing. That
+  /// get() is evaluated against the collection's `allow get` rule:
+  ///
+  ///   allow get: if canReadLeague(leagueId);
+  ///
+  /// `canReadLeague` loads the league document via `leagueDoc(leagueId)`
+  /// and checks ownership / membership / privacy. When the document does
+  /// not exist yet (creation), every branch that tests `ld.exists()` fails,
+  /// so the rule denies the read with `permission-denied` — even though the
+  /// subsequent `txn.set()` (a create) would pass the `allow create` rule.
+  ///
+  /// A batch write never reads first, so only the `allow create` rule is
+  /// evaluated against `request.resource.data`, which contains all required
+  /// fields. Duplicate-prevention is handled by the slot-based ID system.
   Future<String> _createLeagueAtExactId({
     required League league,
     required String id,
@@ -301,30 +353,32 @@ class LeaguesRepositoryFirebase {
       now: now,
     );
 
-    await _firestore.runTransaction((txn) async {
-      final existing = await txn.get(leagueRef);
-      if (existing.exists) {
-        throw const _CompetitionSlotTakenException();
-      }
+    final writeData = _buildLeagueWriteData(
+      fixed: fixed,
+      authUid: authUid,
+      now: now,
+      requestedMasterLeagueId: requestedMasterLeagueId,
+      forCreate: true,
+    );
 
-      txn.set(
-        leagueRef,
-        _buildLeagueWriteData(
-          fixed: fixed,
-          authUid: authUid,
-          now: now,
-          requestedMasterLeagueId: requestedMasterLeagueId,
-          forCreate: true,
-        ),
-        SetOptions(merge: false),
+    if (kDebugMode) {
+      debugPrint(
+        '[LeaguesRepoFirebase] Creating league id=$id '
+        'masterLeague=$requestedMasterLeagueId',
       );
+    }
 
-      txn.set(
-        membershipRef,
-        membership.toRemoteMap(),
-        SetOptions(merge: false),
-      );
-    }).timeout(const Duration(seconds: 25));
+    final batch = _firestore.batch();
+
+    batch.set(leagueRef, writeData, SetOptions(merge: false));
+
+    batch.set(membershipRef, membership.toRemoteMap(), SetOptions(merge: false));
+
+    await batch.commit().timeout(const Duration(seconds: 25));
+
+    if (kDebugMode) {
+      debugPrint('[LeaguesRepoFirebase] Successfully created league $id');
+    }
 
     return id;
   }
@@ -338,6 +392,12 @@ class LeaguesRepositoryFirebase {
       masterLeagueId: masterLeagueId,
     );
 
+    if (kDebugMode) {
+      debugPrint(
+        '[LeaguesRepoFirebase] Competition slot candidates: $candidates',
+      );
+    }
+
     Object? lastError;
 
     for (final candidateId in candidates) {
@@ -349,10 +409,25 @@ class LeaguesRepositoryFirebase {
           requestedMasterLeagueId: masterLeagueId,
         );
       } on _CompetitionSlotTakenException {
+        if (kDebugMode) {
+          debugPrint(
+            '[LeaguesRepoFirebase] Slot $candidateId taken, trying next',
+          );
+        }
         lastError = const _CompetitionSlotTakenException();
         continue;
       } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            '[LeaguesRepoFirebase] Error creating at $candidateId: $e',
+          );
+        }
         lastError = e;
+        // On permission-denied or already-exists try the next slot
+        if (e is FirebaseException &&
+            (e.code == 'permission-denied' || e.code == 'already-exists')) {
+          continue;
+        }
         break;
       }
     }
@@ -425,6 +500,14 @@ class LeaguesRepositoryFirebase {
       final authUid = _requireAuthUid();
       final requestedMasterLeagueId = league.masterLeagueId.trim();
 
+      if (kDebugMode) {
+        debugPrint(
+          '[LeaguesRepoFirebase] saveLeague: id="${league.id}" '
+          'masterLeagueId="$requestedMasterLeagueId"',
+        );
+      }
+
+      // ── Master League ownership check (client-side pre-flight) ──
       if (requestedMasterLeagueId.isNotEmpty) {
         await _requireMasterLeagueOwnerOrThrow(
           masterLeagueId: requestedMasterLeagueId,
@@ -432,7 +515,13 @@ class LeaguesRepositoryFirebase {
         );
       }
 
+      // ── NEW competition inside Master League (empty league id) ──
       if (requestedMasterLeagueId.isNotEmpty && league.id.trim().isEmpty) {
+        if (kDebugMode) {
+          debugPrint(
+            '[LeaguesRepoFirebase] Creating new master league competition',
+          );
+        }
         return await _createMasterLeagueCompetitionWithReservedSlot(
           league: league,
           authUid: authUid,
@@ -440,44 +529,9 @@ class LeaguesRepositoryFirebase {
         );
       }
 
+      // ── Standalone league or existing league update ──
       final id = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
       final leagueRef = _leaguesCol.doc(id);
-
-      if (requestedMasterLeagueId.isNotEmpty) {
-        final existing = await leagueRef
-            .get(const GetOptions(source: Source.server))
-            .timeout(const Duration(seconds: 15));
-
-        if (!existing.exists) {
-          return await _createLeagueAtExactId(
-            league: league,
-            id: id,
-            authUid: authUid,
-            requestedMasterLeagueId: requestedMasterLeagueId,
-          );
-        }
-
-        final existingData = existing.data() ?? <String, dynamic>{};
-        final existingOwner =
-            (existingData['ownerUid'] as String? ??
-                    existingData['organizerUid'] as String? ??
-                    existingData['ownerId'] as String? ??
-                    '')
-                .trim();
-        if (existingOwner.isNotEmpty && existingOwner != authUid) {
-          throw const UserFriendlyException(
-            'You don’t have access to this league.',
-          );
-        }
-
-        final existingMasterLeagueId =
-            (existingData['masterLeagueId'] as String? ?? '').trim();
-        if (existingMasterLeagueId != requestedMasterLeagueId) {
-          throw const UserFriendlyException(
-            "We couldn't move this competition. Please refresh and try again.",
-          );
-        }
-      }
 
       final now = DateTime.now().millisecondsSinceEpoch;
       final fixed = league.copyWith(
@@ -494,6 +548,7 @@ class LeaguesRepositoryFirebase {
         now: now,
       );
 
+      // Check if document already exists to decide merge strategy
       final existing = await leagueRef
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
@@ -509,16 +564,18 @@ class LeaguesRepositoryFirebase {
 
         if (existingOwner.isNotEmpty && existingOwner != authUid) {
           throw const UserFriendlyException(
-            'You don’t have access to this league.',
+            'You don\'t have permission to edit this league.',
           );
         }
 
-        final existingMasterLeagueId =
-            (existingData['masterLeagueId'] as String? ?? '').trim();
-        if (existingMasterLeagueId != requestedMasterLeagueId) {
-          throw const UserFriendlyException(
-            "We couldn't move this competition. Please refresh and try again.",
-          );
+        if (requestedMasterLeagueId.isNotEmpty) {
+          final existingMasterLeagueId =
+              (existingData['masterLeagueId'] as String? ?? '').trim();
+          if (existingMasterLeagueId != requestedMasterLeagueId) {
+            throw const UserFriendlyException(
+              "We couldn't move this competition. Please refresh and try again.",
+            );
+          }
         }
       }
 
@@ -544,6 +601,9 @@ class LeaguesRepositoryFirebase {
       await batch.commit().timeout(const Duration(seconds: 25));
       return id;
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[LeaguesRepoFirebase] saveLeague error: $e');
+      }
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
