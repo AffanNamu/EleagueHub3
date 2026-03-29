@@ -1566,7 +1566,8 @@ class MasterLeaguesRepositoryFirebase {
       }
 
       final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ownerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+      final ownerId =
+          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
       if (ownerId != uid) {
         throw const UserFriendlyException(
           'Only the Master League owner can rename it.',
@@ -1621,7 +1622,9 @@ class MasterLeaguesRepositoryFirebase {
       }
 
       final mlData = (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ownerId = (mlData['ownerId'] as String? ?? mlData['ownerUid'] as String? ?? '').trim();
+      final ownerId =
+          (mlData['ownerId'] as String? ?? mlData['ownerUid'] as String? ?? '')
+              .trim();
       if (ownerId != uid) {
         throw const UserFriendlyException(
           'Only the Master League owner can add staff.',
@@ -1662,7 +1665,9 @@ class MasterLeaguesRepositoryFirebase {
         }
 
         final data = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final currentOwnerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+        final currentOwnerId =
+            (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
+                .trim();
         if (currentOwnerId != uid) {
           throw const UserFriendlyException(
             'Only the Master League owner can add staff.',
@@ -1670,8 +1675,14 @@ class MasterLeaguesRepositoryFirebase {
         }
 
         final memberIds =
-            ((data['memberIds'] as List?) ?? const []).map((e) => '$e'.trim()).where((e) => e.isNotEmpty).toSet();
-        final rolesRaw = (data['roles'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+            ((data['memberIds'] as List?) ?? const [])
+                .map((e) => '$e'.trim())
+                .where((e) => e.isNotEmpty)
+                .toSet();
+
+        final rolesRaw =
+            (data['roles'] as Map?)?.cast<String, dynamic>() ??
+                <String, dynamic>{};
         final roles = <String, String>{};
         for (final entry in rolesRaw.entries) {
           final k = entry.key.trim();
@@ -1722,7 +1733,8 @@ class MasterLeaguesRepositoryFirebase {
       }
 
       final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final ownerId = (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+      final ownerId =
+          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
       if (ownerId != uid) {
         throw const UserFriendlyException(
           'Only the Master League owner can edit the organizer profile.',

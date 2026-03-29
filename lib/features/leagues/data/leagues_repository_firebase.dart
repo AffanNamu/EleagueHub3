@@ -339,7 +339,9 @@ class LeaguesRepositoryFirebase {
 
     if (kDebugMode) {
       debugPrint(
-        '[LeaguesRepoFirebase] Creating league id=$id masterLeague=$requestedMasterLeagueId authUid=$authUid',
+        '[LeaguesRepoFirebase] Creating league id=$id '
+        'masterLeague=$requestedMasterLeagueId '
+        'authUid=$authUid',
       );
       debugPrint('[LeaguesRepoFirebase] writeData=$writeData');
     }
@@ -354,7 +356,9 @@ class LeaguesRepositoryFirebase {
           .timeout(const Duration(seconds: 15));
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[LeaguesRepoFirebase] Membership write failed (non-fatal): $e');
+        debugPrint(
+          '[LeaguesRepoFirebase] Membership write failed (non-fatal): $e',
+        );
       }
     }
 
@@ -371,7 +375,9 @@ class LeaguesRepositoryFirebase {
     );
 
     if (kDebugMode) {
-      debugPrint('[LeaguesRepoFirebase] Competition slot candidates: $candidates');
+      debugPrint(
+        '[LeaguesRepoFirebase] Competition slot candidates: $candidates',
+      );
     }
 
     Object? lastError;
@@ -389,7 +395,9 @@ class LeaguesRepositoryFirebase {
         continue;
       } catch (e) {
         if (kDebugMode) {
-          debugPrint('[LeaguesRepoFirebase] Error creating at $candidateId: $e');
+          debugPrint(
+            '[LeaguesRepoFirebase] Error creating at $candidateId: $e',
+          );
         }
         lastError = e;
         if (e is FirebaseException &&
@@ -469,7 +477,8 @@ class LeaguesRepositoryFirebase {
 
       if (kDebugMode) {
         debugPrint(
-          '[LeaguesRepoFirebase] saveLeague: id="${league.id}" masterLeagueId="$requestedMasterLeagueId"',
+          '[LeaguesRepoFirebase] saveLeague: id="${league.id}" '
+          'masterLeagueId="$requestedMasterLeagueId"',
         );
       }
 
