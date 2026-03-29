@@ -9,6 +9,7 @@ concurrency:
   group: android-release-apk-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege: workflow only needs read access to repository contents.
 permissions:
   contents: read
 
@@ -22,9 +23,11 @@ jobs:
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
       ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
 
+      # Pin Flutter for reproducible production builds
       FLUTTER_CHANNEL: stable
       FLUTTER_VERSION: 3.24.5
 
+      # Make caches deterministic and local to the workspace
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
 
@@ -216,7 +219,7 @@ jobs:
           set -euo pipefail
           mkdir -p assets
           curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
-            -o assets/icon.png "https://drive.google.com/uc?export=download&id=1wWRfUNxW0bk6bggD_WwZFtF_vsxVuyT9"
+            -o assets/icon.png "https://drive.google.com/uc?export=download&id=1tsB5ZVBNWke_wlrCuKiOiXMrGSPEqZZd"
 
       - name: Generate launcher icons
         run: |
@@ -231,21 +234,24 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Validate critical secret is present
           if [ -z "${EH_WORKER_BASE_URL:-}" ]; then
             echo "::error::EH_WORKER_BASE_URL secret is not set. Payment verification will not work."
             echo "Go to GitHub → Settings → Secrets → Actions → New repository secret"
-            echo "Name: EH_WORKER_BASE_URL"
+            echo "Name:  EH_WORKER_BASE_URL"
             echo "Value: https://livekit-token-worker.esportlyic.workers.dev"
             exit 1
           fi
 
           echo "Worker URL configured: ${EH_WORKER_BASE_URL}"
 
+          # Build dart-define flags
           DART_DEFINES=""
           DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}"
           DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
           DART_DEFINES="${DART_DEFINES} --dart-define=EH_WORKER_BASE_URL=${EH_WORKER_BASE_URL}"
 
+          # Flutterwave keys (optional — use test key if live not set)
           if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=false"
