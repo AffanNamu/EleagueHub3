@@ -219,7 +219,7 @@ jobs:
           set -euo pipefail
           mkdir -p assets
           curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
-            -o assets/icon.png "https://drive.google.com/uc?export=download&id=1tsB5ZVBNWke_wlrCuKiOiXMrGSPEqZZd"
+            -o assets/icon.png "https://drive.google.com/uc?export=download&id=1wWRfUNxW0bk6bggD_WwZFtF_vsxVuyT9"
 
       - name: Generate launcher icons
         run: |
