@@ -11,7 +11,6 @@ import '../../master_leagues/domain/master_league_plan.dart';
 import '../models/league.dart';
 import '../models/membership.dart';
 
-/// User-safe exception: if UI shows `$e`, it will still be a friendly message.
 class UserFriendlyException implements Exception {
   final String message;
   const UserFriendlyException(this.message);
@@ -282,6 +281,7 @@ class LeaguesRepositoryFirebase {
       'updatedAtMs': now,
     };
 
+    // Ensure memberIds is a proper list containing authUid
     final rawMemberIds = leagueData['memberIds'];
     final memberIds = <String>{authUid};
     if (rawMemberIds is List) {
@@ -303,6 +303,9 @@ class LeaguesRepositoryFirebase {
     } else {
       leagueData['masterLeagueId'] = requestedMasterLeagueId;
     }
+
+    // Remove any null values that could cause issues with Firestore rules
+    leagueData.removeWhere((key, value) => value == null);
 
     return leagueData;
   }
@@ -353,6 +356,33 @@ class LeaguesRepositoryFirebase {
         'memberIds=${writeData['memberIds']} '
         'masterLeagueId=${writeData['masterLeagueId']}',
       );
+
+      // Debug: verify master league ownership before attempting write
+      if (requestedMasterLeagueId.isNotEmpty) {
+        try {
+          final mlSnap = await _masterLeaguesCol
+              .doc(requestedMasterLeagueId)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 10));
+          if (mlSnap.exists) {
+            final mlData = mlSnap.data() ?? {};
+            debugPrint(
+              '[LeaguesRepoFirebase] Master League doc exists: '
+              'ownerId=${mlData['ownerId']} '
+              'ownerUid=${mlData['ownerUid']} '
+              'matchesAuth=${mlData['ownerId'] == authUid || mlData['ownerUid'] == authUid}',
+            );
+          } else {
+            debugPrint(
+              '[LeaguesRepoFirebase] WARNING: Master League doc does NOT exist: $requestedMasterLeagueId',
+            );
+          }
+        } catch (e) {
+          debugPrint(
+            '[LeaguesRepoFirebase] Debug master league check failed: $e',
+          );
+        }
+      }
     }
 
     // Step 1: Create the league document
@@ -494,7 +524,6 @@ class LeaguesRepositoryFirebase {
     }
   }
 
-  /// Returns the persisted league id.
   Future<String> saveLeague(League league) async {
     try {
       final authUid = _requireAuthUid();
@@ -507,7 +536,6 @@ class LeaguesRepositoryFirebase {
         );
       }
 
-      // ── Master League ownership check (client-side pre-flight) ──
       if (requestedMasterLeagueId.isNotEmpty) {
         await _requireMasterLeagueOwnerOrThrow(
           masterLeagueId: requestedMasterLeagueId,
@@ -515,7 +543,6 @@ class LeaguesRepositoryFirebase {
         );
       }
 
-      // ── NEW competition inside Master League (empty league id) ──
       if (requestedMasterLeagueId.isNotEmpty && league.id.trim().isEmpty) {
         if (kDebugMode) {
           debugPrint(
@@ -529,7 +556,6 @@ class LeaguesRepositoryFirebase {
         );
       }
 
-      // ── Standalone league or existing league update ──
       final id = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
       final leagueRef = _leaguesCol.doc(id);
 
@@ -548,7 +574,6 @@ class LeaguesRepositoryFirebase {
         now: now,
       );
 
-      // Check if document already exists to decide merge strategy
       final existing = await leagueRef
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
@@ -580,7 +605,6 @@ class LeaguesRepositoryFirebase {
       }
 
       if (!existing.exists) {
-        // New standalone league — use two-step creation
         final writeData = _buildLeagueWriteData(
           fixed: fixed,
           authUid: authUid,
@@ -591,15 +615,7 @@ class LeaguesRepositoryFirebase {
 
         if (kDebugMode) {
           debugPrint(
-            '[LeaguesRepoFirebase] Creating standalone league id=$id '
-            'writeData keys: ${writeData.keys.toList()}',
-          );
-          debugPrint(
-            '[LeaguesRepoFirebase] organizerUid=${writeData['organizerUid']} '
-            'ownerUid=${writeData['ownerUid']} '
-            'ownerId=${writeData['ownerId']} '
-            'memberIds=${writeData['memberIds']} '
-            'masterLeagueId=${writeData['masterLeagueId']}',
+            '[LeaguesRepoFirebase] Creating standalone league id=$id',
           );
         }
 
@@ -607,20 +623,10 @@ class LeaguesRepositoryFirebase {
             .set(writeData, SetOptions(merge: false))
             .timeout(const Duration(seconds: 20));
 
-        if (kDebugMode) {
-          debugPrint('[LeaguesRepoFirebase] Standalone league doc created: $id');
-        }
-
         try {
           await membershipRef
               .set(membership.toRemoteMap(), SetOptions(merge: false))
               .timeout(const Duration(seconds: 15));
-
-          if (kDebugMode) {
-            debugPrint(
-              '[LeaguesRepoFirebase] Standalone membership created for $authUid',
-            );
-          }
         } catch (e) {
           if (kDebugMode) {
             debugPrint(
@@ -629,7 +635,6 @@ class LeaguesRepositoryFirebase {
           }
         }
       } else {
-        // Existing league — batch update is safe because league exists
         final batch = _firestore.batch();
         batch.set(
           leagueRef,
