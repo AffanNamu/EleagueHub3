@@ -37,6 +37,8 @@ class MasterLeagueDetailsScreen extends ConsumerStatefulWidget {
 class _MasterLeagueDetailsScreenState
     extends ConsumerState<MasterLeagueDetailsScreen> {
   bool _busy = false;
+  bool _followBusy = false;
+
   final LeagueAnnouncementsFirebase _announcements =
       LeagueAnnouncementsFirebase();
 
@@ -57,6 +59,21 @@ class _MasterLeagueDetailsScreenState
         backgroundColor: error ? Theme.of(context).colorScheme.error : null,
       ),
     );
+  }
+
+  Future<void> _toggleFollow(MasterLeague master) async {
+    if (_isOwner(master)) return;
+    if (_followBusy) return;
+
+    setState(() => _followBusy = true);
+    try {
+      final repo = ref.read(masterLeaguesRepositoryProvider);
+      await repo.toggleFollowWorkspace(master.id);
+    } catch (e) {
+      _snack('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _followBusy = false);
+    }
   }
 
   Stream<MasterLeague?> _watchMasterLeague(String id) {
@@ -1054,6 +1071,8 @@ class _MasterLeagueDetailsScreenState
     ThemeData theme,
     ColorScheme cs,
   ) {
+    if (!_isOwner(master)) return const SizedBox.shrink();
+
     final templatesAsync =
         ref.watch(masterLeagueCompetitionTemplatesProvider(master.id));
 
@@ -1066,16 +1085,14 @@ class _MasterLeagueDetailsScreenState
           SectionHeader(
             'Competition Templates',
             padding: EdgeInsets.zero,
-            trailing: _isOwner(master)
-                ? TextButton.icon(
-                    onPressed: () => _showTemplateComposer(master),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text(
-                      'New',
-                      style: TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  )
-                : Icon(Icons.bookmarks_outlined, color: cs.primary),
+            trailing: TextButton.icon(
+              onPressed: () => _showTemplateComposer(master),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text(
+                'New',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
           ),
           const SizedBox(height: 10),
           Text(
@@ -1101,9 +1118,7 @@ class _MasterLeagueDetailsScreenState
             data: (templates) {
               if (templates.isEmpty) {
                 return Text(
-                  _isOwner(master)
-                      ? 'No templates yet. Save your first reusable competition setup.'
-                      : 'This organizer has not created competition templates yet.',
+                  'No templates yet. Save your first reusable competition setup.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.onSurface.withOpacity(0.65),
                     fontWeight: FontWeight.w700,
@@ -1132,17 +1147,16 @@ class _MasterLeagueDetailsScreenState
                                   ),
                                 ),
                               ),
-                              if (_isOwner(master))
-                                IconButton(
-                                  tooltip: 'Delete template',
-                                  onPressed: () =>
-                                      _confirmDeleteTemplate(master, template),
-                                  icon: Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: cs.error,
-                                    size: 20,
-                                  ),
+                              IconButton(
+                                tooltip: 'Delete template',
+                                onPressed: () =>
+                                    _confirmDeleteTemplate(master, template),
+                                icon: Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: cs.error,
+                                  size: 20,
                                 ),
+                              ),
                             ],
                           ),
                           if (template.description.trim().isNotEmpty) ...[
@@ -1247,13 +1261,11 @@ class _MasterLeagueDetailsScreenState
     );
   }
 
-  Widget _buildQuickActions(
+  Widget _buildOwnerQuickActions(
     MasterLeague master,
     ThemeData theme,
     ColorScheme cs,
   ) {
-    final isOwner = _isOwner(master);
-
     Widget tile({
       required IconData icon,
       required String title,
@@ -1327,7 +1339,7 @@ class _MasterLeagueDetailsScreenState
           icon: Icons.campaign_outlined,
           title: 'Organizer Announcements',
           subtitle: 'Post updates for competitions, registration, and important notices',
-          onTap: isOwner ? () => _showAnnouncementComposer(master) : null,
+          onTap: () => _showAnnouncementComposer(master),
           tint: const Color(0xFF8B5CF6),
         ),
         const SizedBox(height: 12),
@@ -1343,10 +1355,200 @@ class _MasterLeagueDetailsScreenState
           icon: Icons.add_circle_outline_rounded,
           title: 'Create Competition',
           subtitle: 'Launch a new competition inside this workspace',
-          onTap: isOwner ? () => _showCreateCompetitionSheet(context, master) : null,
+          onTap: () => _showCreateCompetitionSheet(context, master),
           tint: const Color(0xFF22C55E),
         ),
       ],
+    );
+  }
+
+  Widget _buildVisitorOverview(
+    MasterLeague master,
+    ThemeData theme,
+    ColorScheme cs,
+  ) {
+    final followStateAsync =
+        ref.watch(masterLeagueFollowStateProvider(master.id));
+    final followersCountAsync =
+        ref.watch(masterLeagueFollowersCountProvider(master.id));
+
+    final statusColor = master.isVerifiedOrganizer
+        ? const Color(0xFF1D9BF0)
+        : (master.isVerificationPending
+            ? const Color(0xFFF59E0B)
+            : cs.onSurface.withOpacity(0.60));
+
+    final statusText = master.isVerifiedOrganizer
+        ? 'Verified Organizer'
+        : (master.isVerificationPending
+            ? 'Verification Pending'
+            : 'Unverified Organizer');
+
+    Widget item({
+      required IconData icon,
+      required String label,
+      required String value,
+      required Color tint,
+    }) {
+      return Glass(
+        borderRadius: 18,
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: tint.withOpacity(0.12),
+                border: Border.all(color: tint.withOpacity(0.24)),
+              ),
+              child: Icon(icon, color: tint, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    label,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.68),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            'Organizer Overview',
+            padding: EdgeInsets.zero,
+            trailing: Icon(Icons.visibility_outlined, color: cs.primary),
+          ),
+          const SizedBox(height: 10),
+          item(
+            icon: Icons.verified_user_outlined,
+            label: 'Organizer Status',
+            value: statusText,
+            tint: statusColor,
+          ),
+          const SizedBox(height: 10),
+          item(
+            icon: Icons.favorite_border_rounded,
+            label: 'Followers',
+            value: followersCountAsync.maybeWhen(
+              data: (v) => '$v',
+              orElse: () => '${master.followersCount}',
+            ),
+            tint: const Color(0xFFEF4444),
+          ),
+          const SizedBox(height: 10),
+          item(
+            icon: Icons.badge_outlined,
+            label: 'Profile Access',
+            value: 'View Organizer Profile',
+            tint: cs.primary,
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _openOrganizerProfile(master),
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const Text(
+                    'View Organizer Profile',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          followStateAsync.when(
+            loading: () => const SizedBox(
+              width: double.infinity,
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  ),
+                ),
+              ),
+            ),
+            error: (_, __) => SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _followBusy ? null : () => _toggleFollow(master),
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text(
+                  'Follow Organizer',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
+            data: (isFollowing) {
+              return SizedBox(
+                width: double.infinity,
+                child: isFollowing
+                    ? FilledButton.tonalIcon(
+                        onPressed: _followBusy ? null : () => _toggleFollow(master),
+                        icon: _followBusy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.check_circle_outline_rounded),
+                        label: Text(
+                          _followBusy ? 'Please wait...' : 'Following',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      )
+                    : FilledButton.icon(
+                        onPressed: _followBusy ? null : () => _toggleFollow(master),
+                        icon: _followBusy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.person_add_alt_1_rounded),
+                        label: Text(
+                          _followBusy ? 'Please wait...' : 'Follow Organizer',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -1477,9 +1679,7 @@ class _MasterLeagueDetailsScreenState
                 )
               else if (announcements.isEmpty)
                 Text(
-                  _isOwner(master)
-                      ? 'No announcements posted yet. Share your first organizer update.'
-                      : 'No organizer announcements yet.',
+                  'No organizer announcements yet.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.onSurface.withOpacity(0.65),
                     fontWeight: FontWeight.w700,
@@ -1681,9 +1881,9 @@ class _MasterLeagueDetailsScreenState
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                EmptyState(
+                const EmptyState(
                   title: 'No competitions yet',
-                  message: 'Create your first competition inside this workspace.',
+                  message: 'There are no competitions available right now.',
                   icon: Icons.emoji_events_rounded,
                 ),
                 if (_isOwner(master)) ...[
@@ -1930,6 +2130,9 @@ class _MasterLeagueDetailsScreenState
     ThemeData theme,
     ColorScheme cs,
   ) {
+    final followersCountAsync =
+        ref.watch(masterLeagueFollowersCountProvider(master.id));
+
     final stats = <_DashboardStat>[
       _DashboardStat(
         icon: Icons.emoji_events_outlined,
@@ -1944,16 +2147,29 @@ class _MasterLeagueDetailsScreenState
         tint: const Color(0xFF8B5CF6),
       ),
       _DashboardStat(
-        icon: Icons.groups_rounded,
-        label: 'Members',
-        value: '${master.memberIds.length}',
-        tint: const Color(0xFF22C55E),
-      ),
-      _DashboardStat(
         icon: Icons.favorite_border_rounded,
         label: 'Followers',
-        value: '${master.followersCount}',
+        value: followersCountAsync.maybeWhen(
+          data: (v) => '$v',
+          orElse: () => '${master.followersCount}',
+        ),
         tint: const Color(0xFFEF4444),
+      ),
+      _DashboardStat(
+        icon: master.isVerifiedOrganizer
+            ? Icons.verified_rounded
+            : (master.isVerificationPending
+                ? Icons.hourglass_top_rounded
+                : Icons.shield_outlined),
+        label: 'Organizer',
+        value: master.isVerifiedOrganizer
+            ? 'Verified'
+            : (master.isVerificationPending ? 'Pending' : 'Public'),
+        tint: master.isVerifiedOrganizer
+            ? const Color(0xFF1D9BF0)
+            : (master.isVerificationPending
+                ? const Color(0xFFF59E0B)
+                : cs.primary),
       ),
     ];
 
@@ -2110,13 +2326,18 @@ class _MasterLeagueDetailsScreenState
                                     cs,
                                   ),
                                   const SizedBox(height: 16),
-                                  _buildQuickActions(master, theme, cs),
+                                  if (isOwner)
+                                    _buildOwnerQuickActions(master, theme, cs)
+                                  else
+                                    _buildVisitorOverview(master, theme, cs),
                                   const SizedBox(height: 16),
                                   _buildPinnedAnnouncementSection(master, theme, cs),
                                   const SizedBox(height: 16),
                                   _buildAnnouncementsSection(master, theme, cs),
-                                  const SizedBox(height: 16),
-                                  _buildCompetitionTemplatesSection(master, theme, cs),
+                                  if (isOwner) ...[
+                                    const SizedBox(height: 16),
+                                    _buildCompetitionTemplatesSection(master, theme, cs),
+                                  ],
                                   const SizedBox(height: 16),
                                   _buildCompetitionsSection(master, leagues, theme, cs),
                                 ],
