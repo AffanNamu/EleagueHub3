@@ -322,6 +322,13 @@ class LeaguesRepositoryFirebase {
     );
 
     final leagueRef = _leaguesCol.doc(id);
+    
+    // Explicitly check for overwrite to prevent slot issues natively
+    final docSnap = await leagueRef.get();
+    if (docSnap.exists) {
+      throw const _CompetitionSlotTakenException();
+    }
+
     final membershipRef = leagueRef.collection('memberships').doc(authUid);
     final membership = _organizerMembership(
       leagueId: id,
@@ -343,7 +350,6 @@ class LeaguesRepositoryFirebase {
         'masterLeague=$requestedMasterLeagueId '
         'authUid=$authUid',
       );
-      debugPrint('[LeaguesRepoFirebase] writeData=$writeData');
     }
 
     await leagueRef
@@ -373,12 +379,6 @@ class LeaguesRepositoryFirebase {
     final candidates = await _candidateCompetitionLeagueIdsForMasterLeague(
       masterLeagueId: masterLeagueId,
     );
-
-    if (kDebugMode) {
-      debugPrint(
-        '[LeaguesRepoFirebase] Competition slot candidates: $candidates',
-      );
-    }
 
     Object? lastError;
 

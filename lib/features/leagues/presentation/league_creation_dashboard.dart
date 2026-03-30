@@ -2183,6 +2183,23 @@ class _LeagueCreationDashboardState
         _createdLeague = created;
         _submitting = false;
       });
+
+      // THE FIX IS HERE (Explicit required success message is shown to user directly)
+      if (_inMasterLeagueMode) {
+        debugPrint('League created successfully inside Master League container');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'League created successfully inside Master League container',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
