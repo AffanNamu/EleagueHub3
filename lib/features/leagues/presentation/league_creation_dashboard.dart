@@ -617,7 +617,7 @@ class _LeagueCreationDashboardState
                           if (_inMasterLeagueMode) ...[
                             const SizedBox(height: 10),
                             Text(
-                              'This competition was created inside your Master League.',
+                              'This competition was successfully created inside your Master League.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: cs.primary.withOpacity(0.95),

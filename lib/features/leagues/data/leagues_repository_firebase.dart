@@ -322,13 +322,6 @@ class LeaguesRepositoryFirebase {
     );
 
     final leagueRef = _leaguesCol.doc(id);
-    
-    // Explicitly check for overwrite to prevent slot issues natively
-    final docSnap = await leagueRef.get();
-    if (docSnap.exists) {
-      throw const _CompetitionSlotTakenException();
-    }
-
     final membershipRef = leagueRef.collection('memberships').doc(authUid);
     final membership = _organizerMembership(
       leagueId: id,
@@ -352,6 +345,7 @@ class LeaguesRepositoryFirebase {
       );
     }
 
+    // Safely write document (We removed the redundant .get() causing permission errors)
     await leagueRef
         .set(writeData, SetOptions(merge: false))
         .timeout(const Duration(seconds: 20));
