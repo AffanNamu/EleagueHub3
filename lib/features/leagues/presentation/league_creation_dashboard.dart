@@ -468,6 +468,14 @@ class _LeagueCreationDashboardState
         .saveLeague(league)
         .timeout(const Duration(seconds: 25));
 
+    // IMPORTANT FIX:
+    // In Master League mode, do NOT force a server read after write.
+    // The follow-up getLeagueById can be blocked by rules or propagation,
+    // and it incorrectly makes the UI show "permission denied" even when write succeeded.
+    if (_inMasterLeagueMode) {
+      return league.copyWith(id: savedId);
+    }
+
     final fresh = await repo
         .getLeagueById(savedId)
         .timeout(const Duration(seconds: 20));
@@ -617,10 +625,10 @@ class _LeagueCreationDashboardState
                           if (_inMasterLeagueMode) ...[
                             const SizedBox(height: 10),
                             Text(
-                              'This competition was successfully created inside your Master League.',
+                              'League created successfully inside Master League container',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.primary.withOpacity(0.95),
+                                color: const Color(0xFF16A34A),
                                 height: 1.35,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -2184,22 +2192,19 @@ class _LeagueCreationDashboardState
         _submitting = false;
       });
 
-      // THE FIX IS HERE (Explicit required success message is shown to user directly)
       if (_inMasterLeagueMode) {
         debugPrint('League created successfully inside Master League container');
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
               'League created successfully inside Master League container',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
             ),
-            backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
             duration: Duration(seconds: 4),
           ),
         );
       }
-
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
@@ -2306,8 +2311,8 @@ class _OptionalImageField extends StatelessWidget {
         final String statusText = uploading
             ? 'Uploading...'
             : hasImage
-            ? 'Uploaded'
-            : 'No image selected';
+                ? 'Uploaded'
+                : 'No image selected';
 
         final IconData tickIcon = hasImage
             ? Icons.check_box
