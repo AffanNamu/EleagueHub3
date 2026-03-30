@@ -105,8 +105,9 @@ class LeaguesRepositoryFirebase {
     return League.fromRemoteMap(map);
   }
 
-  /// Validates master league ownership.
-  /// Caches the result to avoid redundant reads.
+  /// Validates master league ownership and returns the doc data.
+  /// This is a Dart-side check BEFORE writing — the security rules
+  /// do NOT need to repeat this check via get().
   Future<Map<String, dynamic>> _requireMasterLeagueOwnerOrThrow({
     required String masterLeagueId,
     required String authUid,
@@ -150,12 +151,10 @@ class LeaguesRepositoryFirebase {
     );
   }
 
-  /// Reads plan from already-fetched master league data, avoiding extra get().
   MasterLeaguePlan _planFromData(Map<String, dynamic> data) {
     return MasterLeaguePlan.fromString(data['plan'] as String?);
   }
 
-  /// Fallback: reads plan from server if we don't have cached data.
   Future<MasterLeaguePlan> _getMasterLeaguePlan(String masterLeagueId) async {
     final id = masterLeagueId.trim();
     if (id.isEmpty) return MasterLeaguePlan.basic;
@@ -180,8 +179,6 @@ class LeaguesRepositoryFirebase {
         'for your ${plan.displayName} plan.';
   }
 
-  /// Returns candidate league IDs for a new competition inside a master league.
-  /// Uses [mlData] if provided to avoid redundant server reads.
   Future<List<String>> _candidateCompetitionLeagueIdsForMasterLeague({
     required String masterLeagueId,
     Map<String, dynamic>? mlData,
@@ -267,10 +264,11 @@ class LeaguesRepositoryFirebase {
     );
   }
 
-  /// Builds complete write data for a league document.
+  /// Builds write data for a league document.
   ///
-  /// CRITICAL: All identity fields must match request.auth.uid
-  /// for Firebase security rules to pass.
+  /// CRITICAL: All identity fields set to authUid.
+  /// The security rules verify these match request.auth.uid
+  /// WITHOUT needing any get() calls.
   Map<String, dynamic> _buildLeagueWriteData({
     required League fixed,
     required String authUid,
@@ -280,17 +278,14 @@ class LeaguesRepositoryFirebase {
   }) {
     final leagueData = <String, dynamic>{
       ...fixed.toJson(),
-      // These MUST match request.auth.uid — rules check all three
       'organizerUid': authUid,
       'ownerUid': authUid,
       'ownerId': authUid,
-      // Also set organizerUserId to authUid so looksLikeFirebaseUid passes
       'organizerUserId': authUid,
       'isPrivate': fixed.isPrivate,
       'updatedAtMs': now,
     };
 
-    // Ensure memberIds is always a list containing the auth user
     final rawMemberIds = leagueData['memberIds'];
     final memberIds = <String>{authUid};
     if (rawMemberIds is List) {
@@ -303,7 +298,6 @@ class LeaguesRepositoryFirebase {
     }
     leagueData['memberIds'] = memberIds.toList(growable: false);
 
-    // Handle masterLeagueId field
     if (requestedMasterLeagueId.isEmpty) {
       if (!forCreate) {
         leagueData['masterLeagueId'] = FieldValue.delete();
@@ -314,16 +308,12 @@ class LeaguesRepositoryFirebase {
       leagueData['masterLeagueId'] = requestedMasterLeagueId;
     }
 
-    // Remove null values — Firestore rules may reject them
     leagueData.removeWhere((key, value) => value == null);
     return leagueData;
   }
 
   /// Creates a league document at a specific ID.
-  ///
-  /// CRITICAL: Does NOT pre-read the league doc before writing.
-  /// A get() on a non-existent doc triggers canReadLeague() which fails
-  /// because the doc doesn't exist yet.
+  /// NO pre-read get(). Direct set() only.
   Future<String> _createLeagueAtExactId({
     required League league,
     required String id,
@@ -361,44 +351,27 @@ class LeaguesRepositoryFirebase {
         'masterLeague=$requestedMasterLeagueId '
         'authUid=$authUid',
       );
-      debugPrint(
-        '[LeaguesRepoFirebase] Write data keys: ${writeData.keys.toList()}',
-      );
-      if (requestedMasterLeagueId.isNotEmpty) {
-        debugPrint(
-          '[LeaguesRepoFirebase] masterLeagueId in payload: '
-          '${writeData['masterLeagueId']}',
-        );
-      }
     }
 
-    // Write league document — NO pre-read get()
+    // Write league doc — single set(), no transaction
     await leagueRef
         .set(writeData, SetOptions(merge: false))
         .timeout(const Duration(seconds: 20));
 
     if (kDebugMode) {
-      debugPrint(
-        '[LeaguesRepoFirebase] League doc written successfully: $id',
-      );
+      debugPrint('[LeaguesRepoFirebase] League doc written: $id');
     }
 
-    // Write membership using the self-create rule path:
-    // signedIn() && request.auth.uid == membershipId && ...
-    // This does NOT require canManageLeague which would try to read
-    // the just-created league doc (might not be immediately readable).
+    // Write membership as separate call (not transaction)
+    // Uses self-create rule path: request.auth.uid == membershipId
     try {
       await membershipRef
           .set(membership.toRemoteMap(), SetOptions(merge: false))
           .timeout(const Duration(seconds: 15));
-
       if (kDebugMode) {
-        debugPrint(
-          '[LeaguesRepoFirebase] Membership written for league: $id',
-        );
+        debugPrint('[LeaguesRepoFirebase] Membership written for: $id');
       }
     } catch (e) {
-      // Membership write is non-fatal — league was created successfully.
       if (kDebugMode) {
         debugPrint(
           '[LeaguesRepoFirebase] Membership write failed (non-fatal): $e',
@@ -406,10 +379,7 @@ class LeaguesRepositoryFirebase {
       }
     }
 
-    if (kDebugMode) {
-      debugPrint('Competition created successfully inside Master League');
-    }
-
+    debugPrint('Competition created successfully inside Master League');
     return id;
   }
 
@@ -525,14 +495,6 @@ class LeaguesRepositoryFirebase {
     }
   }
 
-  /// Save (create or update) a league.
-  ///
-  /// CRITICAL FIXES for master league competitions:
-  /// 1. For NEW leagues with masterLeagueId and empty id: slot reservation path
-  ///    (no pre-read get() that would fail on non-existent doc)
-  /// 2. Master league data is fetched ONCE and reused (avoids redundant reads)
-  /// 3. For other new leagues: direct set() without pre-read
-  /// 4. organizerUserId is set to authUid for rules compatibility
   Future<String> saveLeague(League league) async {
     try {
       final authUid = _requireAuthUid();
@@ -545,7 +507,9 @@ class LeaguesRepositoryFirebase {
         );
       }
 
-      // Validate master league ownership and cache the data
+      // Dart-side ownership check (reads master league doc from server).
+      // The security rules do NOT repeat this check — they just verify
+      // the league data fields match request.auth.uid.
       Map<String, dynamic>? mlData;
       if (requestedMasterLeagueId.isNotEmpty) {
         mlData = await _requireMasterLeagueOwnerOrThrow(
@@ -554,8 +518,7 @@ class LeaguesRepositoryFirebase {
         );
       }
 
-      // CASE 1: New competition inside a master league (empty id)
-      // Use slot reservation path — no pre-read get()
+      // New competition inside master league (empty id)
       if (requestedMasterLeagueId.isNotEmpty && league.id.trim().isEmpty) {
         return await _createMasterLeagueCompetitionWithReservedSlot(
           league: league,
@@ -584,8 +547,7 @@ class LeaguesRepositoryFirebase {
         now: now,
       );
 
-      // Try to read existing doc — but handle permission-denied gracefully
-      // for non-existent docs (canReadLeague requires doc to exist).
+      // Try to read existing doc — handle permission-denied gracefully
       bool docExists = false;
       Map<String, dynamic>? existingData;
 
@@ -598,8 +560,6 @@ class LeaguesRepositoryFirebase {
           existingData = existing.data();
         }
       } catch (e) {
-        // Permission-denied on get() means the doc doesn't exist
-        // (canReadLeague checks doc existence). Proceed with create.
         if (e is FirebaseException && e.code == 'permission-denied') {
           if (kDebugMode) {
             debugPrint(
@@ -615,7 +575,6 @@ class LeaguesRepositoryFirebase {
       }
 
       if (docExists && existingData != null) {
-        // UPDATING existing league
         final existingOwner =
             (existingData['ownerUid'] as String? ??
                     existingData['organizerUid'] as String? ??
@@ -661,7 +620,6 @@ class LeaguesRepositoryFirebase {
 
         await batch.commit().timeout(const Duration(seconds: 25));
       } else {
-        // CREATING new league — use direct set() without pre-read
         return await _createLeagueAtExactId(
           league: league,
           id: id,
