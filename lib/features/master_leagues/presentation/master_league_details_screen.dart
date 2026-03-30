@@ -9,6 +9,7 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
+import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../leagues/data/league_announcements_firebase.dart';
 import '../../leagues/models/enums.dart';
@@ -1074,6 +1075,94 @@ class _MasterLeagueDetailsScreenState
     }
   }
 
+  Future<void> _showAllCompetitionsSheet(
+    MasterLeague master,
+    List<League> leagues,
+    ThemeData theme,
+    ColorScheme cs,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+            child: Glass(
+              borderRadius: 28,
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                height: MediaQuery.of(ctx).size.height * 0.82,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.emoji_events_outlined, color: cs.primary),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'All Competitions',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${leagues.length}',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: cs.primary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: leagues.isEmpty
+                          ? const Center(
+                              child: EmptyState(
+                                title: 'No competitions yet',
+                                message: 'There are no competitions in this Master League.',
+                                icon: Icons.emoji_events_outlined,
+                              ),
+                            )
+                          : ListView.separated(
+                              itemCount: leagues.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 12),
+                              itemBuilder: (context, index) {
+                                final l = leagues[index];
+                                return SizedBox(
+                                  height: 230,
+                                  child: LeagueFlipCard(
+                                    league: l,
+                                    leagueId: l.id,
+                                    leagueName: l.name,
+                                    leagueCode: l.code,
+                                    distribution: '${l.format.displayName} • ${l.season}',
+                                    subtitle: l.region,
+                                    imageUrl: l.leagueImageUrl,
+                                    isOwner: _currentUid.isNotEmpty &&
+                                        l.organizerUid.trim() == _currentUid,
+                                    onDoubleTap: () => context.push('/leagues/${l.id}'),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildCompetitionTemplatesSection(
     MasterLeague master,
     ThemeData theme,
@@ -1931,8 +2020,6 @@ class _MasterLeagueDetailsScreenState
     ThemeData theme,
     ColorScheme cs,
   ) {
-    final draft = ml.initialCompetition;
-
     Widget infoTile({
       required IconData icon,
       required String label,
@@ -1978,49 +2065,6 @@ class _MasterLeagueDetailsScreenState
           label: 'Plan',
           value: ml.plan.displayName,
         ),
-        const SizedBox(height: 8),
-        infoTile(
-          icon: Icons.receipt_long_outlined,
-          label: 'Receipt',
-          value: ml.sourceReceiptId.isEmpty ? 'Not available' : ml.sourceReceiptId,
-        ),
-        const SizedBox(height: 8),
-        infoTile(
-          icon: Icons.payments_outlined,
-          label: 'Payment ID',
-          value: ml.sourcePaymentId.isEmpty ? 'Not available' : ml.sourcePaymentId,
-        ),
-        const SizedBox(height: 8),
-        infoTile(
-          icon: Icons.fingerprint_outlined,
-          label: 'Attempt ID',
-          value: ml.createdViaAttemptId.isEmpty
-              ? 'Not available'
-              : ml.createdViaAttemptId,
-        ),
-        if (draft != null) ...[
-          const SizedBox(height: 8),
-          infoTile(
-            icon: Icons.emoji_events_outlined,
-            label: 'Initial Competition',
-            value: draft.name,
-            tint: const Color(0xFF8B5CF6),
-          ),
-          const SizedBox(height: 8),
-          infoTile(
-            icon: Icons.payments_rounded,
-            label: 'Entry Fee',
-            value: '${draft.entryFee.toStringAsFixed(2)} ${draft.currency}',
-            tint: const Color(0xFF22C55E),
-          ),
-          const SizedBox(height: 8),
-          infoTile(
-            icon: Icons.groups_rounded,
-            label: 'Max Participants',
-            value: '${draft.maxParticipants}',
-            tint: const Color(0xFFF59E0B),
-          ),
-        ],
       ],
     );
   }
@@ -2209,125 +2253,114 @@ class _MasterLeagueDetailsScreenState
     ThemeData theme,
     ColorScheme cs,
   ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(
-          'Competitions',
-          padding: EdgeInsets.zero,
-          trailing: _isOwner(master)
-              ? TextButton.icon(
-                  onPressed: () => _showCreateCompetitionSheet(context, master),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text(
-                    'Create',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+    final preview = leagues.isNotEmpty ? leagues.first : null;
+    final remaining = leagues.length > 1 ? leagues.length - 1 : 0;
+
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            'Competitions',
+            padding: EdgeInsets.zero,
+            trailing: _isOwner(master)
+                ? TextButton.icon(
+                    onPressed: () => _showCreateCompetitionSheet(context, master),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text(
+                      'Create',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Users can join using the invite code or QR on the competition card.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.68),
+              fontWeight: FontWeight.w700,
+              height: 1.25,
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (preview == null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                EmptyState(
+                  title: 'No competitions yet',
+                  message: master.initialCompetition == null
+                      ? 'Create your first competition inside this workspace.'
+                      : 'Create your first real competition for this workspace.',
+                  icon: Icons.emoji_events_rounded,
+                ),
+                if (_isOwner(master)) ...[
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () => _showCreateCompetitionSheet(context, master),
+                    icon: const Icon(Icons.add),
+                    label: const Text(
+                      'Create Competition',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   ),
-                )
-              : null,
-        ),
-        const SizedBox(height: 10),
-        if (leagues.isEmpty)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              EmptyState(
-                title: 'No competitions yet',
-                message: master.initialCompetition == null
-                    ? 'Create your first competition inside this workspace.'
-                    : 'Initial competition draft saved: ${master.initialCompetition!.name}. Build the actual competition now.',
-                icon: Icons.emoji_events_rounded,
+                ],
+              ],
+            )
+          else ...[
+            SizedBox(
+              height: 236,
+              child: LeagueFlipCard(
+                league: preview,
+                leagueId: preview.id,
+                leagueName: preview.name,
+                leagueCode: preview.code,
+                distribution: '${preview.format.displayName} • ${preview.season}',
+                subtitle: preview.region,
+                imageUrl: preview.leagueImageUrl,
+                isOwner: _currentUid.isNotEmpty &&
+                    preview.organizerUid.trim() == _currentUid,
+                onDoubleTap: () => context.push('/leagues/${preview.id}'),
               ),
-              if (_isOwner(master)) ...[
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: () => _showCreateCompetitionSheet(context, master),
-                  icon: const Icon(Icons.add),
-                  label: const Text(
-                    'Create Competition',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => context.push('/leagues/${preview.id}'),
+                    icon: const Icon(Icons.open_in_new_rounded),
+                    label: const Text(
+                      'Open Competition',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   ),
                 ),
               ],
-            ],
-          )
-        else
-          ...List.generate(leagues.length, (i) {
-            final l = leagues[i];
-            final icon = l.format == LeagueFormat.classic
-                ? Icons.emoji_events_outlined
-                : (l.format == LeagueFormat.uclSwiss
-                    ? Icons.grid_view_rounded
-                    : Icons.groups_rounded);
-
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: i == leagues.length - 1 ? 0 : 12,
-              ),
-              child: InkWell(
-                onTap: () => context.push('/leagues/${l.id}'),
-                borderRadius: BorderRadius.circular(22),
-                child: Glass(
-                  borderRadius: 22,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 14,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: cs.onSurface.withOpacity(0.06),
-                          border: Border.all(
-                            color: cs.onSurface.withOpacity(0.10),
-                          ),
-                        ),
-                        child: Icon(
-                          icon,
-                          color: cs.primary,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              l.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                color: cs.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${l.format.displayName} • ${l.season}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.65),
-                                fontWeight: FontWeight.w700,
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: cs.onSurface.withOpacity(0.35),
-                      ),
-                    ],
+            ),
+            if (remaining > 0) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  onPressed: () =>
+                      _showAllCompetitionsSheet(master, leagues, theme, cs),
+                  icon: const Icon(Icons.view_carousel_outlined),
+                  label: Text(
+                    remaining == 1
+                        ? 'View 1 more competition'
+                        : 'View $remaining more competitions',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
               ),
-            );
-          }),
-      ],
+            ],
+          ],
+        ],
+      ),
     );
   }
 
