@@ -30,7 +30,7 @@ class _CreateMasterLeagueScreenState
   bool _loadingEntitlement = true;
   bool _enableRewards = false;
 
-  MasterLeaguePlan _selectedPlan = MasterLeaguePlan.pro;
+  MasterLeaguePlan _selectedPlan = MasterLeaguePlan.basic;
   MasterLeaguePlan? _activePlan;
 
   @override
@@ -251,6 +251,99 @@ class _CreateMasterLeagueScreenState
     return result == true;
   }
 
+  Future<bool> _showFreeBasicConfirmDialog({
+    required String masterLeagueName,
+    required String competitionName,
+    required bool rewardsEnabled,
+  }) async {
+    if (!mounted) return false;
+
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Glass(
+          borderRadius: 28,
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Create Free Basic Workspace',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: cs.onSurface,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Basic plan is now free. Your organizer workspace will be created immediately without payment.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: cs.onSurface.withOpacity(0.72),
+                  fontWeight: FontWeight.w600,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Master League: $masterLeagueName',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'First competition: $competitionName • Rewards: ${rewardsEnabled ? 'Enabled' : 'Disabled'}',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface.withOpacity(0.78),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Plan: Basic • Price: Free',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.primary,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text(
+                        'Create Now',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return result == true;
+  }
+
   Future<void> _create() async {
     if (_processing) return;
 
@@ -275,6 +368,30 @@ class _CreateMasterLeagueScreenState
       final effectivePlan = _activePlan ?? _selectedPlan;
 
       await repo.checkMasterLeagueLimitOrThrow(effectivePlan);
+
+      if (effectivePlan == MasterLeaguePlan.basic) {
+        final shouldCreate = await _showFreeBasicConfirmDialog(
+          masterLeagueName: masterLeagueName,
+          competitionName: competition.name,
+          rewardsEnabled: _enableRewards,
+        );
+
+        if (!shouldCreate) {
+          if (mounted) setState(() => _processing = false);
+          return;
+        }
+
+        final created = await repo.create(
+          name: masterLeagueName,
+          plan: MasterLeaguePlan.basic,
+        );
+
+        if (!mounted) return;
+
+        _showMessage('Basic Master League created successfully.');
+        context.go('/master-leagues/${created.id}');
+        return;
+      }
 
       final price = await _loadPriceForPlan(effectivePlan);
       final cc = await CountryResolverService.instance.resolveCountryCode(
@@ -317,18 +434,6 @@ class _CreateMasterLeagueScreenState
         return;
       }
 
-      // ============================================================
-      // FIX: Activate Organizer Pro BEFORE creating Master League.
-      //
-      // This calls the /organizer-pro/activate endpoint which:
-      //   1. Verifies the Flutterwave transaction (server-side)
-      //   2. Sets Firebase custom claims (organizerPro=true, plan, expiry)
-      //   3. Creates the entitlement document in Firestore
-      //
-      // Without this step, the Firestore security rules block the
-      // Master League creation because the user doesn't have the
-      // organizerPro claim yet.
-      // ============================================================
       try {
         if (kDebugMode) {
           debugPrint('[CreateML] Activating Organizer Pro for plan: ${effectivePlan.id}...');
@@ -343,25 +448,17 @@ class _CreateMasterLeagueScreenState
           debugPrint('[CreateML] Organizer Pro activated successfully.');
         }
 
-        // Force refresh the Firebase ID token so the new custom claims
-        // are included in subsequent Firestore requests.
         await FirebaseAuth.instance.currentUser?.getIdToken(true);
       } catch (activationError) {
         if (kDebugMode) {
           debugPrint('[CreateML] Organizer Pro activation failed: $activationError');
           debugPrint('[CreateML] Proceeding with Master League creation anyway...');
         }
-        // Don't block Master League creation if activation fails.
-        // The payment is verified and the master league doc will be
-        // created with the payment proof. The user can retry activation later.
-        //
-        // Still try to force-refresh the token in case claims were partially set.
         try {
           await FirebaseAuth.instance.currentUser?.getIdToken(true);
         } catch (_) {}
       }
 
-      // Now create the Master League with the verified payment proof.
       final created = await repo.createAfterVerifiedPayment(
         masterLeagueName: masterLeagueName,
         plan: effectivePlan,
@@ -517,6 +614,29 @@ class _CreateMasterLeagueScreenState
                                 ),
                               ),
                             ),
+                          if (plan == MasterLeaguePlan.basic)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF22C55E).withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: const Color(0xFF22C55E).withOpacity(0.28),
+                                ),
+                              ),
+                              child: const Text(
+                                'FREE',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.5,
+                                  color: Color(0xFF22C55E),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -555,7 +675,7 @@ class _CreateMasterLeagueScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            'Use this screen to create your organizer workspace and first competition. If rewards are enabled, you will complete the full reward setup later inside the competition using your built-in rewards system.',
+            'Basic plan is free and creates your organizer workspace instantly. Pro and Elite continue to use paid workspace activation. If rewards are enabled, you will complete the full reward setup later inside the competition using your built-in rewards system.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurface.withOpacity(0.72),
               fontWeight: FontWeight.w700,
@@ -571,6 +691,8 @@ class _CreateMasterLeagueScreenState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+
+    final selectedIsBasic = _selectedPlan == MasterLeaguePlan.basic;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -650,7 +772,9 @@ class _CreateMasterLeagueScreenState
                         )
                       else
                         Text(
-                          'No active Organizer Pro claim found. You can still continue to payment for your selected plan.',
+                          selectedIsBasic
+                              ? 'Basic plan can be created for free without payment.'
+                              : 'No active Organizer Pro claim found. You can still continue to payment for your selected plan.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: cs.onSurface.withOpacity(0.70),
                             fontWeight: FontWeight.w800,
@@ -721,9 +845,15 @@ class _CreateMasterLeagueScreenState
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.payment_rounded),
+                      : Icon(
+                          selectedIsBasic
+                              ? Icons.add_circle_outline_rounded
+                              : Icons.payment_rounded,
+                        ),
                   label: Text(
-                    _processing ? 'Processing...' : 'Proceed to Payment',
+                    _processing
+                        ? 'Processing...'
+                        : (selectedIsBasic ? 'Create Free Basic Workspace' : 'Proceed to Payment'),
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
@@ -731,7 +861,9 @@ class _CreateMasterLeagueScreenState
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'Your Master League is created only after workspace payment succeeds and is verified.',
+                    selectedIsBasic
+                        ? 'Basic Master League is created instantly without payment.'
+                        : 'Your Master League is created only after workspace payment succeeds and is verified.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurface.withOpacity(0.60),
                       fontWeight: FontWeight.w700,
