@@ -29,11 +29,11 @@ import '../../features/leagues/presentation/admin_knockout_score_mgmt_screen.dar
 import '../../features/leagues/presentation/admin_score_mgmt_screen.dart';
 import '../../features/leagues/presentation/fixtures_screen.dart';
 import '../../features/leagues/presentation/knockout_bracket_screen.dart';
-import '../../features/leagues/presentation/league_access_guard.dart';
 import '../../features/leagues/presentation/league_admin_screen.dart';
 import '../../features/leagues/presentation/league_creation_dashboard.dart';
 import '../../features/leagues/presentation/league_creation_payment_screen.dart';
 import '../../features/leagues/presentation/league_detail_screen.dart';
+import '../../features/leagues/presentation/league_role_guard.dart';
 import '../../features/leagues/presentation/league_space_room_screen.dart';
 import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
@@ -548,26 +548,23 @@ final appRouter = GoRouter(
               routes: [
                 GoRoute(
                   path: 'standings',
-                  builder: (context, state) => LeagueAccessGuard(
-                    leagueId: state.pathParameters['id']!,
-                    child: LeagueStandingsScreen(
-                      id: state.pathParameters['id']!,
-                    ),
+                  builder: (context, state) => LeagueStandingsScreen(
+                    id: state.pathParameters['id']!,
                   ),
                 ),
                 GoRoute(
                   path: 'knockout',
-                  builder: (context, state) => LeagueAccessGuard(
+                  builder: (context, state) => KnockoutBracketScreen(
                     leagueId: state.pathParameters['id']!,
-                    child: KnockoutBracketScreen(
-                      leagueId: state.pathParameters['id']!,
-                    ),
                   ),
                 ),
                 GoRoute(
                   path: 'knockout-admin',
-                  builder: (context, state) => LeagueAccessGuard(
+                  builder: (context, state) => LeagueRoleGuard(
                     leagueId: state.pathParameters['id']!,
+                    title: 'Organizer Access Only',
+                    message:
+                        'Only the organizer or allowed admins can manage knockout scores.',
                     child: AdminKnockoutScoreMgmtScreen(
                       leagueId: state.pathParameters['id']!,
                     ),
@@ -575,37 +572,31 @@ final appRouter = GoRouter(
                 ),
                 GoRoute(
                   path: 'space',
-                  builder: (context, state) => LeagueAccessGuard(
+                  builder: (context, state) => LeagueSpaceRoomScreen(
                     leagueId: state.pathParameters['id']!,
-                    child: LeagueSpaceRoomScreen(
-                      leagueId: state.pathParameters['id']!,
-                    ),
                   ),
                 ),
                 GoRoute(
                   path: 'chat',
-                  builder: (context, state) => LeagueAccessGuard(
+                  builder: (context, state) => LeagueChatScreen(
                     leagueId: state.pathParameters['id']!,
-                    child: LeagueChatScreen(
-                      leagueId: state.pathParameters['id']!,
-                    ),
                   ),
                 ),
               ],
             ),
             GoRoute(
               path: ':leagueId/fixtures',
-              builder: (context, state) => LeagueAccessGuard(
+              builder: (context, state) => FixturesScreen(
                 leagueId: state.pathParameters['leagueId']!,
-                child: FixturesScreen(
-                  leagueId: state.pathParameters['leagueId']!,
-                ),
               ),
             ),
             GoRoute(
               path: ':leagueId/admin-scores',
-              builder: (context, state) => LeagueAccessGuard(
+              builder: (context, state) => LeagueRoleGuard(
                 leagueId: state.pathParameters['leagueId']!,
+                title: 'Organizer Access Only',
+                message:
+                    'Only the organizer or allowed admins can manage league scores.',
                 child: AdminScoreMgmtScreen(
                   leagueId: state.pathParameters['leagueId']!,
                 ),
@@ -613,18 +604,21 @@ final appRouter = GoRouter(
             ),
             GoRoute(
               path: ':leagueId/admin',
-              builder: (context, state) => LeagueAdminScreen(
+              builder: (context, state) => LeagueRoleGuard(
                 leagueId: state.pathParameters['leagueId']!,
+                title: 'Organizer Access Only',
+                message:
+                    'Only the organizer or allowed admins can open league settings.',
+                child: LeagueAdminScreen(
+                  leagueId: state.pathParameters['leagueId']!,
+                ),
               ),
             ),
             GoRoute(
               path: ':leagueId/matches/:matchId',
-              builder: (context, state) => LeagueAccessGuard(
+              builder: (context, state) => MatchDetailScreen(
                 leagueId: state.pathParameters['leagueId']!,
-                child: MatchDetailScreen(
-                  leagueId: state.pathParameters['leagueId']!,
-                  matchId: state.pathParameters['matchId']!,
-                ),
+                matchId: state.pathParameters['matchId']!,
               ),
             ),
           ],

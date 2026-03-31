@@ -999,6 +999,7 @@ class MasterLeaguesRepositoryFirebase {
   Future<MasterLeague> create({
     required String name,
     MasterLeaguePlan plan = MasterLeaguePlan.basic,
+    MasterLeagueCompetitionDraft? initialCompetition,
   }) async {
     try {
       final uid = _requireAuthUid();
@@ -1013,6 +1014,30 @@ class MasterLeaguesRepositoryFirebase {
         throw const UserFriendlyException(
           'Master League name is too long.',
         );
+      }
+
+      if (initialCompetition != null) {
+        final compName = initialCompetition.name.trim();
+        if (compName.isEmpty) {
+          throw const UserFriendlyException(
+            'Please enter a competition name.',
+          );
+        }
+        if (compName.length > 60) {
+          throw const UserFriendlyException(
+            'Competition name is too long.',
+          );
+        }
+        if (initialCompetition.maxParticipants < 2) {
+          throw const UserFriendlyException(
+            'Max participants must be at least 2.',
+          );
+        }
+        if (initialCompetition.entryFee < 0) {
+          throw const UserFriendlyException(
+            'Entry fee cannot be negative.',
+          );
+        }
       }
 
       final id = await _allocateMasterLeagueIdForPlan(plan);
@@ -1042,6 +1067,7 @@ class MasterLeaguesRepositoryFirebase {
         'createdViaAttemptId': '',
         'sourcePaymentId': '',
         'sourceReceiptId': '',
+        if (initialCompetition != null) 'initialCompetition': initialCompetition.toMap(),
         'verificationStatus': 'none',
         'verifiedBadge': false,
         'verificationRequestId': '',
