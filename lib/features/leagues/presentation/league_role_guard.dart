@@ -37,7 +37,7 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
   late final Future<LocalLeaguesRepository> _repoFuture;
 
   Future<LocalLeaguesRepository> _buildRepo() async {
-    final prefs = await PrefsService.instance;
+    final prefs = await PreferencesService.create();
     return LocalLeaguesRepository(prefs);
   }
 
