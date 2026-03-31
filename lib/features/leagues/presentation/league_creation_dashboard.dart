@@ -25,6 +25,7 @@ import '../data/leagues_repository_firebase.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
+import '../logic/league_premium_upgrade_helper.dart';
 import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
@@ -191,14 +192,14 @@ class _LeagueCreationDashboardState
       'Free users can only have $_freeLeagueListLimit leagues total on the leagues screen. Upgrade to Premium to create more.';
 
   Future<void> _openPremiumUpgradeFlow() async {
-    if (_submitting) return;
+    if (_isPremiumUser) {
+      _showSnack('Premium is already active on your account.');
+      return;
+    }
 
-    final result = await context.push<LeagueCreationPaymentResult?>(
-      '/leagues/create/payment',
-      extra: <String, dynamic>{
-        'premiumUpgrade': true,
-        'leagueName': 'Organizer Premium',
-      },
+    final result = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
+      context,
+      leagueName: 'Organizer Premium',
     );
 
     if (!mounted) return;
@@ -215,16 +216,6 @@ class _LeagueCreationDashboardState
     }
 
     _showSnack(result.errorMessage ?? 'Premium upgrade failed.');
-  }
-
-  void _showSnack(String message) {
-    if (!mounted) return;
-    final msg = message.trim();
-    if (msg.isEmpty) return;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
-    );
   }
 
   @override
@@ -533,7 +524,12 @@ class _LeagueCreationDashboardState
       if (!mounted) return;
 
       if (url == null || url.trim().isEmpty) {
-        _showSnack('Image not selected or upload failed.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Image not selected or upload failed.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
         return;
       }
 
@@ -545,10 +541,20 @@ class _LeagueCreationDashboardState
         }
       });
 
-      _showSnack(l10n.tr('common_done'));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.tr('common_done')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
-      _showSnack(UserFriendlyError.toMessage(e));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(UserFriendlyError.toMessage(e)),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } finally {
       if (!mounted) return;
       setState(() {
@@ -1017,7 +1023,9 @@ class _LeagueCreationDashboardState
             l10n.tr('league_create_summary_creation_fee_label'),
             _freeLimitReachedForNewLeague
                 ? 'Premium required after limit'
-                : (_inMasterLeagueMode ? 'Included in Master League' : 'Free under limit'),
+                : (_inMasterLeagueMode
+                    ? 'Included in Master League'
+                    : 'Free under limit'),
             valueColor: _freeLimitReachedForNewLeague ? _premiumAmber : cs.primary,
           ),
           if (_couponsEnabled) ...[
@@ -2167,7 +2175,7 @@ class _LeagueCreationDashboardState
     }
 
     if (_freeLimitReachedForNewLeague) {
-      _showSnack(_freeLimitText);
+      await _openPremiumUpgradeFlow();
       return;
     }
 

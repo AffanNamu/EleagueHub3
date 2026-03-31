@@ -22,6 +22,7 @@ import '../data/leagues_repository_firebase.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
+import '../logic/league_premium_upgrade_helper.dart';
 import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
@@ -188,12 +189,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   Future<void> _openPremiumUpgradeFlow() async {
     if (_submitting) return;
 
-    final result = await context.push<LeagueCreationPaymentResult?>(
-      '/leagues/create/payment',
-      extra: <String, dynamic>{
-        'premiumUpgrade': true,
-        'leagueName': 'Organizer Premium',
-      },
+    final result = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
+      context,
+      leagueName: 'Organizer Premium',
     );
 
     if (!mounted) return;
