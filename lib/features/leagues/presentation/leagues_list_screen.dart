@@ -50,6 +50,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   bool _loadingAnnouncements = false;
   String? _payingLeagueId;
   bool _isPremiumUser = false;
+  String? _removingLeagueId;
 
   @override
   bool get wantKeepAlive => true;
@@ -124,6 +125,233 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
+  }
+
+  Future<void> _openPremiumUpgradeFlow() async {
+    if (_isPremiumUser) {
+      _snack('Premium is already active on your account.');
+      return;
+    }
+
+    final result = await context.push<LeagueCreationPaymentResult?>(
+      '/leagues/create/payment',
+      extra: <String, dynamic>{
+        'premiumUpgrade': true,
+        'leagueName': 'Organizer Premium',
+      },
+    );
+
+    if (!mounted) return;
+
+    if (result != null && result.success) {
+      _snack('Premium upgrade payment completed. Refreshing access...');
+      await _refreshLeagues();
+      return;
+    }
+
+    if (result == null) {
+      _snack('Premium upgrade cancelled.');
+      return;
+    }
+
+    _snack(result.errorMessage ?? 'Premium upgrade failed.');
+  }
+
+  Future<void> _showLeagueLongPressMenu(BuildContext context, League league) async {
+    final authUid = _authUidOrEmpty();
+    final isOwner = _isOwnerForViewer(league, authUid);
+    final canLeave = !isOwner;
+
+    if (!canLeave) {
+      _snack('League owners should manage their league from the owner/admin area.');
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        final theme = Theme.of(sheetCtx);
+        final cs = theme.colorScheme;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 540),
+                child: Glass(
+                  borderRadius: 26,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: cs.onSurface.withOpacity(0.20),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Text(
+                        league.name,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'You can remove this league from your list if you no longer need it.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.68),
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            Navigator.of(sheetCtx).pop();
+                            await _leaveLeague(league);
+                          },
+                          icon: const Icon(Icons.exit_to_app_rounded),
+                          label: const Text(
+                            'Remove from My List',
+                            style: TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
+                          onPressed: () => Navigator.of(sheetCtx).pop(),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _leaveLeague(League league) async {
+    final authUid = _authUidOrEmpty();
+    if (authUid.isEmpty) {
+      _snack('Please sign in and try again.');
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) {
+            final theme = Theme.of(ctx);
+            final cs = theme.colorScheme;
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              child: Glass(
+                borderRadius: 24,
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.exit_to_app_rounded, color: cs.primary, size: 34),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Remove league from your list?',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'You will leave "${league.name}" and it will no longer appear on your leagues screen.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.70),
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            child: const Text(
+                              'Remove',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    if (mounted) setState(() => _removingLeagueId = league.id);
+
+    try {
+      await _firestore.collection('leagues').doc(league.id).set(
+        {
+          'memberIds': FieldValue.arrayRemove([authUid]),
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 15));
+
+      try {
+        await _firestore
+            .collection('leagues')
+            .doc(league.id)
+            .collection('memberships')
+            .doc(authUid)
+            .delete()
+            .timeout(const Duration(seconds: 15));
+      } catch (_) {}
+
+      if (!mounted) return;
+      _snack('League removed from your list.');
+      await _refreshLeagues();
+    } catch (e) {
+      if (!mounted) return;
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } finally {
+      if (mounted) setState(() => _removingLeagueId = null);
+    }
   }
 
   DocumentReference<Map<String, dynamic>> _leagueRef(String leagueId) =>
@@ -691,7 +919,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<void> _handleCreateLeagueTap(BuildContext context) async {
     if (_freeLimitReached) {
-      _snack(_freeLimitMessage('create more leagues'));
+      await _openPremiumUpgradeFlow();
       return;
     }
 
@@ -701,7 +929,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<void> _handleJoinQrTap(BuildContext context) async {
     if (_freeLimitReached) {
-      _snack(_freeLimitMessage('join more leagues'));
+      await _openPremiumUpgradeFlow();
       return;
     }
 
@@ -713,7 +941,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<void> _handleJoinByIdTap(BuildContext context) async {
     if (_freeLimitReached) {
-      _snack(_freeLimitMessage('join more leagues'));
+      await _openPremiumUpgradeFlow();
       return;
     }
 
@@ -757,9 +985,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         padding: EdgeInsets.only(bottom: fabBottomOffset),
         child: FloatingActionButton(
           onPressed: () => _showOptions(context),
-          backgroundColor: _freeLimitReached ? cs.outline.withOpacity(0.60) : cs.primary,
-          foregroundColor: _freeLimitReached ? cs.onSurface.withOpacity(0.70) : cs.onPrimary,
-          child: Icon(_freeLimitReached ? Icons.lock_rounded : Icons.add_rounded),
+          backgroundColor: _freeLimitReached ? _premiumAmber : cs.primary,
+          foregroundColor: _freeLimitReached ? Colors.black : cs.onPrimary,
+          child: Icon(_freeLimitReached ? Icons.workspace_premium_rounded : Icons.add_rounded),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
@@ -845,6 +1073,24 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               height: 1.35,
                             ),
                           ),
+                          if (!_isPremiumUser) ...[
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _openPremiumUpgradeFlow,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _freeLimitReached ? _premiumAmber : cs.primary,
+                                  foregroundColor: _freeLimitReached ? Colors.black : cs.onPrimary,
+                                ),
+                                icon: const Icon(Icons.payments_outlined),
+                                label: Text(
+                                  _freeLimitReached ? 'Pay Now' : 'Upgrade to Premium',
+                                  style: const TextStyle(fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ],
                     ),
@@ -916,7 +1162,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final authUid = _authUidOrEmpty();
 
     final media = MediaQuery.of(context);
-    final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
+    final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight + 80;
 
     final mainAxisExtent = isTablet ? 230.0 : 220.0;
 
@@ -961,123 +1207,158 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         );
 
         final payingThis = _payingLeagueId == league.id;
+        final removingThis = _removingLeagueId == league.id;
 
-        return Stack(
-          children: [
-            LeagueFlipCard(
-              leagueName: league.name,
-              leagueCode: league.code.isNotEmpty ? league.code : league.id.substring(0, 8),
-              distribution: "${l10n.tr(league.format.l10nKey)} • ${league.season}",
-              subtitle: subtitle,
-              imageUrl: league.leagueImageUrl,
-              isLocked: showLockedBadge,
-              onPay: showLockedBadge ? () => _payChargesForLeague(context, league) : null,
-              isOwner: isOwner,
-              isViewer: viewerIsViewerOnly,
-              isFull: isFull,
-              onDoubleTap: () => context.push('/leagues/${league.id}'),
-              qrWidget: QrImageView(
-                data: league.qrPayload,
-                version: QrVersions.auto,
-                gapless: true,
-                eyeStyle: const QrEyeStyle(
-                  eyeShape: QrEyeShape.square,
-                  color: Colors.black,
-                ),
-                dataModuleStyle: const QrDataModuleStyle(
-                  dataModuleShape: QrDataModuleShape.square,
-                  color: Colors.black,
-                ),
-              ),
-            ),
-            if (isFull)
-              PositionedDirectional(
-                top: 12,
-                start: 12,
-                child: _CardBadge(
-                  label: l10n.tr('leagues_badge_full'),
-                  icon: Icons.block_rounded,
-                  color: cs.error,
-                  bg: cs.error.withOpacity(0.14),
-                  border: cs.error.withOpacity(0.40),
-                ),
-              ),
-            PositionedDirectional(
-              top: 12,
-              end: 12,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (isOwner)
-                    _CardBadge(
-                      label: l10n.tr('leagues_badge_owner'),
-                      icon: Icons.admin_panel_settings_rounded,
-                      color: cs.primary,
-                      bg: cs.primary.withOpacity(0.18),
-                      border: cs.primary.withOpacity(0.45),
+        return Opacity(
+          opacity: removingThis ? 0.65 : 1,
+          child: Stack(
+            children: [
+              GestureDetector(
+                onLongPress: removingThis ? null : () => _showLeagueLongPressMenu(context, league),
+                child: LeagueFlipCard(
+                  leagueName: league.name,
+                  leagueCode: league.code.isNotEmpty ? league.code : league.id.substring(0, 8),
+                  distribution: "${l10n.tr(league.format.l10nKey)} • ${league.season}",
+                  subtitle: subtitle,
+                  imageUrl: league.leagueImageUrl,
+                  isLocked: showLockedBadge,
+                  onPay: showLockedBadge ? () => _payChargesForLeague(context, league) : null,
+                  isOwner: isOwner,
+                  isViewer: viewerIsViewerOnly,
+                  isFull: isFull,
+                  onDoubleTap: () => context.push('/leagues/${league.id}'),
+                  qrWidget: QrImageView(
+                    data: league.qrPayload,
+                    version: QrVersions.auto,
+                    gapless: true,
+                    eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.square,
+                      color: Colors.black,
                     ),
-                  if (!isOwner && viewerIsViewerOnly)
-                    _CardBadge(
-                      label: l10n.tr('leagues_badge_viewer'),
-                      icon: Icons.visibility_rounded,
-                      color: onSurface.withOpacity(0.70),
-                      bg: onSurface.withOpacity(0.06),
-                      border: onSurface.withOpacity(0.12),
-                    ),
-                  if ((isOwner || viewerIsViewerOnly) && showLockedBadge) const SizedBox(height: 6),
-                  if (showLockedBadge)
-                    _CardBadge(
-                      label: l10n.tr('leagues_badge_locked'),
-                      icon: Icons.lock_outline_rounded,
-                      color: _premiumAmber,
-                      bg: _premiumAmber.withOpacity(0.14),
-                      border: _premiumAmber.withOpacity(0.40),
-                    ),
-                ],
-              ),
-            ),
-            if (showLockedBadge)
-              PositionedDirectional(
-                bottom: 14,
-                end: 14,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: payingThis ? null : () => _payChargesForLeague(context, league),
-                    borderRadius: BorderRadius.circular(20),
-                    child: Ink(
-                      height: 32,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        gradient: LinearGradient(
-                          colors: [
-                            _premiumAmber,
-                            _premiumAmber.withOpacity(0.80),
-                          ],
-                        ),
-                      ),
-                      child: Center(
-                        child: payingThis
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                              )
-                            : Text(
-                                l10n.tr('leagues_pay_button'),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 11,
-                                  color: Colors.black,
-                                ),
-                              ),
-                      ),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: Colors.black,
                     ),
                   ),
                 ),
               ),
-          ],
+              if (isFull)
+                PositionedDirectional(
+                  top: 12,
+                  start: 12,
+                  child: _CardBadge(
+                    label: l10n.tr('leagues_badge_full'),
+                    icon: Icons.block_rounded,
+                    color: cs.error,
+                    bg: cs.error.withOpacity(0.14),
+                    border: cs.error.withOpacity(0.40),
+                  ),
+                ),
+              PositionedDirectional(
+                top: 12,
+                end: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (isOwner)
+                      _CardBadge(
+                        label: l10n.tr('leagues_badge_owner'),
+                        icon: Icons.admin_panel_settings_rounded,
+                        color: cs.primary,
+                        bg: cs.primary.withOpacity(0.18),
+                        border: cs.primary.withOpacity(0.45),
+                      ),
+                    if (!isOwner && viewerIsViewerOnly)
+                      _CardBadge(
+                        label: l10n.tr('leagues_badge_viewer'),
+                        icon: Icons.visibility_rounded,
+                        color: onSurface.withOpacity(0.70),
+                        bg: onSurface.withOpacity(0.06),
+                        border: onSurface.withOpacity(0.12),
+                      ),
+                    if ((isOwner || viewerIsViewerOnly) && showLockedBadge) const SizedBox(height: 6),
+                    if (showLockedBadge)
+                      _CardBadge(
+                        label: l10n.tr('leagues_badge_locked'),
+                        icon: Icons.lock_outline_rounded,
+                        color: _premiumAmber,
+                        bg: _premiumAmber.withOpacity(0.14),
+                        border: _premiumAmber.withOpacity(0.40),
+                      ),
+                  ],
+                ),
+              ),
+              if (!isOwner)
+                PositionedDirectional(
+                  bottom: 14,
+                  start: 14,
+                  child: _CardBadge(
+                    label: 'LONG PRESS',
+                    icon: Icons.touch_app_rounded,
+                    color: onSurface.withOpacity(0.78),
+                    bg: onSurface.withOpacity(0.08),
+                    border: onSurface.withOpacity(0.14),
+                  ),
+                ),
+              if (showLockedBadge)
+                PositionedDirectional(
+                  bottom: 14,
+                  end: 14,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: payingThis ? null : () => _payChargesForLeague(context, league),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Ink(
+                        height: 32,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          gradient: LinearGradient(
+                            colors: [
+                              _premiumAmber,
+                              _premiumAmber.withOpacity(0.80),
+                            ],
+                          ),
+                        ),
+                        child: Center(
+                          child: payingThis
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                )
+                              : Text(
+                                  l10n.tr('leagues_pay_button'),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 11,
+                                    color: Colors.black,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (removingThis)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(22),
+                      color: Colors.black.withOpacity(0.12),
+                    ),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 26,
+                        height: 26,
+                        child: CircularProgressIndicator(strokeWidth: 2.4),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         );
       },
     );
@@ -1089,7 +1370,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
     final media = MediaQuery.of(context);
-    final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight;
+    final bottomPadding = 16.0 + media.padding.bottom + kBottomNavigationBarHeight + 80;
 
     return Center(
       child: SingleChildScrollView(
@@ -1146,14 +1427,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 child: Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: _freeLimitReached ? () => _snack(_freeLimitMessage('create more leagues')) : () => _showOptions(context),
+                    onTap: _freeLimitReached ? _openPremiumUpgradeFlow : () => _showOptions(context),
                     borderRadius: BorderRadius.circular(16),
                     child: Ink(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
                         gradient: LinearGradient(
                           colors: _freeLimitReached
-                              ? [cs.outline.withOpacity(0.55), cs.outline.withOpacity(0.38)]
+                              ? [_premiumAmber, _premiumAmber.withOpacity(0.82)]
                               : [cs.primary, cs.primary.withOpacity(0.75)],
                         ),
                       ),
@@ -1162,17 +1443,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              _freeLimitReached ? Icons.lock_rounded : Icons.add_rounded,
-                              color: Colors.white,
+                              _freeLimitReached ? Icons.payments_rounded : Icons.add_rounded,
+                              color: _freeLimitReached ? Colors.black : Colors.white,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
                             Text(
                               _freeLimitReached
-                                  ? 'Free limit reached'
+                                  ? 'Pay Now'
                                   : l10n.tr('leagues_empty_cta'),
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: _freeLimitReached ? Colors.black : Colors.white,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 14,
                               ),
@@ -1267,9 +1548,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     ),
                     const SizedBox(height: 14),
                     _OptionTile(
-                      icon: _freeLimitReached ? Icons.lock_rounded : Icons.add_rounded,
+                      icon: _freeLimitReached ? Icons.workspace_premium_rounded : Icons.add_rounded,
                       iconBg: _freeLimitReached ? _premiumAmber : cs.primary,
-                      title: l10n.tr('leagues_options_create_title'),
+                      title: _freeLimitReached
+                          ? 'Pay Now'
+                          : l10n.tr('leagues_options_create_title'),
                       subtitle: _freeLimitReached
                           ? 'Upgrade to Premium to create more leagues.'
                           : l10n.tr('leagues_options_create_subtitle'),
@@ -1280,9 +1563,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     ),
                     Divider(color: onSurface.withOpacity(0.08), height: 1, indent: 16, endIndent: 16),
                     _OptionTile(
-                      icon: _freeLimitReached ? Icons.lock_rounded : Icons.qr_code_scanner_rounded,
+                      icon: _freeLimitReached ? Icons.workspace_premium_rounded : Icons.qr_code_scanner_rounded,
                       iconBg: _freeLimitReached ? _premiumAmber : Colors.teal,
-                      title: l10n.tr('leagues_options_join_qr_title'),
+                      title: _freeLimitReached
+                          ? 'Pay Now'
+                          : l10n.tr('leagues_options_join_qr_title'),
                       subtitle: _freeLimitReached
                           ? 'Upgrade to Premium to join more leagues.'
                           : l10n.tr('leagues_options_join_qr_subtitle'),
@@ -1293,9 +1578,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     ),
                     Divider(color: onSurface.withOpacity(0.08), height: 1, indent: 16, endIndent: 16),
                     _OptionTile(
-                      icon: _freeLimitReached ? Icons.lock_rounded : Icons.key_rounded,
+                      icon: _freeLimitReached ? Icons.workspace_premium_rounded : Icons.key_rounded,
                       iconBg: _freeLimitReached ? _premiumAmber : Colors.deepPurple,
-                      title: l10n.tr('leagues_options_join_id_title'),
+                      title: _freeLimitReached
+                          ? 'Pay Now'
+                          : l10n.tr('leagues_options_join_id_title'),
                       subtitle: _freeLimitReached
                           ? 'Upgrade to Premium to join more leagues.'
                           : l10n.tr('leagues_options_join_id_subtitle'),
@@ -1327,7 +1614,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     }
 
     if (_freeLimitReached) {
-      _snack(_freeLimitMessage('join more leagues'));
+      await _openPremiumUpgradeFlow();
       return;
     }
 
