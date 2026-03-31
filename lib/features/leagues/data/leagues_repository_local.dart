@@ -221,6 +221,75 @@ class LocalLeaguesRepository {
     }
   }
 
+  Future<void> _requireNotOwnerForLeave({
+    required String leagueId,
+    required String authUid,
+  }) async {
+    final snap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    if (!snap.exists) {
+      throw const UserFriendlyException(
+        "We couldn't find this league. Please refresh and try again.",
+      );
+    }
+
+    final data = snap.data() ?? const <String, dynamic>{};
+    final organizerUid = (data['organizerUid'] as String? ?? '').trim();
+    final ownerUid = (data['ownerUid'] as String? ?? '').trim();
+    final ownerId = (data['ownerId'] as String? ?? '').trim();
+
+    if (organizerUid == authUid || ownerUid == authUid || ownerId == authUid) {
+      throw const UserFriendlyException(
+        'League owners cannot remove their own league from the list here. Please use the owner/admin area.',
+      );
+    }
+  }
+
+  Future<void> leaveLeague(String leagueId) async {
+    try {
+      final authUid = _requireAuthUid();
+      await _requireOnline();
+
+      final id = leagueId.trim();
+      if (id.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find this league. Please refresh and try again.",
+        );
+      }
+
+      await _requireNotOwnerForLeave(
+        leagueId: id,
+        authUid: authUid,
+      );
+
+      final leagueRef = _firestore.collection('leagues').doc(id);
+      final membershipRef =
+          leagueRef.collection('memberships').doc(authUid);
+
+      await leagueRef
+          .set(
+            {
+              'memberIds': FieldValue.arrayRemove([authUid]),
+              'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+            },
+            SetOptions(merge: true),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      try {
+        await membershipRef
+            .delete()
+            .timeout(const Duration(seconds: 15));
+      } catch (_) {}
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'leaving league');
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // RULES-AUTHORITATIVE ORGANIZER CHECK (server)
   // ---------------------------------------------------------------------------
