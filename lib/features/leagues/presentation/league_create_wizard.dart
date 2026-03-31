@@ -35,15 +35,7 @@ class LeagueCreateWizard extends ConsumerStatefulWidget {
     this.initialFormat,
   });
 
-  /// Master League System:
-  /// When set, the created league becomes a competition inside a Master League.
-  ///
-  /// Payment behavior:
-  /// - In Master League mode, competitions should NOT require per-league payment.
-  ///   (Users pay once when unlocking Master League).
   final String masterLeagueId;
-
-  /// Optional initial format (used when creating from Master League "Create Competition").
   final LeagueFormat? initialFormat;
 
   @override
@@ -54,12 +46,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   final _uuid = const Uuid();
   late final String _draftLeagueId;
 
+  static const int _freeLeagueListLimit = 3;
+
   int _step = 0;
 
   final _name = TextEditingController();
   final _description = TextEditingController();
 
-  // OPTIONAL images (URLs or data:image/...;base64,...)
   final _leagueImageUrl = TextEditingController();
   final _sponsorImageUrl = TextEditingController();
 
@@ -69,20 +62,18 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   late LeagueFormat _format;
   LeaguePrivacy _privacy = LeaguePrivacy.private;
 
-  // Existing flag used by settings/fixture generation
   bool _doubleRoundRobin = false;
-
-  // NEW: Saved at league doc root as `homeAwayEnabled` (default false)
   bool _homeAwayEnabled = false;
-
-  // NEW: Rewards toggle (wizard-level intent)
   bool _containsRewards = false;
 
   bool _submitting = false;
 
   LeagueCreationPaymentResult? _payment;
-
   League? _createdLeague;
+
+  bool _checkingPlanLimit = true;
+  bool _isPremiumUser = false;
+  int _currentLeagueCardCount = 0;
 
   static const Color _premiumAmber = Color(0xFFF59E0B);
 
@@ -94,48 +85,131 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     _draftLeagueId = _uuid.v4();
     _format = widget.initialFormat ?? LeagueFormat.classic;
 
-    // Home/Away only for classic/group
     if (!_supportsHomeAwayMatches) {
       _homeAwayEnabled = false;
       _doubleRoundRobin = false;
     }
+
+    _loadPlanLimitState();
   }
 
-  bool get _supportsHomeAwayMatches =>
-      _format == LeagueFormat.classic || _format == LeagueFormat.uclGroup;
+  Future<void> _loadPlanLimitState() async {
+    final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (uid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _checkingPlanLimit = false;
+        _isPremiumUser = false;
+        _currentLeagueCardCount = 0;
+      });
+      return;
+    }
 
-  int get _maxTeams {
-    switch (_format) {
-      case LeagueFormat.classic:
-        return 20;
-      case LeagueFormat.uclGroup:
-        return 32;
-      case LeagueFormat.uclSwiss:
-        return 36;
+    try {
+      final premium = await _detectPremiumUser(uid);
+      final count = await _countCurrentLeagueCards(uid);
+
+      if (!mounted) return;
+      setState(() {
+        _isPremiumUser = premium;
+        _currentLeagueCardCount = count;
+        _checkingPlanLimit = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isPremiumUser = false;
+        _currentLeagueCardCount = 0;
+        _checkingPlanLimit = false;
+      });
     }
   }
 
-  bool get _creationRequiresPayment {
-    // Master League competitions are free after Master League purchase.
-    if (_inMasterLeagueMode) return false;
-    return _format == LeagueFormat.uclGroup || _format == LeagueFormat.uclSwiss;
+  Future<bool> _detectPremiumUser(String uid) async {
+    final trimmed = uid.trim();
+    if (trimmed.isEmpty) return false;
+
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
+      final claims = token?.claims ?? const <String, dynamic>{};
+
+      final isPremium = claims['isPremium'] == true || claims['premium'] == true;
+      if (isPremium) return true;
+
+      final premiumExpiresAtMs = claims['premiumExpiresAtMs'];
+      if (premiumExpiresAtMs is int &&
+          premiumExpiresAtMs > DateTime.now().millisecondsSinceEpoch) {
+        return true;
+      }
+      if (premiumExpiresAtMs is num &&
+          premiumExpiresAtMs.toInt() > DateTime.now().millisecondsSinceEpoch) {
+        return true;
+      }
+    } catch (_) {}
+
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(trimmed)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      final data = userDoc.data() ?? const <String, dynamic>{};
+      if (data['isPremium'] == true) return true;
+
+      final expires = data['premiumExpiresAtMs'];
+      if (expires is int && expires > DateTime.now().millisecondsSinceEpoch) {
+        return true;
+      }
+      if (expires is num &&
+          expires.toInt() > DateTime.now().millisecondsSinceEpoch) {
+        return true;
+      }
+    } catch (_) {}
+
+    return false;
   }
 
-  bool get _paymentCompleted => _payment?.success == true;
+  Future<int> _countCurrentLeagueCards(String uid) async {
+    final snap = await FirebaseFirestore.instance
+        .collection('leagues')
+        .where('memberIds', arrayContains: uid)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+    return snap.docs.length;
+  }
 
-  bool get _couponsEnabled =>
-      (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
+  bool get _freeLimitReachedForNewLeague =>
+      !_isPremiumUser && _currentLeagueCardCount >= _freeLeagueListLimit;
 
-  int get _discountPercent =>
-      _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+  String get _freeLimitText =>
+      'Free users can only have $_freeLeagueListLimit leagues total on the leagues screen. Upgrade to Premium to create more.';
 
-  int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
+  Future<void> _openPremiumUpgradeFlow() async {
+    if (_submitting) return;
 
-  String get _couponLabel {
-    if (!_couponsEnabled) return 'Coupons: None';
-    final pctLabel = 'Discount $_discountPercent%';
-    final countLabel = _couponCount > 0 ? ' • Qty: $_couponCount' : '';
-    return 'Coupons: $pctLabel$countLabel';
+    final result = await context.push<LeagueCreationPaymentResult?>(
+      '/leagues/create/payment',
+      extra: <String, dynamic>{
+        'premiumUpgrade': true,
+        'leagueName': 'Organizer Premium',
+      },
+    );
+
+    if (!mounted) return;
+
+    if (result != null && result.success) {
+      _showSnack('Premium upgrade payment completed. Refreshing access...');
+      await _loadPlanLimitState();
+      return;
+    }
+
+    if (result == null) {
+      _showSnack('Premium upgrade cancelled.');
+      return;
+    }
+
+    _showSnack(result.errorMessage ?? 'Premium upgrade failed.');
   }
 
   @override
@@ -193,6 +267,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     required LeagueMediaKind kind,
   }) async {
     if (_submitting) return;
+
+    if (_freeLimitReachedForNewLeague) {
+      _showSnack(_freeLimitText);
+      return;
+    }
 
     if (kind == LeagueMediaKind.leagueImage) {
       if (_uploadingLeagueImage) return;
@@ -266,45 +345,33 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   }
 
   Future<void> _payIfNeeded() async {
-    final l10n = context.l10n;
     if (_submitting) return;
 
-    if (!_creationRequiresPayment) return;
-
-    final name = _name.text.trim().isEmpty
-        ? l10n.tr('common_league_placeholder')
-        : _name.text.trim();
-
-    final result = await context.push<LeagueCreationPaymentResult?>(
-      '/leagues/create/payment',
-      extra: <String, dynamic>{
-        'leagueId': _draftLeagueId,
-        'leagueName': name,
-        'addonsOnly': false,
-        'existingCouponsEnabled': _couponsEnabled,
-        'existingCouponCount': _couponCount,
-        'existingCouponDiscountPercent': _discountPercent,
-      },
-    );
-
-    if (!mounted) return;
-
-    if (result != null && result.success) {
-      setState(() => _payment = result);
-      _showSnack(l10n.tr('league_create_payment_successful'));
+    if (_checkingPlanLimit) {
+      _showSnack('Checking account limits. Please wait a moment.');
       return;
     }
 
-    if (result == null) {
-      _showSnack(l10n.tr('league_create_payment_cancelled'));
+    if (_freeLimitReachedForNewLeague) {
+      await _openPremiumUpgradeFlow();
       return;
     }
 
-    _showSnack(result.errorMessage ?? l10n.tr('leagues_payment_failed'));
+    _showSnack('This league format is free while you are under the free limit.');
   }
 
   Future<bool> _validateAndNext() async {
     final l10n = context.l10n;
+
+    if (_checkingPlanLimit) {
+      _showSnack('Checking account limits. Please wait a moment.');
+      return false;
+    }
+
+    if (_freeLimitReachedForNewLeague) {
+      _showSnack(_freeLimitText);
+      return false;
+    }
 
     if (_step == 0) {
       if (_name.text.trim().isEmpty) {
@@ -330,6 +397,41 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       return;
     }
     setState(() => _step = max(0, _step - 1));
+  }
+
+  bool get _supportsHomeAwayMatches =>
+      _format == LeagueFormat.classic || _format == LeagueFormat.uclGroup;
+
+  int get _maxTeams {
+    switch (_format) {
+      case LeagueFormat.classic:
+        return 20;
+      case LeagueFormat.uclGroup:
+        return 32;
+      case LeagueFormat.uclSwiss:
+        return 36;
+    }
+  }
+
+  bool get _creationRequiresPayment {
+    return false;
+  }
+
+  bool get _paymentCompleted => _payment?.success == true;
+
+  bool get _couponsEnabled =>
+      (_payment?.buyCouponsForParticipants ?? false) && _paymentCompleted;
+
+  int get _discountPercent =>
+      _couponsEnabled ? (_payment?.couponDiscountPercent ?? 0) : 0;
+
+  int get _couponCount => _couponsEnabled ? (_payment?.couponCount ?? 0) : 0;
+
+  String get _couponLabel {
+    if (!_couponsEnabled) return 'Coupons: None';
+    final pctLabel = 'Discount $_discountPercent%';
+    final countLabel = _couponCount > 0 ? ' • Qty: $_couponCount' : '';
+    return 'Coupons: $pctLabel$countLabel';
   }
 
   @override
@@ -620,6 +722,33 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         children: [
           _buildStepHeader(),
           const SizedBox(height: 14),
+          if (_checkingPlanLimit)
+            _limitStatusBanner(
+              text: 'Checking your account limits...',
+              color: Theme.of(context).colorScheme.primary,
+              icon: Icons.hourglass_top_rounded,
+            )
+          else if (_freeLimitReachedForNewLeague)
+            _limitStatusBanner(
+              text: _freeLimitText,
+              color: _premiumAmber,
+              icon: Icons.lock_rounded,
+            )
+          else if (_isPremiumUser)
+            _limitStatusBanner(
+              text:
+                  'Premium active. You can create more than $_freeLeagueListLimit league cards.',
+              color: Theme.of(context).colorScheme.primary,
+              icon: Icons.verified_rounded,
+            )
+          else
+            _limitStatusBanner(
+              text:
+                  'Free plan: $_currentLeagueCardCount / $_freeLeagueListLimit league cards used. All league formats are free under this limit.',
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.75),
+              icon: Icons.info_outline_rounded,
+            ),
+          const SizedBox(height: 14),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
             child: _stepBody(key: ValueKey<int>(_step)),
@@ -631,14 +760,45 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     );
   }
 
+  Widget _limitStatusBanner({
+    required String text,
+    required Color color,
+    required IconData icon,
+  }) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: color.withOpacity(theme.brightness == Brightness.light ? 0.10 : 0.12),
+        border: Border.all(color: color.withOpacity(0.28)),
+        boxShadow: _softPanelShadow(theme, tint: color),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w900,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSideSummary(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-
-    final paymentColor = _creationRequiresPayment
-        ? (_paymentCompleted ? cs.primary : _premiumAmber)
-        : cs.primary;
 
     Widget row(IconData icon, String label, String value, {Color? color}) {
       return Padding(
@@ -689,6 +849,25 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             ),
           ),
           const SizedBox(height: 12),
+          row(
+            _isPremiumUser ? Icons.verified_rounded : Icons.layers_outlined,
+            'Plan',
+            _isPremiumUser
+                ? 'Premium'
+                : 'Free • $_currentLeagueCardCount / $_freeLeagueListLimit league cards',
+            color: _isPremiumUser
+                ? cs.primary
+                : (_freeLimitReachedForNewLeague
+                    ? _premiumAmber
+                    : cs.onSurface.withOpacity(0.78)),
+          ),
+          if (_freeLimitReachedForNewLeague)
+            row(
+              Icons.lock_rounded,
+              'Limit',
+              'Reached',
+              color: _premiumAmber,
+            ),
           if (_inMasterLeagueMode)
             row(
               Icons.hub_rounded,
@@ -738,18 +917,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 : cs.onSurface.withOpacity(0.75),
           ),
           row(
-            _creationRequiresPayment
-                ? (_paymentCompleted ? Icons.verified : Icons.lock_outline)
-                : Icons.verified,
+            Icons.verified,
             l10n.tr('league_create_summary_creation_fee_label'),
-            _creationRequiresPayment
-                ? (_paymentCompleted
-                      ? l10n.tr('league_create_fee_paid')
-                      : l10n.tr('league_create_fee_required'))
+            _freeLimitReachedForNewLeague
+                ? 'Premium required after limit'
                 : (_inMasterLeagueMode
-                      ? 'Included in Master League'
-                      : l10n.tr('league_create_fee_free')),
-            color: paymentColor,
+                    ? 'Included in Master League'
+                    : 'Free under limit'),
+            color: _freeLimitReachedForNewLeague ? _premiumAmber : cs.primary,
           ),
           if (_couponsEnabled) ...[
             row(
@@ -761,14 +936,34 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           ],
           const SizedBox(height: 10),
           Text(
-            _unlockNote(context.l10n),
+            _freeLimitReachedForNewLeague
+                ? _freeLimitText
+                : (_inMasterLeagueMode
+                    ? 'Master League competitions are included after premium unlock.'
+                    : 'All league formats are free while you are still within your free limit.'),
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.60),
+              color: _freeLimitReachedForNewLeague
+                  ? _premiumAmber
+                  : cs.onSurface.withOpacity(0.60),
               height: 1.35,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (_freeLimitReachedForNewLeague) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _submitting ? null : _openPremiumUpgradeFlow,
+                icon: const Icon(Icons.workspace_premium_rounded),
+                label: const Text(
+                  'Upgrade to Premium',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -778,9 +973,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     if (_inMasterLeagueMode) {
       return 'Master League competitions are included after premium unlock.';
     }
-    return _creationRequiresPayment
-        ? l10n.tr('league_create_fee_note_requires_payment')
-        : l10n.tr('league_create_fee_note_free');
+    return 'All league formats are free while you are still within your free limit.';
   }
 
   Widget _buildStepHeader() {
@@ -926,6 +1119,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   Widget _stepBasics({Key? key}) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final locked = _submitting || _freeLimitReachedForNewLeague || _checkingPlanLimit;
 
     Widget formatChip(LeagueFormat fmt, String label) {
       final selected = _format == fmt;
@@ -950,13 +1144,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
           fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
         ),
-        onSelected: _submitting
+        onSelected: locked
             ? null
             : (v) {
                 if (!v) return;
                 setState(() {
                   _format = fmt;
-                  if (!_creationRequiresPayment) _payment = null;
+                  _payment = null;
 
                   if (!_supportsHomeAwayMatches) {
                     _homeAwayEnabled = false;
@@ -975,6 +1169,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 10),
         TextField(
           controller: _name,
+          enabled: !locked,
           decoration: const InputDecoration(
             labelText: 'League name (required)',
             prefixIcon: Icon(Icons.edit_outlined),
@@ -985,6 +1180,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 12),
         TextField(
           controller: _description,
+          enabled: !locked,
           minLines: 3,
           maxLines: 7,
           decoration: const InputDecoration(
@@ -1014,7 +1210,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           label: 'League image (optional)',
           uploading: _uploadingLeagueImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.leagueImage),
-          onClear: () => setState(() => _leagueImageUrl.text = ''),
+          onClear: locked ? () {} : () => setState(() => _leagueImageUrl.text = ''),
         ),
         const SizedBox(height: 10),
         _OptionalImageField(
@@ -1022,7 +1218,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           label: 'Sponsor image (optional)',
           uploading: _uploadingSponsorImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
-          onClear: () => setState(() => _sponsorImageUrl.text = ''),
+          onClear: locked ? () {} : () => setState(() => _sponsorImageUrl.text = ''),
         ),
       ],
     );
@@ -1031,6 +1227,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   Widget _stepRules({Key? key}) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final locked = _submitting || _freeLimitReachedForNewLeague || _checkingPlanLimit;
 
     return Column(
       key: key,
@@ -1050,7 +1247,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             children: [
               SwitchListTile.adaptive(
                 value: _privacy == LeaguePrivacy.private,
-                onChanged: _submitting
+                onChanged: locked
                     ? null
                     : (v) => setState(
                         () => _privacy =
@@ -1081,7 +1278,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 Divider(color: cs.onSurface.withOpacity(0.12)),
                 CheckboxListTile.adaptive(
                   value: _homeAwayEnabled,
-                  onChanged: _submitting
+                  onChanged: locked
                       ? null
                       : (v) {
                           final enabled = v ?? false;
@@ -1117,7 +1314,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               Divider(color: cs.onSurface.withOpacity(0.12)),
               SwitchListTile.adaptive(
                 value: _containsRewards,
-                onChanged: _submitting
+                onChanged: locked
                     ? null
                     : (v) => setState(() => _containsRewards = v),
                 activeColor: cs.primary,
@@ -1155,17 +1352,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     final canCreate =
         _name.text.trim().isNotEmpty &&
-        (!_creationRequiresPayment || _paymentCompleted);
-
-    final paymentTitle = _paymentCompleted
-        ? l10n.tr('league_create_payment_completed_title')
-        : l10n.tr('league_create_payment_required_title');
-    final paymentSubtitle = _paymentCompleted
-        ? '${l10n.tr('league_create_receipt_prefix')} ${_payment?.receiptId ?? ''}'
-        : l10n.tr('league_create_payment_required_subtitle');
-
-    final paymentIcon = _paymentCompleted ? Icons.verified : Icons.lock_outline;
-    final paymentAccent = _paymentCompleted ? cs.primary : _premiumAmber;
+        !_checkingPlanLimit &&
+        !_freeLimitReachedForNewLeague;
 
     return Column(
       key: key,
@@ -1213,48 +1401,55 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             _couponLabel.replaceFirst('Coupons: ', ''),
             valueColor: cs.primary,
           ),
-        if (_creationRequiresPayment) ...[
-          const SizedBox(height: 10),
+        const SizedBox(height: 10),
+        if (_freeLimitReachedForNewLeague)
           _infoBanner(
-            icon: paymentIcon,
-            title: paymentTitle,
-            subtitle: paymentSubtitle,
-            accent: paymentAccent,
+            icon: Icons.workspace_premium_rounded,
+            title: 'Premium required',
+            subtitle: _freeLimitText,
+            accent: _premiumAmber,
+          )
+        else
+          _infoBanner(
+            icon: Icons.verified_rounded,
+            title: _inMasterLeagueMode
+                ? 'Included in Master League'
+                : 'Free creation under current limit',
+            subtitle: _inMasterLeagueMode
+                ? 'No additional payment is required for this competition.'
+                : 'All league formats are free while you are still under your free limit.',
+            accent: cs.primary,
           ),
-          const SizedBox(height: 12),
+        const SizedBox(height: 12),
+        if (_freeLimitReachedForNewLeague)
+          FilledButton.icon(
+            onPressed: _submitting ? null : _openPremiumUpgradeFlow,
+            icon: const Icon(Icons.workspace_premium_rounded),
+            label: const Text(
+              'Upgrade to Premium',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+          )
+        else
           FilledButton(
-            onPressed: _submitting ? null : _payIfNeeded,
+            onPressed: (_submitting || !canCreate) ? null : () => _create(context),
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            child: Text(
-              _paymentCompleted
-                  ? l10n.tr('league_create_payment_done_view_receipt')
-                  : l10n.tr('league_create_pay_now'),
-              style: const TextStyle(fontWeight: FontWeight.w900),
-            ),
-          ),
-        ],
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: (_submitting || !canCreate) ? null : () => _create(context),
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
-          child: _submitting
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
+            child: _submitting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    l10n.tr('league_create_create_league_button_upper'),
+                    style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
-                )
-              : Text(
-                  l10n.tr('league_create_create_league_button_upper'),
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-        ),
+          ),
       ],
     );
   }
@@ -1294,7 +1489,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(width: 12),
         Expanded(
           child: FilledButton(
-            onPressed: (_submitting || isLast)
+            onPressed: (_submitting || isLast || _checkingPlanLimit || _freeLimitReachedForNewLeague)
                 ? null
                 : () async {
                     await _validateAndNext();
@@ -1435,13 +1630,18 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     if (_submitting) return;
 
-    if (_name.text.trim().isEmpty) {
-      _showSnack(l10n.tr('league_create_error_name_required'));
+    if (_checkingPlanLimit) {
+      _showSnack('Checking account limits. Please wait a moment.');
       return;
     }
 
-    if (_creationRequiresPayment && !_paymentCompleted) {
-      _showSnack(l10n.tr('league_create_error_payment_must_be_completed'));
+    if (_freeLimitReachedForNewLeague) {
+      await _openPremiumUpgradeFlow();
+      return;
+    }
+
+    if (_name.text.trim().isEmpty) {
+      _showSnack(l10n.tr('league_create_error_name_required'));
       return;
     }
 
@@ -1545,6 +1745,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       setState(() {
         _createdLeague = createdLeague;
         _submitting = false;
+        _currentLeagueCardCount = _currentLeagueCardCount + 1;
       });
 
       if (_containsRewards) {

@@ -25,22 +25,13 @@ class LeagueCreationPaymentScreen extends ConsumerStatefulWidget {
 class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaymentScreen> {
   bool _processing = false;
 
-  // Coupons add-on
   bool _buyCoupons = false;
-
-  /// Coupon count in this screen always means:
-  /// - creation flow: number of coupons to buy
-  /// - upgrade flow (addonsOnly): number of *additional* coupons to buy
   int _couponCount = 1;
-
-  // DISCOUNT percent (0..100) for users at redemption
   int _discountPercent = 50;
 
-  // Coupon code naming (UX preview only)
-  bool _couponCodeCustomMode = false; // false => random, true => custom
+  bool _couponCodeCustomMode = false;
   final TextEditingController _couponCodeBase = TextEditingController();
 
-  // Route seed (informational only in upgrade mode, and prefill in creation mode)
   int _existingCouponCount = 0;
 
   bool _initializedFromRoute = false;
@@ -53,7 +44,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
   Color _panelFill(ThemeData theme) {
     if (theme.brightness == Brightness.light) {
-      // Premium frosted sub-surface on top of Glass.
       return Colors.white.withOpacity(0.42);
     }
     return theme.colorScheme.onSurface.withOpacity(0.04);
@@ -93,18 +83,31 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     return false;
   }
 
+  bool _premiumUpgradeModeFromRouteExtra() {
+    try {
+      final extra = GoRouterState.of(context).extra;
+      if (extra is Map) {
+        final map = extra.cast<dynamic, dynamic>();
+        final v = map['premiumUpgrade'];
+        if (v is bool) return v;
+        if (v is int) return v == 1;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   void _maybeInitFromRoute() {
     if (_initializedFromRoute) return;
     _initializedFromRoute = true;
 
     final addonsOnly = _addonsOnlyFromRouteExtra();
+    final premiumUpgrade = _premiumUpgradeModeFromRouteExtra();
 
     try {
       final extra = GoRouterState.of(context).extra;
       if (extra is Map) {
         final map = extra.cast<dynamic, dynamic>();
 
-        // If organizer previously enabled coupons, reflect that in the toggle.
         final existingCouponsEnabled = map['existingCouponsEnabled'];
         if (existingCouponsEnabled is bool && existingCouponsEnabled) {
           _buyCoupons = true;
@@ -112,9 +115,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
           _buyCoupons = true;
         }
 
-        // existingCouponCount:
-        // - creation route uses it to prefill previous selection
-        // - upgrade route uses it as informational only ("Already purchased")
         final existingCouponCount = map['existingCouponCount'];
         if (existingCouponCount is int && existingCouponCount > 0) {
           _existingCouponCount = existingCouponCount;
@@ -122,7 +122,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
           _existingCouponCount = existingCouponCount.toInt();
         }
 
-        // Seed discount percent (best-effort)
         final existingPct = map['existingCouponDiscountPercent'];
         if (existingPct is int) {
           _discountPercent = existingPct.clamp(0, 100);
@@ -130,10 +129,10 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
           _discountPercent = existingPct.toInt().clamp(0, 100);
         }
 
-        // Quantity defaults:
-        // - creation: reuse previous selection if present, else 1
-        // - upgrade: additional coupons => default 0 (prevents double-charging)
-        if (addonsOnly) {
+        if (premiumUpgrade) {
+          _buyCoupons = false;
+          _couponCount = 0;
+        } else if (addonsOnly) {
           _couponCount = 0;
         } else {
           if (_existingCouponCount > 0) {
@@ -144,14 +143,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
           }
         }
 
-        // If buying coupons (>0), enforce a non-zero discount.
         if (_buyCoupons && _couponCount > 0 && _discountPercent <= 0) {
           _discountPercent = 50;
         }
       }
-    } catch (_) {
-      // ignore
-    }
+    } catch (_) {}
 
     _couponCount = _couponCount.clamp(0, 100000);
     _discountPercent = _discountPercent.clamp(0, 100);
@@ -195,7 +191,7 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
   bool _customNameInvalid(String s) {
     final t = s.trim();
-    if (t.isEmpty) return false; // allow empty; we just show preview as NAME
+    if (t.isEmpty) return false;
     if (t.contains('/')) return true;
     if (t.length > 24) return true;
     return false;
@@ -211,12 +207,17 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
     final provider = ref.watch(leagueCreationPaymentServiceProvider);
 
     final addonsOnly = _addonsOnlyFromRouteExtra();
+    final premiumUpgrade = _premiumUpgradeModeFromRouteExtra();
 
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (authUid.trim().isEmpty) {
       return GlassScaffold(
         appBar: AppBar(
-          title: Text(addonsOnly ? 'Upgrade payment' : l10n.tr('league_creation_payment_appbar_title')),
+          title: Text(
+            premiumUpgrade
+                ? 'Upgrade to Premium'
+                : (addonsOnly ? 'Upgrade payment' : l10n.tr('league_creation_payment_appbar_title')),
+          ),
           backgroundColor: Colors.transparent,
           elevation: 0,
         ),
@@ -267,7 +268,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Text(addonsOnly ? 'Upgrade payment' : l10n.tr('league_creation_payment_appbar_title')),
+        title: Text(
+          premiumUpgrade
+              ? 'Upgrade to Premium'
+              : (addonsOnly ? 'Upgrade payment' : l10n.tr('league_creation_payment_appbar_title')),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -294,12 +299,13 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
             final plan = snap.data!;
             final currency = plan.currency;
 
-            final baseFee = addonsOnly ? 0.0 : plan.createLeagueFee;
+            final baseFee = premiumUpgrade
+                ? plan.createLeagueFee
+                : (addonsOnly ? 0.0 : plan.createLeagueFee);
 
-            final int qty = (_buyCoupons ? _couponCount : 0).clamp(0, 100000);
+            final int qty = (_buyCoupons && !premiumUpgrade ? _couponCount : 0).clamp(0, 100000);
             final int disc = _discountPercent.clamp(0, 100);
 
-            // If buying coupons (>0 qty), discount must be > 0.
             final int discForPurchase = (qty > 0 && disc <= 0) ? 50 : disc;
 
             final pricing = RemotePricingService.instance.computeOrganizerCouponPricing(
@@ -314,7 +320,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
             final total = baseFee + discountedCouponSubtotal;
 
-            // Display: what users pay at redemption
             final userPaysAtRedemption = plan.accessFee * ((100 - discForPurchase) / 100.0);
 
             final titleStyle = theme.textTheme.titleMedium?.copyWith(
@@ -333,7 +338,6 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
 
             final bool thresholdConfigured = plan.couponThreshold != null && plan.couponThreshold! > 0;
 
-            // Fix: if organizer toggles coupons ON, enforce at least 1 even in addonsOnly.
             final double minCoupon = _buyCoupons ? 1 : (addonsOnly ? 0 : 1);
             final double couponSliderValue = _couponCount.toDouble().clamp(minCoupon, 100000.0);
 
@@ -349,6 +353,19 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
             final chipBorder =
                 theme.brightness == Brightness.light ? Colors.white.withOpacity(0.72) : cs.onSurface.withOpacity(0.12);
 
+            final headerTitle = premiumUpgrade
+                ? 'Upgrade to Premium'
+                : (addonsOnly ? 'Payment required to upgrade' : l10n.tr('league_creation_payment_required_title'));
+
+            final headerBody = premiumUpgrade
+                ? 'Upgrade your organizer account to continue creating more leagues.\n\n'
+                  'Premium unlock fee: ${_money(baseFee)} $currency\n'
+                  'Account: ${widget.leagueName}\n'
+                  'Provider: ${provider.providerName}'
+                : 'Total: ${_money(total)} $currency\n\n'
+                  '${addonsOnly ? 'Upgrade' : l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
+                  '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}';
+
             return SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               child: Center(
@@ -360,281 +377,317 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.payments_outlined,
-                          color: cs.primary.withOpacity(0.95),
+                          premiumUpgrade ? Icons.workspace_premium_rounded : Icons.payments_outlined,
+                          color: premiumUpgrade
+                              ? const Color(0xFFF59E0B)
+                              : cs.primary.withOpacity(0.95),
                           size: 46,
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          addonsOnly ? 'Payment required to upgrade' : l10n.tr('league_creation_payment_required_title'),
+                          headerTitle,
                           style: titleStyle,
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          'Total: ${_money(total)} $currency\n\n'
-                          '${addonsOnly ? 'Upgrade' : l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
-                          '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}',
+                          headerBody,
                           textAlign: TextAlign.center,
                           style: bodyStyle,
                         ),
                         const SizedBox(height: 16),
 
-                        // Coupons (optional)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: _panelFill(theme),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: _panelBorder(theme)),
-                            boxShadow: _panelShadow(theme, tint: cs.primary),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Coupons (optional)',
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: cs.onSurface,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  ),
-                                  Switch.adaptive(
-                                    value: _buyCoupons,
-                                    onChanged: _processing
-                                        ? null
-                                        : (v) {
-                                            setState(() {
-                                              _buyCoupons = v;
-
-                                              if (!v) {
-                                                _couponCount = addonsOnly ? 0 : 1;
-                                              } else {
-                                                if (_couponCount <= 0) {
-                                                  _couponCount = 1; // enforce minimum when toggled on
-                                                }
-                                                if (_discountPercent <= 0) _discountPercent = 50;
-                                              }
-                                            });
-                                          },
-                                  ),
-                                ],
+                        if (premiumUpgrade)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF59E0B).withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFFF59E0B).withOpacity(0.24),
                               ),
-                              if (addonsOnly && _existingCouponCount > 0) ...[
-                                const SizedBox(height: 6),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
-                                  'Already purchased: $_existingCouponCount',
+                                  'Premium benefits',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '• Create more than 3 total league cards\n'
+                                  '• Keep all existing leagues active\n'
+                                  '• Continue growing as an organizer\n'
+                                  '• Optionally purchase coupons later',
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: cs.onSurface.withOpacity(0.70),
+                                    color: cs.onSurface.withOpacity(0.72),
                                     fontWeight: FontWeight.w700,
+                                    height: 1.45,
                                   ),
                                 ),
                               ],
-                              const SizedBox(height: 6),
-                              Text(
-                                'Full coupon unit (access fee): ${_money(plan.couponUnit)} $currency.\n'
-                                'You pay only the discount portion now: unit × (discount%).',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: cs.onSurface.withOpacity(0.65),
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.25,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                thresholdConfigured
-                                    ? 'Bulk discount: ${_money(plan.couponDiscountPercent)}% when coupon subtotal ≥ ${_money(plan.couponThreshold!)} $currency.'
-                                    : 'Bulk discount not configured.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: cs.onSurface.withOpacity(0.60),
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.25,
-                                ),
-                              ),
-                              if (_buyCoupons) ...[
-                                const SizedBox(height: 12),
-                                Text(
-                                  'How many coupons do you want to buy?',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.onSurface,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
+                            ),
+                          ),
+
+                        if (!premiumUpgrade) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _panelFill(theme),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: _panelBorder(theme)),
+                              boxShadow: _panelShadow(theme, tint: cs.primary),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Row(
                                   children: [
-                                    Icon(
-                                      Icons.confirmation_number_outlined,
-                                      color: cs.onSurface.withOpacity(0.70),
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        '$qtyLabel: $_couponCount'
-                                        '${bulkDiscountApplied ? ' • Bulk discount applied' : ''}',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: cs.onSurface.withOpacity(0.72),
-                                          fontWeight: FontWeight.w700,
+                                        'Coupons (optional)',
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: cs.onSurface,
+                                          fontWeight: FontWeight.w900,
                                         ),
                                       ),
                                     ),
-                                    IconButton(
-                                      tooltip: 'Decrease',
-                                      onPressed: _processing
+                                    Switch.adaptive(
+                                      value: _buyCoupons,
+                                      onChanged: _processing
                                           ? null
-                                          : () {
+                                          : (v) {
                                               setState(() {
-                                                final next = (_couponCount - 10);
-                                                _couponCount = next.clamp(1, 100000);
-                                                if (_discountPercent <= 0) _discountPercent = 50;
+                                                _buyCoupons = v;
+
+                                                if (!v) {
+                                                  _couponCount = addonsOnly ? 0 : 1;
+                                                } else {
+                                                  if (_couponCount <= 0) {
+                                                    _couponCount = 1;
+                                                  }
+                                                  if (_discountPercent <= 0) _discountPercent = 50;
+                                                }
                                               });
                                             },
-                                      icon: const Icon(Icons.remove_circle_outline),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Increase',
-                                      onPressed: _processing
-                                          ? null
-                                          : () {
-                                              setState(() {
-                                                final next = (_couponCount + 10);
-                                                _couponCount = next.clamp(1, 100000);
-                                                if (_discountPercent <= 0) _discountPercent = 50;
-                                              });
-                                            },
-                                      icon: const Icon(Icons.add_circle_outline),
                                     ),
                                   ],
                                 ),
-                                Slider(
-                                  value: couponSliderValue,
-                                  min: minCoupon,
-                                  max: 100000.0,
-                                  divisions: 1000,
-                                  label: '$_couponCount',
-                                  onChanged: _processing
-                                      ? null
-                                      : (v) {
-                                          final rounded = v.round();
-                                          setState(() {
-                                            _couponCount = rounded.clamp(1, 100000);
-                                            if (_discountPercent <= 0) _discountPercent = 50;
-                                          });
-                                        },
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Discount percent (for users)',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.onSurface,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Icon(Icons.percent, color: cs.onSurface.withOpacity(0.70), size: 18),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        'Discount: $discForPurchase% • Users pay at redemption: ${_money(_round2(userPaysAtRedemption))} $currency',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: cs.onSurface.withOpacity(0.72),
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Slider(
-                                  value: _discountPercent.toDouble(),
-                                  min: 5,
-                                  max: 100,
-                                  divisions: 19,
-                                  label: '$_discountPercent%',
-                                  onChanged: _processing
-                                      ? null
-                                      : (v) {
-                                          final rounded = (v / 5).round() * 5;
-                                          setState(() => _discountPercent = rounded.clamp(5, 100));
-                                        },
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Coupon code type (optional)',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.onSurface,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    ChoiceChip(
-                                      label: const Text('Random', style: TextStyle(fontWeight: FontWeight.w800)),
-                                      selected: !_couponCodeCustomMode,
-                                      selectedColor: cs.primary.withOpacity(0.18),
-                                      backgroundColor: chipBg,
-                                      side: BorderSide(color: !_couponCodeCustomMode ? cs.primary.withOpacity(0.35) : chipBorder),
-                                      onSelected: _processing ? null : (_) => setState(() => _couponCodeCustomMode = false),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    ChoiceChip(
-                                      label: const Text('Custom', style: TextStyle(fontWeight: FontWeight.w800)),
-                                      selected: _couponCodeCustomMode,
-                                      selectedColor: cs.primary.withOpacity(0.18),
-                                      backgroundColor: chipBg,
-                                      side: BorderSide(color: _couponCodeCustomMode ? cs.primary.withOpacity(0.35) : chipBorder),
-                                      onSelected: _processing ? null : (_) => setState(() => _couponCodeCustomMode = true),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                if (_couponCodeCustomMode) ...[
-                                  TextField(
-                                    controller: _couponCodeBase,
-                                    enabled: !_processing,
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9 _-]')),
-                                      LengthLimitingTextInputFormatter(24),
-                                    ],
-                                    decoration: InputDecoration(
-                                      labelText: 'Custom name (example: BARCA)',
-                                      prefixIcon: const Icon(Icons.edit),
-                                      errorText: customInvalid ? 'Invalid name (no "/" and max 24 chars).' : null,
-                                    ),
-                                    onChanged: (_) => setState(() {}),
-                                  ),
+                                if (addonsOnly && _existingCouponCount > 0) ...[
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Custom name is used for display/preview; it must not contain "/".',
+                                    'Already purchased: $_existingCouponCount',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: cs.onSurface.withOpacity(0.70),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Full coupon unit (access fee): ${_money(plan.couponUnit)} $currency.\n'
+                                  'You pay only the discount portion now: unit × (discount%).',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.65),
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.25,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  thresholdConfigured
+                                      ? 'Bulk discount: ${_money(plan.couponDiscountPercent)}% when coupon subtotal ≥ ${_money(plan.couponThreshold!)} $currency.'
+                                      : 'Bulk discount not configured.',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.60),
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.25,
+                                  ),
+                                ),
+                                if (_buyCoupons) ...[
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'How many coupons do you want to buy?',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: cs.onSurface,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.confirmation_number_outlined,
+                                        color: cs.onSurface.withOpacity(0.70),
+                                        size: 18,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          '$qtyLabel: $_couponCount'
+                                          '${bulkDiscountApplied ? ' • Bulk discount applied' : ''}',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: cs.onSurface.withOpacity(0.72),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Decrease',
+                                        onPressed: _processing
+                                            ? null
+                                            : () {
+                                                setState(() {
+                                                  final next = (_couponCount - 10);
+                                                  _couponCount = next.clamp(1, 100000);
+                                                  if (_discountPercent <= 0) _discountPercent = 50;
+                                                });
+                                              },
+                                        icon: const Icon(Icons.remove_circle_outline),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Increase',
+                                        onPressed: _processing
+                                            ? null
+                                            : () {
+                                                setState(() {
+                                                  final next = (_couponCount + 10);
+                                                  _couponCount = next.clamp(1, 100000);
+                                                  if (_discountPercent <= 0) _discountPercent = 50;
+                                                });
+                                              },
+                                        icon: const Icon(Icons.add_circle_outline),
+                                      ),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value: couponSliderValue,
+                                    min: minCoupon,
+                                    max: 100000.0,
+                                    divisions: 1000,
+                                    label: '$_couponCount',
+                                    onChanged: _processing
+                                        ? null
+                                        : (v) {
+                                            final rounded = v.round();
+                                            setState(() {
+                                              _couponCount = rounded.clamp(1, 100000);
+                                              if (_discountPercent <= 0) _discountPercent = 50;
+                                            });
+                                          },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Discount percent (for users)',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: cs.onSurface,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.percent, color: cs.onSurface.withOpacity(0.70), size: 18),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Discount: $discForPurchase% • Users pay at redemption: ${_money(_round2(userPaysAtRedemption))} $currency',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: cs.onSurface.withOpacity(0.72),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value: _discountPercent.toDouble(),
+                                    min: 5,
+                                    max: 100,
+                                    divisions: 19,
+                                    label: '$_discountPercent%',
+                                    onChanged: _processing
+                                        ? null
+                                        : (v) {
+                                            final rounded = (v / 5).round() * 5;
+                                            setState(() => _discountPercent = rounded.clamp(5, 100));
+                                          },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Coupon code type (optional)',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: cs.onSurface,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      ChoiceChip(
+                                        label: const Text('Random', style: TextStyle(fontWeight: FontWeight.w800)),
+                                        selected: !_couponCodeCustomMode,
+                                        selectedColor: cs.primary.withOpacity(0.18),
+                                        backgroundColor: chipBg,
+                                        side: BorderSide(color: !_couponCodeCustomMode ? cs.primary.withOpacity(0.35) : chipBorder),
+                                        onSelected: _processing ? null : (_) => setState(() => _couponCodeCustomMode = false),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      ChoiceChip(
+                                        label: const Text('Custom', style: TextStyle(fontWeight: FontWeight.w800)),
+                                        selected: _couponCodeCustomMode,
+                                        selectedColor: cs.primary.withOpacity(0.18),
+                                        backgroundColor: chipBg,
+                                        side: BorderSide(color: _couponCodeCustomMode ? cs.primary.withOpacity(0.35) : chipBorder),
+                                        onSelected: _processing ? null : (_) => setState(() => _couponCodeCustomMode = true),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  if (_couponCodeCustomMode) ...[
+                                    TextField(
+                                      controller: _couponCodeBase,
+                                      enabled: !_processing,
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9 _-]')),
+                                        LengthLimitingTextInputFormatter(24),
+                                      ],
+                                      decoration: InputDecoration(
+                                        labelText: 'Custom name (example: BARCA)',
+                                        prefixIcon: const Icon(Icons.edit),
+                                        errorText: customInvalid ? 'Invalid name (no "/" and max 24 chars).' : null,
+                                      ),
+                                      onChanged: (_) => setState(() {}),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Custom name is used for display/preview; it must not contain "/".',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: cs.onSurface.withOpacity(0.65),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                  Text(
+                                    'Preview: $preview',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color: cs.onSurface.withOpacity(0.65),
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
                                 ],
-                                Text(
-                                  'Preview: $preview',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: cs.onSurface.withOpacity(0.65),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
                               ],
-                            ],
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 12),
+                        ],
 
-                        const SizedBox(height: 12),
-
-                        // Breakdown
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
@@ -655,13 +708,19 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                 ),
                               ),
                               const SizedBox(height: 6),
-                              _kv(context, 'League creation fee', '${_money(baseFee)} $currency'),
-                              _kv(context, 'Coupons subtotal (organizer pays)', '${_money(rawCouponSubtotal)} $currency'),
                               _kv(
                                 context,
-                                bulkDiscountApplied ? 'Bulk discount (${_money(plan.couponDiscountPercent)}%)' : 'Bulk discount',
-                                bulkDiscountApplied ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
+                                premiumUpgrade ? 'Premium upgrade fee' : 'League creation fee',
+                                '${_money(baseFee)} $currency',
                               ),
+                              if (!premiumUpgrade) ...[
+                                _kv(context, 'Coupons subtotal (organizer pays)', '${_money(rawCouponSubtotal)} $currency'),
+                                _kv(
+                                  context,
+                                  bulkDiscountApplied ? 'Bulk discount (${_money(plan.couponDiscountPercent)}%)' : 'Bulk discount',
+                                  bulkDiscountApplied ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency' : '—',
+                                ),
+                              ],
                               const Divider(),
                               _kvStrong(context, 'Total payable now', '${_money(total)} $currency'),
                             ],
@@ -691,24 +750,26 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                 onPressed: (_processing || customInvalid)
                                     ? null
                                     : () async {
-                                        if (_buyCoupons && _couponCount <= 0) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: const Text('Select at least 1 coupon to buy.'),
-                                              backgroundColor: cs.error,
-                                            ),
-                                          );
-                                          return;
-                                        }
+                                        if (!premiumUpgrade) {
+                                          if (_buyCoupons && _couponCount <= 0) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: const Text('Select at least 1 coupon to buy.'),
+                                                backgroundColor: cs.error,
+                                              ),
+                                            );
+                                            return;
+                                          }
 
-                                        if (_buyCoupons && _couponCount > 0 && _discountPercent <= 0) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: const Text('Set a discount above 0% to buy coupons.'),
-                                              backgroundColor: cs.error,
-                                            ),
-                                          );
-                                          return;
+                                          if (_buyCoupons && _couponCount > 0 && _discountPercent <= 0) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: const Text('Set a discount above 0% to buy coupons.'),
+                                                backgroundColor: cs.error,
+                                              ),
+                                            );
+                                            return;
+                                          }
                                         }
 
                                         setState(() => _processing = true);
@@ -719,11 +780,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                             context: context,
                                             userId: userId,
                                             leagueName: widget.leagueName,
-                                            addonsOnly: addonsOnly,
+                                            addonsOnly: premiumUpgrade ? false : addonsOnly,
                                             viewerCapacity: 0,
-                                            buyCouponsForParticipants: _buyCoupons,
-                                            couponDiscountPercent: _discountPercent,
-                                            couponCount: _buyCoupons ? _couponCount : 0,
+                                            buyCouponsForParticipants: premiumUpgrade ? false : _buyCoupons,
+                                            couponDiscountPercent: premiumUpgrade ? 0 : _discountPercent,
+                                            couponCount: premiumUpgrade ? 0 : (_buyCoupons ? _couponCount : 0),
                                           );
 
                                           if (!mounted) return;
@@ -760,7 +821,11 @@ class _LeagueCreationPaymentScreenState extends ConsumerState<LeagueCreationPaym
                                           color: cs.onPrimary,
                                         ),
                                       )
-                                    : Text(l10n.tr('league_creation_payment_pay_continue')),
+                                    : Text(
+                                        premiumUpgrade
+                                            ? 'Upgrade Now'
+                                            : l10n.tr('league_creation_payment_pay_continue'),
+                                      ),
                               ),
                             ),
                           ],

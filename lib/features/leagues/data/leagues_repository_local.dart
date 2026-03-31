@@ -40,6 +40,8 @@ class LocalLeaguesRepository {
   static const String kMatchesKey = 'local_matches';
   static const String kKnockoutMatchesKey = 'local_knockout_matches';
 
+  static const int _freeLeagueListLimit = 3;
+
   String _requireAuthUid() {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
@@ -117,6 +119,108 @@ class LocalLeaguesRepository {
 
   bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
 
+  Future<bool> _isPremiumUser(String uid) async {
+    final trimmed = uid.trim();
+    if (trimmed.isEmpty) return false;
+
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
+      final claims = token?.claims ?? const <String, dynamic>{};
+
+      final isPremium = claims['isPremium'] == true || claims['premium'] == true;
+      if (isPremium) return true;
+
+      final premiumExpiresAtMs = claims['premiumExpiresAtMs'];
+      if (premiumExpiresAtMs is int && premiumExpiresAtMs > DateTime.now().millisecondsSinceEpoch) {
+        return true;
+      }
+      if (premiumExpiresAtMs is num && premiumExpiresAtMs.toInt() > DateTime.now().millisecondsSinceEpoch) {
+        return true;
+      }
+    } catch (_) {}
+
+    try {
+      final userDoc = await _firestore
+          .collection('users')
+          .doc(trimmed)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      final data = userDoc.data() ?? const <String, dynamic>{};
+      if (data['isPremium'] == true) return true;
+
+      final expires = data['premiumExpiresAtMs'];
+      if (expires is int && expires > DateTime.now().millisecondsSinceEpoch) {
+        return true;
+      }
+      if (expires is num && expires.toInt() > DateTime.now().millisecondsSinceEpoch) {
+        return true;
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  Future<int> _countCurrentUserLeagueCards(String authUid) async {
+    final snap = await _firestore
+        .collection('leagues')
+        .where('memberIds', arrayContains: authUid)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+
+    return snap.docs.length;
+  }
+
+  Future<bool> _userAlreadyHasLeagueCard({
+    required String authUid,
+    required String leagueId,
+  }) async {
+    final trimmedLeagueId = leagueId.trim();
+    if (trimmedLeagueId.isEmpty) return false;
+
+    final doc = await _firestore
+        .collection('leagues')
+        .doc(trimmedLeagueId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+
+    if (!doc.exists) return false;
+
+    final data = doc.data() ?? const <String, dynamic>{};
+    final memberIds = (data['memberIds'] as List?)
+            ?.map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toSet() ??
+        <String>{};
+
+    return memberIds.contains(authUid);
+  }
+
+  Future<void> _enforceFreeLeagueListCapForNewAddition({
+    required String authUid,
+    required String actionLabel,
+    String existingLeagueId = '',
+  }) async {
+    final premium = await _isPremiumUser(authUid);
+    if (premium) return;
+
+    final alreadyLinked = existingLeagueId.trim().isNotEmpty
+        ? await _userAlreadyHasLeagueCard(
+            authUid: authUid,
+            leagueId: existingLeagueId,
+          )
+        : false;
+
+    if (alreadyLinked) return;
+
+    final total = await _countCurrentUserLeagueCards(authUid);
+    if (total >= _freeLeagueListLimit) {
+      throw UserFriendlyException(
+        'Free users can only have $_freeLeagueListLimit leagues total on the leagues screen. Upgrade to Premium to $actionLabel.',
+      );
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // RULES-AUTHORITATIVE ORGANIZER CHECK (server)
   // ---------------------------------------------------------------------------
@@ -172,7 +276,6 @@ class LocalLeaguesRepository {
       if (!membershipDoc.exists) return;
 
       final role = (membershipDoc.data()?['role'] as num?)?.toInt() ?? -1;
-      // FIX: use enum index instead of hardcoded 0
       if (role != LeagueRole.organizer.index) return;
 
       await _firestore
@@ -325,6 +428,14 @@ class LocalLeaguesRepository {
       final authUid = _requireAuthUid();
       await _requireOnline();
 
+      final isNewLeague = league.id.trim().isEmpty;
+      if (isNewLeague) {
+        await _enforceFreeLeagueListCapForNewAddition(
+          authUid: authUid,
+          actionLabel: 'create another league',
+        );
+      }
+
       final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
       final fixedCode = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
 
@@ -428,6 +539,11 @@ class LocalLeaguesRepository {
       final authUid = _requireAuthUid();
       await _requireOnline();
 
+      await _enforceFreeLeagueListCapForNewAddition(
+        authUid: authUid,
+        actionLabel: 'create another league',
+      );
+
       final now = DateTime.now().millisecondsSinceEpoch;
       final leagueId = league.id.trim().isEmpty ? _uuid.v4() : league.id.trim();
       final code = league.code.trim().isNotEmpty ? league.code.trim().toUpperCase() : await _generateUniqueJoinCode();
@@ -512,6 +628,12 @@ class LocalLeaguesRepository {
       final leagueDoc = query.docs.first;
       final leagueId = leagueDoc.id;
 
+      await _enforceFreeLeagueListCapForNewAddition(
+        authUid: authUid,
+        actionLabel: 'join more leagues',
+        existingLeagueId: leagueId,
+      );
+
       final leagueRef = _firestore.collection('leagues').doc(leagueId);
 
       await leagueRef
@@ -534,8 +656,6 @@ class LocalLeaguesRepository {
             ? LeagueRole.values[existingRoleIdx]
             : null;
 
-        // FIX: Only write membership if user has no role at all.
-        // Preserves organizer and any elevated role on re-join.
         if (!existing.exists || existingRole == null) {
           final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -708,10 +828,6 @@ class LocalLeaguesRepository {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // REAL-TIME WATCHERS (snapshot listeners)
-  // ---------------------------------------------------------------------------
-
   Stream<List<Team>> watchTeams(String leagueId) {
     try {
       _requireAuthUid();
@@ -804,21 +920,14 @@ class LocalLeaguesRepository {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // TEAM AGGREGATES (backfill + transactional updates)
-  // ---------------------------------------------------------------------------
-
   bool _statusLooksPlayed(dynamic rawStatus) {
     if (rawStatus is String) {
       final s = rawStatus.trim().toLowerCase();
       return s == 'completed' || s == 'played';
     }
 
-    // Legacy support: some deployments may store status as an enum index.
     if (rawStatus is num) {
       final idx = rawStatus.toInt();
-      // Best-effort mapping: treat any non-zero index as played-ish.
-      // This is only used for backfill/delta and is safe because scores must exist too.
       return idx > 0;
     }
 
@@ -838,14 +947,6 @@ class LocalLeaguesRepository {
     return 0;
   }
 
-  /// Ensures team documents have correct aggregate fields:
-  /// basePoints, goalDifference, goalsFor, adminAdjustment, finalPoints.
-  ///
-  /// This is a production backfill/migration helper for older leagues that existed
-  /// before the Admin Point Adjustment System.
-  ///
-  /// SECURITY:
-  /// - Requires organizer/admin (client-side) and must be allowed by Firestore rules.
   Future<void> ensureTeamAggregatesBackfilled(String leagueId) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
@@ -914,7 +1015,7 @@ class LocalLeaguesRepository {
         gdByTeam[awayId] = (gdByTeam[awayId] ?? 0) + (as - hs);
       }
 
-      const chunkSize = 400; // below 500 write limit
+      const chunkSize = 400;
       final docs = teamsSnap.docs;
 
       for (var i = 0; i < docs.length; i += chunkSize) {
@@ -952,17 +1053,6 @@ class LocalLeaguesRepository {
     }
   }
 
-  /// Transactional score update that also updates team aggregates:
-  /// - basePoints
-  /// - goalsFor
-  /// - goalDifference
-  /// - finalPoints = basePoints + adminAdjustment
-  ///
-  /// This keeps Admin Point Adjustments correct, because adjustments rely on basePoints in the team doc.
-  ///
-  /// SECURITY:
-  /// - Requires organizer/admin.
-  /// - Firestore rules must enforce finalPoints invariant.
   Future<void> updateMatchScoreAndUpdateTeamAggregates({
     required String leagueId,
     required String matchId,
@@ -975,7 +1065,6 @@ class LocalLeaguesRepository {
       _requireAuthUid();
       await _requireOnline();
 
-      // Backfill once if needed (older leagues) so delta math is correct.
       await ensureTeamAggregatesBackfilled(leagueId);
 
       final matchRef = _firestore.collection('leagues').doc(leagueId).collection('matches').doc(matchId.trim());
@@ -1003,9 +1092,8 @@ class LocalLeaguesRepository {
         final statusOld = matchData['status'];
 
         final oldPlayed = (hsOld != null && asOld != null) && _statusLooksPlayed(statusOld);
-        final newPlayed = true; // we force completed when saving score
+        final newPlayed = true;
 
-        // Old contributions (if previously played)
         final oldHomePts = oldPlayed ? _pointsFor(hsOld!, asOld!) : 0;
         final oldAwayPts = oldPlayed ? _pointsFor(asOld!, hsOld!) : 0;
 
@@ -1015,7 +1103,6 @@ class LocalLeaguesRepository {
         final oldHomeGd = oldPlayed ? (hsOld! - asOld!) : 0;
         final oldAwayGd = oldPlayed ? (asOld! - hsOld!) : 0;
 
-        // New contributions
         final newHomePts = newPlayed ? _pointsFor(hsNew, asNew) : 0;
         final newAwayPts = newPlayed ? _pointsFor(asNew, hsNew) : 0;
 
@@ -1068,7 +1155,6 @@ class LocalLeaguesRepository {
         final nextHomeGd = homeGd + deltaHomeGd;
         final nextAwayGd = awayGd + deltaAwayGd;
 
-        // Update match (merge, preserve schema fields like roundNumber/sortIndex/version).
         txn.set(
           matchRef,
           <String, dynamic>{
@@ -1080,8 +1166,6 @@ class LocalLeaguesRepository {
           SetOptions(merge: true),
         );
 
-        // Update team aggregates (merge).
-        // Include adminAdjustment explicitly to satisfy the invariant rules even on older docs.
         txn.set(
           homeRef,
           <String, dynamic>{
@@ -1112,10 +1196,6 @@ class LocalLeaguesRepository {
       _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'updating score');
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // TEAMS
-  // ---------------------------------------------------------------------------
 
   Future<List<Team>> getTeams(String leagueId) async {
     try {
@@ -1170,9 +1250,6 @@ class LocalLeaguesRepository {
 
       final existing = await col.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 20));
 
-      // Preserve points/adjustment aggregates for teams that already exist.
-      // This prevents accidental loss of admin adjustments and computed basePoints
-      // when organizer uses "Manage Teams" after matches have been played.
       final existingAgg = <String, Map<String, int>>{};
       for (final d in existing.docs) {
         final data = d.data();
@@ -1221,10 +1298,6 @@ class LocalLeaguesRepository {
           final preservedGd = preserved?['goalDifference'] ?? 0;
           final preservedGf = preserved?['goalsFor'] ?? 0;
 
-          // Ensure required team-point fields exist (schema requirement).
-          // SECURITY NOTE:
-          // - Firestore rules should prevent non-admins from changing these.
-          // - finalPoints must satisfy invariant: basePoints + adminAdjustment.
           final data = <String, dynamic>{
             ...t.copyWith(id: id, leagueId: leagueId, ownerId: inferredOwnerId).toRemoteMap(),
             'basePoints': preservedBase,
@@ -1241,7 +1314,6 @@ class LocalLeaguesRepository {
         await batch.commit().timeout(const Duration(seconds: 30));
       }
 
-      // Best-effort membership assignment — does not block teams save.
       for (final t in allTeams) {
         final uid = t.id.trim();
         if (!_looksLikeFirebaseUid(uid)) continue;
@@ -1278,7 +1350,6 @@ class LocalLeaguesRepository {
                 .timeout(const Duration(seconds: 20));
           }
         } catch (_) {
-          // Best-effort: never block save.
           continue;
         }
       }
@@ -1286,10 +1357,6 @@ class LocalLeaguesRepository {
       _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'saving teams');
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // ADMIN POINT ADJUSTMENT (repository write path)
-  // ---------------------------------------------------------------------------
 
   Future<void> createPointAdjustment({
     required String leagueId,
@@ -1308,7 +1375,6 @@ class LocalLeaguesRepository {
       final r = reason.trim();
       if (r.isEmpty) throw const UserFriendlyException('A reason is required.');
 
-      // Backfill once if needed so basePoints exists and is correct before adjustment math.
       await ensureTeamAggregatesBackfilled(leagueId);
 
       final delta = type == PointAdjustmentType.addition ? p : -p;
@@ -1339,8 +1405,6 @@ class LocalLeaguesRepository {
           'createdAt': FieldValue.serverTimestamp(),
         });
 
-        // IMPORTANT:
-        // We set basePoints explicitly to satisfy the invariant rules even for older team docs.
         txn.set(
           teamRef,
           <String, dynamic>{
@@ -1356,10 +1420,6 @@ class LocalLeaguesRepository {
       _rethrowFriendly(e is Object ? e : Exception('unknown'), context: 'creating point adjustment');
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // MATCHES / KNOCKOUT
-  // ---------------------------------------------------------------------------
 
   Future<List<FixtureMatch>> getMatches(String leagueId) async {
     try {
