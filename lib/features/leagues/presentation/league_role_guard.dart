@@ -34,20 +34,26 @@ class LeagueRoleGuard extends StatefulWidget {
 }
 
 class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
-  late final PreferencesService _prefs;
-  late final LocalLeaguesRepository _repo;
+  late final Future<LocalLeaguesRepository> _repoFuture;
+
+  Future<LocalLeaguesRepository> _buildRepo() async {
+    final prefs = await PrefsService.instance;
+    return LocalLeaguesRepository(prefs);
+  }
 
   Future<bool> _checkAllowed() async {
     final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     if (uid.isEmpty) return false;
 
-    final league = await _repo
+    final repo = await _repoFuture;
+
+    final league = await repo
         .getLeagueById(widget.leagueId)
         .timeout(const Duration(seconds: 12));
 
     if (league == null) return false;
 
-    final membership = await _repo
+    final membership = await repo
         .getMembership(
           leagueId: widget.leagueId,
           userId: uid,
@@ -85,8 +91,7 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
   @override
   void initState() {
     super.initState();
-    _prefs = PreferencesService();
-    _repo = LocalLeaguesRepository(_prefs);
+    _repoFuture = _buildRepo();
   }
 
   @override
