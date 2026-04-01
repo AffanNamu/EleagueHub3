@@ -1136,8 +1136,14 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                               !selecting &&
                               !_chatReadOnly &&
                               !_chatBlocked,
-                          onPickImage: _chatReadOnly ? null : _pickAndSendImage,
-                          onSend: _chatReadOnly ? null : _sendText,
+                          onPickImage: () {
+                            if (_chatReadOnly || _chatBlocked) return;
+                            _pickAndSendImage();
+                          },
+                          onSend: () {
+                            if (_chatReadOnly || _chatBlocked) return;
+                            _sendText();
+                          },
                           onRecordVoice: (_sending ||
                                   _isVoiceSending ||
                                   _isRecording ||

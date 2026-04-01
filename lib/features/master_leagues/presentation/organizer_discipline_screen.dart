@@ -863,22 +863,7 @@ class _OrganizerDisciplineScreenState
     );
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _loadMasterLeague();
-  }
-
-  @override
-  void dispose() {
-    _targetUserIdCtrl.dispose();
-    _targetNameCtrl.dispose();
-    _reasonCtrl.dispose();
-    _pointsCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
+    @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;

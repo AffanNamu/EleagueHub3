@@ -27,8 +27,6 @@ import 'widgets/pinned_message_bar.dart';
 
 class LeagueChatScreen extends StatefulWidget {
   final String leagueId;
-
-  /// Pass the organizerUid of the league so we can check moderation rights.
   final String? organizerUid;
 
   const LeagueChatScreen({
@@ -50,8 +48,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
 
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
-
-  // Swipe-to-reply state
   final ValueNotifier<ChatMessage?> _replyTo = ValueNotifier<ChatMessage?>(null);
 
   bool _sending = false;
@@ -63,11 +59,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   bool _leagueOwnerOrOrganizer = false;
   bool _leaguePermsResolved = false;
 
-  // ===== League name (for push title) =====
   String _leagueName = 'League';
   bool _leagueNameResolved = false;
 
-  // ===== Voice recording =====
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
   bool _isVoiceSending = false;
@@ -76,7 +70,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   DateTime? _recordingStartedAt;
   Timer? _recordingTicker;
 
-  // ===== Voice playback =====
   final AudioPlayer _player = AudioPlayer();
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<Duration?>? _durSub;
@@ -87,12 +80,16 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   Duration _dur = Duration.zero;
   bool _playing = false;
 
-  // ===== Space banner identity cache =====
   final Map<String, _CachedIdentity> _identityCache = <String, _CachedIdentity>{};
   final Set<String> _identityLoading = <String>{};
 
-  // ===== Space banner async action state =====
   bool _spaceActionBusy = false;
+
+  bool _organizerChatMuted = false;
+  bool _organizerChatBanned = false;
+  bool _globalChatMuted = false;
+  bool _globalChatBanned = false;
+  bool _moderationResolved = false;
 
   User get _user => FirebaseAuth.instance.currentUser!;
 
@@ -109,40 +106,40 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   bool get _canModerateLeague =>
       _isSuperAdmin || _isOrganizerFromParam || (_leaguePermsResolved && _leagueOwnerOrOrganizer);
 
+  bool get _chatBlocked =>
+      (_organizerChatBanned || _globalChatBanned) && !_canModerateLeague;
+
+  bool get _chatReadOnly =>
+      (_organizerChatMuted || _globalChatMuted) && !_canModerateLeague;
+
   DocumentReference<Map<String, dynamic>> get _spaceDoc => FirebaseFirestore.instance
       .collection('leagues')
       .doc(widget.leagueId)
       .collection('space')
       .doc('current');
 
-  CollectionReference<Map<String, dynamic>> get _spaceSpeakersCol => _spaceDoc.collection('speakers');
-
-
-  DocumentReference<Map<String, dynamic>> get _organizerModerationDoc {
-    final masterLeagueId = (ModalRoute.of(context)?.settings.arguments is Map)
-        ? (((ModalRoute.of(context)?.settings.arguments as Map)['masterLeagueId'] ?? '').toString().trim())
-        : '';
-    return FirebaseFirestore.instance
-        .collection('master_leagues')
-        .doc(masterLeagueId)
-        .collection('memberModeration')
-        .doc(_user.uid.trim());
-  }
+  CollectionReference<Map<String, dynamic>> get _spaceSpeakersCol =>
+      _spaceDoc.collection('speakers');
 
   DocumentReference<Map<String, dynamic>> get _globalModerationDoc =>
-      FirebaseFirestore.instance.collection('app').doc('chatModeration').collection('users').doc(_user.uid.trim());
+      FirebaseFirestore.instance
+          .collection('app')
+          .doc('chatModeration')
+          .collection('users')
+          .doc(_user.uid.trim());
 
-  bool _organizerChatMuted = false;
-  bool _organizerChatBanned = false;
-  bool _globalChatMuted = false;
-  bool _globalChatBanned = false;
-  bool _moderationResolved = false;
+  @override
+  void initState() {
+    super.initState();
+    _resolveIdentity();
+    _resolveLeaguePermissions();
+    _resolveLeagueName();
+    _wirePlayer();
+    _watchModerationState();
 
-  bool get _chatBlocked =>
-      (_organizerChatBanned || _globalChatBanned) && !_canModerateLeague;
-
-  bool get _chatReadOnly =>
-      (_organizerChatMuted || _globalChatMuted) && !_canModerateLeague;
+    PushMessagingService.instance.subscribeToLeagueTopic(widget.leagueId);
+    PushMessagingService.instance.setActiveLeagueChat(widget.leagueId);
+  }
 
   void _watchModerationState() {
     _globalModerationDoc.snapshots(includeMetadataChanges: true).listen((snap) {
@@ -166,6 +163,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       final data = snap.data() ?? <String, dynamic>{};
       final masterLeagueId = (data['masterLeagueId'] ?? '').toString().trim();
       if (masterLeagueId.isEmpty) return;
+
       FirebaseFirestore.instance
           .collection('master_leagues')
           .doc(masterLeagueId)
@@ -189,21 +187,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         });
       });
     }).catchError((_) {});
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _resolveIdentity();
-    _resolveLeaguePermissions();
-    _resolveLeagueName();
-    _wirePlayer();
-    _watchModerationState();
-
-    // Push notifications: subscribe to this league topic, and suppress foreground banners while inside this chat.
-    // ignore: discarded_futures
-    PushMessagingService.instance.subscribeToLeagueTopic(widget.leagueId);
-    PushMessagingService.instance.setActiveLeagueChat(widget.leagueId);
   }
 
   Future<void> _resolveLeagueName() async {
@@ -337,19 +320,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   void _toastErr(Object e) =>
       _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
-  // ===== Permissions =====
-
-  bool _canDeleteMessage(ChatMessage msg) {
-    if (_canModerateLeague) return true;
-    return _user.uid.trim() == msg.senderId.trim();
-  }
-
-  bool _canPinMessage(ChatMessage msg) {
-    return _canModerateLeague;
-  }
-
-  // ===== Push notify via Supabase Edge (FCM) =====
-
   String _previewForOutgoing({
     required String type,
     required String text,
@@ -380,8 +350,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       preview: preview.trim(),
     );
   }
-
-  // ===== Space banner helpers =====
 
   String _shortUid(String uid) {
     final s = uid.trim();
@@ -759,8 +727,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     );
   }
 
-  // ===== Send =====
-
   Future<void> _sendText() async {
     if (_chatBlocked) {
       _toast('You are banned from chat.', error: true);
@@ -796,8 +762,12 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         replyToType: reply?.type ?? '',
       );
 
-      final preview = _previewForOutgoing(type: ChatMessageType.text, text: raw, imageUrl: '', voiceUrl: '');
-      // ignore: discarded_futures
+      final preview = _previewForOutgoing(
+        type: ChatMessageType.text,
+        text: raw,
+        imageUrl: '',
+        voiceUrl: '',
+      );
       _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
@@ -862,8 +832,12 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         replyToType: reply?.type ?? '',
       );
 
-      final preview = _previewForOutgoing(type: ChatMessageType.image, text: caption, imageUrl: url, voiceUrl: '');
-      // ignore: discarded_futures
+      final preview = _previewForOutgoing(
+        type: ChatMessageType.image,
+        text: caption,
+        imageUrl: url,
+        voiceUrl: '',
+      );
       _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
@@ -875,8 +849,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       _toastErr(e);
     }
   }
-
-  // ===== Voice record/cancel/send =====
 
   Future<void> _startRecording() async {
     if (_chatBlocked) {
@@ -1010,7 +982,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
         type: ChatMessageType.voice,
-        text: caption, // optional caption
+        text: caption,
         voiceUrl: voiceUrl,
         replyToMessageId: reply?.messageId ?? '',
         replyToSenderName: reply?.displaySenderName ?? '',
@@ -1018,8 +990,12 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         replyToType: reply?.type ?? '',
       );
 
-      final preview = _previewForOutgoing(type: ChatMessageType.voice, text: caption, imageUrl: '', voiceUrl: voiceUrl);
-      // ignore: discarded_futures
+      final preview = _previewForOutgoing(
+        type: ChatMessageType.voice,
+        text: caption,
+        imageUrl: '',
+        voiceUrl: voiceUrl,
+      );
       _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
@@ -1052,7 +1028,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     return '$mm:$ss';
   }
 
-  // ===== Voice playback =====
   String _fmt(Duration d) {
     final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
@@ -1290,6 +1265,64 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     );
   }
 
+  Widget _moderationBanner(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_moderationResolved && _chatBlocked) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: Glass(
+          borderRadius: 18,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Icon(Icons.block_rounded, color: theme.colorScheme.error),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'You are banned from chat. You can no longer send messages here.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_moderationResolved && _chatReadOnly) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: Glass(
+          borderRadius: 18,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              const Icon(Icons.volume_off_rounded, color: Color(0xFFF59E0B)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'You are muted in chat. You can read messages but cannot send new ones.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFFF59E0B),
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
   @override
   void dispose() {
     PushMessagingService.instance.setActiveLeagueChat(null);
@@ -1309,9 +1342,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    // If GlassScaffold extends body behind AppBar (common in glass UIs),
-    // this pushes content below the AppBar so the banner never overlaps system icons/appbar.
     const double topBodyOffset = kToolbarHeight;
 
     return Container(
@@ -1336,54 +1366,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
               child: Column(
                 children: [
                   _buildSpaceBanner(context),
-                  if (_moderationResolved && _chatBlocked)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                      child: Glass(
-                        borderRadius: 18,
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            Icon(Icons.block_rounded, color: theme.colorScheme.error),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'You are banned from chat. You can no longer send messages here.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.error,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.3,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else if (_moderationResolved && _chatReadOnly)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                      child: Glass(
-                        borderRadius: 18,
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.volume_off_rounded, color: Color(0xFFF59E0B)),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'You are muted in chat. You can read messages but cannot send new ones.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFFF59E0B),
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.3,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  _moderationBanner(context),
                   StreamBuilder<ChatMessage?>(
                     stream: _repo.leaguePinnedMessageStream(widget.leagueId),
                     builder: (context, snap) {
@@ -1511,9 +1494,17 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                           codeMode: _codeMode,
                           onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
                           enabled: !_isRecording && !selecting && !_chatReadOnly && !_chatBlocked,
-                          onPickImage: _chatReadOnly ? null : _pickAndSendImage,
-                          onSend: _chatReadOnly ? null : _sendText,
-                          onRecordVoice: (_sending || _isVoiceSending || _isRecording || selecting || _chatReadOnly) ? null : _startRecording,
+                          onPickImage: () {
+                            if (_chatReadOnly || _chatBlocked) return;
+                            _pickAndSendImage();
+                          },
+                          onSend: () {
+                            if (_chatReadOnly || _chatBlocked) return;
+                            _sendText();
+                          },
+                          onRecordVoice: (_sending || _isVoiceSending || _isRecording || selecting || _chatReadOnly)
+                              ? null
+                              : _startRecording,
                           voiceTooltip: _recordingPermissionDenied ? 'Microphone permission required' : 'Record voice',
                           replySenderName: reply?.displaySenderName,
                           replyPreview: reply?.replyPreview(),
@@ -1585,84 +1576,11 @@ class _PulseDot extends StatefulWidget {
 class _PulseDotState extends State<_PulseDot> with SingleTickerProviderStateMixin {
   late final AnimationController _c;
 
-
-  DocumentReference<Map<String, dynamic>> get _organizerModerationDoc {
-    final masterLeagueId = (ModalRoute.of(context)?.settings.arguments is Map)
-        ? (((ModalRoute.of(context)?.settings.arguments as Map)['masterLeagueId'] ?? '').toString().trim())
-        : '';
-    return FirebaseFirestore.instance
-        .collection('master_leagues')
-        .doc(masterLeagueId)
-        .collection('memberModeration')
-        .doc(_user.uid.trim());
-  }
-
-  DocumentReference<Map<String, dynamic>> get _globalModerationDoc =>
-      FirebaseFirestore.instance.collection('app').doc('chatModeration').collection('users').doc(_user.uid.trim());
-
-  bool _organizerChatMuted = false;
-  bool _organizerChatBanned = false;
-  bool _globalChatMuted = false;
-  bool _globalChatBanned = false;
-  bool _moderationResolved = false;
-
-  bool get _chatBlocked =>
-      (_organizerChatBanned || _globalChatBanned) && !_canModerateLeague;
-
-  bool get _chatReadOnly =>
-      (_organizerChatMuted || _globalChatMuted) && !_canModerateLeague;
-
-  void _watchModerationState() {
-    _globalModerationDoc.snapshots(includeMetadataChanges: true).listen((snap) {
-      final data = snap.data() ?? <String, dynamic>{};
-      if (!mounted) return;
-      setState(() {
-        _globalChatMuted = data['allChatMuted'] == true;
-        _globalChatBanned = data['allChatBanned'] == true;
-        _moderationResolved = true;
-      });
-    }, onError: (_) {
-      if (!mounted) return;
-      setState(() {
-        _globalChatMuted = false;
-        _globalChatBanned = false;
-        _moderationResolved = true;
-      });
-    });
-
-    FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get().then((snap) {
-      final data = snap.data() ?? <String, dynamic>{};
-      final masterLeagueId = (data['masterLeagueId'] ?? '').toString().trim();
-      if (masterLeagueId.isEmpty) return;
-      FirebaseFirestore.instance
-          .collection('master_leagues')
-          .doc(masterLeagueId)
-          .collection('memberModeration')
-          .doc(_user.uid.trim())
-          .snapshots(includeMetadataChanges: true)
-          .listen((msnap) {
-        final m = msnap.data() ?? <String, dynamic>{};
-        if (!mounted) return;
-        setState(() {
-          _organizerChatMuted = m['chatMuted'] == true;
-          _organizerChatBanned = m['chatBanned'] == true;
-          _moderationResolved = true;
-        });
-      }, onError: (_) {
-        if (!mounted) return;
-        setState(() {
-          _organizerChatMuted = false;
-          _organizerChatBanned = false;
-          _moderationResolved = true;
-        });
-      });
-    }).catchError((_) {});
-  }
-
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat(reverse: true);
+    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))
+      ..repeat(reverse: true);
   }
 
   @override

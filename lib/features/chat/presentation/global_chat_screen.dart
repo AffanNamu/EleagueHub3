@@ -680,8 +680,14 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                 codeMode: _codeMode,
                 enabled: canSend && !selecting && !_chatReadOnly && !_chatBlocked,
                 onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
-                onPickImage: _chatReadOnly ? null : _pickAndSendImage,
-                onSend: _chatReadOnly ? null : _sendText,
+                onPickImage: () {
+                  if (_chatReadOnly || _chatBlocked) return;
+                  _pickAndSendImage();
+                },
+                onSend: () {
+                  if (_chatReadOnly || _chatBlocked) return;
+                  _sendText();
+                },
                 replySenderName: reply?.displaySenderName,
                 replyPreview: reply?.replyPreview(),
                 onCancelReply: () => _replyTo.value = null,
