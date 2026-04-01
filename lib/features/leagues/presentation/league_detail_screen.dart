@@ -34,9 +34,9 @@ import '../models/league_announcement.dart';
 import '../models/league_format.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
-import 'widgets/join_league_mode_sheet.dart';
 import 'screens/edit_league_rewards_screen.dart';
 import 'screens/league_rewards_screen.dart';
+import 'widgets/join_league_mode_sheet.dart';
 import 'widgets/reward_card.dart';
 
 class _L10nException implements Exception {
@@ -68,6 +68,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   late final HighlightsFeedRepositoryFirebase _highlightsFeedRepo;
   late final Stream<List<MatchHighlight>> _leagueHighlightsStream;
+
+  late Future<Map<String, dynamic>> _screenFuture;
 
   int? _lastViewedRound;
   static String _lastRoundKey(String leagueId) => 'ui_last_round_$leagueId';
@@ -102,6 +104,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       leagueId: widget.leagueId,
       limit: 10,
     );
+
+    _screenFuture = _loadData();
   }
 
   @override
@@ -109,6 +113,13 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     _annScrollTimer?.cancel();
     _annScrollController.dispose();
     super.dispose();
+  }
+
+  void _reloadScreen() {
+    if (!mounted) return;
+    setState(() {
+      _screenFuture = _loadData();
+    });
   }
 
   Color _baseToastBg(ThemeData theme) {
@@ -309,7 +320,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             ? 'League added to your list as viewer.'
             : 'Successfully joined league.',
       );
-      setState(() {});
+      _reloadScreen();
     } catch (e) {
       _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     } finally {
@@ -456,7 +467,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
-      setState(() {});
+      _reloadScreen();
       _toastOk(context.l10n.tr('league_details_space_started'));
     } catch (e) {
       _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
@@ -485,7 +496,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
-      setState(() {});
+      _reloadScreen();
       _toastOk(context.l10n.tr('league_details_space_ended'));
     } catch (e) {
       _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
@@ -497,7 +508,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       await ConnectivityService.instance
           .requireOnline(timeout: const Duration(seconds: 4));
       if (!mounted) return;
-      context.push('/leagues/${league.id}/space');
+      await context.push('/leagues/${league.id}/space');
+      if (!mounted) return;
+      _reloadScreen();
     } catch (e) {
       _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
@@ -508,7 +521,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       await ConnectivityService.instance
           .requireOnline(timeout: const Duration(seconds: 4));
       if (!mounted) return;
-      context.push('/leagues/${widget.leagueId}/chat');
+      await context.push('/leagues/${widget.leagueId}/chat');
     } catch (e) {
       _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
@@ -529,7 +542,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       ),
     );
     if (!mounted) return;
-    setState(() {});
+    _reloadScreen();
   }
 
   @override
@@ -550,7 +563,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           IconButton(
             tooltip: l10n.tr('common_refresh'),
             onPressed: () {
-              setState(() {});
+              _reloadScreen();
               _toastOk(l10n.tr('common_done'));
             },
             icon: const Icon(Icons.refresh),
@@ -560,7 +573,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       body: SafeArea(
         child: Center(
           child: FutureBuilder<Map<String, dynamic>>(
-            future: _loadData(),
+            future: _screenFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return Center(
@@ -604,7 +617,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                         ],
                         const SizedBox(height: 16),
                         TextButton(
-                          onPressed: () => setState(() {}),
+                          onPressed: _reloadScreen,
                           child: Text(
                             l10n.tr('common_retry'),
                             style: TextStyle(
@@ -680,7 +693,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               return ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: isWide ? 600 : 500),
                 child: RefreshIndicator(
-                  onRefresh: () async => setState(() {}),
+                  onRefresh: () async => _reloadScreen(),
                   color: cs.primary,
                   child: ListView(
                     padding:
@@ -1239,7 +1252,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 child: _actionButton(
                   icon: Icons.list_alt,
                   label: l10n.tr('league_details_fixtures'),
-                  onTap: () => context.push('/leagues/${widget.leagueId}/fixtures'),
+                  onTap: () async {
+                    await context.push('/leagues/${widget.leagueId}/fixtures');
+                    if (!mounted) return;
+                    _reloadScreen();
+                  },
                 ),
               ),
               const SizedBox(width: 12),
@@ -1330,7 +1347,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 onPressed: () async {
                   await context.push('/leagues/${widget.leagueId}/admin-scores');
                   if (!mounted) return;
-                  setState(() {});
+                  _reloadScreen();
                 },
               ),
             ),
@@ -1433,7 +1450,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                           ? () async {
                               await context.push('/leagues/${widget.leagueId}/knockout-admin');
                               if (!mounted) return;
-                              setState(() {});
+                              _reloadScreen();
                             }
                           : showNeedKnockoutsSnack,
                       icon: const Icon(Icons.sports_score, size: 18),
@@ -1618,7 +1635,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           Align(
             alignment: AlignmentDirectional.center,
             child: TextButton(
-              onPressed: () => context.push('/leagues/${widget.leagueId}/fixtures'),
+              onPressed: () async {
+                await context.push('/leagues/${widget.leagueId}/fixtures');
+                if (!mounted) return;
+                _reloadScreen();
+              },
               child: Text(
                 l10n.tr('league_details_view_all_fixtures'),
                 style: TextStyle(
@@ -1913,7 +1934,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           : l10n.tr('league_details_swiss_knockout_generated_18');
 
       _toastOk(label);
-      if (mounted) setState(() {});
+      if (mounted) _reloadScreen();
     } catch (e) {
       _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
@@ -2032,7 +2053,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           : l10n.tr('league_details_group_knockout_generated_16');
 
       _toastOk(label);
-      if (mounted) setState(() {});
+      if (mounted) _reloadScreen();
     } catch (e) {
       _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }

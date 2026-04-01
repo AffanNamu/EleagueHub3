@@ -26,6 +26,8 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../data/leagues_repository_local.dart';
 
+enum _LeagueViewTab { leagues, master }
+
 class LeaguesListScreen extends ConsumerStatefulWidget {
   const LeaguesListScreen({super.key});
 
@@ -56,6 +58,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   String? _payingLeagueId;
   String? _removingLeagueId;
   String _searchQuery = '';
+  _LeagueViewTab _selectedTab = _LeagueViewTab.leagues;
 
   @override
   bool get wantKeepAlive => true;
@@ -990,9 +993,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   List<League> _filteredLeagues() {
     final q = _searchQuery.trim().toLowerCase();
-    if (q.isEmpty) return _leagues;
 
-    return _leagues.where((league) {
+    final base = _selectedTab == _LeagueViewTab.leagues
+        ? _leagues.where((l) => !l.isInsideMasterLeague).toList()
+        : _leagues.where((l) => l.isInsideMasterLeague).toList();
+
+    if (q.isEmpty) return base;
+
+    return base.where((league) {
       final latestAnn = _latestAnnouncements[league.id];
       final haystack = <String>[
         league.name,
@@ -1029,10 +1037,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       pieces.add(desc);
     }
 
-    if (league.isInsideMasterLeague) {
-      pieces.add('Master League competition');
-    }
-
     if (latestAnn != null && latestAnn.title.trim().isNotEmpty) {
       pieces.add(latestAnn.title.trim());
     }
@@ -1056,10 +1060,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         kBottomNavigationBarHeight + media.padding.bottom + 16;
 
     final filtered = _filteredLeagues();
-    final normalLeagues =
-        filtered.where((l) => !l.isInsideMasterLeague).toList();
-    final masterCompetitions =
-        filtered.where((l) => l.isInsideMasterLeague).toList();
+    final normalCount = _leagues.where((l) => !l.isInsideMasterLeague).length;
+    final masterCount = _leagues.where((l) => l.isInsideMasterLeague).length;
 
     return GlassScaffold(
       resizeToAvoidBottomInset: true,
@@ -1249,7 +1251,20 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     ),
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _TopLeagueSwitcher(
+                    selectedTab: _selectedTab,
+                    normalCount: normalCount,
+                    masterCount: masterCount,
+                    onChanged: (tab) {
+                      if (_selectedTab == tab) return;
+                      setState(() => _selectedTab = tab);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
@@ -1274,12 +1289,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                           )
                         : filtered.isEmpty
                             ? _buildEmptyState(context)
-                            : _buildCategorizedLeagueList(
-                                context: context,
-                                isTablet: isTablet,
-                                normalLeagues: normalLeagues,
-                                masterCompetitions: masterCompetitions,
-                              ),
+                            : _buildLeagueGrid(context, filtered, isTablet),
                   ),
                 ),
               ],
@@ -1287,55 +1297,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildCategorizedLeagueList({
-    required BuildContext context,
-    required bool isTablet,
-    required List<League> normalLeagues,
-    required List<League> masterCompetitions,
-  }) {
-    final media = MediaQuery.of(context);
-    final bottomPadding =
-        16.0 + media.padding.bottom + kBottomNavigationBarHeight + 80;
-
-    return ListView(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      physics: const BouncingScrollPhysics(
-        parent: AlwaysScrollableScrollPhysics(),
-      ),
-      padding: EdgeInsetsDirectional.fromSTEB(
-        16,
-        8,
-        16,
-        bottomPadding,
-      ),
-      children: [
-        if (normalLeagues.isNotEmpty) ...[
-          _SectionIntroCard(
-            icon: Icons.shield_outlined,
-            title: 'Normal Leagues',
-            subtitle:
-                'Standalone leagues that are not inside a master league workspace.',
-          ),
-          const SizedBox(height: 12),
-          _buildLeagueGrid(context, normalLeagues, isTablet),
-        ],
-        if (normalLeagues.isNotEmpty && masterCompetitions.isNotEmpty)
-          const SizedBox(height: 22),
-        if (masterCompetitions.isNotEmpty) ...[
-          _SectionIntroCard(
-            icon: Icons.hub_rounded,
-            title: 'Master League Competitions',
-            subtitle:
-                'These competitions belong to a master league workspace. You can open the competition directly or jump to its parent workspace.',
-            accent: _premiumAmber,
-          ),
-          const SizedBox(height: 12),
-          _buildLeagueGrid(context, masterCompetitions, isTablet),
-        ],
-      ],
     );
   }
 
@@ -1352,13 +1313,23 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final authUid = _authUidOrEmpty();
 
     final cardHeight = isTablet ? 230.0 : 220.0;
-    final extraActionHeight = leagues.any((l) => l.isInsideMasterLeague) ? 52.0 : 0.0;
+    final showWorkspaceAction = _selectedTab == _LeagueViewTab.master;
+    final extraActionHeight = showWorkspaceAction ? 52.0 : 0.0;
     final mainAxisExtent = cardHeight + extraActionHeight;
 
     return GridView.builder(
       shrinkWrap: true,
       itemCount: leagues.length,
-      physics: const NeverScrollableScrollPhysics(),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        8,
+        16,
+        16 + MediaQuery.of(context).padding.bottom + kBottomNavigationBarHeight + 80,
+      ),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: isTablet ? 2 : 1,
         mainAxisSpacing: 16,
@@ -1471,7 +1442,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          if (league.isInsideMasterLeague)
+                          if (_selectedTab == _LeagueViewTab.master)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 6),
                               child: _CardBadge(
@@ -1593,14 +1564,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 ),
               ),
             ),
-            if (league.isInsideMasterLeague &&
+            if (showWorkspaceAction &&
                 league.masterLeagueId.trim().isNotEmpty) ...[
               const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => context.push('/master-leagues/${league.masterLeagueId}'),
+                      onPressed: () =>
+                          context.push('/master-leagues/${league.masterLeagueId}'),
                       icon: const Icon(Icons.hub_rounded),
                       label: const Text(
                         'Open Workspace',
@@ -1627,6 +1599,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         16.0 + media.padding.bottom + kBottomNavigationBarHeight + 80;
 
     final bool hasSearch = _searchQuery.trim().isNotEmpty;
+    final bool isMasterTab = _selectedTab == _LeagueViewTab.master;
 
     return Center(
       child: SingleChildScrollView(
@@ -1660,7 +1633,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 child: Icon(
                   hasSearch
                       ? Icons.search_off_rounded
-                      : Icons.emoji_events_rounded,
+                      : (isMasterTab
+                          ? Icons.hub_rounded
+                          : Icons.emoji_events_rounded),
                   size: 36,
                   color: cs.primary,
                 ),
@@ -1669,7 +1644,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               Text(
                 hasSearch
                     ? 'No leagues match your search'
-                    : l10n.tr('leagues_empty_title'),
+                    : (isMasterTab
+                        ? 'No master competitions yet'
+                        : l10n.tr('leagues_empty_title')),
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w900,
                   fontSize: 20,
@@ -1682,7 +1659,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               Text(
                 hasSearch
                     ? 'Try another search term for league name, code, region, or announcement.'
-                    : l10n.tr('leagues_empty_subtitle'),
+                    : (isMasterTab
+                        ? 'Competitions you joined from a master league container will appear here.'
+                        : l10n.tr('leagues_empty_subtitle')),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: onSurface.withOpacity(0.60),
@@ -2026,6 +2005,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         }
 
         _snack(message);
+        if (mounted) setState(() {});
       } catch (e) {
         setModalState(() {
           joining = false;
@@ -2264,62 +2244,90 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   }
 }
 
-class _SectionIntroCard extends StatelessWidget {
-  const _SectionIntroCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.accent,
+class _TopLeagueSwitcher extends StatelessWidget {
+  const _TopLeagueSwitcher({
+    required this.selectedTab,
+    required this.normalCount,
+    required this.masterCount,
+    required this.onChanged,
   });
 
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color? accent;
+  final _LeagueViewTab selectedTab;
+  final int normalCount;
+  final int masterCount;
+  final ValueChanged<_LeagueViewTab> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final color = accent ?? cs.primary;
+    final onSurface = cs.onSurface;
 
-    return Glass(
-      borderRadius: 22,
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 42,
-            height: 42,
+    Widget chip({
+      required _LeagueViewTab tab,
+      required String label,
+      required int count,
+      required IconData icon,
+    }) {
+      final selected = selectedTab == tab;
+      return Expanded(
+        child: InkWell(
+          onTap: () => onChanged(tab),
+          borderRadius: BorderRadius.circular(999),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(999),
+              color: selected
+                  ? cs.primary
+                  : Colors.transparent,
             ),
-            child: Icon(icon, color: color, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
+                Icon(
+                  icon,
+                  size: 17,
+                  color: selected ? cs.onPrimary : onSurface.withOpacity(0.70),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
-                    color: cs.onSurface.withOpacity(0.68),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    count > 0 ? '$label ($count)' : label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: selected ? cs.onPrimary : onSurface.withOpacity(0.78),
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ],
             ),
+          ),
+        ),
+      );
+    }
+
+    return Glass(
+      borderRadius: 999,
+      padding: const EdgeInsets.all(6),
+      child: Row(
+        children: [
+          chip(
+            tab: _LeagueViewTab.leagues,
+            label: 'Leagues',
+            count: normalCount,
+            icon: Icons.emoji_events_outlined,
+          ),
+          const SizedBox(width: 6),
+          chip(
+            tab: _LeagueViewTab.master,
+            label: 'Master',
+            count: masterCount,
+            icon: Icons.hub_rounded,
           ),
         ],
       ),
