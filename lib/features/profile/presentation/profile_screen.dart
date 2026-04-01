@@ -7,7 +7,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../master_leagues/domain/master_league_plan.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 
@@ -33,9 +32,6 @@ import '../../legal/terms_of_service_screen.dart';
 import '../../leagues/data/services/reward_firestore_service.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
-import '../../master_leagues/logic/master_league_pricing_service.dart';
-import '../../master_leagues/logic/master_leagues_providers.dart';
-import '../../master_leagues/presentation/widgets/master_league_entry_tile.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -84,7 +80,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }) {
     final u = url.trim();
     if (u.isEmpty) return u;
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
     final marker = '/image/upload/';
     final idx = u.indexOf(marker);
@@ -106,7 +103,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) return u;
@@ -118,13 +116,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<String> _uploadToCloudinary({required PlatformFile picked}) async {
-    final cloudName = const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
-    final uploadPreset = const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
+    final cloudName =
+        const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
+    final uploadPreset =
+        const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET')
+            .trim();
     if (cloudName.isEmpty || uploadPreset.isEmpty) {
       throw StateError('Cloudinary is not configured.');
     }
 
-    final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final uploadUrl =
+        Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
     final ts = DateTime.now().millisecondsSinceEpoch;
 
     http.MultipartFile filePart;
@@ -133,9 +135,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final path = (picked.path ?? '').trim();
 
     if (bytes != null && bytes.isNotEmpty) {
-      filePart = http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
+      filePart =
+          http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
     } else if (path.isNotEmpty) {
-      filePart = await http.MultipartFile.fromPath('file', path, filename: picked.name);
+      filePart = await http.MultipartFile.fromPath(
+        'file',
+        path,
+        filename: picked.name,
+      );
     } else {
       throw StateError('Selected image is not accessible.');
     }
@@ -149,25 +156,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final client = http.Client();
     try {
-      final streamed = await client.send(req).timeout(const Duration(seconds: 45));
-      final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45));
+      final streamed =
+          await client.send(req).timeout(const Duration(seconds: 45));
+      final resp = await http.Response.fromStream(streamed)
+          .timeout(const Duration(seconds: 45));
 
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
         String message = 'Upload failed (HTTP ${resp.statusCode}).';
         try {
           final decoded = jsonDecode(resp.body);
           final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
-          final msg = (err is Map<String, dynamic>) ? (err['message']?.toString() ?? '') : '';
+          final msg = (err is Map<String, dynamic>)
+              ? (err['message']?.toString() ?? '')
+              : '';
           if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
         } catch (_) {}
         throw StateError(message);
       }
 
       final decoded = jsonDecode(resp.body);
-      if (decoded is! Map<String, dynamic>) throw StateError('Upload failed: invalid response.');
+      if (decoded is! Map<String, dynamic>) {
+        throw StateError('Upload failed: invalid response.');
+      }
 
       final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
-      if (secureUrl.isEmpty) throw StateError('Upload failed: secure_url missing.');
+      if (secureUrl.isEmpty) {
+        throw StateError('Upload failed: secure_url missing.');
+      }
 
       return secureUrl;
     } on TimeoutException {
@@ -188,7 +203,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     setState(() => _uploadingAvatar = true);
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 6));
 
       final pickResult = await SafeImagePicker.pickImage();
 
@@ -232,7 +248,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       _snack(context, UserFriendlyError.toMessage(e));
     } catch (e) {
       if (!context.mounted) return;
-      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _snack(
+        context,
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     } finally {
       if (!mounted) return;
       setState(() => _uploadingAvatar = false);
@@ -254,7 +273,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
           child: Glass(
             borderRadius: 26,
             padding: const EdgeInsets.all(18),
@@ -273,7 +293,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           color: cs.error.withOpacity(0.10),
                           border: Border.all(color: cs.error.withOpacity(0.25)),
                         ),
-                        child: Icon(Icons.delete_outline_rounded, color: cs.error, size: 22),
+                        child: Icon(
+                          Icons.delete_outline_rounded,
+                          color: cs.error,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -287,7 +311,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                       IconButton(
                         onPressed: () => Navigator.of(ctx).pop(false),
-                        icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                        icon:
+                            Icon(Icons.close, color: onSurface.withOpacity(0.55)),
                       ),
                     ],
                   ),
@@ -336,7 +361,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (confirm != true) return;
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 6));
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -358,7 +384,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       _snack(context, 'Removed.');
     } catch (e) {
       if (!context.mounted) return;
-      _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _snack(
+        context,
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 
@@ -374,10 +403,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
 
     try {
-      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
     } catch (e) {
       if (context.mounted) {
-        _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+        _snack(
+          context,
+          UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+        );
       }
       return;
     }
@@ -418,7 +451,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   borderRadius: 28,
                   padding: EdgeInsets.zero,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -454,9 +490,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           stream: cfgStream,
                           builder: (context, snap) {
                             if (snap.hasError) {
-                              final msg = UserFriendlyError.toMessage(snap.error as Object);
+                              final msg = UserFriendlyError.toMessage(
+                                snap.error as Object,
+                              );
                               return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
                                 child: Text(
                                   msg,
                                   style: theme.textTheme.bodyMedium?.copyWith(
@@ -468,11 +507,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               );
                             }
 
-                            if (snap.connectionState == ConnectionState.waiting) {
+                            if (snap.connectionState ==
+                                ConnectionState.waiting) {
                               return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 child: Center(
-                                  child: CircularProgressIndicator(color: cs.primary),
+                                  child:
+                                      CircularProgressIndicator(color: cs.primary),
                                 ),
                               );
                             }
@@ -483,7 +525,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 8),
                                     child: Text(
                                       'No coupon configuration yet.',
                                       textAlign: TextAlign.center,
@@ -498,7 +541,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                     children: [
                                       Expanded(
                                         child: OutlinedButton.icon(
-                                          onPressed: () => Navigator.of(ctx).pop(),
+                                          onPressed: () =>
+                                              Navigator.of(ctx).pop(),
                                           icon: const Icon(Icons.close),
                                           label: const Text('Close'),
                                         ),
@@ -520,7 +564,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               },
                                             );
                                           },
-                                          icon: const Icon(Icons.add_shopping_cart),
+                                          icon: const Icon(
+                                            Icons.add_shopping_cart,
+                                          ),
                                           label: const Text('Buy / enable'),
                                         ),
                                       ),
@@ -531,22 +577,41 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             }
 
                             final redeemed = cfg.qtyRedeemed;
-                            final usersPay = (100 - cfg.discountPercent).clamp(0, 100);
+                            final usersPay =
+                                (100 - cfg.discountPercent).clamp(0, 100);
 
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 _kv(context, 'Currency', cfg.currency),
-                                _kv(context, 'Unit price', '${money(cfg.unitPrice)} ${cfg.currency}'),
-                                _kv(context, 'Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}'),
+                                _kv(
+                                  context,
+                                  'Unit price',
+                                  '${money(cfg.unitPrice)} ${cfg.currency}',
+                                ),
+                                _kv(
+                                  context,
+                                  'Effective unit',
+                                  '${money(cfg.effectiveUnit)} ${cfg.currency}',
+                                ),
                                 _kv(
                                   context,
                                   'Threshold',
-                                  cfg.threshold == null ? '—' : '${money(cfg.threshold!)} ${cfg.currency}',
+                                  cfg.threshold == null
+                                      ? '—'
+                                      : '${money(cfg.threshold!)} ${cfg.currency}',
                                 ),
-                                _kv(context, 'Threshold discount', '${money(cfg.thresholdDiscountPercent)}%'),
+                                _kv(
+                                  context,
+                                  'Threshold discount',
+                                  '${money(cfg.thresholdDiscountPercent)}%',
+                                ),
                                 Divider(color: onSurface.withOpacity(0.10)),
-                                _kv(context, 'Discount', '${cfg.discountPercent}%'),
+                                _kv(
+                                  context,
+                                  'Discount',
+                                  '${cfg.discountPercent}%',
+                                ),
                                 _kv(context, 'Users pay', '$usersPay%'),
                                 Divider(color: onSurface.withOpacity(0.10)),
                                 _kv(context, 'Purchased', '${cfg.qtyTotal}'),
@@ -557,7 +622,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   children: [
                                     Expanded(
                                       child: OutlinedButton.icon(
-                                        onPressed: () => Navigator.of(ctx).pop(),
+                                        onPressed: () =>
+                                            Navigator.of(ctx).pop(),
                                         icon: const Icon(Icons.close),
                                         label: const Text('Close'),
                                       ),
@@ -575,11 +641,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               'addonsOnly': true,
                                               'existingCouponsEnabled': true,
                                               'existingCouponCount': cfg.qtyTotal,
-                                              'existingCouponDiscountPercent': cfg.discountPercent,
+                                              'existingCouponDiscountPercent':
+                                                  cfg.discountPercent,
                                             },
                                           );
                                         },
-                                        icon: const Icon(Icons.add_shopping_cart),
+                                        icon: const Icon(
+                                          Icons.add_shopping_cart,
+                                        ),
                                         label: const Text('Buy more'),
                                       ),
                                     ),
@@ -595,15 +664,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 ConstrainedBox(
-                                  constraints: const BoxConstraints(maxHeight: 320),
-                                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                  constraints:
+                                      const BoxConstraints(maxHeight: 320),
+                                  child: StreamBuilder<
+                                      QuerySnapshot<Map<String, dynamic>>>(
                                     stream: redemptionsQuery.snapshots(),
                                     builder: (context, rs) {
                                       if (rs.hasError) {
                                         return Center(
                                           child: Text(
-                                            UserFriendlyError.toMessage(rs.error as Object),
-                                            style: theme.textTheme.bodySmall?.copyWith(
+                                            UserFriendlyError.toMessage(
+                                              rs.error as Object,
+                                            ),
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
                                               color: cs.error,
                                               fontWeight: FontWeight.w700,
                                             ),
@@ -612,14 +686,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         );
                                       }
                                       if (!rs.hasData) {
-                                        return Center(child: CircularProgressIndicator(color: cs.primary));
+                                        return Center(
+                                          child: CircularProgressIndicator(
+                                            color: cs.primary,
+                                          ),
+                                        );
                                       }
                                       final docs = rs.data!.docs;
                                       if (docs.isEmpty) {
                                         return Center(
                                           child: Text(
                                             'No redemptions yet.',
-                                            style: theme.textTheme.bodySmall?.copyWith(
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
                                               color: onSurface.withOpacity(0.70),
                                               fontWeight: FontWeight.w600,
                                             ),
@@ -628,51 +707,102 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       }
                                       return ListView.separated(
                                         itemCount: docs.length,
-                                        separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
+                                        separatorBuilder: (_, __) => Divider(
+                                          color: onSurface.withOpacity(0.10),
+                                        ),
                                         itemBuilder: (context, i) {
                                           final d = docs[i].data();
-                                          final userId = (d['userId'] as String?) ?? '';
-                                          final status = (d['status'] as String?) ?? 'pending';
-                                          final paidAtMs = (d['paidAtMs'] as num?)?.toInt() ?? 0;
-                                          final provider = (d['provider'] as String?) ?? '';
-                                          final expected = (d['expectedAmount'] as num?)?.toDouble() ?? 0.0;
-                                          final currency = (d['currency'] as String?) ?? cfg.currency;
+                                          final status = (d['status'] as String?) ??
+                                              'pending';
+                                          final paidAtMs =
+                                              (d['paidAtMs'] as num?)?.toInt() ?? 0;
+                                          final provider =
+                                              (d['provider'] as String?) ?? '';
+                                          final expected =
+                                              (d['expectedAmount'] as num?)
+                                                      ?.toDouble() ??
+                                                  0.0;
+                                          final currency =
+                                              (d['currency'] as String?) ??
+                                                  cfg.currency;
                                           final isPaid = status == 'paid';
-                                          final when = paidAtMs > 0 ? DateTime.fromMillisecondsSinceEpoch(paidAtMs).toLocal().toString() : '—';
+                                          final when = paidAtMs > 0
+                                              ? DateTime.fromMillisecondsSinceEpoch(
+                                                      paidAtMs)
+                                                  .toLocal()
+                                                  .toString()
+                                              : '—';
+                                          final shortUserId = ((d['shareId']
+                                                          as String?) ??
+                                                      '')
+                                                  .trim()
+                                                  .isNotEmpty
+                                              ? (d['shareId'] as String).trim()
+                                              : UserProfile.deriveShareIdFromUid(
+                                                  (d['userId'] as String?) ?? '',
+                                                );
+
                                           return ListTile(
                                             dense: true,
                                             contentPadding: EdgeInsets.zero,
                                             leading: Icon(
-                                              isPaid ? Icons.verified : Icons.pending,
-                                              color: isPaid ? const Color(0xFF22C55E) : cs.primary,
+                                              isPaid
+                                                  ? Icons.verified
+                                                  : Icons.pending,
+                                              color: isPaid
+                                                  ? const Color(0xFF22C55E)
+                                                  : cs.primary,
                                               size: 20,
                                             ),
                                             title: Text(
-                                              userId.isEmpty
+                                              shortUserId.isEmpty
                                                   ? '(unknown user)'
-                                                  : (userId.length > 12 ? '${userId.substring(0, 12)}…' : userId),
-                                              style: theme.textTheme.bodyMedium?.copyWith(
+                                                  : shortUserId,
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
                                                 color: onSurface,
                                                 fontWeight: FontWeight.w900,
                                               ),
                                             ),
                                             subtitle: Text(
-                                              isPaid ? 'Paid • $provider • $when' : 'Pending • ${money(expected)} $currency',
-                                              style: theme.textTheme.bodySmall?.copyWith(
+                                              isPaid
+                                                  ? 'Paid • $provider • $when'
+                                                  : 'Pending • ${money(expected)} $currency',
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
                                                 color: onSurface.withOpacity(0.65),
                                                 fontWeight: FontWeight.w700,
                                               ),
                                             ),
                                             trailing: IconButton(
-                                              tooltip: 'Copy user id',
-                                              icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72), size: 18),
-                                              onPressed: () async {
-                                                await Clipboard.setData(ClipboardData(text: userId));
-                                                if (!context.mounted) return;
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(content: Text('Copied: $userId')),
-                                                );
-                                              },
+                                              tooltip: 'Copy short id',
+                                              icon: Icon(
+                                                Icons.copy,
+                                                color:
+                                                    onSurface.withOpacity(0.72),
+                                                size: 18,
+                                              ),
+                                              onPressed: shortUserId.isEmpty
+                                                  ? null
+                                                  : () async {
+                                                      await Clipboard.setData(
+                                                        ClipboardData(
+                                                          text: shortUserId,
+                                                        ),
+                                                      );
+                                                      if (!context.mounted) {
+                                                        return;
+                                                      }
+                                                      ScaffoldMessenger.of(
+                                                              context)
+                                                          .showSnackBar(
+                                                        SnackBar(
+                                                          content: Text(
+                                                            'Copied: $shortUserId',
+                                                          ),
+                                                        ),
+                                                      );
+                                                    },
                                             ),
                                           );
                                         },
@@ -694,35 +824,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         );
       },
     );
-  }
-
-  String _readOrganizerPlan(Map<String, dynamic> data) {
-    final raw = (data['organizerPlan'] ?? data['premiumPlan'] ?? '').toString().trim().toLowerCase();
-    if (raw == 'elite') return 'Elite';
-    if (raw == 'pro') return 'Pro';
-    if (raw == 'basic') return 'Basic';
-    return 'Free';
-  }
-
-  bool _readPremiumActive(Map<String, dynamic> data) {
-    if (data['isPremium'] == true) return true;
-    final expires = data['premiumExpiresAtMs'] ?? data['organizerPlanExpiresAtMs'];
-    if (expires is int) return expires > DateTime.now().millisecondsSinceEpoch;
-    if (expires is num) return expires.toInt() > DateTime.now().millisecondsSinceEpoch;
-    return false;
-  }
-
-  String _readPlanExpiryText(Map<String, dynamic> data) {
-    final expires = data['organizerPlanExpiresAtMs'] ?? data['premiumExpiresAtMs'];
-    int ms = 0;
-    if (expires is int) {
-      ms = expires;
-    } else if (expires is num) {
-      ms = expires.toInt();
-    }
-    if (ms <= 0) return '—';
-    final dt = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
-    return dt.toString();
   }
 
   String _readProfileImageUrl(UserProfile? profile, User? authUser) {
@@ -752,6 +853,36 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return url;
   }
 
+  Widget _verificationBadge(BuildContext context, UserProfile? profile) {
+    if (profile == null) return const SizedBox.shrink();
+
+    final cs = Theme.of(context).colorScheme;
+
+    if (profile.verifiedActive) {
+      return Tooltip(
+        message: 'Verified account',
+        child: Icon(
+          Icons.verified_rounded,
+          size: 18,
+          color: const Color(0xFF1D9BF0),
+        ),
+      );
+    }
+
+    if (profile.verificationPending) {
+      return Tooltip(
+        message: 'Verification pending',
+        child: Icon(
+          Icons.verified_outlined,
+          size: 18,
+          color: const Color(0xFFF59E0B),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
   @override
   Widget build(BuildContext context) {
     unawaited(ConnectivityService.instance.initialize());
@@ -772,7 +903,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
 
     final themeState = ref.watch(themeControllerProvider);
-    final currentLeague = ref.watch(leagueModeProvider);
+    ref.watch(leagueModeProvider);
 
     final isPricingAdmin = AppAdminsService.instance.isPricingAdminUid(uid);
 
@@ -781,12 +912,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final muted = onSurface.withOpacity(0.55);
     final faint = onSurface.withOpacity(0.30);
 
-    final unlockedAsync = uid.isEmpty ? const AsyncValue<bool>.data(false) : ref.watch(masterLeagueUnlockedProvider);
-    final planAsync = uid.isEmpty ? const AsyncValue<MasterLeaguePlan?>.data(null) : ref.watch(organizerProActivePlanProvider);
-
-    final pricingSvc = MasterLeaguePricingService();
-    final priceStream = pricingSvc.watchMasterLeaguePriceForLocale(Localizations.maybeLocaleOf(context));
-
     return GlassScaffold(
       body: SafeArea(
         bottom: false,
@@ -794,40 +919,49 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
             child: ListView(
-              physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
               padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 110),
               children: [
                 const SizedBox(height: 8),
-
-                // ─────────────────────────────
-                // Premium Profile Header (Refine + Structure polish)
-                // ─────────────────────────────
                 Glass(
                   borderRadius: 28,
                   padding: const EdgeInsets.all(18),
                   child: StreamBuilder<UserProfile?>(
-                    stream: uid.isEmpty ? const Stream<UserProfile?>.empty() : repo.watchByUserId(uid),
+                    stream: uid.isEmpty
+                        ? const Stream<UserProfile?>.empty()
+                        : repo.watchByUserId(uid),
                     builder: (context, snap) {
                       final profile = snap.data;
 
-                      final teamName = (profile != null && profile.teamName.trim().isNotEmpty)
+                      final teamName = (profile != null &&
+                              profile.teamName.trim().isNotEmpty)
                           ? profile.teamName.trim()
-                          : (user?.displayName ?? l10n.tr('profile_team_placeholder'));
+                          : (user?.displayName ??
+                              l10n.tr('profile_team_placeholder'));
 
                       final shortUserId = (profile != null)
                           ? profile.effectiveShareId
-                          : (uid.isEmpty ? '' : UserProfile.deriveShareIdFromUid(uid));
+                          : (uid.isEmpty
+                              ? ''
+                              : UserProfile.deriveShareIdFromUid(uid));
 
                       final rawAvatarUrl = _readProfileImageUrl(profile, user);
-                      final avatarUrl = rawAvatarUrl.isNotEmpty && _looksLikeHttpUrl(rawAvatarUrl)
-                          ? _cloudinaryOptimizedUrl(rawAvatarUrl, width: 256, height: 256, crop: 'fill')
+                      final avatarUrl = rawAvatarUrl.isNotEmpty &&
+                              _looksLikeHttpUrl(rawAvatarUrl)
+                          ? _cloudinaryOptimizedUrl(
+                              rawAvatarUrl,
+                              width: 256,
+                              height: 256,
+                              crop: 'fill',
+                            )
                           : rawAvatarUrl;
 
                       return Column(
                         children: [
                           Row(
                             children: [
-                              // Avatar
                               Container(
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
@@ -844,29 +978,52 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   children: [
                                     InkWell(
                                       borderRadius: BorderRadius.circular(999),
-                                      onTap: uid.isEmpty ? null : () => _pickAndUploadAvatar(context),
-                                      onLongPress: uid.isEmpty ? null : () => _clearAvatar(context),
+                                      onTap: uid.isEmpty
+                                          ? null
+                                          : () => _pickAndUploadAvatar(context),
+                                      onLongPress: uid.isEmpty
+                                          ? null
+                                          : () => _clearAvatar(context),
                                       child: CircleAvatar(
                                         radius: 34,
-                                        backgroundColor: cs.primary.withOpacity(0.90),
+                                        backgroundColor:
+                                            cs.primary.withOpacity(0.90),
                                         child: ClipOval(
                                           child: SizedBox(
                                             width: 68,
                                             height: 68,
-                                            child: (avatarUrl.trim().isNotEmpty && _looksLikeHttpUrl(avatarUrl))
+                                            child: (avatarUrl.trim().isNotEmpty &&
+                                                    _looksLikeHttpUrl(avatarUrl))
                                                 ? Image.network(
                                                     avatarUrl,
                                                     fit: BoxFit.cover,
                                                     gaplessPlayback: true,
-                                                    filterQuality: FilterQuality.low,
-                                                    errorBuilder: (_, __, ___) =>
-                                                        const Icon(Icons.person, color: Colors.white, size: 30),
-                                                    loadingBuilder: (context, child, event) {
-                                                      if (event == null) return child;
-                                                      return const Icon(Icons.person, color: Colors.white, size: 30);
+                                                    filterQuality:
+                                                        FilterQuality.low,
+                                                    errorBuilder:
+                                                        (_, __, ___) =>
+                                                            const Icon(
+                                                      Icons.person,
+                                                      color: Colors.white,
+                                                      size: 30,
+                                                    ),
+                                                    loadingBuilder: (context,
+                                                        child, event) {
+                                                      if (event == null) {
+                                                        return child;
+                                                      }
+                                                      return const Icon(
+                                                        Icons.person,
+                                                        color: Colors.white,
+                                                        size: 30,
+                                                      );
                                                     },
                                                   )
-                                                : const Icon(Icons.person, color: Colors.white, size: 30),
+                                                : const Icon(
+                                                    Icons.person,
+                                                    color: Colors.white,
+                                                    size: 30,
+                                                  ),
                                           ),
                                         ),
                                       ),
@@ -882,7 +1039,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             child: SizedBox(
                                               width: 18,
                                               height: 18,
-                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -890,10 +1050,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   ],
                                 ),
                               ),
-
                               const SizedBox(width: 16),
-
-                              // Name + user id
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -902,23 +1059,47 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       children: [
                                         Expanded(
                                           child: AnimatedSwitcher(
-                                            duration: const Duration(milliseconds: 200),
-                                            child: Text(
-                                              teamName,
-                                              key: ValueKey(teamName),
-                                              style: t.titleLarge?.copyWith(
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 20,
-                                                letterSpacing: -0.3,
-                                                color: onSurface,
+                                            duration: const Duration(
+                                              milliseconds: 200,
+                                            ),
+                                            child: Row(
+                                              key: ValueKey(
+                                                '${teamName}_${profile?.isVerified}_${profile?.verificationStatus}',
                                               ),
-                                              overflow: TextOverflow.ellipsis,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Flexible(
+                                                  child: Text(
+                                                    teamName,
+                                                    style: t.titleLarge?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                      fontSize: 20,
+                                                      letterSpacing: -0.3,
+                                                      color: onSurface,
+                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _verificationBadge(
+                                                  context,
+                                                  profile,
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ),
                                         IconButton(
-                                          tooltip: l10n.tr('profile_edit_team_name_tooltip'),
-                                          icon: Icon(Icons.edit_rounded, color: muted, size: 18),
+                                          tooltip: l10n.tr(
+                                            'profile_edit_team_name_tooltip',
+                                          ),
+                                          icon: Icon(
+                                            Icons.edit_rounded,
+                                            color: muted,
+                                            size: 18,
+                                          ),
                                           onPressed: uid.isEmpty
                                               ? null
                                               : () {
@@ -926,7 +1107,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   _editTeamName(
                                                     context,
                                                     userId: uid,
-                                                    current: profile?.teamName ?? '',
+                                                    current:
+                                                        profile?.teamName ?? '',
                                                   );
                                                 },
                                         ),
@@ -935,13 +1117,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                     const SizedBox(height: 4),
                                     Row(
                                       children: [
-                                        Icon(Icons.tag_rounded, size: 13, color: onSurface.withOpacity(0.45)),
+                                        Icon(
+                                          Icons.tag_rounded,
+                                          size: 13,
+                                          color: onSurface.withOpacity(0.45),
+                                        ),
                                         const SizedBox(width: 6),
                                         Expanded(
                                           child: Text(
-                                            uid.isEmpty ? l10n.tr('profile_not_signed_in') : shortUserId,
+                                            uid.isEmpty
+                                                ? l10n.tr(
+                                                    'profile_not_signed_in',
+                                                  )
+                                                : shortUserId,
                                             style: TextStyle(
-                                              color: onSurface.withOpacity(0.60),
+                                              color:
+                                                  onSurface.withOpacity(0.60),
                                               fontWeight: FontWeight.w700,
                                               fontSize: 12,
                                             ),
@@ -949,18 +1140,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                           ),
                                         ),
                                         InkWell(
-                                          borderRadius: BorderRadius.circular(10),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
                                           onTap: uid.isEmpty
                                               ? null
                                               : () async {
                                                   HapticFeedback.lightImpact();
-                                                  await Clipboard.setData(ClipboardData(text: shortUserId));
+                                                  await Clipboard.setData(
+                                                    ClipboardData(
+                                                      text: shortUserId,
+                                                    ),
+                                                  );
                                                   if (!context.mounted) return;
-                                                  _snack(context, l10n.tr('profile_userid_copied'));
+                                                  _snack(
+                                                    context,
+                                                    l10n.tr(
+                                                      'profile_userid_copied',
+                                                    ),
+                                                  );
                                                 },
                                           child: Padding(
                                             padding: const EdgeInsets.all(6),
-                                            child: Icon(Icons.copy_rounded, size: 16, color: onSurface.withOpacity(0.42)),
+                                            child: Icon(
+                                              Icons.copy_rounded,
+                                              size: 16,
+                                              color:
+                                                  onSurface.withOpacity(0.42),
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -970,21 +1176,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 16),
                           Divider(color: onSurface.withOpacity(0.08), height: 1),
                           const SizedBox(height: 14),
-
-                          // Quick actions (refined)
                           Row(
                             children: [
                               Expanded(
                                 child: _ProfileActionChip(
-                                  icon: themeState.mode == ThemeMode.dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                                  label: themeState.mode == ThemeMode.dark ? 'Light' : 'Dark',
+                                  icon: themeState.mode == ThemeMode.dark
+                                      ? Icons.light_mode_rounded
+                                      : Icons.dark_mode_rounded,
+                                  label: themeState.mode == ThemeMode.dark
+                                      ? 'Light'
+                                      : 'Dark',
                                   onTap: () {
                                     HapticFeedback.selectionClick();
-                                    ref.read(themeControllerProvider.notifier).toggleTheme();
+                                    ref
+                                        .read(themeControllerProvider.notifier)
+                                        .toggleTheme();
                                   },
                                 ),
                               ),
@@ -1009,7 +1218,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       await AuthService().signOut();
                                     } catch (e) {
                                       if (context.mounted) {
-                                        _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                                        _snack(
+                                          context,
+                                          UserFriendlyError.toMessage(
+                                            e is Object
+                                                ? e
+                                                : Exception('unknown'),
+                                          ),
+                                        );
                                       }
                                       return;
                                     }
@@ -1025,163 +1241,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     },
                   ),
                 ),
-
                 const SizedBox(height: 18),
                 const LeagueSwitcher(),
                 const SizedBox(height: 18),
-
-                // ─────────────────────────────
-                // Master Leagues (NEW PREMIUM ENTRY POINT)
-                // ─────────────────────────────
-                SectionHeader('Master Leagues'),
-                const SizedBox(height: 12),
-                StreamBuilder<MasterLeaguePrice?>(
-                  stream: priceStream,
-                  builder: (context, priceSnap) {
-                    final priceText = (priceSnap.data?.display ?? '').trim();
-
-                    final unlocked = unlockedAsync.valueOrNull ?? false;
-                    final loading = unlockedAsync.isLoading;
-
-                    return MasterLeagueEntryTile(
-                      isSignedIn: uid.isNotEmpty,
-                      unlocked: unlocked,
-                      loading: loading,
-                      priceText: priceText,
-                      onOpen: () => context.push('/master-leagues'),
-                      onUnlock: () => context.push('/master-leagues/create'),
-                      onSignIn: () => context.go('/login'),
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 18),
-
-                SectionHeader('Organizer Plan'),
-                const SizedBox(height: 12),
-                if (uid.isEmpty)
-                  Glass(
-                    borderRadius: 22,
-                    padding: const EdgeInsets.all(18),
-                    child: Row(
-                      children: [
-                        Icon(Icons.lock_outline_rounded, color: onSurface.withOpacity(0.45)),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Sign in to view your organizer plan.',
-                            style: TextStyle(
-                              color: onSurface.withOpacity(0.65),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
-                    builder: (context, planSnap) {
-                      final data = planSnap.data?.data() ?? <String, dynamic>{};
-                      final organizerPlan = planAsync.valueOrNull?.displayName ?? _readOrganizerPlan(data);
-                      final premiumActive = planAsync.valueOrNull != null || _readPremiumActive(data);
-                      final expiryText = _readPlanExpiryText(data);
-
-                      return Glass(
-                        borderRadius: 22,
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Organizer Plan',
-                              style: t.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                color: onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            _kv(context, 'Current plan', organizerPlan),
-                            _kv(context, 'Premium active', premiumActive ? 'Yes' : 'No'),
-                            _kv(context, 'Plan expiry', expiryText),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: () => context.push(
-                                  '/leagues/create/payment',
-                                  extra: <String, dynamic>{
-                                    'premiumUpgrade': true,
-                                    'leagueName': 'Organizer Premium',
-                                  },
-                                ),
-                                icon: const Icon(Icons.workspace_premium_rounded),
-                                label: Text(
-                                  premiumActive ? 'Manage / Upgrade Plan' : 'Upgrade to Premium',
-                                  style: const TextStyle(fontWeight: FontWeight.w900),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                const SizedBox(height: 18),
-
-                // ─────────────────────────────
-                // League Overview (refined)
-                // ─────────────────────────────
-                SectionHeader(l10n.tr('profile_section_league_overview')),
-                const SizedBox(height: 12),
-                Glass(
-                  borderRadius: 24,
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _StatCard(
-                          icon: Icons.emoji_events_rounded,
-                          label: l10n.tr('profile_stat_active'),
-                          value: '—',
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _StatCard(
-                          icon: Icons.groups_rounded,
-                          label: l10n.tr('profile_stat_teams'),
-                          value: '—',
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _StatCard(
-                          icon: Icons.sports_rounded,
-                          label: l10n.tr('profile_stat_format'),
-                          value: currentLeague.name.toUpperCase().replaceAll('CLASSIC', 'CL').replaceAll('SWISS', 'SW'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 18),
-
-                // ─────────────────────────────
-                // Super Admin (unchanged logic, refined container)
-                // ─────────────────────────────
                 if (isSuperAdmin) ...[
                   SectionHeader('Rewards Fulfillment'),
                   const SizedBox(height: 12),
                   _SuperAdminRewardsPanel(superAdminUid: uid),
                   const SizedBox(height: 18),
                 ],
-
-                // ─────────────────────────────
-                // Coupons (unchanged logic, refined)
-                // ─────────────────────────────
                 SectionHeader('Coupons'),
                 const SizedBox(height: 12),
                 if (uid.isEmpty)
@@ -1190,7 +1258,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     padding: const EdgeInsets.all(18),
                     child: Row(
                       children: [
-                        Icon(Icons.lock_outline_rounded, color: onSurface.withOpacity(0.45)),
+                        Icon(
+                          Icons.lock_outline_rounded,
+                          color: onSurface.withOpacity(0.45),
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -1209,7 +1280,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     borderRadius: 22,
                     padding: const EdgeInsets.all(14),
                     child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: FirebaseFirestore.instance.collection('leagues').where('organizerUid', isEqualTo: uid).limit(25).snapshots(),
+                      stream: FirebaseFirestore.instance
+                          .collection('leagues')
+                          .where('organizerUid', isEqualTo: uid)
+                          .limit(25)
+                          .snapshots(),
                       builder: (context, snap) {
                         if (snap.hasError) {
                           return Text(
@@ -1222,15 +1297,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         }
 
                         if (!snap.hasData) {
-                          return Center(child: CircularProgressIndicator(color: cs.primary));
+                          return Center(
+                            child: CircularProgressIndicator(color: cs.primary),
+                          );
                         }
 
                         final leagues = snap.data!.docs
                             .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
                             .where((m) {
-                              final enabled = (m['couponsEnabled'] == true || m['couponsEnabled'] == 1);
+                              final enabled = (m['couponsEnabled'] == true ||
+                                  m['couponsEnabled'] == 1);
                               if (!enabled) return false;
-                              final dp = (m['couponDiscountPercent'] as num?)?.toInt() ?? 0;
+                              final dp =
+                                  (m['couponDiscountPercent'] as num?)?.toInt() ??
+                                      0;
                               return dp >= 0;
                             })
                             .toList();
@@ -1238,7 +1318,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         if (leagues.isEmpty) {
                           return Row(
                             children: [
-                              Icon(Icons.confirmation_number_outlined, color: onSurface.withOpacity(0.45)),
+                              Icon(
+                                Icons.confirmation_number_outlined,
+                                color: onSurface.withOpacity(0.45),
+                              ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
@@ -1261,12 +1344,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 leagueName: (m['name'] as String?) ?? 'League',
                                 subtitle: _couponLeagueSubtitle(
                                   enabled: true,
-                                  discountPercent: ((m['couponDiscountPercent'] as num?)?.toInt() ?? 0),
+                                  discountPercent:
+                                      ((m['couponDiscountPercent'] as num?)
+                                              ?.toInt() ??
+                                          0),
                                 ),
                                 onView: () => _showCouponConfigSheet(
                                   context,
                                   leagueId: (m['id'] as String?) ?? '',
-                                  leagueName: (m['name'] as String?) ?? 'League',
+                                  leagueName:
+                                      (m['name'] as String?) ?? 'League',
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -1276,12 +1363,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       },
                     ),
                   ),
-
                 const SizedBox(height: 18),
-
-                // ─────────────────────────────
-                // Legal (refined)
-                // ─────────────────────────────
                 SectionHeader('Legal'),
                 const SizedBox(height: 12),
                 Glass(
@@ -1292,9 +1374,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       _LegalNavRow(
                         icon: Icons.privacy_tip_outlined,
                         title: 'Privacy Policy',
-                        subtitle: 'How we collect, use, and protect information.',
+                        subtitle:
+                            'How we collect, use, and protect information.',
                         onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
+                          MaterialPageRoute<void>(
+                            builder: (_) => const PrivacyPolicyScreen(),
+                          ),
                         ),
                       ),
                       Divider(color: onSurface.withOpacity(0.08), height: 1),
@@ -1303,7 +1388,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         title: 'Terms of Service',
                         subtitle: 'Rules and conditions for using the app.',
                         onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
+                          MaterialPageRoute<void>(
+                            builder: (_) => const TermsOfServiceScreen(),
+                          ),
                         ),
                       ),
                       Divider(color: onSurface.withOpacity(0.08), height: 1),
@@ -1312,27 +1399,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         title: 'Contact',
                         subtitle: 'Get help or report an issue.',
                         onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const ContactScreen()),
+                          MaterialPageRoute<void>(
+                            builder: (_) => const ContactScreen(),
+                          ),
                         ),
                       ),
                       Divider(color: onSurface.withOpacity(0.08), height: 1),
                       _LegalNavRow(
                         icon: Icons.link_outlined,
                         title: 'Affiliate Disclosure',
-                        subtitle: 'How affiliate links work in the marketplace.',
+                        subtitle:
+                            'How affiliate links work in the marketplace.',
                         onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const AffiliateDisclosureScreen()),
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                const AffiliateDisclosureScreen(),
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 18),
-
-                // ─────────────────────────────
-                // Admin (unchanged logic, refined)
-                // ─────────────────────────────
                 if (isPricingAdmin || isSuperAdmin) ...[
                   SectionHeader('Admin'),
                   const SizedBox(height: 12),
@@ -1346,7 +1434,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             icon: Icons.store_mall_directory_rounded,
                             title: 'Marketplace Upload',
                             onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(builder: (_) => const AdminMarketplaceUploadScreen()),
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    const AdminMarketplaceUploadScreen(),
+                              ),
                             ),
                           ),
                           if (isPricingAdmin)
@@ -1365,36 +1456,38 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           _AdminRow(
                             icon: Icons.admin_panel_settings_rounded,
                             title: 'Pricing Admin',
-                            onTap: () => GoRouter.of(context).push('/admin/pricing'),
+                            onTap: () =>
+                                GoRouter.of(context).push('/admin/pricing'),
                           ),
                           Divider(color: onSurface.withOpacity(0.08), height: 1),
                           _AdminRow(
                             icon: Icons.group_add_rounded,
                             title: 'Manage Pricing Admins',
-                            onTap: () => GoRouter.of(context).push('/admin/pricing-admins'),
+                            onTap: () => GoRouter.of(context)
+                                .push('/admin/pricing-admins'),
                           ),
                         ],
                       ],
                     ),
                   ),
                 ],
-
                 const SizedBox(height: 18),
-
-                // footer spacing
                 Row(
                   children: [
                     Expanded(child: Divider(color: faint)),
                     const SizedBox(width: 12),
                     Text(
                       'Profile',
-                      style: TextStyle(color: muted, fontWeight: FontWeight.w700, fontSize: 12),
+                      style: TextStyle(
+                        color: muted,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(child: Divider(color: faint)),
                   ],
                 ),
-
                 const SizedBox(height: 22),
               ],
             ),
@@ -1450,7 +1543,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
           child: Glass(
             borderRadius: 26,
             padding: const EdgeInsets.all(20),
@@ -1467,9 +1561,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         decoration: BoxDecoration(
                           color: Colors.amber.withOpacity(0.14),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.amber.withOpacity(0.35)),
+                          border: Border.all(
+                            color: Colors.amber.withOpacity(0.35),
+                          ),
                         ),
-                        child: const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 22),
+                        child: const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.amber,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -1484,7 +1584,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                       IconButton(
                         onPressed: () => Navigator.of(ctx).pop(false),
-                        icon: Icon(Icons.close, color: dialogOnSurface.withOpacity(0.5)),
+                        icon: Icon(
+                          Icons.close,
+                          color: dialogOnSurface.withOpacity(0.5),
+                        ),
                       ),
                     ],
                   ),
@@ -1505,8 +1608,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: dialogOnSurface.withOpacity(0.80),
-                            side: BorderSide(color: dialogOnSurface.withOpacity(0.18)),
+                            foregroundColor:
+                                dialogOnSurface.withOpacity(0.80),
+                            side: BorderSide(
+                              color: dialogOnSurface.withOpacity(0.18),
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(ctx).pop(false),
@@ -1556,7 +1662,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
           return Dialog(
             backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
             child: Glass(
               borderRadius: 26,
               padding: const EdgeInsets.all(18),
@@ -1573,9 +1680,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
                             color: theme.colorScheme.primary.withOpacity(0.12),
-                            border: Border.all(color: theme.colorScheme.primary.withOpacity(0.22)),
+                            border: Border.all(
+                              color:
+                                  theme.colorScheme.primary.withOpacity(0.22),
+                            ),
                           ),
-                          child: Icon(Icons.edit_rounded, color: theme.colorScheme.primary),
+                          child: Icon(
+                            Icons.edit_rounded,
+                            color: theme.colorScheme.primary,
+                          ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -1589,7 +1702,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ),
                         IconButton(
                           onPressed: () => Navigator.of(ctx).pop(null),
-                          icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                          icon:
+                              Icon(Icons.close, color: onSurface.withOpacity(0.55)),
                         ),
                       ],
                     ),
@@ -1597,10 +1711,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     TextField(
                       controller: controller,
                       autofocus: true,
-                      style: TextStyle(color: onSurface, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        color: onSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
                       decoration: InputDecoration(
                         hintText: l10n.tr('profile_team_name_hint'),
-                        hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
+                        hintStyle:
+                            TextStyle(color: onSurface.withOpacity(0.45)),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -1615,7 +1733,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
-                            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                            onPressed: () =>
+                                Navigator.of(ctx).pop(controller.text.trim()),
                             child: Text(l10n.tr('common_save')),
                           ),
                         ),
@@ -1634,11 +1753,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (cleaned.isEmpty) return;
 
       try {
-        await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
+        await ConnectivityService.instance
+            .requireOnline(timeout: const Duration(seconds: 4));
         await repo.updateTeamName(userId: userId, teamName: cleaned);
       } catch (e) {
         if (context.mounted) {
-          _snack(context, UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+          _snack(
+            context,
+            UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+          );
         }
         return;
       }
@@ -1653,10 +1776,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Super Admin Rewards Panel
-// ─────────────────────────────────────────────
-
 class _SuperAdminRewardsPanel extends StatefulWidget {
   const _SuperAdminRewardsPanel({
     required this.superAdminUid,
@@ -1665,7 +1784,8 @@ class _SuperAdminRewardsPanel extends StatefulWidget {
   final String superAdminUid;
 
   @override
-  State<_SuperAdminRewardsPanel> createState() => _SuperAdminRewardsPanelState();
+  State<_SuperAdminRewardsPanel> createState() =>
+      _SuperAdminRewardsPanelState();
 }
 
 class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
@@ -1674,25 +1794,30 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
 
   static const int _limit = 40;
 
-  final Map<String, Future<_LeagueProgressStatus>> _statusFutures = <String, Future<_LeagueProgressStatus>>{};
+  final Map<String, Future<_LeagueProgressStatus>> _statusFutures =
+      <String, Future<_LeagueProgressStatus>>{};
 
   Future<_LeagueProgressStatus> _statusFuture(String leagueId) {
-    return _statusFutures.putIfAbsent(leagueId, () => _fetchLeagueProgress(leagueId));
+    return _statusFutures.putIfAbsent(
+      leagueId,
+      () => _fetchLeagueProgress(leagueId),
+    );
   }
 
   Future<_LeagueProgressStatus> _fetchLeagueProgress(String leagueId) async {
     try {
-      final matchesCol = _firestore.collection('leagues').doc(leagueId).collection('matches');
+      final matchesCol =
+          _firestore.collection('leagues').doc(leagueId).collection('matches');
 
       final any = await matchesCol.limit(1).get();
       if (any.docs.isEmpty) return _LeagueProgressStatus.notStarted;
 
       try {
-        final unplayed = await matchesCol.where('isPlayed', isEqualTo: false).limit(1).get();
+        final unplayed =
+            await matchesCol.where('isPlayed', isEqualTo: false).limit(1).get();
         if (unplayed.docs.isNotEmpty) return _LeagueProgressStatus.inProgress;
         return _LeagueProgressStatus.finished;
       } catch (_) {
-        // If the field doesn't exist or query fails, fall back to unknown.
         return _LeagueProgressStatus.unknown;
       }
     } catch (_) {
@@ -1739,8 +1864,13 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
   }
 
   Future<_WinnerResult?> _computeWinner(String leagueId) async {
-    final teamsSnap = await _firestore.collection('leagues').doc(leagueId).collection('teams').get();
-    final matchesSnap = await _firestore.collection('leagues').doc(leagueId).collection('matches').get();
+    final teamsSnap =
+        await _firestore.collection('leagues').doc(leagueId).collection('teams').get();
+    final matchesSnap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .collection('matches')
+        .get();
 
     if (teamsSnap.docs.isEmpty) return null;
     if (matchesSnap.docs.isEmpty) return null;
@@ -1748,13 +1878,17 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
     final teamNames = <String, String>{
       for (final d in teamsSnap.docs)
         d.id: _stringFrom(
-          d.data()['name'] ?? d.data()['teamName'] ?? d.data()['displayName'] ?? '',
+          d.data()['name'] ??
+              d.data()['teamName'] ??
+              d.data()['displayName'] ??
+              '',
           fallback: d.id,
         ),
     };
 
     final stats = <String, _TeamStats>{
-      for (final id in teamNames.keys) id: _TeamStats(teamId: id, teamName: teamNames[id] ?? id),
+      for (final id in teamNames.keys)
+        id: _TeamStats(teamId: id, teamName: teamNames[id] ?? id),
     };
 
     bool anyPlayed = false;
@@ -1762,23 +1896,37 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
     for (final md in matchesSnap.docs) {
       final m = md.data();
 
-      final homeId = _stringFrom(m['homeTeamId'] ?? m['homeId'] ?? m['homeTeam'] ?? '');
-      final awayId = _stringFrom(m['awayTeamId'] ?? m['awayId'] ?? m['awayTeam'] ?? '');
+      final homeId =
+          _stringFrom(m['homeTeamId'] ?? m['homeId'] ?? m['homeTeam'] ?? '');
+      final awayId =
+          _stringFrom(m['awayTeamId'] ?? m['awayId'] ?? m['awayTeam'] ?? '');
 
       if (homeId.isEmpty || awayId.isEmpty) continue;
 
       final played = _isPlayedFromMap(m);
       if (!played) continue;
 
-      final hs = _scoreFromMap(m, const ['homeScore', 'homeGoals', 'homeTeamScore', 'scoreHome', 'home']);
-      final as = _scoreFromMap(m, const ['awayScore', 'awayGoals', 'awayTeamScore', 'scoreAway', 'away']);
+      final hs = _scoreFromMap(
+        m,
+        const ['homeScore', 'homeGoals', 'homeTeamScore', 'scoreHome', 'home'],
+      );
+      final as = _scoreFromMap(
+        m,
+        const ['awayScore', 'awayGoals', 'awayTeamScore', 'scoreAway', 'away'],
+      );
 
       if (hs == null || as == null) continue;
 
       anyPlayed = true;
 
-      stats.putIfAbsent(homeId, () => _TeamStats(teamId: homeId, teamName: teamNames[homeId] ?? homeId));
-      stats.putIfAbsent(awayId, () => _TeamStats(teamId: awayId, teamName: teamNames[awayId] ?? awayId));
+      stats.putIfAbsent(
+        homeId,
+        () => _TeamStats(teamId: homeId, teamName: teamNames[homeId] ?? homeId),
+      );
+      stats.putIfAbsent(
+        awayId,
+        () => _TeamStats(teamId: awayId, teamName: teamNames[awayId] ?? awayId),
+      );
 
       final home = stats[homeId]!;
       final away = stats[awayId]!;
@@ -1842,7 +1990,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
 
-    final leaguesQuery = _firestore.collection('leagues').orderBy('updatedAtMs', descending: true).limit(_limit);
+    final leaguesQuery = _firestore
+        .collection('leagues')
+        .orderBy('updatedAtMs', descending: true)
+        .limit(_limit);
 
     return Glass(
       borderRadius: 24,
@@ -1853,7 +2004,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
           if (snap.hasError) {
             return Text(
               UserFriendlyError.toMessage(snap.error as Object),
-              style: theme.textTheme.bodyMedium?.copyWith(color: cs.error, fontWeight: FontWeight.w800),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.error,
+                fontWeight: FontWeight.w800,
+              ),
             );
           }
           if (!snap.hasData) {
@@ -1864,7 +2018,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
           if (docs.isEmpty) {
             return Text(
               'No leagues found.',
-              style: theme.textTheme.bodyMedium?.copyWith(color: onSurface.withOpacity(0.70), fontWeight: FontWeight.w700),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: onSurface.withOpacity(0.70),
+                fontWeight: FontWeight.w700,
+              ),
             );
           }
 
@@ -1886,7 +2043,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                   rewardsService: _rewardsService,
                   statusFuture: _statusFuture(d.id),
                   onOpenLeague: () => GoRouter.of(context).push('/leagues/${d.id}'),
-                  onOpenStandings: () => GoRouter.of(context).push('/leagues/${d.id}/standings'),
+                  onOpenStandings: () =>
+                      GoRouter.of(context).push('/leagues/${d.id}/standings'),
                   onComputeWinner: () async {
                     await showDialog<void>(
                       context: context,
@@ -1898,7 +2056,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
 
                         return Dialog(
                           backgroundColor: Colors.transparent,
-                          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                          insetPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 24,
+                          ),
                           child: Glass(
                             borderRadius: 24,
                             padding: const EdgeInsets.all(16),
@@ -1913,17 +2074,24 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                         width: 42,
                                         height: 42,
                                         decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(14),
+                                          borderRadius:
+                                              BorderRadius.circular(14),
                                           color: cs.primary.withOpacity(0.12),
-                                          border: Border.all(color: cs.primary.withOpacity(0.22)),
+                                          border: Border.all(
+                                            color: cs.primary.withOpacity(0.22),
+                                          ),
                                         ),
-                                        child: Icon(Icons.emoji_events_outlined, color: cs.primary),
+                                        child: Icon(
+                                          Icons.emoji_events_outlined,
+                                          color: cs.primary,
+                                        ),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Text(
                                           'Compute Winner',
-                                          style: t.textTheme.titleMedium?.copyWith(
+                                          style: t.textTheme.titleMedium
+                                              ?.copyWith(
                                             color: onSurface,
                                             fontWeight: FontWeight.w900,
                                           ),
@@ -1931,7 +2099,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                       ),
                                       IconButton(
                                         onPressed: () => Navigator.of(ctx).pop(),
-                                        icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                                        icon: Icon(
+                                          Icons.close,
+                                          color: onSurface.withOpacity(0.55),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1939,22 +2110,30 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                   FutureBuilder<_WinnerResult?>(
                                     future: _computeWinner(d.id),
                                     builder: (context, ws) {
-                                      if (ws.connectionState != ConnectionState.done) {
+                                      if (ws.connectionState !=
+                                          ConnectionState.done) {
                                         return Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 18),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 18,
+                                          ),
                                           child: Row(
                                             children: [
                                               SizedBox(
                                                 width: 18,
                                                 height: 18,
-                                                child: CircularProgressIndicator(strokeWidth: 2.4, color: cs.primary),
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2.4,
+                                                  color: cs.primary,
+                                                ),
                                               ),
                                               const SizedBox(width: 12),
                                               Expanded(
                                                 child: Text(
                                                   'Computing from matches...',
-                                                  style: t.textTheme.bodyMedium?.copyWith(
-                                                    color: onSurface.withOpacity(0.70),
+                                                  style: t.textTheme.bodyMedium
+                                                      ?.copyWith(
+                                                    color: onSurface
+                                                        .withOpacity(0.70),
                                                     fontWeight: FontWeight.w700,
                                                   ),
                                                 ),
@@ -1967,11 +2146,13 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                       final res = ws.data;
                                       if (res == null) {
                                         return Column(
-                                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
                                           children: [
                                             Text(
                                               'Winner unavailable',
-                                              style: t.textTheme.bodyMedium?.copyWith(
+                                              style: t.textTheme.bodyMedium
+                                                  ?.copyWith(
                                                 color: onSurface,
                                                 fontWeight: FontWeight.w900,
                                               ),
@@ -1979,8 +2160,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                             const SizedBox(height: 6),
                                             Text(
                                               'Not enough played matches or missing scores. Open Standings to confirm.',
-                                              style: t.textTheme.bodySmall?.copyWith(
-                                                color: onSurface.withOpacity(0.70),
+                                              style: t.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color:
+                                                    onSurface.withOpacity(0.70),
                                                 fontWeight: FontWeight.w600,
                                                 height: 1.3,
                                               ),
@@ -1989,44 +2172,68 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                             FilledButton.tonal(
                                               onPressed: () {
                                                 Navigator.of(ctx).pop();
-                                                GoRouter.of(context).push('/leagues/${d.id}/standings');
+                                                GoRouter.of(context).push(
+                                                  '/leagues/${d.id}/standings',
+                                                );
                                               },
-                                              child: const Text('Open Standings'),
+                                              child: const Text(
+                                                'Open Standings',
+                                              ),
                                             ),
                                           ],
                                         );
                                       }
 
                                       return Column(
-                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
                                         children: [
                                           Text(
                                             'Winner: ${res.teamName}',
-                                            style: t.textTheme.titleMedium?.copyWith(
+                                            style: t.textTheme.titleMedium
+                                                ?.copyWith(
                                               color: onSurface,
                                               fontWeight: FontWeight.w900,
                                             ),
                                           ),
                                           const SizedBox(height: 10),
-                                          _kvRow(ctx, 'Team ID', res.teamId),
+                                          _kvRow(ctx, 'Team', res.teamName),
                                           _kvRow(ctx, 'Points', '${res.points}'),
                                           _kvRow(ctx, 'Played', '${res.played}'),
-                                          _kvRow(ctx, 'Goal Diff', '${res.goalDiff}'),
-                                          _kvRow(ctx, 'W-D-L', '${res.wins}-${res.draws}-${res.losses}'),
+                                          _kvRow(
+                                            ctx,
+                                            'Goal Diff',
+                                            '${res.goalDiff}',
+                                          ),
+                                          _kvRow(
+                                            ctx,
+                                            'W-D-L',
+                                            '${res.wins}-${res.draws}-${res.losses}',
+                                          ),
                                           const SizedBox(height: 12),
                                           Row(
                                             children: [
                                               Expanded(
                                                 child: OutlinedButton.icon(
                                                   onPressed: () async {
-                                                    await Clipboard.setData(ClipboardData(text: res.teamId));
+                                                    await Clipboard.setData(
+                                                      ClipboardData(
+                                                        text: res.teamName,
+                                                      ),
+                                                    );
                                                     if (!context.mounted) return;
-                                                    ScaffoldMessenger.of(context).showSnackBar(
-                                                      const SnackBar(content: Text('Copied team id')),
+                                                    ScaffoldMessenger.of(context)
+                                                        .showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'Copied team name',
+                                                        ),
+                                                      ),
                                                     );
                                                   },
                                                   icon: const Icon(Icons.copy),
-                                                  label: const Text('Copy Team ID'),
+                                                  label:
+                                                      const Text('Copy Team'),
                                                 ),
                                               ),
                                               const SizedBox(width: 10),
@@ -2034,9 +2241,12 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                                 child: FilledButton(
                                                   onPressed: () {
                                                     Navigator.of(ctx).pop();
-                                                    GoRouter.of(context).push('/leagues/${d.id}/standings');
+                                                    GoRouter.of(context).push(
+                                                      '/leagues/${d.id}/standings',
+                                                    );
                                                   },
-                                                  child: const Text('Standings'),
+                                                  child:
+                                                      const Text('Standings'),
                                                 ),
                                               ),
                                             ],
@@ -2129,16 +2339,11 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
 
     final name = _s(leagueData['name'], fallback: 'League');
     final code = _s(leagueData['code']);
-    final organizerUid = _s(leagueData['organizerUid']);
-    final ownerUid = _s(leagueData['ownerUid']);
-    final org = organizerUid.isNotEmpty ? organizerUid : ownerUid;
 
-    // Single safe read: top reward name (also drives "rewards exist" decision)
     return FutureBuilder<String?>(
       future: rewardsService.fetchTopRewardName(leagueId: leagueId),
       builder: (context, rs) {
         if (rs.hasError) {
-          // Don’t hide the league if reward read fails; show minimal tile.
           return Glass(
             borderRadius: 22,
             padding: const EdgeInsets.all(12),
@@ -2163,9 +2368,19 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Expanded(child: OutlinedButton(onPressed: onOpenLeague, child: const Text('Open'))),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: onOpenLeague,
+                        child: const Text('Open'),
+                      ),
+                    ),
                     const SizedBox(width: 10),
-                    Expanded(child: FilledButton(onPressed: onOpenStandings, child: const Text('Standings'))),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: onOpenStandings,
+                        child: const Text('Standings'),
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -2176,7 +2391,6 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
         final topReward = (rs.data ?? '').trim();
         final hasRewards = topReward.isNotEmpty;
 
-        // Hide leagues that have no rewards
         if (!hasRewards && rs.connectionState == ConnectionState.done) {
           return const SizedBox.shrink();
         }
@@ -2201,7 +2415,8 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(999),
                       gradient: const LinearGradient(
@@ -2251,10 +2466,14 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                     _LeagueProgressStatus.unknown => 'Status: Unknown',
                   };
                   final color = switch (status) {
-                    _LeagueProgressStatus.notStarted => onSurface.withOpacity(0.65),
-                    _LeagueProgressStatus.inProgress => const Color(0xFFF59E0B),
-                    _LeagueProgressStatus.finished => const Color(0xFF22C55E),
-                    _LeagueProgressStatus.unknown => onSurface.withOpacity(0.60),
+                    _LeagueProgressStatus.notStarted =>
+                      onSurface.withOpacity(0.65),
+                    _LeagueProgressStatus.inProgress =>
+                      const Color(0xFFF59E0B),
+                    _LeagueProgressStatus.finished =>
+                      const Color(0xFF22C55E),
+                    _LeagueProgressStatus.unknown =>
+                      onSurface.withOpacity(0.60),
                   };
 
                   return Text(
@@ -2299,37 +2518,28 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: org.isEmpty
-                          ? null
-                          : () async {
-                              await Clipboard.setData(ClipboardData(text: org));
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied organizer UID')));
-                            },
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: name));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Copied league name')),
+                        );
+                      },
                       icon: const Icon(Icons.copy),
-                      label: const Text('Copy Organizer'),
+                      label: const Text('Copy League'),
                     ),
                   ),
                 ],
               ),
-              if (code.isNotEmpty || org.isNotEmpty) ...[
+              if (code.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                if (code.isNotEmpty)
-                  Text(
-                    'Code: $code',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: onSurface.withOpacity(0.70),
-                      fontWeight: FontWeight.w700,
-                    ),
+                Text(
+                  'Code: $code',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: onSurface.withOpacity(0.70),
+                    fontWeight: FontWeight.w700,
                   ),
-                if (org.isNotEmpty)
-                  Text(
-                    'Organizer UID: ${org.length > 14 ? '${org.substring(0, 14)}…' : org}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: onSurface.withOpacity(0.70),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                ),
               ],
             ],
           ),
@@ -2392,10 +2602,6 @@ class _WinnerResult {
   final int losses;
 }
 
-// ─────────────────────────────────────────────
-// Profile Action Chip
-// ─────────────────────────────────────────────
-
 class _ProfileActionChip extends StatelessWidget {
   const _ProfileActionChip({
     required this.icon,
@@ -2415,9 +2621,11 @@ class _ProfileActionChip extends StatelessWidget {
     final onSurface = cs.onSurface;
 
     final color = isDestructive ? const Color(0xFFE53935) : cs.primary;
-    final bg = isDestructive ? color.withOpacity(0.10) : onSurface.withOpacity(0.04);
-    final border = isDestructive ? color.withOpacity(0.20) : onSurface.withOpacity(0.10);
-    final fg = isDestructive ? color : (cs.primary);
+    final bg =
+        isDestructive ? color.withOpacity(0.10) : onSurface.withOpacity(0.04);
+    final border =
+        isDestructive ? color.withOpacity(0.20) : onSurface.withOpacity(0.10);
+    final fg = isDestructive ? color : cs.primary;
 
     return InkWell(
       onTap: onTap,
@@ -2448,66 +2656,6 @@ class _ProfileActionChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Stat Card
-// ─────────────────────────────────────────────
-
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: BoxDecoration(
-        color: onSurface.withOpacity(0.04),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: onSurface.withOpacity(0.08)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: cs.primary, size: 20),
-          const SizedBox(height: 6),
-          FittedBox(
-            child: Text(
-              value,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: onSurface,
-                  ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              color: onSurface.withOpacity(0.60),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-            maxLines: 1,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// Legal Row
-// ─────────────────────────────────────────────
-
 class _LegalNavRow extends StatelessWidget {
   const _LegalNavRow({
     required this.icon,
@@ -2526,7 +2674,8 @@ class _LegalNavRow extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
-    final chevron = isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
+    final chevron =
+        isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
@@ -2577,10 +2726,6 @@ class _LegalNavRow extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Admin Row
-// ─────────────────────────────────────────────
-
 class _AdminRow extends StatelessWidget {
   const _AdminRow({
     required this.icon,
@@ -2597,7 +2742,8 @@ class _AdminRow extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
-    final chevron = isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
+    final chevron =
+        isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
@@ -2633,10 +2779,6 @@ class _AdminRow extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Coupon Tile
-// ─────────────────────────────────────────────
-
 class _OrganizerLeagueCouponsTile extends StatelessWidget {
   const _OrganizerLeagueCouponsTile({
     required this.leagueName,
@@ -2665,7 +2807,11 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
               shape: BoxShape.circle,
               color: cs.primary.withOpacity(0.12),
             ),
-            child: Icon(Icons.confirmation_number_rounded, color: cs.primary, size: 18),
+            child: Icon(
+              Icons.confirmation_number_rounded,
+              color: cs.primary,
+              size: 18,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(

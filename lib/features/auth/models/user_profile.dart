@@ -14,6 +14,10 @@ class UserProfile {
     required this.teamImageUrl,
     required this.isPremium,
     required this.premiumExpiresAtMs,
+    required this.isVerified,
+    required this.verifiedAtMs,
+    required this.verificationExpiresAtMs,
+    required this.verificationStatus,
   });
 
   final String userId;
@@ -28,6 +32,10 @@ class UserProfile {
   final String teamImageUrl;
   final bool isPremium;
   final int premiumExpiresAtMs;
+  final bool isVerified;
+  final int verifiedAtMs;
+  final int verificationExpiresAtMs;
+  final String verificationStatus;
 
   String get effectivePhotoUrl {
     if (profileImageUrl.trim().isNotEmpty) return profileImageUrl.trim();
@@ -37,8 +45,6 @@ class UserProfile {
 
   bool get hasShareId => shareId.trim().isNotEmpty;
 
-  /// Backward-compatible helper used by older UI parts.
-  /// If stored shareId is missing, derive a stable short id from uid.
   String get effectiveShareId {
     final stored = shareId.trim();
     if (stored.isNotEmpty) return stored;
@@ -49,6 +55,23 @@ class UserProfile {
     if (!isPremium) return false;
     if (premiumExpiresAtMs <= 0) return isPremium;
     return premiumExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+  }
+
+  bool get verifiedActive {
+    if (!isVerified) return false;
+    if (verificationExpiresAtMs <= 0) return true;
+    return verificationExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+  }
+
+  bool get verificationPending =>
+      verificationStatus.trim().toLowerCase() == 'pending';
+
+  String get displayName {
+    final name = teamName.trim();
+    if (name.isNotEmpty) return name;
+    final shortId = effectiveShareId.trim();
+    if (shortId.isNotEmpty) return shortId;
+    return 'User';
   }
 
   UserProfile copyWith({
@@ -64,6 +87,10 @@ class UserProfile {
     String? teamImageUrl,
     bool? isPremium,
     int? premiumExpiresAtMs,
+    bool? isVerified,
+    int? verifiedAtMs,
+    int? verificationExpiresAtMs,
+    String? verificationStatus,
   }) {
     return UserProfile(
       userId: userId ?? this.userId,
@@ -78,6 +105,11 @@ class UserProfile {
       teamImageUrl: teamImageUrl ?? this.teamImageUrl,
       isPremium: isPremium ?? this.isPremium,
       premiumExpiresAtMs: premiumExpiresAtMs ?? this.premiumExpiresAtMs,
+      isVerified: isVerified ?? this.isVerified,
+      verifiedAtMs: verifiedAtMs ?? this.verifiedAtMs,
+      verificationExpiresAtMs:
+          verificationExpiresAtMs ?? this.verificationExpiresAtMs,
+      verificationStatus: verificationStatus ?? this.verificationStatus,
     );
   }
 
@@ -97,6 +129,10 @@ class UserProfile {
       if (teamImageUrl.trim().isNotEmpty) 'teamImageUrl': teamImageUrl.trim(),
       'isPremium': isPremium,
       'premiumExpiresAtMs': premiumExpiresAtMs,
+      'isVerified': isVerified,
+      'verifiedAtMs': verifiedAtMs,
+      'verificationExpiresAtMs': verificationExpiresAtMs,
+      'verificationStatus': verificationStatus,
     };
   }
 
@@ -109,6 +145,11 @@ class UserProfile {
 
   factory UserProfile.fromMap(String fallbackUserId, Map<String, dynamic> map) {
     final userId = (map['userId'] as String? ?? fallbackUserId).trim();
+
+    final bool verifiedFlag = map['isVerified'] == true ||
+        map['verifiedBadge'] == true ||
+        (map['verificationStatus'] as String? ?? '').trim().toLowerCase() ==
+            'approved';
 
     return UserProfile(
       userId: userId,
@@ -123,6 +164,13 @@ class UserProfile {
       teamImageUrl: (map['teamImageUrl'] as String? ?? '').trim(),
       isPremium: map['isPremium'] == true,
       premiumExpiresAtMs: _readMs(map['premiumExpiresAtMs']),
+      isVerified: verifiedFlag,
+      verifiedAtMs: _readMs(map['verifiedAtMs']),
+      verificationExpiresAtMs: _readMs(
+        map['verificationExpiresAtMs'] ?? map['verifiedExpiresAtMs'],
+      ),
+      verificationStatus:
+          (map['verificationStatus'] as String? ?? '').trim(),
     );
   }
 

@@ -12,6 +12,7 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
+import '../../auth/models/user_profile.dart';
 import '../../leagues/data/league_announcements_firebase.dart';
 import '../../leagues/data/leagues_repository_local.dart';
 import '../../leagues/models/enums.dart';
@@ -64,6 +65,18 @@ class _MasterLeagueDetailsScreenState
         backgroundColor: error ? Theme.of(context).colorScheme.error : null,
       ),
     );
+  }
+
+  Future<String> _ownerDisplayName(String ownerId) async {
+    try {
+      final profile = await UserProfileRepository().fetchByUserId(ownerId.trim());
+      if (profile != null && profile.displayName.trim().isNotEmpty) {
+        return profile.displayName.trim();
+      }
+    } catch (_) {}
+    final shortId = UserProfile.deriveShareIdFromUid(ownerId.trim());
+    if (shortId.isNotEmpty) return shortId;
+    return 'Organizer';
   }
 
   Future<void> _toggleFollow(MasterLeague master) async {
@@ -408,10 +421,9 @@ class _MasterLeagueDetailsScreenState
 
     setState(() => _busy = true);
     try {
-      final ownerProfile =
-          await UserProfileRepository().fetchByUserId(_currentUid);
-      final authorName = ownerProfile?.teamName.trim().isNotEmpty == true
-          ? ownerProfile!.teamName.trim()
+      final ownerProfile = await UserProfileRepository().fetchByUserId(_currentUid);
+      final authorName = ownerProfile?.displayName.trim().isNotEmpty == true
+          ? ownerProfile!.displayName.trim()
           : 'Organizer';
 
       await _announcements.addMasterLeagueAnnouncement(
@@ -564,7 +576,9 @@ class _MasterLeagueDetailsScreenState
     );
     ctrl.dispose();
 
-    if (newName == null || newName.isEmpty || newName == ml.name.trim()) return;
+    if (newName == null || newName.isEmpty || newName == ml.name.trim()) {
+      return;
+    }
 
     setState(() => _busy = true);
     try {
@@ -714,8 +728,8 @@ class _MasterLeagueDetailsScreenState
               maxTeams = allowedTeams().first;
             }
 
-            final supportsHomeAway =
-                format == LeagueFormat.classic || format == LeagueFormat.uclGroup;
+            final supportsHomeAway = format == LeagueFormat.classic ||
+                format == LeagueFormat.uclGroup;
             if (!supportsHomeAway) {
               homeAwayEnabled = false;
             }
@@ -818,7 +832,8 @@ class _MasterLeagueDetailsScreenState
                     const SizedBox(height: 10),
                     SwitchListTile.adaptive(
                       value: containsRewards,
-                      onChanged: (v) => setModalState(() => containsRewards = v),
+                      onChanged: (v) =>
+                          setModalState(() => containsRewards = v),
                       title: const Text('Contains rewards'),
                     ),
                     if (supportsHomeAway)
@@ -839,7 +854,9 @@ class _MasterLeagueDetailsScreenState
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
                           color: cs.primary.withOpacity(0.08),
-                          border: Border.all(color: cs.primary.withOpacity(0.18)),
+                          border: Border.all(
+                            color: cs.primary.withOpacity(0.18),
+                          ),
                         ),
                         child: const Text(
                           'Swiss / Series templates are ideal for repeat tournament structures.',
@@ -957,6 +974,200 @@ class _MasterLeagueDetailsScreenState
     }
   }
 
+  Future<void> _confirmDeleteWorkspace(MasterLeague master) async {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final confirmationName = master.name.trim().isNotEmpty
+        ? master.name.trim()
+        : await _ownerDisplayName(master.ownerId);
+
+    final ctrl = TextEditingController();
+    String typed = '';
+    bool deleting = false;
+    String? errorText;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: !deleting,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final matches = typed.trim() == confirmationName;
+            final showMismatch = typed.isNotEmpty && !matches;
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Glass(
+                borderRadius: 30,
+                padding: const EdgeInsets.all(18),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: cs.error.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: cs.error.withOpacity(0.28),
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.warning_amber_rounded,
+                              color: cs.error,
+                              size: 26,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(
+                              'Delete Workspace',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: cs.error.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: cs.error.withOpacity(0.22),
+                          ),
+                        ),
+                        child: Text(
+                          '⚠️ This action will permanently delete your workspace, including all leagues, players, and data. This cannot be undone.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: cs.error,
+                            fontWeight: FontWeight.w900,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Please type your profile name exactly to confirm.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: cs.onSurface.withOpacity(0.78),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: cs.primary.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: cs.primary.withOpacity(0.18),
+                          ),
+                        ),
+                        child: SelectableText(
+                          confirmationName,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: ctrl,
+                        autofocus: true,
+                        enabled: !deleting,
+                        onChanged: (value) {
+                          setModalState(() {
+                            typed = value;
+                            errorText = showMismatch ? 'Name does not match' : null;
+                          });
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Type exact name to confirm',
+                          prefixIcon: const Icon(Icons.edit_outlined),
+                          errorText: showMismatch ? 'Name does not match' : null,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: deleting
+                                  ? null
+                                  : () => Navigator.of(ctx).pop(false),
+                              child: const Text(
+                                'Cancel',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: cs.error,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: (!matches || deleting)
+                                  ? null
+                                  : () async {
+                                      setModalState(() => deleting = true);
+                                      Navigator.of(ctx).pop(true);
+                                    },
+                              child: Text(
+                                deleting ? 'Deleting...' : 'Delete Workspace',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    ctrl.dispose();
+
+    if (confirmed != true) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(masterLeaguesRepositoryProvider).delete(master.id);
+      if (!mounted) return;
+      _snack('Workspace deleted.');
+      context.go('/master-leagues');
+    } catch (e) {
+      _snack('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   void _useCompetitionTemplate(CompetitionTemplate template) {
     context.push('/leagues/create', extra: <String, dynamic>{
       'masterLeagueId': widget.masterLeagueId.trim(),
@@ -1011,9 +1222,9 @@ class _MasterLeagueDetailsScreenState
               onTap: () => Navigator.of(ctx).pop('moderator'),
             ),
             ListTile(
-              leading: const Icon(Icons.copy_rounded),
-              title: const Text('Copy Master League ID'),
-              onTap: () => Navigator.of(ctx).pop('copy'),
+              leading: const Icon(Icons.delete_forever_outlined),
+              title: const Text('Delete Workspace'),
+              onTap: () => Navigator.of(ctx).pop('delete'),
             ),
           ],
         ),
@@ -1035,9 +1246,8 @@ class _MasterLeagueDetailsScreenState
       case 'moderator':
         await _showAddStaffDialog(role: 'moderator');
         break;
-      case 'copy':
-        await Clipboard.setData(ClipboardData(text: master.id));
-        _snack('Master League ID copied');
+      case 'delete':
+        await _confirmDeleteWorkspace(master);
         break;
     }
   }
@@ -1093,13 +1303,15 @@ class _MasterLeagueDetailsScreenState
                           ? const Center(
                               child: EmptyState(
                                 title: 'No competitions yet',
-                                message: 'There are no competitions in this Master League.',
+                                message:
+                                    'There are no competitions in this Master League.',
                                 icon: Icons.emoji_events_outlined,
                               ),
                             )
                           : ListView.separated(
                               itemCount: leagues.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 12),
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 12),
                               itemBuilder: (context, index) {
                                 final l = leagues[index];
                                 return FutureBuilder<Membership?>(
@@ -1112,7 +1324,8 @@ class _MasterLeagueDetailsScreenState
                                       borderRadius: 22,
                                       padding: const EdgeInsets.all(12),
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
                                         children: [
                                           SizedBox(
                                             height: 230,
@@ -1126,8 +1339,10 @@ class _MasterLeagueDetailsScreenState
                                               subtitle: l.region,
                                               imageUrl: l.leagueImageUrl,
                                               isOwner: _currentUid.isNotEmpty &&
-                                                  l.organizerUid.trim() == _currentUid,
-                                              onDoubleTap: () => context.push('/leagues/${l.id}'),
+                                                  l.organizerUid.trim() ==
+                                                      _currentUid,
+                                              onDoubleTap: () =>
+                                                  context.push('/leagues/${l.id}'),
                                             ),
                                           ),
                                           const SizedBox(height: 10),
@@ -1135,11 +1350,16 @@ class _MasterLeagueDetailsScreenState
                                             children: [
                                               Expanded(
                                                 child: OutlinedButton.icon(
-                                                  onPressed: () => context.push('/leagues/${l.id}'),
-                                                  icon: const Icon(Icons.open_in_new_rounded),
+                                                  onPressed: () =>
+                                                      context.push('/leagues/${l.id}'),
+                                                  icon: const Icon(
+                                                    Icons.open_in_new_rounded,
+                                                  ),
                                                   label: const Text(
                                                     'Open',
-                                                    style: TextStyle(fontWeight: FontWeight.w900),
+                                                    style: TextStyle(
+                                                      fontWeight: FontWeight.w900,
+                                                    ),
                                                   ),
                                                 ),
                                               ),
@@ -1148,10 +1368,16 @@ class _MasterLeagueDetailsScreenState
                                                 child: joined
                                                     ? FilledButton.tonalIcon(
                                                         onPressed: null,
-                                                        icon: const Icon(Icons.check_circle_outline_rounded),
+                                                        icon: const Icon(
+                                                          Icons
+                                                              .check_circle_outline_rounded,
+                                                        ),
                                                         label: const Text(
                                                           'Joined',
-                                                          style: TextStyle(fontWeight: FontWeight.w900),
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.w900,
+                                                          ),
                                                         ),
                                                       )
                                                     : FilledButton.icon(
@@ -1162,15 +1388,23 @@ class _MasterLeagueDetailsScreenState
                                                             ? const SizedBox(
                                                                 width: 16,
                                                                 height: 16,
-                                                                child: CircularProgressIndicator(
+                                                                child:
+                                                                    CircularProgressIndicator(
                                                                   strokeWidth: 2,
-                                                                  color: Colors.white,
+                                                                  color:
+                                                                      Colors.white,
                                                                 ),
                                                               )
-                                                            : const Icon(Icons.login_rounded),
+                                                            : const Icon(
+                                                                Icons.login_rounded),
                                                         label: Text(
-                                                          joiningThis ? 'Joining...' : 'Join',
-                                                          style: const TextStyle(fontWeight: FontWeight.w900),
+                                                          joiningThis
+                                                              ? 'Joining...'
+                                                              : 'Join',
+                                                          style: const TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.w900,
+                                                          ),
                                                         ),
                                                       ),
                                               ),
@@ -1466,7 +1700,8 @@ class _MasterLeagueDetailsScreenState
         tile(
           icon: Icons.campaign_outlined,
           title: 'Organizer Announcements',
-          subtitle: 'Post updates for competitions, registration, and important notices',
+          subtitle:
+              'Post updates for competitions, registration, and important notices',
           onTap: () => _showAnnouncementComposer(master),
           tint: const Color(0xFF8B5CF6),
         ),
@@ -1474,7 +1709,8 @@ class _MasterLeagueDetailsScreenState
         tile(
           icon: Icons.forum_outlined,
           title: 'Organizer Chat',
-          subtitle: 'General community chat across this organizer’s competitions',
+          subtitle:
+              'General community chat across this organizer’s competitions',
           onTap: () => context.push('/master-leagues/${master.id}/chat'),
           tint: const Color(0xFF0EA5E9),
         ),
@@ -1482,7 +1718,8 @@ class _MasterLeagueDetailsScreenState
         tile(
           icon: Icons.gavel_rounded,
           title: 'Organizer Discipline',
-          subtitle: 'Warnings, point deductions, and organizer chat sanctions',
+          subtitle:
+              'Warnings, point deductions, and organizer chat sanctions',
           onTap: () => context.push('/master-leagues/${master.id}/discipline'),
           tint: const Color(0xFFDC2626),
         ),
@@ -1501,6 +1738,15 @@ class _MasterLeagueDetailsScreenState
           subtitle: 'Launch a new competition inside this workspace',
           onTap: () => _showCreateCompetitionSheet(context, master),
           tint: const Color(0xFF22C55E),
+        ),
+        const SizedBox(height: 12),
+        tile(
+          icon: Icons.delete_forever_outlined,
+          title: 'Delete Workspace',
+          subtitle:
+              'Permanently remove this organizer workspace and all linked data',
+          onTap: () => _confirmDeleteWorkspace(master),
+          tint: cs.error,
         ),
       ],
     );
@@ -1843,9 +2089,8 @@ class _MasterLeagueDetailsScreenState
                 )
               else
                 ...announcements.take(6).map((ann) {
-                  final isMyAnnouncement =
-                      ann.authorId.trim().isNotEmpty &&
-                          ann.authorId.trim() == _currentUid;
+                  final isMyAnnouncement = ann.authorId.trim().isNotEmpty &&
+                      ann.authorId.trim() == _currentUid;
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
@@ -1858,8 +2103,11 @@ class _MasterLeagueDetailsScreenState
                           if (ann.pinned) ...[
                             Row(
                               children: [
-                                Icon(Icons.push_pin_rounded,
-                                    color: cs.primary, size: 18),
+                                Icon(
+                                  Icons.push_pin_rounded,
+                                  color: cs.primary,
+                                  size: 18,
+                                ),
                                 const SizedBox(width: 8),
                                 Text(
                                   'Pinned',
@@ -1943,7 +2191,8 @@ class _MasterLeagueDetailsScreenState
                                 icon: Icons.schedule_rounded,
                                 label: ann.createdAtMs > 0
                                     ? DateTime.fromMillisecondsSinceEpoch(
-                                            ann.createdAtMs)
+                                            ann.createdAtMs,
+                                          )
                                         .toLocal()
                                         .toString()
                                         .split('.')
@@ -2071,7 +2320,8 @@ class _MasterLeagueDetailsScreenState
                         leagueId: preview.id,
                         leagueName: preview.name,
                         leagueCode: preview.code,
-                        distribution: '${preview.format.displayName} • ${preview.season}',
+                        distribution:
+                            '${preview.format.displayName} • ${preview.season}',
                         subtitle: preview.region,
                         imageUrl: preview.leagueImageUrl,
                         isOwner: _currentUid.isNotEmpty &&
@@ -2131,8 +2381,12 @@ class _MasterLeagueDetailsScreenState
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.tonalIcon(
-                          onPressed: () =>
-                              _showAllCompetitionsSheet(master, leagues, theme, cs),
+                          onPressed: () => _showAllCompetitionsSheet(
+                            master,
+                            leagues,
+                            theme,
+                            cs,
+                          ),
                           icon: const Icon(Icons.view_carousel_outlined),
                           label: Text(
                             remaining == 1
@@ -2167,126 +2421,146 @@ class _MasterLeagueDetailsScreenState
         ? 'Verified Organizer'
         : (master.isVerificationPending ? 'Verification Pending' : 'Unverified');
 
-    return Glass(
-      borderRadius: 30,
-      padding: const EdgeInsets.all(18),
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
-          gradient: LinearGradient(
-            colors: [
-              cs.primary.withOpacity(0.20),
-              cs.secondary.withOpacity(0.08),
-              cs.onSurface.withOpacity(0.02),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (master.organizerProfile.bannerUrl.trim().isNotEmpty) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: Image.network(
-                    master.organizerProfile.bannerUrl.trim(),
-                    height: 150,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      height: 150,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(22),
-                        color: cs.onSurface.withOpacity(0.06),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        'Banner unavailable',
-                        style: TextStyle(
-                          color: cs.onSurface.withOpacity(0.60),
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-              ],
-              Row(
+    return FutureBuilder<String>(
+      future: _ownerDisplayName(master.ownerId),
+      builder: (context, ownerSnap) {
+        final ownerName = ownerSnap.data?.trim().isNotEmpty == true
+            ? ownerSnap.data!.trim()
+            : 'Organizer';
+
+        return Glass(
+          borderRadius: 30,
+          padding: const EdgeInsets.all(18),
+          child: Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              gradient: LinearGradient(
+                colors: [
+                  cs.primary.withOpacity(0.20),
+                  cs.secondary.withOpacity(0.08),
+                  cs.onSurface.withOpacity(0.02),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    radius: 34,
-                    backgroundColor: cs.primary.withOpacity(0.14),
-                    backgroundImage: master.organizerProfile.logoUrl.trim().isNotEmpty
-                        ? NetworkImage(master.organizerProfile.logoUrl.trim())
-                        : null,
-                    child: master.organizerProfile.logoUrl.trim().isEmpty
-                        ? Icon(Icons.hub_rounded, color: cs.primary, size: 30)
-                        : null,
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Text(
-                              master.name.trim().isEmpty
-                                  ? 'Master League'
-                                  : master.name.trim(),
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.3,
-                                color: cs.onSurface,
-                              ),
+                  if (master.organizerProfile.bannerUrl.trim().isNotEmpty) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: Image.network(
+                        master.organizerProfile.bannerUrl.trim(),
+                        height: 150,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          height: 150,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            color: cs.onSurface.withOpacity(0.06),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'Banner unavailable',
+                            style: TextStyle(
+                              color: cs.onSurface.withOpacity(0.60),
+                              fontWeight: FontWeight.w800,
                             ),
-                            _heroPill(
-                              text: trustLabel,
-                              color: trustColor,
-                              icon: master.isVerifiedOrganizer
-                                  ? Icons.verified_rounded
-                                  : (master.isVerificationPending
-                                      ? Icons.hourglass_top_rounded
-                                      : Icons.shield_outlined),
-                            ),
-                            if (master.organizerProfile.badge.trim().isNotEmpty)
-                              _heroPill(
-                                text: master.organizerProfile.badge.trim(),
-                                color: const Color(0xFFF59E0B),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          master.organizerProfile.bio.trim().isEmpty
-                              ? 'No organizer bio yet.'
-                              : master.organizerProfile.bio.trim(),
-                          maxLines: 4,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: cs.onSurface.withOpacity(0.82),
-                            fontWeight: FontWeight.w600,
-                            height: 1.35,
                           ),
                         ),
-                      ],
+                      ),
                     ),
+                    const SizedBox(height: 14),
+                  ],
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 34,
+                        backgroundColor: cs.primary.withOpacity(0.14),
+                        backgroundImage:
+                            master.organizerProfile.logoUrl.trim().isNotEmpty
+                                ? NetworkImage(
+                                    master.organizerProfile.logoUrl.trim(),
+                                  )
+                                : null,
+                        child: master.organizerProfile.logoUrl.trim().isEmpty
+                            ? Icon(Icons.hub_rounded, color: cs.primary, size: 30)
+                            : null,
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Text(
+                                  master.name.trim().isEmpty
+                                      ? 'Master League'
+                                      : master.name.trim(),
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.3,
+                                    color: cs.onSurface,
+                                  ),
+                                ),
+                                _heroPill(
+                                  text: trustLabel,
+                                  color: trustColor,
+                                  icon: master.isVerifiedOrganizer
+                                      ? Icons.verified_rounded
+                                      : (master.isVerificationPending
+                                          ? Icons.hourglass_top_rounded
+                                          : Icons.shield_outlined),
+                                ),
+                                if (master.organizerProfile.badge.trim().isNotEmpty)
+                                  _heroPill(
+                                    text: master.organizerProfile.badge.trim(),
+                                    color: const Color(0xFFF59E0B),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Managed by $ownerName',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.68),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              master.organizerProfile.bio.trim().isEmpty
+                                  ? 'No organizer bio yet.'
+                                  : master.organizerProfile.bio.trim(),
+                              maxLines: 4,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: cs.onSurface.withOpacity(0.82),
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -2506,14 +2780,19 @@ class _MasterLeagueDetailsScreenState
                             stream: _watchWorkspaceAnnouncements(master.id),
                             builder: (context, announcementsSnap) {
                               final announcements =
-                                  announcementsSnap.data ?? const <LeagueAnnouncement>[];
+                                  announcementsSnap.data ??
+                                      const <LeagueAnnouncement>[];
 
                               return ListView(
                                 physics: const BouncingScrollPhysics(
                                   parent: AlwaysScrollableScrollPhysics(),
                                 ),
-                                padding:
-                                    const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 110),
+                                padding: const EdgeInsetsDirectional.fromSTEB(
+                                  16,
+                                  12,
+                                  16,
+                                  110,
+                                ),
                                 children: [
                                   _buildWorkspaceHero(master, theme, cs),
                                   const SizedBox(height: 16),
@@ -2530,15 +2809,32 @@ class _MasterLeagueDetailsScreenState
                                   else
                                     _buildVisitorOverview(master, theme, cs),
                                   const SizedBox(height: 16),
-                                  _buildPinnedAnnouncementSection(master, theme, cs),
+                                  _buildPinnedAnnouncementSection(
+                                    master,
+                                    theme,
+                                    cs,
+                                  ),
                                   const SizedBox(height: 16),
-                                  _buildAnnouncementsSection(master, theme, cs),
+                                  _buildAnnouncementsSection(
+                                    master,
+                                    theme,
+                                    cs,
+                                  ),
                                   if (isOwner) ...[
                                     const SizedBox(height: 16),
-                                    _buildCompetitionTemplatesSection(master, theme, cs),
+                                    _buildCompetitionTemplatesSection(
+                                      master,
+                                      theme,
+                                      cs,
+                                    ),
                                   ],
                                   const SizedBox(height: 16),
-                                  _buildCompetitionsSection(master, leagues, theme, cs),
+                                  _buildCompetitionsSection(
+                                    master,
+                                    leagues,
+                                    theme,
+                                    cs,
+                                  ),
                                 ],
                               );
                             },

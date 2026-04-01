@@ -81,6 +81,90 @@ class UserProfileRepository {
     );
   }
 
+  String displayNameFromData(
+    Map<String, dynamic>? data, {
+    String fallbackUserId = '',
+  }) {
+    final map = data ?? <String, dynamic>{};
+
+    final direct = <String>[
+      (map['teamName'] as String?) ?? '',
+      (map['displayName'] as String?) ?? '',
+      (map['name'] as String?) ?? '',
+      (map['username'] as String?) ?? '',
+    ];
+
+    for (final raw in direct) {
+      final value = raw.trim();
+      if (value.isNotEmpty) return value;
+    }
+
+    final shareId = (map['shareId'] as String? ?? '').trim();
+    if (shareId.isNotEmpty) return shareId;
+
+    final fallback = fallbackUserId.trim();
+    if (fallback.isNotEmpty) {
+      final shortId = UserProfile.deriveShareIdFromUid(fallback);
+      if (shortId.isNotEmpty) return shortId;
+    }
+
+    return 'User';
+  }
+
+  String displayNameForProfile(UserProfile? profile, {String fallbackUserId = ''}) {
+    if (profile != null && profile.displayName.trim().isNotEmpty) {
+      return profile.displayName.trim();
+    }
+    final fallback = fallbackUserId.trim();
+    if (fallback.isNotEmpty) {
+      final shortId = UserProfile.deriveShareIdFromUid(fallback);
+      if (shortId.isNotEmpty) return shortId;
+    }
+    return 'User';
+  }
+
+  Future<String> fetchDisplayNameByUserId(String userId) async {
+    try {
+      final profile = await fetchByUserId(userId);
+      return displayNameForProfile(profile, fallbackUserId: userId);
+    } catch (_) {
+      final fallback = userId.trim();
+      if (fallback.isNotEmpty) {
+        final shortId = UserProfile.deriveShareIdFromUid(fallback);
+        if (shortId.isNotEmpty) return shortId;
+      }
+      return 'User';
+    }
+  }
+
+  Future<Map<String, String>> fetchDisplayNamesByUserIds(List<String> userIds) async {
+    final out = <String, String>{};
+    final ids = userIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (ids.isEmpty) return out;
+
+    try {
+      final profiles = await fetchByUserIds(ids);
+      for (final id in ids) {
+        out[id] = displayNameForProfile(
+          profiles[id],
+          fallbackUserId: id,
+        );
+      }
+      return out;
+    } catch (_) {
+      for (final id in ids) {
+        final shortId = UserProfile.deriveShareIdFromUid(id);
+        out[id] = shortId.isNotEmpty ? shortId : 'User';
+      }
+      return out;
+    }
+  }
+
   Future<UserProfile?> fetchByUserId(String userId) async {
     try {
       _requireAuthUid();
@@ -237,11 +321,10 @@ class UserProfileRepository {
     final currentUid = _auth.currentUser?.uid.trim() ?? '';
     if (currentUid.isNotEmpty && currentUid == uid) {
       final authUser = _auth.currentUser;
-      final hasAnyIdentitySignal =
-          (authUser?.displayName ?? '').trim().isNotEmpty ||
-              (authUser?.email ?? '').trim().isNotEmpty ||
-              (authUser?.photoURL ?? '').trim().isNotEmpty ||
-              (authUser?.providerData.isNotEmpty ?? false);
+      final hasAnyIdentitySignal = (authUser?.displayName ?? '').trim().isNotEmpty ||
+          (authUser?.email ?? '').trim().isNotEmpty ||
+          (authUser?.photoURL ?? '').trim().isNotEmpty ||
+          (authUser?.providerData.isNotEmpty ?? false);
 
       if (hasAnyIdentitySignal) {
         if (kDebugMode) {

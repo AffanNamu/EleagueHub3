@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +15,8 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../live/logic/quick_message_policy.dart';
 import '../../live/logic/quick_messages_controller.dart';
+import '../../master_leagues/domain/master_league.dart';
+import '../../master_leagues/logic/master_leagues_providers.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
   final v = l10n.tr(key);
@@ -27,7 +30,8 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBindingObserver {
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with WidgetsBindingObserver {
   bool _loading = true;
   bool _enabled = true;
   bool _marketing = false;
@@ -40,6 +44,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
   final TextEditingController _quickInput = TextEditingController();
   bool _savingQuick = false;
+  String? _busyVerificationWorkspaceId;
 
   static const Map<String, String> _languageAutonyms = {
     'en': 'English',
@@ -58,9 +63,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
   static bool _isRtlLangCode(String code) => code == 'ar' || code == 'he';
 
-  String _languageDisplayName(String code) => _languageAutonyms[code] ?? code.toUpperCase();
+  String _languageDisplayName(String code) =>
+      _languageAutonyms[code] ?? code.toUpperCase();
 
-  TextDirection _languageTextDirection(String code) => _isRtlLangCode(code) ? TextDirection.rtl : TextDirection.ltr;
+  TextDirection _languageTextDirection(String code) =>
+      _isRtlLangCode(code) ? TextDirection.rtl : TextDirection.ltr;
 
   @override
   void initState() {
@@ -102,6 +109,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     if (_overlayEnabled && _overlayPermissionGranted) {
       await OverlayPlatform.startGlobalOverlay();
     }
+  }
+
+  void _snack(String message, {bool error = false}) {
+    if (!mounted) return;
+    final text = message.trim();
+    if (text.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(text),
+        backgroundColor: error ? Theme.of(context).colorScheme.error : null,
+      ),
+    );
   }
 
   Future<void> _saveNotifications() async {
@@ -149,7 +169,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_trOr(l10n, 'live_overlay_permission_title', 'Allow overlay permission')),
+        title: Text(
+          _trOr(
+            l10n,
+            'live_overlay_permission_title',
+            'Allow overlay permission',
+          ),
+        ),
         content: Text(
           _trOr(
             l10n,
@@ -199,7 +225,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
-          content: Text(_trOr(l10n, 'quick_messages_empty_toast', 'Enter a message first.')),
+          content: Text(
+            _trOr(l10n, 'quick_messages_empty_toast', 'Enter a message first.'),
+          ),
         ),
       );
       return;
@@ -209,7 +237,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
-          content: Text(_trOr(l10n, 'quick_messages_too_long_toast', 'Max $_quickMaxChars characters.')),
+          content: Text(
+            _trOr(
+              l10n,
+              'quick_messages_too_long_toast',
+              'Max $_quickMaxChars characters.',
+            ),
+          ),
         ),
       );
       return;
@@ -253,8 +287,111 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     }
   }
 
-  /// Map ThemeMode to a user-friendly label.
-  /// "Light" instead of "navyblue" or any other confusing name.
+  Future<void> _handleVerificationAction(MasterLeague workspace) async {
+    if (_busyVerificationWorkspaceId != null) return;
+
+    setState(() => _busyVerificationWorkspaceId = workspace.id);
+    try {
+      final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
+      final repo = ref.read(masterLeaguesRepositoryProvider);
+      final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+      if (workspace.isVerifiedOrganizer) {
+        _snack('This organizer is already verified.');
+        return;
+      }
+
+      if (workspace.canRenewVerification &&
+          !workspace.isVerificationPending &&
+          workspace.verificationExpired) {
+        final payment = await paymentSvc.payForOrganizerVerificationRenewal(
+          context: context,
+          userId: userId,
+          masterLeagueId: workspace.id,
+          masterLeagueName: workspace.name,
+        );
+
+        if (!mounted) return;
+
+        if (!payment.success) {
+          _snack(
+            payment.errorMessage ?? 'Verification renewal payment failed.',
+            error: true,
+          );
+          return;
+        }
+
+        await repo.submitVerificationRenewalRequest(
+          masterLeagueId: workspace.id,
+          attemptId: payment.attemptId,
+          paymentId: payment.paymentId,
+          receiptId: payment.receiptId ?? '',
+          note: '',
+        );
+
+        ref.invalidate(createdMasterLeaguesProvider);
+        ref.invalidate(masterLeagueByIdProvider(workspace.id));
+        _snack('Verification renewal request submitted.');
+        return;
+      }
+
+      if (!workspace.isVerificationPending) {
+        final payment = await paymentSvc.payForOrganizerVerification(
+          context: context,
+          userId: userId,
+          masterLeagueId: workspace.id,
+          masterLeagueName: workspace.name,
+        );
+
+        if (!mounted) return;
+
+        if (!payment.success) {
+          _snack(
+            payment.errorMessage ?? 'Verification payment failed.',
+            error: true,
+          );
+          return;
+        }
+
+        await repo.submitVerificationRequest(
+          masterLeagueId: workspace.id,
+          attemptId: payment.attemptId,
+          paymentId: payment.paymentId,
+          receiptId: payment.receiptId ?? '',
+          note: '',
+        );
+
+        ref.invalidate(createdMasterLeaguesProvider);
+        ref.invalidate(masterLeagueByIdProvider(workspace.id));
+        _snack('Verification request submitted.');
+        return;
+      }
+
+      _snack('A verification request is already pending review.');
+    } catch (e) {
+      _snack('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _busyVerificationWorkspaceId = null);
+    }
+  }
+
+  List<MasterLeague> _sortVerificationWorkspaces(List<MasterLeague> items) {
+    final sorted = [...items];
+    int rank(MasterLeague w) {
+      if (w.isVerifiedOrganizer) return 0;
+      if (w.isVerificationPending) return 1;
+      if (w.verificationExpired) return 2;
+      return 3;
+    }
+
+    sorted.sort((a, b) {
+      final byRank = rank(a).compareTo(rank(b));
+      if (byRank != 0) return byRank;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return sorted;
+  }
+
   String _themeModeLabel(ThemeMode mode, AppLocalizations l10n) {
     switch (mode) {
       case ThemeMode.system:
@@ -294,10 +431,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
         ? _trOr(l10n, 'live_overlay_status_off', 'Overlay: Off')
         : (_overlayPermissionGranted
             ? _trOr(l10n, 'live_overlay_status_on', 'Overlay: On')
-            : _trOr(l10n, 'live_overlay_status_needs_permission', 'Overlay: Permission required'));
+            : _trOr(
+                l10n,
+                'live_overlay_status_needs_permission',
+                'Overlay: Permission required',
+              ));
 
     final premium = ref.watch(isPremiumProvider).value ?? false;
     final customQuick = ref.watch(inAppCustomQuickMessagesProvider);
+    final createdMasterLeaguesAsync = ref.watch(createdMasterLeaguesProvider);
 
     return GlassScaffold(
       appBar: AppBar(
@@ -323,13 +465,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 640),
             child: ListView(
-              physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
               padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 100),
               children: [
-                // ── Header ──
                 Glass(
                   borderRadius: 22,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
                   child: Row(
                     children: [
                       Container(
@@ -346,7 +492,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                             ],
                           ),
                         ),
-                        child: Icon(Icons.settings_rounded, color: cs.primary, size: 22),
+                        child: Icon(
+                          Icons.settings_rounded,
+                          color: cs.primary,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -377,10 +527,91 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+
+                _SectionLabel(
+                  icon: Icons.verified_user_rounded,
+                  label: 'Verification',
+                ),
+                const SizedBox(height: 8),
+                createdMasterLeaguesAsync.when(
+                  loading: () => Glass(
+                    borderRadius: 20,
+                    padding: const EdgeInsets.all(16),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (e, _) => Glass(
+                    borderRadius: 20,
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      '$e',
+                      style: TextStyle(
+                        color: cs.error,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  data: (items) {
+                    if (items.isEmpty) {
+                      return Glass(
+                        borderRadius: 20,
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          'Create an organizer workspace first before requesting verification.',
+                          style: TextStyle(
+                            color: onSurface.withOpacity(0.68),
+                            fontWeight: FontWeight.w700,
+                            height: 1.35,
+                          ),
+                        ),
+                      );
+                    }
+
+                    final sorted = _sortVerificationWorkspaces(items);
+
+                    return Glass(
+                      borderRadius: 20,
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Organizer Workspaces',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Manage verification status for each organizer workspace you own. Payment is connected to your verification flow from here.',
+                            style: TextStyle(
+                              color: onSurface.withOpacity(0.62),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          ...sorted.map(
+                            (workspace) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _VerificationWorkspaceCard(
+                                workspace: workspace,
+                                busy: _busyVerificationWorkspaceId == workspace.id,
+                                onPressed: () =>
+                                    _handleVerificationAction(workspace),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
 
                 const SizedBox(height: 16),
 
-                // ── Theme ──
                 _SectionLabel(icon: Icons.palette_rounded, label: l10n.themeTitle),
                 const SizedBox(height: 8),
                 Glass(
@@ -392,14 +623,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                       Row(
                         children: [
                           for (final mode in ThemeMode.values) ...[
-                            if (mode != ThemeMode.values.first) const SizedBox(width: 8),
+                            if (mode != ThemeMode.values.first)
+                              const SizedBox(width: 8),
                             Expanded(
                               child: _ThemeModeCard(
                                 icon: _themeModeIcon(mode),
                                 label: _themeModeLabel(mode, l10n),
                                 selected: themeState.mode == mode,
                                 onTap: () async {
-                                  await ref.read(themeControllerProvider.notifier).setThemeMode(mode);
+                                  await ref
+                                      .read(themeControllerProvider.notifier)
+                                      .setThemeMode(mode);
                                 },
                               ),
                             ),
@@ -421,8 +655,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
                 const SizedBox(height: 16),
 
-                // ── Language ──
-                _SectionLabel(icon: Icons.language_rounded, label: l10n.languageTitle),
+                _SectionLabel(
+                  icon: Icons.language_rounded,
+                  label: l10n.languageTitle,
+                ),
                 const SizedBox(height: 8),
                 Glass(
                   borderRadius: 20,
@@ -441,21 +677,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                       const SizedBox(height: 12),
                       InkWell(
                         borderRadius: BorderRadius.circular(14),
-                        onTap: () => _showLanguagePicker(context, supportedCodes, currentLangCode),
+                        onTap: () => _showLanguagePicker(
+                          context,
+                          supportedCodes,
+                          currentLangCode,
+                        ),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
                           decoration: BoxDecoration(
                             color: onSurface.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: onSurface.withOpacity(0.10)),
+                            border: Border.all(
+                              color: onSurface.withOpacity(0.10),
+                            ),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.translate_rounded, color: cs.primary, size: 20),
+                              Icon(
+                                Icons.translate_rounded,
+                                color: cs.primary,
+                                size: 20,
+                              ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Directionality(
-                                  textDirection: _languageTextDirection(currentLangCode),
+                                  textDirection:
+                                      _languageTextDirection(currentLangCode),
                                   child: Text(
                                     _languageDisplayName(currentLangCode),
                                     style: TextStyle(
@@ -481,8 +731,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
                 const SizedBox(height: 16),
 
-                // ── Notifications ──
-                _SectionLabel(icon: Icons.notifications_rounded, label: l10n.notificationsTitle),
+                _SectionLabel(
+                  icon: Icons.notifications_rounded,
+                  label: l10n.notificationsTitle,
+                ),
                 const SizedBox(height: 8),
                 Glass(
                   borderRadius: 20,
@@ -491,7 +743,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                       ? Center(
                           child: Padding(
                             padding: const EdgeInsets.all(16),
-                            child: CircularProgressIndicator(color: cs.primary, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              color: cs.primary,
+                              strokeWidth: 2,
+                            ),
                           ),
                         )
                       : Column(
@@ -504,14 +759,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                               onChanged: (v) async {
                                 setState(() => _enabled = v);
                                 await _saveNotifications();
-                                if (v) await NotificationService().showTestNotification();
+                                if (v) {
+                                  await NotificationService().showTestNotification();
+                                }
                               },
                             ),
                             Divider(color: onSurface.withOpacity(0.08), height: 1),
                             _SettingsToggle(
                               icon: Icons.alarm_rounded,
                               title: l10n.notificationsMatchRemindersTitle,
-                              subtitle: l10n.notificationsMatchRemindersSubtitle,
+                              subtitle:
+                                  l10n.notificationsMatchRemindersSubtitle,
                               value: _matchReminders,
                               enabled: _enabled,
                               onChanged: (v) async {
@@ -537,8 +795,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
                 const SizedBox(height: 16),
 
-                // ── Live Overlay ──
-                _SectionLabel(icon: Icons.picture_in_picture_alt_rounded, label: l10n.liveOverlayTitle),
+                _SectionLabel(
+                  icon: Icons.picture_in_picture_alt_rounded,
+                  label: l10n.liveOverlayTitle,
+                ),
                 const SizedBox(height: 8),
                 Glass(
                   borderRadius: 20,
@@ -556,8 +816,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                         ),
                       ),
                       const SizedBox(height: 12),
-
-                      // Status pill
                       _OverlayStatusCard(
                         enabled: _overlayEnabled,
                         granted: _overlayPermissionGranted,
@@ -566,7 +824,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                           await OverlayPlatform.requestOverlayPermission();
                         },
                       ),
-
                       const SizedBox(height: 10),
                       _SettingsToggle(
                         icon: Icons.layers_rounded,
@@ -581,8 +838,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
                 const SizedBox(height: 16),
 
-                // ── Quick Messages ──
-                _SectionLabel(icon: Icons.chat_bubble_rounded, label: _trOr(l10n, 'quick_messages_title', 'Quick Messages')),
+                _SectionLabel(
+                  icon: Icons.chat_bubble_rounded,
+                  label: _trOr(l10n, 'quick_messages_title', 'Quick Messages'),
+                ),
                 const SizedBox(height: 8),
                 Glass(
                   borderRadius: 20,
@@ -590,7 +849,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Premium badge row
                       Row(
                         children: [
                           Expanded(
@@ -612,11 +870,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                           _PremiumBadge(isPremium: premium),
                         ],
                       ),
-
                       const SizedBox(height: 14),
-
                       if (!premium) ...[
-                        // Locked state
                         Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
@@ -633,7 +888,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                   shape: BoxShape.circle,
                                   color: Colors.amber.withOpacity(0.12),
                                 ),
-                                child: const Icon(Icons.lock_outline_rounded, color: Colors.amber, size: 18),
+                                child: const Icon(
+                                  Icons.lock_outline_rounded,
+                                  color: Colors.amber,
+                                  size: 18,
+                                ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -670,11 +929,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                   },
                                   borderRadius: BorderRadius.circular(10),
                                   child: Ink(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(10),
                                       color: cs.primary.withOpacity(0.12),
-                                      border: Border.all(color: cs.primary.withOpacity(0.25)),
+                                      border: Border.all(
+                                        color: cs.primary.withOpacity(0.25),
+                                      ),
                                     ),
                                     child: Text(
                                       _trOr(l10n, 'common_upgrade', 'Upgrade'),
@@ -691,7 +955,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                           ),
                         ),
                       ] else ...[
-                        // Premium: custom messages list
                         if (customQuick.isEmpty)
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -704,7 +967,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                 ),
                                 const SizedBox(width: 10),
                                 Text(
-                                  _trOr(l10n, 'quick_messages_none_yet', 'No custom messages yet. Add one below.'),
+                                  _trOr(
+                                    l10n,
+                                    'quick_messages_none_yet',
+                                    'No custom messages yet. Add one below.',
+                                  ),
                                   style: TextStyle(
                                     color: onSurface.withOpacity(0.55),
                                     fontWeight: FontWeight.w600,
@@ -722,13 +989,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                             onReorder: (oldIndex, newIndex) async {
                               if (newIndex > oldIndex) newIndex -= 1;
                               try {
-                                await ref.read(quickMessagesControllerProvider).reorderCustom(oldIndex, newIndex);
+                                await ref
+                                    .read(quickMessagesControllerProvider)
+                                    .reorderCustom(oldIndex, newIndex);
                               } catch (e) {
                                 if (!mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     behavior: SnackBarBehavior.floating,
-                                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                                    content: Text(
+                                      e.toString().replaceFirst('Exception: ', ''),
+                                    ),
                                   ),
                                 );
                               }
@@ -742,10 +1013,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                               );
                             },
                           ),
-
                         const SizedBox(height: 12),
-
-                        // Add input (15 chars max)
                         Row(
                           children: [
                             Expanded(
@@ -756,13 +1024,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                   LengthLimitingTextInputFormatter(_quickMaxChars),
                                 ],
                                 textInputAction: TextInputAction.done,
-                                onSubmitted: (_) => _savingQuick ? null : _addCustomQuickMessage(),
-                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w700),
+                                onSubmitted: (_) =>
+                                    _savingQuick ? null : _addCustomQuickMessage(),
+                                style: TextStyle(
+                                  color: onSurface,
+                                  fontWeight: FontWeight.w700,
+                                ),
                                 decoration: InputDecoration(
                                   counterText: '',
-                                  hintText: _trOr(l10n, 'quick_messages_add_hint', 'Add custom message…'),
+                                  hintText: _trOr(
+                                    l10n,
+                                    'quick_messages_add_hint',
+                                    'Add custom message…',
+                                  ),
                                   helperText: 'Max $_quickMaxChars chars',
-                                  hintStyle: TextStyle(color: onSurface.withOpacity(0.45)),
+                                  hintStyle:
+                                      TextStyle(color: onSurface.withOpacity(0.45)),
                                 ),
                               ),
                             ),
@@ -778,7 +1055,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(12),
                                     gradient: LinearGradient(
-                                      colors: [cs.primary, cs.primary.withOpacity(0.75)],
+                                      colors: [
+                                        cs.primary,
+                                        cs.primary.withOpacity(0.75),
+                                      ],
                                     ),
                                   ),
                                   child: Center(
@@ -786,9 +1066,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                                         ? const SizedBox(
                                             width: 18,
                                             height: 18,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
                                           )
-                                        : const Icon(Icons.add_rounded, color: Colors.white, size: 22),
+                                        : const Icon(
+                                            Icons.add_rounded,
+                                            color: Colors.white,
+                                            size: 22,
+                                          ),
                                   ),
                                 ),
                               ),
@@ -802,8 +1089,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
                 const SizedBox(height: 16),
 
-                // ── App Info ──
-                _SectionLabel(icon: Icons.info_outline_rounded, label: l10n.appInfoTitle),
+                _SectionLabel(
+                  icon: Icons.info_outline_rounded,
+                  label: l10n.appInfoTitle,
+                ),
                 const SizedBox(height: 8),
                 Glass(
                   borderRadius: 20,
@@ -818,10 +1107,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                           gradient: LinearGradient(
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
-                            colors: [cs.primary.withOpacity(0.25), cs.primary.withOpacity(0.08)],
+                            colors: [
+                              cs.primary.withOpacity(0.25),
+                              cs.primary.withOpacity(0.08),
+                            ],
                           ),
                         ),
-                        child: Icon(Icons.sports_esports_rounded, color: cs.primary, size: 20),
+                        child: Icon(
+                          Icons.sports_esports_rounded,
+                          color: cs.primary,
+                          size: 20,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -861,7 +1157,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     );
   }
 
-  void _showLanguagePicker(BuildContext context, List<String> codes, String current) {
+  void _showLanguagePicker(
+    BuildContext context,
+    List<String> codes,
+    String current,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -917,27 +1217,44 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                             return InkWell(
                               onTap: () async {
                                 Navigator.of(ctx).pop();
-                                await ref.read(localeControllerProvider.notifier).setLocale(code);
+                                await ref
+                                    .read(localeControllerProvider.notifier)
+                                    .setLocale(code);
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                color: selected ? cs.primary.withOpacity(0.08) : Colors.transparent,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 14,
+                                ),
+                                color: selected
+                                    ? cs.primary.withOpacity(0.08)
+                                    : Colors.transparent,
                                 child: Row(
                                   children: [
                                     Expanded(
                                       child: Directionality(
-                                        textDirection: _languageTextDirection(code),
+                                        textDirection:
+                                            _languageTextDirection(code),
                                         child: Text(
                                           _languageDisplayName(code),
                                           style: TextStyle(
-                                            fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
-                                            color: selected ? cs.primary : onSurface.withOpacity(0.80),
+                                            fontWeight: selected
+                                                ? FontWeight.w900
+                                                : FontWeight.w600,
+                                            color: selected
+                                                ? cs.primary
+                                                : onSurface.withOpacity(0.80),
                                             fontSize: 15,
                                           ),
                                         ),
                                       ),
                                     ),
-                                    if (selected) Icon(Icons.check_circle_rounded, color: cs.primary, size: 20),
+                                    if (selected)
+                                      Icon(
+                                        Icons.check_circle_rounded,
+                                        color: cs.primary,
+                                        size: 20,
+                                      ),
                                   ],
                                 ),
                               ),
@@ -958,9 +1275,330 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
   }
 }
 
-// ─────────────────────────────────────────────
-// Section Label
-// ─────────────────────────────────────────────
+class _VerificationWorkspaceCard extends StatelessWidget {
+  const _VerificationWorkspaceCard({
+    required this.workspace,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  final MasterLeague workspace;
+  final bool busy;
+  final VoidCallback onPressed;
+
+  String _expiryText() {
+    if (workspace.verificationExpiresAtMs <= 0) return 'No expiry';
+    return DateTime.fromMillisecondsSinceEpoch(
+      workspace.verificationExpiresAtMs,
+    ).toLocal().toString().split('.').first;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
+    Color statusColor;
+    IconData statusIcon;
+    String statusTitle;
+    String statusSubtitle;
+    String buttonLabel = '';
+
+    if (workspace.isVerifiedOrganizer) {
+      statusColor = const Color(0xFF1D9BF0);
+      statusIcon = Icons.verified_rounded;
+      statusTitle = 'Verified';
+      statusSubtitle =
+          'This organizer workspace has been reviewed and verified.';
+    } else if (workspace.isVerificationPending) {
+      statusColor = const Color(0xFFF59E0B);
+      statusIcon = Icons.hourglass_top_rounded;
+      statusTitle = 'Verification Pending';
+      statusSubtitle = 'This organizer workspace is currently under review.';
+    } else if (workspace.verificationExpired && workspace.canRenewVerification) {
+      statusColor = const Color(0xFFF59E0B);
+      statusIcon = Icons.refresh_rounded;
+      statusTitle = 'Verification Expired';
+      statusSubtitle = 'Renew verification for this organizer workspace.';
+      buttonLabel = 'Renew Verification';
+    } else {
+      statusColor = onSurface.withOpacity(0.60);
+      statusIcon = Icons.verified_outlined;
+      statusTitle = 'Not Verified';
+      statusSubtitle = 'Request verification for this organizer workspace.';
+      buttonLabel = 'Get Verified';
+    }
+
+    final canTap =
+        !workspace.isVerifiedOrganizer && !workspace.isVerificationPending;
+
+    final bannerUrl = workspace.organizerProfile.bannerUrl.trim();
+    final logoUrl = workspace.organizerProfile.logoUrl.trim();
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => Navigator.of(context).pushNamed(
+        '/master-leagues/${workspace.id}/organizer-profile',
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: onSurface.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: onSurface.withOpacity(0.08)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                  child: bannerUrl.isNotEmpty
+                      ? Image.network(
+                          bannerUrl,
+                          height: 110,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _bannerFallback(cs),
+                        )
+                      : _bannerFallback(cs),
+                ),
+                Positioned(
+                  left: 16,
+                  bottom: -24,
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: theme.scaffoldBackgroundColor,
+                      border: Border.all(
+                        color: theme.scaffoldBackgroundColor,
+                        width: 3,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: logoUrl.isNotEmpty
+                          ? Image.network(
+                              logoUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _logoFallback(cs),
+                            )
+                          : _logoFallback(cs),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 12,
+                  top: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: statusColor.withOpacity(0.12),
+                      border: Border.all(color: statusColor.withOpacity(0.26)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(statusIcon, size: 14, color: statusColor),
+                        const SizedBox(width: 6),
+                        Text(
+                          statusTitle,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 32, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          workspace.name.trim().isEmpty
+                              ? 'Organizer Workspace'
+                              : workspace.name.trim(),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: onSurface,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (workspace.isVerifiedOrganizer)
+                        const Icon(
+                          Icons.verified_rounded,
+                          color: Color(0xFF1D9BF0),
+                          size: 18,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    statusSubtitle,
+                    style: TextStyle(
+                      color: onSurface.withOpacity(0.64),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      height: 1.3,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _miniInfoChip(
+                        cs,
+                        icon: Icons.workspace_premium_rounded,
+                        label: workspace.plan.displayName,
+                      ),
+                      _miniInfoChip(
+                        cs,
+                        icon: Icons.schedule_rounded,
+                        label: _expiryText(),
+                      ),
+                      _miniInfoChip(
+                        cs,
+                        icon: Icons.favorite_border_rounded,
+                        label:
+                            '${workspace.followersCount} follower${workspace.followersCount == 1 ? '' : 's'}',
+                      ),
+                    ],
+                  ),
+                  if (canTap) ...[
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: busy ? null : onPressed,
+                        icon: busy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Icon(
+                                workspace.verificationExpired
+                                    ? Icons.refresh_rounded
+                                    : Icons.verified_user_outlined,
+                              ),
+                        label: Text(
+                          busy ? 'Processing...' : buttonLabel,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context)
+                              .pushNamed('/master-leagues/${workspace.id}/organizer-profile');
+                        },
+                        icon: const Icon(Icons.open_in_new_rounded),
+                        label: const Text(
+                          'Open Organizer Profile',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _bannerFallback(ColorScheme cs) {
+    return Container(
+      height: 110,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            cs.primary.withOpacity(0.20),
+            const Color(0xFF1D9BF0).withOpacity(0.12),
+            cs.secondary.withOpacity(0.08),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.photo_size_select_actual_outlined,
+          color: cs.onSurface.withOpacity(0.28),
+          size: 34,
+        ),
+      ),
+    );
+  }
+
+  Widget _logoFallback(ColorScheme cs) {
+    return Container(
+      color: cs.primary.withOpacity(0.10),
+      child: Center(
+        child: Icon(Icons.hub_rounded, color: cs.primary, size: 24),
+      ),
+    );
+  }
+
+  Widget _miniInfoChip(
+    ColorScheme cs, {
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: cs.primary.withOpacity(0.06),
+        border: Border.all(color: cs.primary.withOpacity(0.14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: cs.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: cs.onSurface,
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel({required this.icon, required this.label});
   final IconData icon;
@@ -991,9 +1629,6 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Theme Mode Card
-// ─────────────────────────────────────────────
 class _ThemeModeCard extends StatelessWidget {
   const _ThemeModeCard({
     required this.icon,
@@ -1020,9 +1655,13 @@ class _ThemeModeCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          color: selected ? cs.primary.withOpacity(0.12) : onSurface.withOpacity(0.04),
+          color: selected
+              ? cs.primary.withOpacity(0.12)
+              : onSurface.withOpacity(0.04),
           border: Border.all(
-            color: selected ? cs.primary.withOpacity(0.35) : onSurface.withOpacity(0.10),
+            color: selected
+                ? cs.primary.withOpacity(0.35)
+                : onSurface.withOpacity(0.10),
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -1045,9 +1684,6 @@ class _ThemeModeCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Settings Toggle
-// ─────────────────────────────────────────────
 class _SettingsToggle extends StatelessWidget {
   const _SettingsToggle({
     required this.icon,
@@ -1124,9 +1760,6 @@ class _SettingsToggle extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Overlay Status Card
-// ─────────────────────────────────────────────
 class _OverlayStatusCard extends StatelessWidget {
   const _OverlayStatusCard({
     required this.enabled,
@@ -1171,7 +1804,11 @@ class _OverlayStatusCard extends StatelessWidget {
           Expanded(
             child: Text(
               statusText,
-              style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
             ),
           ),
           if (enabled && !granted)
@@ -1182,7 +1819,11 @@ class _OverlayStatusCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Text(
                   'Grant',
-                  style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 12),
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ),
@@ -1192,9 +1833,6 @@ class _OverlayStatusCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Premium Badge
-// ─────────────────────────────────────────────
 class _PremiumBadge extends StatelessWidget {
   const _PremiumBadge({required this.isPremium});
   final bool isPremium;
@@ -1202,7 +1840,8 @@ class _PremiumBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
-    final color = isPremium ? const Color(0xFF00E676) : onSurface.withOpacity(0.55);
+    final color =
+        isPremium ? const Color(0xFF00E676) : onSurface.withOpacity(0.55);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -1224,9 +1863,6 @@ class _PremiumBadge extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Quick Message Tile
-// ─────────────────────────────────────────────
 class _QuickMessageTile extends StatelessWidget {
   const _QuickMessageTile({
     super.key,
@@ -1250,7 +1886,11 @@ class _QuickMessageTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.drag_handle_rounded, color: onSurface.withOpacity(0.35), size: 18),
+          Icon(
+            Icons.drag_handle_rounded,
+            color: onSurface.withOpacity(0.35),
+            size: 18,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -1267,7 +1907,11 @@ class _QuickMessageTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.all(4),
-              child: Icon(Icons.delete_outline_rounded, color: Colors.redAccent.withOpacity(0.7), size: 18),
+              child: Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.redAccent.withOpacity(0.7),
+                size: 18,
+              ),
             ),
           ),
         ],

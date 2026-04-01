@@ -767,7 +767,8 @@ class MasterLeaguesRepositoryFirebase {
       }
 
       final fulfilledVerificationRequestId =
-          (paymentData['fulfilledVerificationRequestId'] as String? ?? '').trim();
+          (paymentData['fulfilledVerificationRequestId'] as String? ?? '')
+              .trim();
       if (fulfilledVerificationRequestId.isNotEmpty) {
         final existingReq = await _verificationRequests
             .doc(fulfilledVerificationRequestId)
@@ -841,10 +842,9 @@ class MasterLeaguesRepositoryFirebase {
         }
         final mlData =
             (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final ownerId = (mlData['ownerId'] as String? ??
-                mlData['ownerUid'] as String? ??
-                '')
-            .trim();
+        final ownerId =
+            (mlData['ownerId'] as String? ?? mlData['ownerUid'] as String? ?? '')
+                .trim();
         if (ownerId != uid) {
           throw const UserFriendlyException(
             'Only the owner can submit verification renewal.',
@@ -938,12 +938,16 @@ class MasterLeaguesRepositoryFirebase {
       final uid = _requireAuthUid();
       final id = masterLeagueId.trim();
       if (id.isEmpty) {
-        throw const UserFriendlyException("We couldn't find that Master League.");
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
       }
 
       final ml = await getById(id);
       if (ml == null) {
-        throw const UserFriendlyException("We couldn't find that Master League.");
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
       }
       if (ml.ownerId.trim() != uid) {
         throw const UserFriendlyException(
@@ -1067,7 +1071,8 @@ class MasterLeaguesRepositoryFirebase {
         'createdViaAttemptId': '',
         'sourcePaymentId': '',
         'sourceReceiptId': '',
-        if (initialCompetition != null) 'initialCompetition': initialCompetition.toMap(),
+        if (initialCompetition != null)
+          'initialCompetition': initialCompetition.toMap(),
         'verificationStatus': 'none',
         'verifiedBadge': false,
         'verificationRequestId': '',
@@ -1130,7 +1135,9 @@ class MasterLeaguesRepositoryFirebase {
       if (competition.entryFee < 0) {
         throw const UserFriendlyException('Entry fee cannot be negative.');
       }
-      if (safeAttemptId.isEmpty || safePaymentId.isEmpty || safeReceiptId.isEmpty) {
+      if (safeAttemptId.isEmpty ||
+          safePaymentId.isEmpty ||
+          safeReceiptId.isEmpty) {
         throw const UserFriendlyException(
           'Payment verification is incomplete. Please try again.',
         );
@@ -1204,10 +1211,13 @@ class MasterLeaguesRepositoryFirebase {
 
         final payDoc = await txn.get(payRef);
         if (!payDoc.exists) {
-          throw const UserFriendlyException('Verified payment record was not found.');
+          throw const UserFriendlyException(
+            'Verified payment record was not found.',
+          );
         }
 
-        final payMap = (payDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final payMap =
+            (payDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final payUid = (payMap['userId'] as String? ?? '').trim();
         if (payUid != uid) {
           throw const UserFriendlyException(
@@ -1235,7 +1245,8 @@ class MasterLeaguesRepositoryFirebase {
           throw const UserFriendlyException('Payment attempt was not found.');
         }
 
-        final attMap = (attDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final attMap =
+            (attDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final attUid = (attMap['userId'] as String? ?? '').trim();
         if (attUid != uid) {
           throw const UserFriendlyException(
@@ -1404,7 +1415,8 @@ class MasterLeaguesRepositoryFirebase {
       }
 
       final fulfilledVerificationRequestId =
-          (paymentData['fulfilledVerificationRequestId'] as String? ?? '').trim();
+          (paymentData['fulfilledVerificationRequestId'] as String? ?? '')
+              .trim();
       if (fulfilledVerificationRequestId.isNotEmpty) {
         final existingReq = await _verificationRequests
             .doc(fulfilledVerificationRequestId)
@@ -1446,9 +1458,12 @@ class MasterLeaguesRepositoryFirebase {
 
         final payDoc = await txn.get(payRef);
         if (!payDoc.exists) {
-          throw const UserFriendlyException('Verified payment record was not found.');
+          throw const UserFriendlyException(
+            'Verified payment record was not found.',
+          );
         }
-        final payMap = (payDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final payMap =
+            (payDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final payVerification = (payMap['verification'] is Map)
             ? (payMap['verification'] as Map).cast<String, dynamic>()
             : <String, dynamic>{};
@@ -1469,13 +1484,15 @@ class MasterLeaguesRepositoryFirebase {
 
         final mlDoc = await txn.get(mlRef);
         if (!mlDoc.exists) {
-          throw const UserFriendlyException("We couldn't find that Master League.");
+          throw const UserFriendlyException(
+            "We couldn't find that Master League.",
+          );
         }
-        final mlData = (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final ownerId = (mlData['ownerId'] as String? ??
-                mlData['ownerUid'] as String? ??
-                '')
-            .trim();
+        final mlData =
+            (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final ownerId =
+            (mlData['ownerId'] as String? ?? mlData['ownerUid'] as String? ?? '')
+                .trim();
         if (ownerId != uid) {
           throw const UserFriendlyException(
             'Only the owner can submit organizer verification.',
@@ -1483,7 +1500,9 @@ class MasterLeaguesRepositoryFirebase {
         }
 
         final currentStatus =
-            (mlData['verificationStatus'] as String? ?? 'none').trim().toLowerCase();
+            (mlData['verificationStatus'] as String? ?? 'none')
+                .trim()
+                .toLowerCase();
         final currentVerified = (mlData['verifiedBadge'] == true);
         if (currentVerified || currentStatus == 'approved') {
           throw const UserFriendlyException(
@@ -1504,7 +1523,8 @@ class MasterLeaguesRepositoryFirebase {
             'ownerId': uid,
             'status': 'pending',
             'requestType': 'initial',
-            'provider': (paymentData['provider'] as String? ?? 'flutterwave').trim(),
+            'provider':
+                (paymentData['provider'] as String? ?? 'flutterwave').trim(),
             'receiptId': safeReceiptId,
             'paymentId': safePaymentId,
             'attemptId': safeAttemptId,
@@ -1593,7 +1613,8 @@ class MasterLeaguesRepositoryFirebase {
 
       final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       final ownerId =
-          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
+              .trim();
       if (ownerId != uid) {
         throw const UserFriendlyException(
           'Only the Master League owner can rename it.',
@@ -1647,7 +1668,8 @@ class MasterLeaguesRepositoryFirebase {
         );
       }
 
-      final mlData = (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final mlData =
+          (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       final ownerId =
           (mlData['ownerId'] as String? ?? mlData['ownerUid'] as String? ?? '')
               .trim();
@@ -1694,17 +1716,17 @@ class MasterLeaguesRepositoryFirebase {
         final currentOwnerId =
             (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
                 .trim();
+
         if (currentOwnerId != uid) {
           throw const UserFriendlyException(
             'Only the Master League owner can add staff.',
           );
         }
 
-        final memberIds =
-            ((data['memberIds'] as List?) ?? const [])
-                .map((e) => '$e'.trim())
-                .where((e) => e.isNotEmpty)
-                .toSet();
+        final memberIds = ((data['memberIds'] as List?) ?? const [])
+            .map((e) => '$e'.trim())
+            .where((e) => e.isNotEmpty)
+            .toSet();
 
         final rolesRaw =
             (data['roles'] as Map?)?.cast<String, dynamic>() ??
@@ -1760,7 +1782,8 @@ class MasterLeaguesRepositoryFirebase {
 
       final data = (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
       final ownerId =
-          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
+              .trim();
       if (ownerId != uid) {
         throw const UserFriendlyException(
           'Only the Master League owner can edit the organizer profile.',
@@ -1802,7 +1825,8 @@ class MasterLeaguesRepositoryFirebase {
 
       final data = snap.data() ?? <String, dynamic>{};
       final ownerId =
-          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '').trim();
+          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
+              .trim();
 
       if (ownerId.isEmpty || ownerId != uid) {
         throw const UserFriendlyException(
