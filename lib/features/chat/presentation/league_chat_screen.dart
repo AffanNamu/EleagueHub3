@@ -320,6 +320,16 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   void _toastErr(Object e) =>
       _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
+
+  bool _canDeleteMessage(ChatMessage msg) {
+    if (_canModerateLeague) return true;
+    return _user.uid.trim() == msg.senderId.trim();
+  }
+
+  bool _canPinMessage(ChatMessage msg) {
+    return _canModerateLeague;
+  }
+
   String _previewForOutgoing({
     required String type,
     required String text,
