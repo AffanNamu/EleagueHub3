@@ -46,13 +46,10 @@ class _OrganizerProfileScreenState
   final _bioCtrl = TextEditingController();
   final _badgeCtrl = TextEditingController();
 
-  final _websiteCtrl = TextEditingController();
   final _facebookCtrl = TextEditingController();
   final _instagramCtrl = TextEditingController();
   final _xCtrl = TextEditingController();
-  final _discordCtrl = TextEditingController();
   final _youtubeCtrl = TextEditingController();
-  final _twitchCtrl = TextEditingController();
   final _tiktokCtrl = TextEditingController();
 
   String get _uid => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
@@ -63,13 +60,10 @@ class _OrganizerProfileScreenState
     _logoCtrl.dispose();
     _bioCtrl.dispose();
     _badgeCtrl.dispose();
-    _websiteCtrl.dispose();
     _facebookCtrl.dispose();
     _instagramCtrl.dispose();
     _xCtrl.dispose();
-    _discordCtrl.dispose();
     _youtubeCtrl.dispose();
-    _twitchCtrl.dispose();
     _tiktokCtrl.dispose();
     super.dispose();
   }
@@ -138,25 +132,19 @@ class _OrganizerProfileScreenState
     _bioCtrl.text = op.bio;
     _badgeCtrl.text = op.badge;
 
-    _websiteCtrl.text = op.socialLinks['website'] ?? '';
     _facebookCtrl.text = op.socialLinks['facebook'] ?? '';
     _instagramCtrl.text = op.socialLinks['instagram'] ?? '';
     _xCtrl.text = op.socialLinks['x'] ?? op.socialLinks['twitter'] ?? '';
-    _discordCtrl.text = op.socialLinks['discord'] ?? '';
     _youtubeCtrl.text = op.socialLinks['youtube'] ?? '';
-    _twitchCtrl.text = op.socialLinks['twitch'] ?? '';
     _tiktokCtrl.text = op.socialLinks['tiktok'] ?? '';
   }
 
   OrganizerProfile _profileFromControllers() {
     final socials = <String, String>{
-      'website': _websiteCtrl.text.trim(),
       'facebook': _facebookCtrl.text.trim(),
       'instagram': _instagramCtrl.text.trim(),
       'x': _xCtrl.text.trim(),
-      'discord': _discordCtrl.text.trim(),
       'youtube': _youtubeCtrl.text.trim(),
-      'twitch': _twitchCtrl.text.trim(),
       'tiktok': _tiktokCtrl.text.trim(),
     }..removeWhere((k, v) => v.trim().isEmpty);
 
@@ -361,6 +349,122 @@ class _OrganizerProfileScreenState
     }
   }
 
+  Future<void> _startInitialVerification(MasterLeague ml) async {
+    if (_uid.isEmpty) {
+      _snack('Please sign in to continue.', error: true);
+      return;
+    }
+    if (ml.ownerId.trim() != _uid) {
+      _snack('Only the owner can request verification.', error: true);
+      return;
+    }
+    if (ml.isVerifiedOrganizer) {
+      _snack('This organizer is already verified.', error: true);
+      return;
+    }
+    if (ml.isVerificationPending) {
+      _snack('A verification request is already pending review.', error: true);
+      return;
+    }
+
+    final noteCtrl = TextEditingController();
+    final shouldContinue = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          title: const Text('Get Verified'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'A paid verification request will be submitted for manual review. Approval is required before the verified badge appears.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteCtrl,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Note for admin (optional)',
+                  alignLabelWithHint: true,
+                  prefixIcon: Icon(Icons.verified_user_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.primary.withOpacity(0.18)),
+                ),
+                child: const Text(
+                  'Verification is different from your organizer plan. It is a trust review badge for participants.',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Proceed to Payment'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldContinue != true) {
+      noteCtrl.dispose();
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
+      final repo = ref.read(masterLeaguesRepositoryProvider);
+      final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+      final payment = await paymentSvc.payForOrganizerVerification(
+        context: context,
+        userId: userId,
+        masterLeagueId: ml.id,
+        masterLeagueName: ml.name,
+      );
+
+      if (!mounted) return;
+
+      if (!payment.success) {
+        _snack(
+          payment.errorMessage ?? 'Verification payment failed.',
+          error: true,
+        );
+        return;
+      }
+
+      await repo.submitVerificationRequest(
+        masterLeagueId: ml.id,
+        attemptId: payment.attemptId,
+        paymentId: payment.paymentId,
+        receiptId: payment.receiptId ?? '',
+        note: noteCtrl.text.trim(),
+      );
+
+      if (!mounted) return;
+      _snack('Verification request submitted for review.');
+    } catch (e) {
+      _snack('$e', error: true);
+    } finally {
+      noteCtrl.dispose();
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _postProfileUpdateFeedEvent(MasterLeague ml) async {
     try {
       final profile = await UserProfileRepository().fetchByUserId(_uid);
@@ -477,14 +581,6 @@ class _OrganizerProfileScreenState
     return Column(
       children: [
         TextField(
-          controller: _websiteCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Website link (optional)',
-            prefixIcon: Icon(Icons.link),
-          ),
-        ),
-        const SizedBox(height: 10),
-        TextField(
           controller: _facebookCtrl,
           decoration: const InputDecoration(
             labelText: 'Facebook link (optional)',
@@ -509,25 +605,9 @@ class _OrganizerProfileScreenState
         ),
         const SizedBox(height: 10),
         TextField(
-          controller: _discordCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Discord link (optional)',
-            prefixIcon: Icon(Icons.link),
-          ),
-        ),
-        const SizedBox(height: 10),
-        TextField(
           controller: _youtubeCtrl,
           decoration: const InputDecoration(
             labelText: 'YouTube link (optional)',
-            prefixIcon: Icon(Icons.link),
-          ),
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _twitchCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Twitch link (optional)',
             prefixIcon: Icon(Icons.link),
           ),
         ),
@@ -730,6 +810,17 @@ class _OrganizerProfileScreenState
       ).toLocal().toString().split('.').first;
     }
 
+    final ownerCanStartInitial =
+        ml.isOwner(_uid) &&
+        !ml.isVerifiedOrganizer &&
+        !ml.isVerificationPending &&
+        !ml.verificationExpired;
+
+    final ownerCanRenew =
+        ml.isOwner(_uid) &&
+        ml.canRenewVerification &&
+        !ml.isVerificationPending;
+
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
@@ -778,14 +869,37 @@ class _OrganizerProfileScreenState
               ),
             ),
           ],
-          if (ml.isOwner(_uid) && ml.canRenewVerification && !ml.isVerificationPending) ...[
+          if (ownerCanStartInitial || ownerCanRenew) ...[
             const SizedBox(height: 14),
-            FilledButton.icon(
-              onPressed: () => _renewVerification(ml),
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text(
-                'Renew Verification',
-                style: TextStyle(fontWeight: FontWeight.w900),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: ownerCanStartInitial
+                        ? () => _startInitialVerification(ml)
+                        : () => _renewVerification(ml),
+                    icon: Icon(
+                      ownerCanStartInitial
+                          ? Icons.verified_rounded
+                          : Icons.refresh_rounded,
+                    ),
+                    label: Text(
+                      ownerCanStartInitial
+                          ? 'Get Verified'
+                          : 'Renew Verification',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Verification purchase is separate from your organizer plan. Plan controls capacity; verification adds trust review.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.62),
+                fontWeight: FontWeight.w700,
+                height: 1.3,
               ),
             ),
           ],
@@ -815,6 +929,14 @@ class _OrganizerProfileScreenState
                 ? 'Renewal Pending'
                 : 'Verification Pending')
             : (ml.verificationExpired ? 'Expired' : 'Unverified'));
+
+    final planColor = ml.plan == MasterLeaguePlan.elite
+        ? const Color(0xFF8B5CF6)
+        : (ml.plan == MasterLeaguePlan.pro
+            ? const Color(0xFF22C55E)
+            : cs.primary);
+
+    final planLabel = 'Plan: ${ml.plan.displayName}';
 
     final canFollow = _uid.isNotEmpty && ml.ownerId.trim() != _uid;
 
@@ -889,8 +1011,9 @@ class _OrganizerProfileScreenState
                                       : Icons.shield_outlined),
                             ),
                             _pill(
-                              text: ml.plan.displayName,
-                              color: cs.primary,
+                              text: planLabel,
+                              color: planColor,
+                              icon: Icons.workspace_premium_rounded,
                             ),
                             if (ml.organizerProfile.badge.trim().isNotEmpty)
                               _pill(
@@ -974,6 +1097,16 @@ class _OrganizerProfileScreenState
   Widget _trustMetrics(MasterLeague ml, ThemeData theme, ColorScheme cs, int followersCount) {
     final cards = [
       _TrustMetric(
+        icon: Icons.workspace_premium_rounded,
+        label: 'Organizer Plan',
+        value: ml.plan.displayName,
+        tint: ml.plan == MasterLeaguePlan.elite
+            ? const Color(0xFF8B5CF6)
+            : (ml.plan == MasterLeaguePlan.pro
+                ? const Color(0xFF22C55E)
+                : cs.primary),
+      ),
+      _TrustMetric(
         icon: Icons.verified_user_outlined,
         label: 'Trust Status',
         value: ml.isVerifiedOrganizer
@@ -1008,12 +1141,6 @@ class _OrganizerProfileScreenState
         label: 'Followers',
         value: '$followersCount',
         tint: const Color(0xFFEF4444),
-      ),
-      _TrustMetric(
-        icon: Icons.security_rounded,
-        label: 'Workspace Identity',
-        value: ml.plan.displayName,
-        tint: const Color(0xFF14B8A6),
       ),
     ];
 

@@ -695,6 +695,35 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
+  String _readOrganizerPlan(Map<String, dynamic> data) {
+    final raw = (data['organizerPlan'] ?? data['premiumPlan'] ?? '').toString().trim().toLowerCase();
+    if (raw == 'elite') return 'Elite';
+    if (raw == 'pro') return 'Pro';
+    if (raw == 'basic') return 'Basic';
+    return 'Free';
+  }
+
+  bool _readPremiumActive(Map<String, dynamic> data) {
+    if (data['isPremium'] == true) return true;
+    final expires = data['premiumExpiresAtMs'] ?? data['organizerPlanExpiresAtMs'];
+    if (expires is int) return expires > DateTime.now().millisecondsSinceEpoch;
+    if (expires is num) return expires.toInt() > DateTime.now().millisecondsSinceEpoch;
+    return false;
+  }
+
+  String _readPlanExpiryText(Map<String, dynamic> data) {
+    final expires = data['organizerPlanExpiresAtMs'] ?? data['premiumExpiresAtMs'];
+    int ms = 0;
+    if (expires is int) {
+      ms = expires;
+    } else if (expires is num) {
+      ms = expires.toInt();
+    }
+    if (ms <= 0) return '—';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
+    return dt.toString();
+  }
+
   String _readProfileImageUrl(UserProfile? profile, User? authUser) {
     String url = '';
     try {
@@ -1024,6 +1053,79 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   },
                 ),
 
+                const SizedBox(height: 18),
+
+                SectionHeader('Organizer Plan'),
+                const SizedBox(height: 12),
+                if (uid.isEmpty)
+                  Glass(
+                    borderRadius: 22,
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
+                      children: [
+                        Icon(Icons.lock_outline_rounded, color: onSurface.withOpacity(0.45)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Sign in to view your organizer plan.',
+                            style: TextStyle(
+                              color: onSurface.withOpacity(0.65),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+                    builder: (context, planSnap) {
+                      final data = planSnap.data?.data() ?? <String, dynamic>{};
+                      final organizerPlan = _readOrganizerPlan(data);
+                      final premiumActive = _readPremiumActive(data);
+                      final expiryText = _readPlanExpiryText(data);
+
+                      return Glass(
+                        borderRadius: 22,
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Organizer Plan',
+                              style: t.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                color: onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _kv(context, 'Current plan', organizerPlan),
+                            _kv(context, 'Premium active', premiumActive ? 'Yes' : 'No'),
+                            _kv(context, 'Plan expiry', expiryText),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: () => context.push(
+                                  '/leagues/create/payment',
+                                  extra: <String, dynamic>{
+                                    'premiumUpgrade': true,
+                                    'leagueName': 'Organizer Premium',
+                                  },
+                                ),
+                                icon: const Icon(Icons.workspace_premium_rounded),
+                                label: Text(
+                                  premiumActive ? 'Manage / Upgrade Plan' : 'Upgrade to Premium',
+                                  style: const TextStyle(fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 const SizedBox(height: 18),
 
                 // ─────────────────────────────
