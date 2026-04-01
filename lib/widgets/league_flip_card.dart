@@ -286,7 +286,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final height = (constraints.hasBoundedHeight && constraints.maxHeight > 0) ? constraints.maxHeight : 220.0;
+        final height = (constraints.hasBoundedHeight && constraints.maxHeight > 0)
+            ? constraints.maxHeight
+            : 220.0;
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -320,9 +322,6 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                 final isBackVisible = t >= 0.5;
                 final face = isBackVisible ? _backFace(context, t) : _frontFace(context, leagueId, t);
 
-                // Premium shadow:
-                // - Light mode: soft blue glow (avoid harsh dark shadow)
-                // - Dark mode: keep deeper shadow for contrast
                 final shadowOpacity = 0.10 + (0.20 * lift);
                 final shadowColor = isLight
                     ? cs.primary.withValues(alpha: 0.10 + (0.18 * lift))
@@ -384,9 +383,12 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
     final distribution = _distribution();
     final subtitle = _subtitle();
 
-    final bool wantsRewardsUi = (widget.showRewardsBadge || widget.showRewardsPreview) && leagueId.trim().isNotEmpty;
+    final bool wantsRewardsUi =
+        (widget.showRewardsBadge || widget.showRewardsPreview) &&
+            leagueId.trim().isNotEmpty;
 
-    final Future<String?>? topRewardFuture = wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
+    final Future<String?>? topRewardFuture =
+        wantsRewardsUi ? _topRewardNameFuture(leagueId) : null;
 
     final bool showHomeAway = _homeAwayEnabled();
     final bool insideMasterLeague = _isInsideMasterLeague();
@@ -498,7 +500,10 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                       ),
                       textColor: Colors.white.withValues(alpha: 0.94),
                     ),
-                  if (insideMasterLeague && widget.showRewardsBadge && topRewardFuture != null) const SizedBox(width: 8),
+                  if (insideMasterLeague &&
+                      widget.showRewardsBadge &&
+                      topRewardFuture != null)
+                    const SizedBox(width: 8),
                   if (widget.showRewardsBadge && topRewardFuture != null)
                     FutureBuilder<String?>(
                       future: topRewardFuture,
@@ -519,7 +524,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               if (distribution.isNotEmpty)
                 Text(
                   distribution,
@@ -532,27 +537,33 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                   ),
                 ),
               if (showHomeAway) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 _SoftStatusPill(
                   icon: Icons.swap_horiz_rounded,
                   label: 'Home & Away matches enabled',
                 ),
               ],
               if (subtitle.isNotEmpty) ...[
-                const SizedBox(height: 7),
-                Text(
-                  subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withValues(alpha: 0.80),
-                    fontWeight: FontWeight.w700,
-                    height: 1.25,
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: Text(
+                      subtitle,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.80),
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
+                    ),
                   ),
                 ),
-              ],
+              ] else
+                const Spacer(),
               if (widget.showRewardsPreview && topRewardFuture != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 FutureBuilder<String?>(
                   future: topRewardFuture,
                   builder: (context, snap) {
@@ -619,9 +630,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                   },
                 ),
               ],
-              const Spacer(),
-
-              // Bottom actions (responsive; keeps everything visible on small screens)
+              const SizedBox(height: 8),
               LayoutBuilder(
                 builder: (context, c) {
                   final narrow = c.maxWidth < 360;
@@ -868,7 +877,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w900,
                           letterSpacing: 2.0,
-                          color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.35) : cs.onSurface.withValues(alpha: 0.92),
+                          color: code.isEmpty
+                              ? cs.onSurface.withValues(alpha: 0.35)
+                              : cs.onSurface.withValues(alpha: 0.92),
                         ),
                       ),
                     ),
@@ -904,7 +915,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                                 Icon(
                                   Icons.copy_rounded,
                                   size: 18,
-                                  color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.45) : Colors.white,
+                                  color: code.isEmpty
+                                      ? cs.onSurface.withValues(alpha: 0.45)
+                                      : Colors.white,
                                 ),
                                 const SizedBox(width: 10),
                                 Text(
@@ -912,7 +925,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                                   style: theme.textTheme.labelLarge?.copyWith(
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: 0.8,
-                                    color: code.isEmpty ? cs.onSurface.withValues(alpha: 0.45) : Colors.white,
+                                    color: code.isEmpty
+                                        ? cs.onSurface.withValues(alpha: 0.45)
+                                        : Colors.white,
                                   ),
                                 ),
                               ],
@@ -923,7 +938,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      code.isEmpty ? 'No invite code available for this league.' : 'Share this code with friends or let them scan the QR.',
+                      code.isEmpty
+                          ? 'No invite code available for this league.'
+                          : 'Share this code with friends or let them scan the QR.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: cs.onSurface.withValues(alpha: 0.68),
                         fontWeight: FontWeight.w700,
