@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -17,6 +18,7 @@ import '../../leagues/models/enums.dart';
 import '../../leagues/models/league.dart';
 import '../../leagues/models/league_announcement.dart';
 import '../../leagues/models/league_format.dart';
+import '../../leagues/models/membership.dart';
 import '../../leagues/presentation/widgets/join_league_mode_sheet.dart';
 import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
