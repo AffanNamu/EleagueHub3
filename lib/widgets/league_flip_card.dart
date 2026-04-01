@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../core/color_compat.dart';
 import '../core/widgets/glass.dart';
 import '../features/leagues/data/services/reward_firestore_service.dart';
 
@@ -243,7 +242,11 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
   String _subtitle() {
     final legacy = (widget.subtitle ?? '').trim();
     if (legacy.isNotEmpty) return legacy;
-    return _readString(widget.league, const ['subtitle', 'region'], fallback: '');
+    return _readString(
+      widget.league,
+      const ['subtitle', 'region'],
+      fallback: '',
+    );
   }
 
   String _qrPayload() {
@@ -294,9 +297,10 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final height = (constraints.hasBoundedHeight && constraints.maxHeight > 0)
-            ? constraints.maxHeight
-            : 220.0;
+        final height =
+            (constraints.hasBoundedHeight && constraints.maxHeight > 0)
+                ? constraints.maxHeight
+                : 236.0;
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -321,25 +325,24 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
                 final t = _anim.value;
                 final angle = t * math.pi;
-
                 final diagonalTwist = 0.16 * math.sin(angle);
-
                 final lift = math.sin(t * math.pi);
                 final translateY = -3.0 * lift;
                 final scale = 1.0 + (0.018 * lift);
 
                 final isBackVisible = t >= 0.5;
-                final face =
-                    isBackVisible ? _backFace(context, t) : _frontFace(context, leagueId, t);
+                final face = isBackVisible
+                    ? _backFace(context, t)
+                    : _frontFace(context, leagueId, t);
 
                 final shadowOpacity = 0.10 + (0.20 * lift);
                 final shadowColor = isLight
-                    ? cs.primary.withValues(alpha: 0.10 + (0.18 * lift))
-                    : Colors.black.withValues(alpha: shadowOpacity);
+                    ? cs.primary.withOpacity(0.18)
+                    : Colors.black.withOpacity(shadowOpacity);
 
                 final effectiveBorderColor = isLight
-                    ? Colors.white.withValues(alpha: 0.22)
-                    : Colors.white.withValues(alpha: 0.10);
+                    ? Colors.white.withOpacity(0.22)
+                    : Colors.white.withOpacity(0.10);
 
                 return Transform.translate(
                   offset: Offset(0, translateY),
@@ -417,14 +420,14 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               borderRadius: BorderRadius.circular(_outerRadius - 3),
               gradient: LinearGradient(
                 colors: [
-                  cs.onSurface.withValues(alpha: 0.045),
-                  cs.onSurface.withValues(alpha: 0.030),
-                  cs.onSurface.withValues(alpha: 0.020),
+                  cs.onSurface.withOpacity(0.045),
+                  cs.onSurface.withOpacity(0.030),
+                  cs.onSurface.withOpacity(0.020),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+              border: Border.all(color: cs.onSurface.withOpacity(0.10)),
             ),
           ),
         ),
@@ -444,7 +447,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               borderRadius: BorderRadius.circular(_outerRadius - 3),
               child: CustomPaint(
                 painter: _NanoGridPainter(
-                  color: cs.onSurface.withValues(alpha: 0.10),
+                  color: cs.onSurface.withOpacity(0.10),
                 ),
               ),
             ),
@@ -499,23 +502,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       ),
                     ),
                   ),
-                  if (insideMasterLeague)
-                    _MiniPill(
-                      icon: Icons.hub_rounded,
-                      label: 'Master',
-                      gradient: LinearGradient(
-                        colors: [
-                          cs.primary.withOpacity(0.92),
-                          cs.secondary.withOpacity(0.82),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      textColor: Colors.white.withValues(alpha: 0.94),
-                    ),
-                  if (insideMasterLeague &&
-                      widget.showRewardsBadge &&
-                      topRewardFuture != null)
+                  if (insideMasterLeague && widget.showRewardsBadge && topRewardFuture != null)
                     const SizedBox(width: 8),
                   if (widget.showRewardsBadge && topRewardFuture != null)
                     FutureBuilder<String?>(
@@ -531,7 +518,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
-                          textColor: Colors.black.withValues(alpha: 0.86),
+                          textColor: Colors.black.withOpacity(0.86),
                         );
                       },
                     ),
@@ -544,14 +531,14 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withValues(alpha: 0.72),
+                    color: cs.onSurface.withOpacity(0.72),
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.2,
                   ),
                 ),
               if (showHomeAway) ...[
                 const SizedBox(height: 8),
-                _SoftStatusPill(
+                const _SoftStatusPill(
                   icon: Icons.swap_horiz_rounded,
                   label: 'Home & Away matches enabled',
                 ),
@@ -563,12 +550,12 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     alignment: Alignment.topLeft,
                     child: Text(
                       subtitle,
-                      maxLines: 3,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.80),
+                        color: cs.onSurface.withOpacity(0.80),
                         fontWeight: FontWeight.w700,
-                        height: 1.25,
+                        height: 1.22,
                       ),
                     ),
                   ),
@@ -606,14 +593,14 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           borderRadius: BorderRadius.circular(999),
                           gradient: LinearGradient(
                             colors: [
-                              cs.primary.withValues(alpha: 0.15),
-                              cs.secondary.withValues(alpha: 0.12),
+                              cs.primary.withOpacity(0.15),
+                              cs.secondary.withOpacity(0.12),
                             ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
                           border: Border.all(
-                            color: cs.primary.withValues(alpha: 0.24),
+                            color: cs.primary.withOpacity(0.24),
                           ),
                         ),
                         child: Row(
@@ -652,25 +639,25 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     icon: Icons.qr_code_2_rounded,
                     label: narrow ? 'QR & code' : 'Tap for QR & invite code',
                     fg: cs.primary,
-                    bg: cs.primary.withValues(alpha: 0.14),
-                    border: cs.primary.withValues(alpha: 0.32),
+                    bg: cs.primary.withOpacity(0.14),
+                    border: cs.primary.withOpacity(0.32),
                   );
 
                   final flipChip = _ActionChip(
                     icon: Icons.touch_app_rounded,
                     label: 'Flip',
-                    fg: cs.onSurface.withValues(alpha: 0.75),
-                    bg: cs.onSurface.withValues(alpha: 0.06),
-                    border: cs.onSurface.withValues(alpha: 0.12),
+                    fg: cs.onSurface.withOpacity(0.75),
+                    bg: cs.onSurface.withOpacity(0.06),
+                    border: cs.onSurface.withOpacity(0.12),
                     compact: true,
                   );
 
                   final detailsHintChip = _ActionChip(
                     icon: Icons.open_in_new_rounded,
                     label: narrow ? '2× Details' : 'Double-tap details',
-                    fg: cs.onSurface.withValues(alpha: 0.70),
-                    bg: cs.onSurface.withValues(alpha: 0.05),
-                    border: cs.onSurface.withValues(alpha: 0.10),
+                    fg: cs.onSurface.withOpacity(0.70),
+                    bg: cs.onSurface.withOpacity(0.05),
+                    border: cs.onSurface.withOpacity(0.10),
                     compact: true,
                   );
 
@@ -742,13 +729,13 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               borderRadius: BorderRadius.circular(_outerRadius - 3),
               gradient: LinearGradient(
                 colors: [
-                  cs.onSurface.withValues(alpha: 0.050),
-                  cs.onSurface.withValues(alpha: 0.028),
+                  cs.onSurface.withOpacity(0.050),
+                  cs.onSurface.withOpacity(0.028),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+              border: Border.all(color: cs.onSurface.withOpacity(0.10)),
             ),
           ),
         ),
@@ -768,7 +755,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               borderRadius: BorderRadius.circular(_outerRadius - 3),
               child: CustomPaint(
                 painter: _NanoGridPainter(
-                  color: cs.onSurface.withValues(alpha: 0.09),
+                  color: cs.onSurface.withOpacity(0.09),
                 ),
               ),
             ),
@@ -826,8 +813,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                               boxShadow: [
                                 BoxShadow(
                                   color: theme.brightness == Brightness.light
-                                      ? cs.primary.withValues(alpha: 0.18)
-                                      : Colors.black.withValues(alpha: 0.18),
+                                      ? cs.primary.withOpacity(0.18)
+                                      : Colors.black.withOpacity(0.18),
                                   blurRadius: 22,
                                   offset: const Offset(0, 14),
                                 ),
@@ -848,7 +835,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     Text(
                       'Tap anywhere to flip back',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.68),
+                        color: cs.onSurface.withOpacity(0.68),
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -864,7 +851,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     Text(
                       'INVITE CODE',
                       style: theme.textTheme.labelMedium?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.65),
+                        color: cs.onSurface.withOpacity(0.65),
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.0,
                       ),
@@ -878,9 +865,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       ),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
-                        color: cs.onSurface.withValues(alpha: 0.06),
+                        color: cs.onSurface.withOpacity(0.06),
                         border: Border.all(
-                          color: cs.onSurface.withValues(alpha: 0.12),
+                          color: cs.onSurface.withOpacity(0.12),
                         ),
                       ),
                       child: Text(
@@ -891,8 +878,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           fontWeight: FontWeight.w900,
                           letterSpacing: 2.0,
                           color: code.isEmpty
-                              ? cs.onSurface.withValues(alpha: 0.35)
-                              : cs.onSurface.withValues(alpha: 0.92),
+                              ? cs.onSurface.withOpacity(0.35)
+                              : cs.onSurface.withOpacity(0.92),
                         ),
                       ),
                     ),
@@ -910,12 +897,12 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                             gradient: LinearGradient(
                               colors: code.isEmpty
                                   ? [
-                                      cs.onSurface.withValues(alpha: 0.08),
-                                      cs.onSurface.withValues(alpha: 0.06),
+                                      cs.onSurface.withOpacity(0.08),
+                                      cs.onSurface.withOpacity(0.06),
                                     ]
                                   : [
-                                      cs.primary.withValues(alpha: 0.90),
-                                      cs.secondary.withValues(alpha: 0.82),
+                                      cs.primary.withOpacity(0.90),
+                                      cs.secondary.withOpacity(0.82),
                                     ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
@@ -929,7 +916,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                   Icons.copy_rounded,
                                   size: 18,
                                   color: code.isEmpty
-                                      ? cs.onSurface.withValues(alpha: 0.45)
+                                      ? cs.onSurface.withOpacity(0.45)
                                       : Colors.white,
                                 ),
                                 const SizedBox(width: 10),
@@ -939,7 +926,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: 0.8,
                                     color: code.isEmpty
-                                        ? cs.onSurface.withValues(alpha: 0.45)
+                                        ? cs.onSurface.withOpacity(0.45)
                                         : Colors.white,
                                   ),
                                 ),
@@ -955,7 +942,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           ? 'No invite code available for this league.'
                           : 'Share this code with friends or let them scan the QR.',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.68),
+                        color: cs.onSurface.withOpacity(0.68),
                         fontWeight: FontWeight.w700,
                         height: 1.35,
                       ),
@@ -1009,10 +996,15 @@ class _LeagueHeroTile extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url, {required int width, required int height}) {
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    required int width,
+    required int height,
+  }) {
     final u = url.trim();
     if (u.isEmpty || u.startsWith('data:image')) return u;
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1057,7 +1049,8 @@ class _LeagueHeroTile extends StatelessWidget {
         filterQuality: FilterQuality.low,
       );
     } else if (raw.isNotEmpty && _looksLikeHttpUrl(raw)) {
-      final url = _cloudinaryOptimizedUrl(raw, width: _cachePx, height: _cachePx);
+      final url =
+          _cloudinaryOptimizedUrl(raw, width: _cachePx, height: _cachePx);
       inner = Image.network(
         url,
         fit: BoxFit.cover,
@@ -1082,15 +1075,15 @@ class _LeagueHeroTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(_radius),
         gradient: LinearGradient(
           colors: [
-            primary.withValues(alpha: 0.98),
-            secondary.withValues(alpha: 0.92),
+            primary.withOpacity(0.98),
+            secondary.withOpacity(0.92),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: primary.withValues(alpha: 0.25),
+            color: primary.withOpacity(0.25),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -1126,8 +1119,8 @@ class _GlowBlob extends StatelessWidget {
             shape: BoxShape.circle,
             gradient: RadialGradient(
               colors: [
-                color.withValues(alpha: opacity),
-                color.withValues(alpha: 0.0),
+                color.withOpacity(opacity),
+                color.withOpacity(0.0),
               ],
             ),
           ),
@@ -1218,13 +1211,13 @@ class _SoftStatusPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: cs.onSurface.withValues(alpha: 0.05),
-        border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+        color: cs.onSurface.withOpacity(0.05),
+        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: cs.onSurface.withValues(alpha: 0.55)),
+          Icon(icon, size: 16, color: cs.onSurface.withOpacity(0.55)),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -1232,7 +1225,7 @@ class _SoftStatusPill extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelMedium?.copyWith(
-                color: cs.onSurface.withValues(alpha: 0.65),
+                color: cs.onSurface.withOpacity(0.65),
                 fontWeight: FontWeight.w900,
               ),
             ),
@@ -1266,7 +1259,7 @@ class _MiniPill extends StatelessWidget {
         gradient: gradient,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
+            color: Colors.black.withOpacity(0.16),
             blurRadius: 14,
             offset: const Offset(0, 8),
           ),
@@ -1306,11 +1299,11 @@ class _NanoGridPainter extends CustomPainter {
     for (double x = -size.height; x < size.width + size.height; x += step) {
       final p1 = Offset(x, 0);
       final p2 = Offset(x + size.height, size.height);
-      canvas.drawLine(p1, p2, paint..color = color.withValues(alpha: 0.07));
+      canvas.drawLine(p1, p2, paint..color = color.withOpacity(0.07));
     }
 
     final dotPaint = Paint()
-      ..color = color.withValues(alpha: 0.08)
+      ..color = color.withOpacity(0.08)
       ..style = PaintingStyle.fill;
 
     final dx = math.max(28.0, size.width / 7);
@@ -1323,5 +1316,6 @@ class _NanoGridPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

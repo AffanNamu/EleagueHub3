@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
@@ -94,11 +93,6 @@ class _OrganizerProfileScreenState
         backgroundColor: error ? Theme.of(context).colorScheme.error : null,
       ),
     );
-  }
-
-  bool _looksLikeHttpUrl(String s) {
-    final u = s.trim().toLowerCase();
-    return u.startsWith('https://') || u.startsWith('http://');
   }
 
   String _cloudinaryOptimizedUrl(
@@ -380,7 +374,10 @@ class _OrganizerProfileScreenState
 
       final picked = pickResult.file!;
       if (picked.size > _maxBytes) {
-        _snack('Image too large. Please select an image under 5 MB.', error: true);
+        _snack(
+          'Image too large. Please select an image under 5 MB.',
+          error: true,
+        );
         return;
       }
 
@@ -401,8 +398,10 @@ class _OrganizerProfileScreenState
       await _save(ml);
       await _postProfileUpdateFeedEvent(ml);
     } catch (e) {
-      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
-          error: true);
+      _snack(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+        error: true,
+      );
     } finally {
       if (!mounted) return;
       setState(() {
@@ -1144,12 +1143,6 @@ class _OrganizerProfileScreenState
     bool isFollowing,
     int followersCount,
   ) {
-    final trustColor = ml.isVerifiedOrganizer
-        ? const Color(0xFF1D9BF0)
-        : (ml.isVerificationPending
-            ? const Color(0xFFF59E0B)
-            : cs.onSurface.withOpacity(0.60));
-
     final planColor = ml.plan == MasterLeaguePlan.elite
         ? const Color(0xFF8B5CF6)
         : (ml.plan == MasterLeaguePlan.pro
@@ -1172,127 +1165,147 @@ class _OrganizerProfileScreenState
           Stack(
             clipBehavior: Clip.none,
             children: [
-              _imageBox(
-                url: bannerUrl,
-                height: 220,
-                radius: BorderRadius.circular(24),
-                fallback: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    gradient: LinearGradient(
-                      colors: [
-                        cs.primary.withOpacity(0.22),
-                        const Color(0xFF1D9BF0).withOpacity(0.18),
-                        cs.secondary.withOpacity(0.10),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+              InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: ownerCanEdit
+                    ? () => _pickAndUploadOrganizerImage(ml, banner: true)
+                    : null,
+                child: Stack(
+                  children: [
+                    _imageBox(
+                      url: bannerUrl,
+                      height: 220,
+                      radius: BorderRadius.circular(24),
+                      fallback: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(24),
+                          gradient: LinearGradient(
+                            colors: [
+                              cs.primary.withOpacity(0.22),
+                              const Color(0xFF1D9BF0).withOpacity(0.18),
+                              cs.secondary.withOpacity(0.10),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.photo_size_select_actual_outlined,
+                            size: 48,
+                            color: cs.onSurface.withOpacity(0.32),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.photo_size_select_actual_outlined,
-                      size: 48,
-                      color: cs.onSurface.withOpacity(0.32),
-                    ),
-                  ),
+                    if (_uploadingBanner)
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            color: Colors.black.withOpacity(0.18),
+                          ),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 26,
+                              height: 26,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              if (ownerCanEdit)
-                Positioned(
-                  top: 12,
-                  right: 12,
-                  child: FilledButton.tonalIcon(
-                    onPressed: _uploadingBanner
-                        ? null
-                        : () => _pickAndUploadOrganizerImage(ml, banner: true),
-                    icon: _uploadingBanner
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.photo_camera_outlined, size: 18),
-                    label: Text(
-                      _uploadingBanner ? 'Uploading...' : 'Cover',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                ),
               Positioned(
                 left: 20,
                 bottom: -42,
                 child: Stack(
                   children: [
-                    Container(
-                      width: 96,
-                      height: 96,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: theme.scaffoldBackgroundColor,
-                        border: Border.all(
-                          color: theme.scaffoldBackgroundColor,
-                          width: 4,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.12),
-                            blurRadius: 18,
-                            spreadRadius: 1,
-                          ),
-                        ],
-                      ),
-                      child: ClipOval(
-                        child: logoUrl.isNotEmpty
-                            ? Image.network(
-                                _cloudinaryOptimizedUrl(
-                                  logoUrl,
-                                  width: 300,
-                                  height: 300,
-                                  crop: 'fill',
-                                ),
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => _logoFallback(cs),
+                    InkWell(
+                      onTap: ownerCanEdit
+                          ? () => _pickAndUploadOrganizerImage(
+                                ml,
+                                banner: false,
                               )
-                            : _logoFallback(cs),
+                          : null,
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        width: 96,
+                        height: 96,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: theme.scaffoldBackgroundColor,
+                          border: Border.all(
+                            color: theme.scaffoldBackgroundColor,
+                            width: 4,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.12),
+                              blurRadius: 18,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        ),
+                        child: ClipOval(
+                          child: logoUrl.isNotEmpty
+                              ? Image.network(
+                                  _cloudinaryOptimizedUrl(
+                                    logoUrl,
+                                    width: 300,
+                                    height: 300,
+                                    crop: 'fill',
+                                  ),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) =>
+                                      _logoFallback(cs),
+                                )
+                              : _logoFallback(cs),
+                        ),
                       ),
                     ),
-                    if (ownerCanEdit)
+                    if (_uploadingLogo)
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.black.withOpacity(0.22),
+                          ),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (ownerCanEdit && !_uploadingLogo)
                       Positioned(
                         right: 0,
                         bottom: 0,
-                        child: InkWell(
-                          onTap: _uploadingLogo
-                              ? null
-                              : () => _pickAndUploadOrganizerImage(
-                                    ml,
-                                    banner: false,
-                                  ),
-                          borderRadius: BorderRadius.circular(999),
-                          child: Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: cs.primary,
-                              border: Border.all(
-                                color: theme.scaffoldBackgroundColor,
-                                width: 2,
-                              ),
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: cs.primary,
+                            border: Border.all(
+                              color: theme.scaffoldBackgroundColor,
+                              width: 2,
                             ),
-                            child: _uploadingLogo
-                                ? const Padding(
-                                    padding: EdgeInsets.all(7),
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.camera_alt_rounded,
-                                    size: 16,
-                                    color: Colors.white,
-                                  ),
+                          ),
+                          child: const Icon(
+                            Icons.camera_alt_rounded,
+                            size: 16,
+                            color: Colors.white,
                           ),
                         ),
                       ),
@@ -1354,7 +1367,9 @@ class _OrganizerProfileScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            ownerName.isNotEmpty ? 'Managed by $ownerName' : 'Managed by Organizer',
+            ownerName.isNotEmpty
+                ? 'Managed by $ownerName'
+                : 'Managed by Organizer',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: cs.onSurface.withOpacity(0.72),
               fontWeight: FontWeight.w700,
@@ -1657,99 +1672,6 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _appearanceSection(MasterLeague ml, ThemeData theme, ColorScheme cs) {
-    return Glass(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SectionHeader(
-            'Brand Appearance',
-            padding: EdgeInsets.zero,
-            trailing: Icon(Icons.palette_outlined, color: cs.primary),
-          ),
-          const SizedBox(height: 10),
-          if (!ml.isOwner(_uid))
-            Text(
-              'Only the owner can edit banner, logo, and badge.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.65),
-                fontWeight: FontWeight.w700,
-              ),
-            )
-          else ...[
-            TextField(
-              controller: _badgeCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Organizer badge (optional)',
-                prefixIcon: Icon(Icons.verified_outlined),
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _bannerCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Banner image URL (optional)',
-                prefixIcon: Icon(Icons.image_outlined),
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _logoCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Logo image URL (optional)',
-                prefixIcon: Icon(Icons.image_outlined),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _uploadingBanner
-                        ? null
-                        : () => _pickAndUploadOrganizerImage(ml, banner: true),
-                    icon: _uploadingBanner
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.wallpaper_outlined),
-                    label: const Text(
-                      'Upload Cover',
-                      style: TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _uploadingLogo
-                        ? null
-                        : () => _pickAndUploadOrganizerImage(ml, banner: false),
-                    icon: _uploadingLogo
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.account_circle_outlined),
-                    label: const Text(
-                      'Upload Logo',
-                      style: TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _competitionHistory(MasterLeague ml, ThemeData theme, ColorScheme cs) {
     return Glass(
       borderRadius: 24,
@@ -2013,20 +1935,7 @@ class _OrganizerProfileScreenState
                         const SizedBox(height: 16),
                         _verificationStatusCard(ml, theme, cs),
                         const SizedBox(height: 16),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 6,
-                              child: _aboutSection(ml, theme, cs),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              flex: 5,
-                              child: _appearanceSection(ml, theme, cs),
-                            ),
-                          ],
-                        ),
+                        _aboutSection(ml, theme, cs),
                         const SizedBox(height: 16),
                         _socialLinksSection(ml, theme, cs),
                         const SizedBox(height: 16),

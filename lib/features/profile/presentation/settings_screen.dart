@@ -44,7 +44,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
   final TextEditingController _quickInput = TextEditingController();
   bool _savingQuick = false;
-  String? _busyVerificationWorkspaceId;
+  bool _verificationBusy = false;
 
   static const Map<String, String> _languageAutonyms = {
     'en': 'English',
@@ -287,10 +287,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-  Future<void> _handleVerificationAction(MasterLeague workspace) async {
-    if (_busyVerificationWorkspaceId != null) return;
+  Future<MasterLeague?> _resolveVerificationWorkspace(
+    List<MasterLeague> items,
+  ) async {
+    if (items.isEmpty) return null;
 
-    setState(() => _busyVerificationWorkspaceId = workspace.id);
+    for (final item in items) {
+      if (!item.isVerifiedOrganizer && !item.isVerificationPending) {
+        return item;
+      }
+    }
+
+    for (final item in items) {
+      if (item.verificationExpired && item.canRenewVerification) {
+        return item;
+      }
+    }
+
+    return items.first;
+  }
+
+  Future<void> _handleVerificationAction(MasterLeague workspace) async {
+    if (_verificationBusy) return;
+
+    setState(() => _verificationBusy = true);
     try {
       final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
       final repo = ref.read(masterLeaguesRepositoryProvider);
@@ -371,25 +391,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     } catch (e) {
       _snack('$e', error: true);
     } finally {
-      if (mounted) setState(() => _busyVerificationWorkspaceId = null);
+      if (mounted) setState(() => _verificationBusy = false);
     }
-  }
-
-  List<MasterLeague> _sortVerificationWorkspaces(List<MasterLeague> items) {
-    final sorted = [...items];
-    int rank(MasterLeague w) {
-      if (w.isVerifiedOrganizer) return 0;
-      if (w.isVerificationPending) return 1;
-      if (w.verificationExpired) return 2;
-      return 3;
-    }
-
-    sorted.sort((a, b) {
-      final byRank = rank(a).compareTo(rank(b));
-      if (byRank != 0) return byRank;
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    });
-    return sorted;
   }
 
   String _themeModeLabel(ThemeMode mode, AppLocalizations l10n) {
@@ -527,6 +530,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     ],
                   ),
                 ),
+
                 const SizedBox(height: 16),
 
                 _SectionLabel(
@@ -567,45 +571,163 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       );
                     }
 
-                    final sorted = _sortVerificationWorkspaces(items);
+                    return FutureBuilder<MasterLeague?>(
+                      future: _resolveVerificationWorkspace(items),
+                      builder: (context, snap) {
+                        final workspace = snap.data;
 
-                    return Glass(
-                      borderRadius: 20,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Organizer Workspaces',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              color: onSurface,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Manage verification status for each organizer workspace you own. Payment is connected to your verification flow from here.',
-                            style: TextStyle(
-                              color: onSurface.withOpacity(0.62),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                              height: 1.35,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          ...sorted.map(
-                            (workspace) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _VerificationWorkspaceCard(
-                                workspace: workspace,
-                                busy: _busyVerificationWorkspaceId == workspace.id,
-                                onPressed: () =>
-                                    _handleVerificationAction(workspace),
+                        if (workspace == null) {
+                          return Glass(
+                            borderRadius: 20,
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              'No organizer workspace is currently available for verification.',
+                              style: TextStyle(
+                                color: onSurface.withOpacity(0.68),
+                                fontWeight: FontWeight.w700,
+                                height: 1.35,
                               ),
                             ),
+                          );
+                        }
+
+                        Color statusColor;
+                        IconData statusIcon;
+                        String statusTitle;
+                        String statusSubtitle;
+                        String actionLabel = '';
+
+                        if (workspace.isVerifiedOrganizer) {
+                          statusColor = const Color(0xFF1D9BF0);
+                          statusIcon = Icons.verified_rounded;
+                          statusTitle = 'Verified';
+                          statusSubtitle =
+                              'Your organizer is already verified.';
+                        } else if (workspace.isVerificationPending) {
+                          statusColor = const Color(0xFFF59E0B);
+                          statusIcon = Icons.hourglass_top_rounded;
+                          statusTitle = 'Verification Pending';
+                          statusSubtitle =
+                              'Your verification request is currently under review.';
+                        } else if (workspace.verificationExpired &&
+                            workspace.canRenewVerification) {
+                          statusColor = const Color(0xFFF59E0B);
+                          statusIcon = Icons.refresh_rounded;
+                          statusTitle = 'Verification Expired';
+                          statusSubtitle =
+                              'Renew your organizer verification to restore the verified badge.';
+                          actionLabel = 'Get Verified';
+                        } else {
+                          statusColor = onSurface.withOpacity(0.60);
+                          statusIcon = Icons.verified_outlined;
+                          statusTitle = 'Not Verified';
+                          statusSubtitle =
+                              'Get verified to show trust and authenticity beside your organizer name.';
+                          actionLabel = 'Get Verified';
+                        }
+
+                        final canPress = !workspace.isVerifiedOrganizer &&
+                            !workspace.isVerificationPending;
+
+                        return Glass(
+                          borderRadius: 20,
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: statusColor.withOpacity(0.12),
+                                      border: Border.all(
+                                        color: statusColor.withOpacity(0.24),
+                                      ),
+                                    ),
+                                    child: Icon(statusIcon, color: statusColor),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          statusTitle,
+                                          style: TextStyle(
+                                            color: statusColor,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          workspace.name.trim().isEmpty
+                                              ? 'Organizer Workspace'
+                                              : workspace.name.trim(),
+                                          style: TextStyle(
+                                            color: onSurface,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                statusSubtitle,
+                                style: TextStyle(
+                                  color: onSurface.withOpacity(0.62),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                  height: 1.35,
+                                ),
+                              ),
+                              if (canPress) ...[
+                                const SizedBox(height: 14),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton.icon(
+                                    onPressed: _verificationBusy
+                                        ? null
+                                        : () => _handleVerificationAction(
+                                              workspace,
+                                            ),
+                                    icon: _verificationBusy
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : Icon(
+                                            workspace.verificationExpired
+                                                ? Icons.refresh_rounded
+                                                : Icons.verified_user_outlined,
+                                          ),
+                                    label: Text(
+                                      _verificationBusy
+                                          ? 'Processing...'
+                                          : actionLabel,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     );
                   },
                 ),
@@ -1271,330 +1393,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ),
         );
       },
-    );
-  }
-}
-
-class _VerificationWorkspaceCard extends StatelessWidget {
-  const _VerificationWorkspaceCard({
-    required this.workspace,
-    required this.busy,
-    required this.onPressed,
-  });
-
-  final MasterLeague workspace;
-  final bool busy;
-  final VoidCallback onPressed;
-
-  String _expiryText() {
-    if (workspace.verificationExpiresAtMs <= 0) return 'No expiry';
-    return DateTime.fromMillisecondsSinceEpoch(
-      workspace.verificationExpiresAtMs,
-    ).toLocal().toString().split('.').first;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-
-    Color statusColor;
-    IconData statusIcon;
-    String statusTitle;
-    String statusSubtitle;
-    String buttonLabel = '';
-
-    if (workspace.isVerifiedOrganizer) {
-      statusColor = const Color(0xFF1D9BF0);
-      statusIcon = Icons.verified_rounded;
-      statusTitle = 'Verified';
-      statusSubtitle =
-          'This organizer workspace has been reviewed and verified.';
-    } else if (workspace.isVerificationPending) {
-      statusColor = const Color(0xFFF59E0B);
-      statusIcon = Icons.hourglass_top_rounded;
-      statusTitle = 'Verification Pending';
-      statusSubtitle = 'This organizer workspace is currently under review.';
-    } else if (workspace.verificationExpired && workspace.canRenewVerification) {
-      statusColor = const Color(0xFFF59E0B);
-      statusIcon = Icons.refresh_rounded;
-      statusTitle = 'Verification Expired';
-      statusSubtitle = 'Renew verification for this organizer workspace.';
-      buttonLabel = 'Renew Verification';
-    } else {
-      statusColor = onSurface.withOpacity(0.60);
-      statusIcon = Icons.verified_outlined;
-      statusTitle = 'Not Verified';
-      statusSubtitle = 'Request verification for this organizer workspace.';
-      buttonLabel = 'Get Verified';
-    }
-
-    final canTap =
-        !workspace.isVerifiedOrganizer && !workspace.isVerificationPending;
-
-    final bannerUrl = workspace.organizerProfile.bannerUrl.trim();
-    final logoUrl = workspace.organizerProfile.logoUrl.trim();
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: () => Navigator.of(context).pushNamed(
-        '/master-leagues/${workspace.id}/organizer-profile',
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: onSurface.withOpacity(0.04),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: onSurface.withOpacity(0.08)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(20),
-                  ),
-                  child: bannerUrl.isNotEmpty
-                      ? Image.network(
-                          bannerUrl,
-                          height: 110,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _bannerFallback(cs),
-                        )
-                      : _bannerFallback(cs),
-                ),
-                Positioned(
-                  left: 16,
-                  bottom: -24,
-                  child: Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: theme.scaffoldBackgroundColor,
-                      border: Border.all(
-                        color: theme.scaffoldBackgroundColor,
-                        width: 3,
-                      ),
-                    ),
-                    child: ClipOval(
-                      child: logoUrl.isNotEmpty
-                          ? Image.network(
-                              logoUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _logoFallback(cs),
-                            )
-                          : _logoFallback(cs),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  right: 12,
-                  top: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
-                      color: statusColor.withOpacity(0.12),
-                      border: Border.all(color: statusColor.withOpacity(0.26)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(statusIcon, size: 14, color: statusColor),
-                        const SizedBox(width: 6),
-                        Text(
-                          statusTitle,
-                          style: TextStyle(
-                            color: statusColor,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 32, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          workspace.name.trim().isEmpty
-                              ? 'Organizer Workspace'
-                              : workspace.name.trim(),
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: onSurface,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      if (workspace.isVerifiedOrganizer)
-                        const Icon(
-                          Icons.verified_rounded,
-                          color: Color(0xFF1D9BF0),
-                          size: 18,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    statusSubtitle,
-                    style: TextStyle(
-                      color: onSurface.withOpacity(0.64),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                      height: 1.3,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _miniInfoChip(
-                        cs,
-                        icon: Icons.workspace_premium_rounded,
-                        label: workspace.plan.displayName,
-                      ),
-                      _miniInfoChip(
-                        cs,
-                        icon: Icons.schedule_rounded,
-                        label: _expiryText(),
-                      ),
-                      _miniInfoChip(
-                        cs,
-                        icon: Icons.favorite_border_rounded,
-                        label:
-                            '${workspace.followersCount} follower${workspace.followersCount == 1 ? '' : 's'}',
-                      ),
-                    ],
-                  ),
-                  if (canTap) ...[
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: busy ? null : onPressed,
-                        icon: busy
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Icon(
-                                workspace.verificationExpired
-                                    ? Icons.refresh_rounded
-                                    : Icons.verified_user_outlined,
-                              ),
-                        label: Text(
-                          busy ? 'Processing...' : buttonLabel,
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ),
-                  ] else ...[
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context)
-                              .pushNamed('/master-leagues/${workspace.id}/organizer-profile');
-                        },
-                        icon: const Icon(Icons.open_in_new_rounded),
-                        label: const Text(
-                          'Open Organizer Profile',
-                          style: TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _bannerFallback(ColorScheme cs) {
-    return Container(
-      height: 110,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            cs.primary.withOpacity(0.20),
-            const Color(0xFF1D9BF0).withOpacity(0.12),
-            cs.secondary.withOpacity(0.08),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Center(
-        child: Icon(
-          Icons.photo_size_select_actual_outlined,
-          color: cs.onSurface.withOpacity(0.28),
-          size: 34,
-        ),
-      ),
-    );
-  }
-
-  Widget _logoFallback(ColorScheme cs) {
-    return Container(
-      color: cs.primary.withOpacity(0.10),
-      child: Center(
-        child: Icon(Icons.hub_rounded, color: cs.primary, size: 24),
-      ),
-    );
-  }
-
-  Widget _miniInfoChip(
-    ColorScheme cs, {
-    required IconData icon,
-    required String label,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: cs.primary.withOpacity(0.06),
-        border: Border.all(color: cs.primary.withOpacity(0.14)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: cs.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: cs.onSurface,
-              fontWeight: FontWeight.w800,
-              fontSize: 11,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
