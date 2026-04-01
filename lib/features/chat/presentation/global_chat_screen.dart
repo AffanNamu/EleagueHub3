@@ -33,8 +33,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
 
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
-
-  // Swipe-to-reply state (WhatsApp-style)
   final ValueNotifier<ChatMessage?> _replyTo = ValueNotifier<ChatMessage?>(null);
 
   bool _sending = false;
@@ -47,6 +45,10 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   Set<String> _globalChatAdmins = <String>{};
   bool _allowSenderPinGlobal = false;
 
+  bool _globalChatMuted = false;
+  bool _globalChatBanned = false;
+  bool _globalModerationResolved = false;
+
   User get _user => FirebaseAuth.instance.currentUser!;
 
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
@@ -55,11 +57,41 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
   bool get _isGlobalAdmin => _globalChatAdmins.contains(_user.uid.trim());
 
+  DocumentReference<Map<String, dynamic>> get _globalModerationDoc =>
+      FirebaseFirestore.instance
+          .collection('app')
+          .doc('chatModeration')
+          .collection('users')
+          .doc(_user.uid.trim());
+
+  bool get _chatBlocked => _globalChatBanned && !_isSuperAdmin;
+  bool get _chatReadOnly => _globalChatMuted && !_isSuperAdmin;
+
   @override
   void initState() {
     super.initState();
     _resolveIdentity();
     _listenAdminsDoc();
+    _watchGlobalModeration();
+  }
+
+  void _watchGlobalModeration() {
+    _globalModerationDoc.snapshots(includeMetadataChanges: true).listen((snap) {
+      final data = snap.data() ?? <String, dynamic>{};
+      if (!mounted) return;
+      setState(() {
+        _globalChatMuted = data['allChatMuted'] == true;
+        _globalChatBanned = data['allChatBanned'] == true;
+        _globalModerationResolved = true;
+      });
+    }, onError: (_) {
+      if (!mounted) return;
+      setState(() {
+        _globalChatMuted = false;
+        _globalChatBanned = false;
+        _globalModerationResolved = true;
+      });
+    });
   }
 
   void _listenAdminsDoc() {
@@ -181,6 +213,14 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   Future<void> _sendText() async {
+    if (_chatBlocked) {
+      _toast('You are banned from Global Chat.', error: true);
+      return;
+    }
+    if (_chatReadOnly) {
+      _toast('You are muted in Global Chat.', error: true);
+      return;
+    }
     if (_isSelecting) return;
 
     final raw = _textCtrl.text.trim();
@@ -216,6 +256,14 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   Future<void> _pickAndSendImage() async {
+    if (_chatBlocked) {
+      _toast('You are banned from Global Chat.', error: true);
+      return;
+    }
+    if (_chatReadOnly) {
+      _toast('You are muted in Global Chat.', error: true);
+      return;
+    }
     if (_sending || _isSelecting) return;
 
     final reply = _replyTo.value;
@@ -430,11 +478,70 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     );
   }
 
+  Widget _moderationBanner(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_globalModerationResolved && _chatBlocked) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Glass(
+          borderRadius: 18,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Icon(Icons.block_rounded, color: theme.colorScheme.error),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'You are banned from Global Chat. You can no longer send messages here.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_globalModerationResolved && _chatReadOnly) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Glass(
+          borderRadius: 18,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              const Icon(Icons.volume_off_rounded, color: Color(0xFFF59E0B)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'You are muted in Global Chat. You can read messages but cannot send new ones.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFFF59E0B),
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
   Widget _chatBody({required bool canSend}) {
     final theme = Theme.of(context);
 
     return Column(
       children: [
+        _moderationBanner(context),
         StreamBuilder<ChatMessage?>(
           stream: _repo.globalPinnedMessageStream(),
           builder: (context, snap) {
@@ -536,8 +643,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                           selected: selectedId == m.messageId,
                           onLongPress: () {
                             HapticFeedback.mediumImpact();
-                            _replyTo.value =
-                                null; // WhatsApp-like: selection cancels reply
+                            _replyTo.value = null;
                             _selectedMessageId.value = m.messageId;
                           },
                           onTap: () {
@@ -561,26 +667,27 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
             },
           ),
         ),
-        AnimatedBuilder(
-          animation: Listenable.merge([_selectedMessageId, _replyTo]),
-          builder: (context, _) {
-            final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
-            final reply = _replyTo.value;
+        if (!_chatBlocked)
+          AnimatedBuilder(
+            animation: Listenable.merge([_selectedMessageId, _replyTo]),
+            builder: (context, _) {
+              final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
+              final reply = _replyTo.value;
 
-            return ChatInputBar(
-              controller: _textCtrl,
-              isSending: _sending,
-              codeMode: _codeMode,
-              enabled: canSend && !selecting,
-              onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
-              onPickImage: _pickAndSendImage,
-              onSend: _sendText,
-              replySenderName: reply?.displaySenderName,
-              replyPreview: reply?.replyPreview(),
-              onCancelReply: () => _replyTo.value = null,
-            );
-          },
-        ),
+              return ChatInputBar(
+                controller: _textCtrl,
+                isSending: _sending,
+                codeMode: _codeMode,
+                enabled: canSend && !selecting && !_chatReadOnly && !_chatBlocked,
+                onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
+                onPickImage: _chatReadOnly ? null : _pickAndSendImage,
+                onSend: _chatReadOnly ? null : _sendText,
+                replySenderName: reply?.displaySenderName,
+                replyPreview: reply?.replyPreview(),
+                onCancelReply: () => _replyTo.value = null,
+              );
+            },
+          ),
       ],
     );
   }
@@ -598,7 +705,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     final bypassRequest = _isSuperAdmin;
 
     return WillPopScope(

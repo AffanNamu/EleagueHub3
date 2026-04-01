@@ -18,28 +18,41 @@ class ChatRepository {
   final CloudinaryUploadService _cloudinary;
   final UserProfileRepository _profileRepo;
 
-  // ===== Firestore paths =====
-
   CollectionReference<Map<String, dynamic>> _leagueChatCol(String leagueId) {
     return _firestore.collection('leagues').doc(leagueId).collection('chatroom');
   }
 
-  CollectionReference<Map<String, dynamic>> get _globalChatCol => _firestore.collection('globalChatroom');
+  CollectionReference<Map<String, dynamic>> _organizerChatCol(String masterLeagueId) {
+    return _firestore
+        .collection('master_leagues')
+        .doc(masterLeagueId)
+        .collection('chatroom');
+  }
+
+  CollectionReference<Map<String, dynamic>> get _globalChatCol =>
+      _firestore.collection('globalChatroom');
 
   DocumentReference<Map<String, dynamic>> globalChatRequestDoc(String uid) {
     return _firestore.collection('globalChatRequests').doc(uid);
   }
 
-  DocumentReference<Map<String, dynamic>> get _appAdminsDoc => _firestore.collection('app').doc('admins');
+  DocumentReference<Map<String, dynamic>> get _appAdminsDoc =>
+      _firestore.collection('app').doc('admins');
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> appAdminsDocStream() {
     return _appAdminsDoc.snapshots();
   }
 
-  // ===== Streams =====
-
   Stream<List<ChatMessage>> leagueChatStream(String leagueId, {int limit = 100}) {
     return _leagueChatCol(leagueId)
+        .orderBy('createdAtMs', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snap) => snap.docs.map(ChatMessage.fromDoc).toList());
+  }
+
+  Stream<List<ChatMessage>> organizerChatStream(String masterLeagueId, {int limit = 100}) {
+    return _organizerChatCol(masterLeagueId)
         .orderBy('createdAtMs', descending: true)
         .limit(limit)
         .snapshots()
@@ -63,6 +76,15 @@ class ChatRepository {
         .map((snap) => snap.docs.isEmpty ? null : ChatMessage.fromDoc(snap.docs.first));
   }
 
+  Stream<ChatMessage?> organizerPinnedMessageStream(String masterLeagueId) {
+    return _organizerChatCol(masterLeagueId)
+        .where('pinned', isEqualTo: true)
+        .orderBy('pinnedAt', descending: true)
+        .limit(1)
+        .snapshots()
+        .map((snap) => snap.docs.isEmpty ? null : ChatMessage.fromDoc(snap.docs.first));
+  }
+
   Stream<ChatMessage?> globalPinnedMessageStream() {
     return _globalChatCol
         .where('pinned', isEqualTo: true)
@@ -72,8 +94,6 @@ class ChatRepository {
         .map((snap) => snap.docs.isEmpty ? null : ChatMessage.fromDoc(snap.docs.first));
   }
 
-  // ===== Cloudinary upload =====
-
   Future<String> uploadLeagueChatImage({
     required String leagueId,
     required PlatformFile file,
@@ -81,6 +101,16 @@ class ChatRepository {
     return _cloudinary.uploadChatImage(
       file: file,
       folder: 'eleaguehub/chatrooms/leagues/$leagueId',
+    );
+  }
+
+  Future<String> uploadOrganizerChatImage({
+    required String masterLeagueId,
+    required PlatformFile file,
+  }) {
+    return _cloudinary.uploadChatImage(
+      file: file,
+      folder: 'eleaguehub/chatrooms/master_leagues/$masterLeagueId',
     );
   }
 
@@ -103,7 +133,15 @@ class ChatRepository {
     );
   }
 
-  // ===== Resolve sender display info from Firestore profile =====
+  Future<String> uploadOrganizerChatVoice({
+    required String masterLeagueId,
+    required PlatformFile file,
+  }) {
+    return _cloudinary.uploadChatVoice(
+      file: file,
+      folder: 'chat_voice_messages/master_leagues/$masterLeagueId',
+    );
+  }
 
   Future<({String name, String photo})> resolveSenderIdentity({
     required String uid,
@@ -116,7 +154,9 @@ class ChatRepository {
         return (name: fallbackName, photo: fallbackPhoto);
       }
 
-      final resolvedName = profile.teamName.trim().isNotEmpty ? profile.teamName.trim() : fallbackName;
+      final resolvedName = profile.teamName.trim().isNotEmpty
+          ? profile.teamName.trim()
+          : fallbackName;
 
       String resolvedPhoto = fallbackPhoto;
       try {
@@ -142,8 +182,6 @@ class ChatRepository {
     }
   }
 
-  // ===== Send messages (now supports replies) =====
-
   Future<void> sendLeagueMessage({
     required String leagueId,
     required String senderId,
@@ -153,11 +191,7 @@ class ChatRepository {
     String text = '',
     String imageUrl = '',
     String voiceUrl = '',
-
-    /// Optional: provide a messageId to keep client-side correlation (e.g., push notifications).
     String messageIdOverride = '',
-
-    // Reply payload (optional)
     String replyToMessageId = '',
     String replyToSenderName = '',
     String replyToText = '',
@@ -166,7 +200,9 @@ class ChatRepository {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     final col = _leagueChatCol(leagueId);
-    final doc = messageIdOverride.trim().isNotEmpty ? col.doc(messageIdOverride.trim()) : col.doc();
+    final doc = messageIdOverride.trim().isNotEmpty
+        ? col.doc(messageIdOverride.trim())
+        : col.doc();
 
     final safeName = senderName.trim().isEmpty ? 'Player' : senderName.trim();
     final safePhoto = senderPhoto.trim();
@@ -185,16 +221,66 @@ class ChatRepository {
         'timestamp': nowMs,
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
-
-        // Pin/mod defaults
         'pinned': false,
         'pinnedAt': null,
         'pinnedBy': '',
         'deleted': false,
         'deletedAt': null,
         'deletedBy': '',
+        'replyToMessageId': replyToMessageId.trim(),
+        'replyToSenderName': replyToSenderName.trim(),
+        'replyToText': replyToText.trim(),
+        'replyToType': replyToType.trim(),
+      },
+      SetOptions(merge: false),
+    );
+  }
 
-        // Reply fields (always present; empty means "no reply")
+  Future<void> sendOrganizerMessage({
+    required String masterLeagueId,
+    required String senderId,
+    required String senderName,
+    required String senderPhoto,
+    required String type,
+    String text = '',
+    String imageUrl = '',
+    String voiceUrl = '',
+    String messageIdOverride = '',
+    String replyToMessageId = '',
+    String replyToSenderName = '',
+    String replyToText = '',
+    String replyToType = '',
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    final col = _organizerChatCol(masterLeagueId);
+    final doc = messageIdOverride.trim().isNotEmpty
+        ? col.doc(messageIdOverride.trim())
+        : col.doc();
+
+    final safeName = senderName.trim().isEmpty ? 'Player' : senderName.trim();
+    final safePhoto = senderPhoto.trim();
+
+    await doc.set(
+      <String, dynamic>{
+        'messageId': doc.id,
+        'senderId': senderId.trim(),
+        'senderName': safeName,
+        'senderPhoto': safePhoto,
+        'text': text.trim(),
+        'imageUrl': imageUrl.trim(),
+        'voiceUrl': voiceUrl.trim(),
+        'type': type.trim().isEmpty ? ChatMessageType.text : type.trim(),
+        'masterLeagueId': masterLeagueId.trim(),
+        'timestamp': nowMs,
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdAtMs': nowMs,
+        'pinned': false,
+        'pinnedAt': null,
+        'pinnedBy': '',
+        'deleted': false,
+        'deletedAt': null,
+        'deletedBy': '',
         'replyToMessageId': replyToMessageId.trim(),
         'replyToSenderName': replyToSenderName.trim(),
         'replyToText': replyToText.trim(),
@@ -212,8 +298,6 @@ class ChatRepository {
     String text = '',
     String imageUrl = '',
     String voiceUrl = '',
-
-    // Reply payload (optional)
     String replyToMessageId = '',
     String replyToSenderName = '',
     String replyToText = '',
@@ -238,16 +322,12 @@ class ChatRepository {
         'timestamp': nowMs,
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMs': nowMs,
-
-        // Pin/mod defaults
         'pinned': false,
         'pinnedAt': null,
         'pinnedBy': '',
         'deleted': false,
         'deletedAt': null,
         'deletedBy': '',
-
-        // Reply fields
         'replyToMessageId': replyToMessageId.trim(),
         'replyToSenderName': replyToSenderName.trim(),
         'replyToText': replyToText.trim(),
@@ -257,8 +337,6 @@ class ChatRepository {
     );
   }
 
-  // ===== Pinning =====
-
   Future<void> pinLeagueMessage({
     required String leagueId,
     required String messageId,
@@ -267,7 +345,46 @@ class ChatRepository {
     final col = _leagueChatCol(leagueId);
     final targetRef = col.doc(messageId);
 
-    final prevPinnedSnap = await col.where('pinned', isEqualTo: true).orderBy('pinnedAt', descending: true).limit(1).get();
+    final prevPinnedSnap = await col
+        .where('pinned', isEqualTo: true)
+        .orderBy('pinnedAt', descending: true)
+        .limit(1)
+        .get();
+
+    final prevRef = prevPinnedSnap.docs.isEmpty ? null : prevPinnedSnap.docs.first.reference;
+
+    final batch = _firestore.batch();
+
+    if (prevRef != null && prevRef.id != messageId) {
+      batch.update(prevRef, <String, dynamic>{
+        'pinned': false,
+        'pinnedAt': null,
+        'pinnedBy': '',
+      });
+    }
+
+    batch.update(targetRef, <String, dynamic>{
+      'pinned': true,
+      'pinnedAt': FieldValue.serverTimestamp(),
+      'pinnedBy': pinnedBy.trim(),
+    });
+
+    await batch.commit();
+  }
+
+  Future<void> pinOrganizerMessage({
+    required String masterLeagueId,
+    required String messageId,
+    required String pinnedBy,
+  }) async {
+    final col = _organizerChatCol(masterLeagueId);
+    final targetRef = col.doc(messageId);
+
+    final prevPinnedSnap = await col
+        .where('pinned', isEqualTo: true)
+        .orderBy('pinnedAt', descending: true)
+        .limit(1)
+        .get();
 
     final prevRef = prevPinnedSnap.docs.isEmpty ? null : prevPinnedSnap.docs.first.reference;
 
@@ -307,7 +424,11 @@ class ChatRepository {
       return;
     }
 
-    final prevPinnedSnap = await col.where('pinned', isEqualTo: true).orderBy('pinnedAt', descending: true).limit(1).get();
+    final prevPinnedSnap = await col
+        .where('pinned', isEqualTo: true)
+        .orderBy('pinnedAt', descending: true)
+        .limit(1)
+        .get();
 
     final prevRef = prevPinnedSnap.docs.isEmpty ? null : prevPinnedSnap.docs.first.reference;
 
@@ -330,14 +451,27 @@ class ChatRepository {
     await batch.commit();
   }
 
-  // ===== Moderation delete (soft delete) =====
-
   Future<void> softDeleteLeagueMessage({
     required String leagueId,
     required String messageId,
     required String deletedBy,
   }) async {
     await _leagueChatCol(leagueId).doc(messageId).update(<String, dynamic>{
+      'deleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedBy': deletedBy.trim(),
+      'pinned': false,
+      'pinnedAt': null,
+      'pinnedBy': '',
+    });
+  }
+
+  Future<void> softDeleteOrganizerMessage({
+    required String masterLeagueId,
+    required String messageId,
+    required String deletedBy,
+  }) async {
+    await _organizerChatCol(masterLeagueId).doc(messageId).update(<String, dynamic>{
       'deleted': true,
       'deletedAt': FieldValue.serverTimestamp(),
       'deletedBy': deletedBy.trim(),
@@ -361,8 +495,6 @@ class ChatRepository {
     });
   }
 
-  // ===== Legacy hard delete (compat) =====
-
   Future<void> deleteGlobalMessage(String messageId) async {
     await _globalChatCol.doc(messageId).delete();
   }
@@ -372,5 +504,12 @@ class ChatRepository {
     required String messageId,
   }) async {
     await _leagueChatCol(leagueId).doc(messageId).delete();
+  }
+
+  Future<void> deleteOrganizerMessage({
+    required String masterLeagueId,
+    required String messageId,
+  }) async {
+    await _organizerChatCol(masterLeagueId).doc(messageId).delete();
   }
 }

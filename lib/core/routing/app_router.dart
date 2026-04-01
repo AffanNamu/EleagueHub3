@@ -22,6 +22,7 @@ import '../../features/call/presentation/call_room_screen.dart';
 import '../../features/chat/presentation/global_chat_admin_requests_screen.dart';
 import '../../features/chat/presentation/global_chat_screen.dart';
 import '../../features/chat/presentation/league_chat_screen.dart';
+import '../../features/chat/presentation/organizer_chat_screen.dart';
 import '../../features/home/presentation/home_shell.dart';
 import '../../features/leagues/models/league_format.dart';
 import '../../features/leagues/presentation/add_teams_screen.dart';
@@ -48,6 +49,7 @@ import '../../features/master_leagues/presentation/create_master_league_screen.d
 import '../../features/master_leagues/presentation/followed_organizer_feed_screen.dart';
 import '../../features/master_leagues/presentation/master_league_details_screen.dart';
 import '../../features/master_leagues/presentation/master_leagues_list_screen.dart';
+import '../../features/master_leagues/presentation/organizer_discipline_screen.dart';
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
@@ -485,6 +487,20 @@ final appRouter = GoRouter(
               builder: (context, state) => MasterLeagueDetailsScreen(
                 masterLeagueId: state.pathParameters['id']!,
               ),
+              routes: [
+                GoRoute(
+                  path: 'chat',
+                  builder: (context, state) => OrganizerChatScreen(
+                    masterLeagueId: state.pathParameters['id']!,
+                  ),
+                ),
+                GoRoute(
+                  path: 'discipline',
+                  builder: (context, state) => OrganizerDisciplineScreen(
+                    masterLeagueId: state.pathParameters['id']!,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

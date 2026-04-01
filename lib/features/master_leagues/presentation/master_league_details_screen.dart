@@ -1472,6 +1472,22 @@ class _MasterLeagueDetailsScreenState
         ),
         const SizedBox(height: 12),
         tile(
+          icon: Icons.forum_outlined,
+          title: 'Organizer Chat',
+          subtitle: 'General community chat across this organizer’s competitions',
+          onTap: () => context.push('/master-leagues/${master.id}/chat'),
+          tint: const Color(0xFF0EA5E9),
+        ),
+        const SizedBox(height: 12),
+        tile(
+          icon: Icons.gavel_rounded,
+          title: 'Organizer Discipline',
+          subtitle: 'Warnings, point deductions, and organizer chat sanctions',
+          onTap: () => context.push('/master-leagues/${master.id}/discipline'),
+          tint: const Color(0xFFDC2626),
+        ),
+        const SizedBox(height: 12),
+        tile(
           icon: Icons.bookmarks_outlined,
           title: 'Competition Templates',
           subtitle: 'Save reusable competition setups and launch faster',
@@ -1610,6 +1626,18 @@ class _MasterLeagueDetailsScreenState
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed: () => context.push('/master-leagues/${master.id}/chat'),
+              icon: const Icon(Icons.forum_outlined),
+              label: const Text(
+                'Organizer Chat',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
           ),
           const SizedBox(height: 10),
           followStateAsync.when(
