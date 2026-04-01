@@ -117,7 +117,9 @@ class PaymentsService {
         },
       );
 
-      await _attempts.doc(attemptId.trim()).set(fullDoc, SetOptions(merge: false));
+      await _attempts
+          .doc(attemptId.trim())
+          .set(fullDoc, SetOptions(merge: false));
     } catch (_) {}
   }
 
@@ -147,7 +149,9 @@ class PaymentsService {
         },
       );
 
-      await _attempts.doc(attemptId.trim()).set(fullDoc, SetOptions(merge: false));
+      await _attempts
+          .doc(attemptId.trim())
+          .set(fullDoc, SetOptions(merge: false));
     } catch (_) {}
   }
 
@@ -262,7 +266,8 @@ class PaymentsService {
       if (safeToken.isEmpty) {
         return PaymentVerificationResult.failed(
           provider: 'flutterwave',
-          errorMessage: 'Unable to get authentication token. Please sign in again.',
+          errorMessage:
+              'Unable to get authentication token. Please sign in again.',
         );
       }
 
@@ -299,6 +304,17 @@ class PaymentsService {
           (parsed['transactionId'] as String? ?? safeTransactionId).trim();
       final verifiedTxRef = (parsed['txRef'] as String? ?? safeTxRef).trim();
       final errorMessage = (parsed['error'] as String?)?.trim();
+
+      if (!success) {
+        try {
+          await markClientFailed(
+            attemptId: safeAttemptId,
+            errorMessage: errorMessage?.isNotEmpty == true
+                ? errorMessage!
+                : 'Payment verification failed.',
+          );
+        } catch (_) {}
+      }
 
       return PaymentVerificationResult(
         success: success,
@@ -363,8 +379,8 @@ class PaymentsService {
         if (attemptRef != null) {
           final attemptSnap = await t.get(attemptRef);
           if (attemptSnap.exists) {
-            attemptData =
-                (attemptSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+            attemptData = (attemptSnap.data() ?? <String, dynamic>{})
+                .cast<String, dynamic>();
             final attemptUid = (attemptData['userId'] ?? '').toString().trim();
             if (attemptUid != uid) {
               attemptData = <String, dynamic>{};
@@ -398,6 +414,7 @@ class PaymentsService {
               'metadata': attemptData['metadata'] ?? <String, dynamic>{},
               'paidAtMs': now,
               'createdAtMs': now,
+              'updatedAtMs': now,
               'verification': <String, dynamic>{
                 'mode': 'client',
                 'verified': false,
@@ -420,7 +437,7 @@ class PaymentsService {
             },
           );
 
-          t.set(attemptRef, fullDoc);
+          t.set(attemptRef, fullDoc, SetOptions(merge: false));
         }
       });
 

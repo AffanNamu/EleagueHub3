@@ -13,7 +13,7 @@ class BackendConfig {
     final base = functionsBaseUrl.trim();
     if (base.isEmpty) return '';
     return base.endsWith('/') ? base.substring(0, base.length - 1) : base;
-    }
+  }
 
   static String get _normalizedWorkerBase {
     final base = workerBaseUrl.trim();

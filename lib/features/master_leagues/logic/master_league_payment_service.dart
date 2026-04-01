@@ -341,7 +341,8 @@ class FlutterwaveMasterLeaguePaymentService
                 ? response.txRef!.toString().trim()
                 : txRef;
 
-        final verification = await PaymentsService.instance.verifyFlutterwavePayment(
+        final verification =
+            await PaymentsService.instance.verifyFlutterwavePayment(
           attemptId: attemptId,
           transactionId: txId,
           txRef: resolvedTxRef,
@@ -516,8 +517,7 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage:
-              'Flutterwave payments are currently unavailable.',
+          errorMessage: 'Flutterwave payments are currently unavailable.',
         );
       }
 
@@ -615,16 +615,23 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage:
-              'Flutterwave payments are currently unavailable.',
+          errorMessage: 'Flutterwave payments are currently unavailable.',
         );
       }
 
       if (!remotePlan.organizerVerificationEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
+          errorMessage: 'Organizer verification is currently disabled.',
+        );
+      }
+
+      final fee = remotePlan.organizerVerificationFee;
+      if (fee <= 0) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
           errorMessage:
-              'Organizer verification is currently disabled.',
+              'Organizer verification price is not configured correctly.',
         );
       }
 
@@ -647,12 +654,12 @@ class FlutterwaveMasterLeaguePaymentService
             productType: 'organizer_verification',
             productSubType: 'master_league_organizer_verification',
             quantity: 1,
-            amount: remotePlan.organizerVerificationFee,
+            amount: fee,
           ),
         ],
         txRefPrefix: 'EH-ORGV',
         description: 'Organizer verification: $safeMasterLeagueName',
-        amount: remotePlan.organizerVerificationFee,
+        amount: fee,
         currency: currencyUsed,
         analyticsKind: 'organizer_verification',
       );
@@ -697,16 +704,23 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage:
-              'Flutterwave payments are currently unavailable.',
+          errorMessage: 'Flutterwave payments are currently unavailable.',
         );
       }
 
       if (!remotePlan.organizerVerificationRenewalEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
+          errorMessage: 'Verification renewal is currently disabled.',
+        );
+      }
+
+      final fee = remotePlan.organizerVerificationRenewalFee;
+      if (fee <= 0) {
+        return MasterLeaguePaymentResult.failed(
+          provider: providerName,
           errorMessage:
-              'Verification renewal is currently disabled.',
+              'Verification renewal price is not configured correctly.',
         );
       }
 
@@ -731,12 +745,12 @@ class FlutterwaveMasterLeaguePaymentService
             productType: 'organizer_verification_renewal',
             productSubType: 'master_league_organizer_verification_renewal',
             quantity: 1,
-            amount: remotePlan.organizerVerificationRenewalFee,
+            amount: fee,
           ),
         ],
         txRefPrefix: 'EH-ORGR',
         description: 'Verification renewal: $safeMasterLeagueName',
-        amount: remotePlan.organizerVerificationRenewalFee,
+        amount: fee,
         currency: currencyUsed,
         analyticsKind: 'organizer_verification_renewal',
       );
