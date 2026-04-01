@@ -376,6 +376,20 @@ class _LeagueCreationDashboardState
     ];
   }
 
+  void _showSnack(String message) {
+    if (!mounted) return;
+    final msg = message.trim();
+    if (msg.isEmpty) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+
   LeagueFormat get _format {
     final type = _type;
     if (type == null) return LeagueFormat.classic;
