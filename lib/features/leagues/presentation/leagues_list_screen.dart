@@ -54,7 +54,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   bool _isLoading = true;
   bool _loadingAnnouncements = false;
   bool _isPremiumUser = false;
-  bool _upgradingPremium = false;
 
   String? _payingLeagueId;
   String? _removingLeagueId;
@@ -154,24 +153,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     return false;
   }
 
-  Future<bool> _waitForPremiumActivation(String uid) async {
-    final safeUid = uid.trim();
-    if (safeUid.isEmpty) return false;
-
-    for (int i = 0; i < 8; i++) {
-      try {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      } catch (_) {}
-
-      final premium = await _detectPremiumUser(safeUid);
-      if (premium) return true;
-
-      await Future.delayed(Duration(milliseconds: 700 + (i * 250)));
-    }
-
-    return await _detectPremiumUser(safeUid);
-  }
-
   void _snack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -187,54 +168,29 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       _snack('Premium is already active on your account.');
       return;
     }
-    if (_upgradingPremium) return;
 
-    setState(() => _upgradingPremium = true);
+    final result = await context.push<LeagueCreationPaymentResult?>(
+      '/leagues/create/payment',
+      extra: <String, dynamic>{
+        'premiumUpgrade': true,
+        'leagueName': 'Organizer Premium',
+      },
+    );
 
-    try {
-      final result = await context.push<LeagueCreationPaymentResult?>(
-        '/leagues/create/payment',
-        extra: <String, dynamic>{
-          'premiumUpgrade': true,
-          'leagueName': 'Organizer Premium',
-        },
-      );
+    if (!mounted) return;
 
-      if (!mounted) return;
-
-      if (result != null && result.success) {
-        final uid = _authUidOrEmpty();
-
-        _snack('Payment completed. Activating premium access...');
-
-        final activated = await _waitForPremiumActivation(uid);
-
-        if (!mounted) return;
-
-        if (activated) {
-          setState(() => _isPremiumUser = true);
-          await _refreshLeagues();
-          _snack('Premium activated successfully.');
-        } else {
-          await _refreshLeagues();
-          _snack(
-            'Payment was successful, but premium activation is still syncing. Please refresh in a moment.',
-          );
-        }
-        return;
-      }
-
-      if (result == null) {
-        _snack('Premium upgrade cancelled.');
-        return;
-      }
-
-      _snack(result.errorMessage ?? 'Premium upgrade failed.');
-    } finally {
-      if (mounted) {
-        setState(() => _upgradingPremium = false);
-      }
+    if (result != null && result.success) {
+      _snack('Premium upgrade payment completed. Refreshing access...');
+      await _refreshLeagues();
+      return;
     }
+
+    if (result == null) {
+      _snack('Premium upgrade cancelled.');
+      return;
+    }
+
+    _snack(result.errorMessage ?? 'Premium upgrade failed.');
   }
 
   Future<void> _loadLeagues({required bool showSpinner}) async {
@@ -1005,6 +961,737 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     if (mounted) setState(() => _payingLeagueId = null);
   }
 
+  Future<void> _handleCreateLeagueTap(BuildContext context) async {
+    if (_freeLimitReached) {
+      await _openPremiumUpgradeFlow();
+      return;
+    }
+
+    await context.push('/leagues/create');
+    if (mounted) {
+      await _refreshLeagues();
+    }
+  }
+
+  Future<void> _handleJoinQrTap(BuildContext context) async {
+    if (_freeLimitReached) {
+      await _openPremiumUpgradeFlow();
+      return;
+    }
+
+    await context.push('/leagues/join-scanner');
+    if (mounted) {
+      await _refreshLeagues();
+    }
+  }
+
+  Future<void> _handleJoinByIdTap(BuildContext context) async {
+    if (_freeLimitReached) {
+      await _openPremiumUpgradeFlow();
+      return;
+    }
+
+    await _showJoinByIdSheet(context);
+    if (mounted) {
+      await _refreshLeagues();
+    }
+  }
+
+  List<League> _filteredLeagues() {
+    final q = _searchQuery.trim().toLowerCase();
+
+    final base = _selectedTab == _LeagueViewTab.leagues
+        ? _leagues.where((l) => !l.isInsideMasterLeague).toList()
+        : _leagues.where((l) => l.isInsideMasterLeague).toList();
+
+    if (q.isEmpty) return base;
+
+    return base.where((league) {
+      final latestAnn = _latestAnnouncements[league.id];
+      final haystack = <String>[
+        league.name,
+        league.region,
+        league.season,
+        league.description,
+        league.code,
+        league.masterLeagueId,
+        latestAnn?.title ?? '',
+        latestAnn?.message ?? '',
+      ].join(' ').toLowerCase();
+
+      return haystack.contains(q);
+    }).toList();
+  }
+
+  String _buildCardSubtitle({
+    required BuildContext context,
+    required League league,
+    required int registered,
+    required LeagueAnnouncement? latestAnn,
+  }) {
+    final l10n = context.l10n;
+    final pieces = <String>[
+      '$registered / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}',
+    ];
+
+    if (league.viewerCapacity > 0) {
+      pieces.add('${league.viewerCapacity} Viewers');
+    }
+
+    final desc = league.description.trim();
+    if (desc.isNotEmpty) {
+      pieces.add(desc);
+    }
+
+    if (latestAnn != null && latestAnn.title.trim().isNotEmpty) {
+      pieces.add(latestAnn.title.trim());
+    }
+
+    return pieces.join(' • ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
+    final media = MediaQuery.of(context);
+    final screenWidth = media.size.width;
+    final isTablet = screenWidth >= 600;
+    final fabBottomOffset =
+        kBottomNavigationBarHeight + media.padding.bottom + 16;
+
+    final filtered = _filteredLeagues();
+    final normalCount = _leagues.where((l) => !l.isInsideMasterLeague).length;
+    final masterCount = _leagues.where((l) => l.isInsideMasterLeague).length;
+
+    return GlassScaffold(
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        title: const Text(''),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: false,
+        actions: [
+          IconButton(
+            tooltip: l10n.tr('common_refresh'),
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _refreshLeagues,
+          ),
+        ],
+      ),
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: fabBottomOffset),
+        child: FloatingActionButton(
+          onPressed: () => _showOptions(context),
+          backgroundColor: _freeLimitReached ? _premiumAmber : cs.primary,
+          foregroundColor: _freeLimitReached ? Colors.black : cs.onPrimary,
+          child: Icon(
+            _freeLimitReached
+                ? Icons.workspace_premium_rounded
+                : Icons.add_rounded,
+          ),
+        ),
+      ),
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.endFloat,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isTablet ? 900 : 600),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: Glass(
+                    borderRadius: 20,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    cs.primary.withOpacity(0.30),
+                                    cs.primary.withOpacity(0.08),
+                                  ],
+                                ),
+                              ),
+                              child: Icon(
+                                Icons.emoji_events_rounded,
+                                color: cs.primary,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    l10n.tr('leagues_my_leagues_title'),
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 18,
+                                      letterSpacing: -0.3,
+                                      color: onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _isLoading
+                                        ? 'Loading...'
+                                        : '${_leagues.length} league${_leagues.length == 1 ? '' : 's'}',
+                                    style: TextStyle(
+                                      color: onSurface.withOpacity(0.55),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (!_isLoading) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            _isPremiumUser
+                                ? 'Premium active: you can have more than $_freeLeagueListLimit league cards.'
+                                : (_freeLimitReached
+                                    ? 'Free limit reached: you already have $_freeLeagueListLimit league cards. Upgrade to Premium to add more.'
+                                    : 'Free plan: you can have up to $_freeLeagueListLimit league cards total.'),
+                            style: TextStyle(
+                              color: _isPremiumUser
+                                  ? cs.primary
+                                  : (_freeLimitReached
+                                      ? _premiumAmber
+                                      : onSurface.withOpacity(0.62)),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              height: 1.35,
+                            ),
+                          ),
+                          if (!_isPremiumUser) ...[
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _openPremiumUpgradeFlow,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _freeLimitReached
+                                      ? _premiumAmber
+                                      : cs.primary,
+                                  foregroundColor: _freeLimitReached
+                                      ? Colors.black
+                                      : cs.onPrimary,
+                                ),
+                                icon: const Icon(Icons.payments_outlined),
+                                label: Text(
+                                  _freeLimitReached
+                                      ? 'Pay Now'
+                                      : 'Upgrade to Premium',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Glass(
+                    borderRadius: 18,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.search_rounded, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            decoration: const InputDecoration(
+                              hintText:
+                                  'Search leagues, codes, announcements...',
+                              border: InputBorder.none,
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                        if (_searchQuery.trim().isNotEmpty)
+                          IconButton(
+                            tooltip: 'Clear',
+                            onPressed: () {
+                              _searchController.clear();
+                            },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _TopLeagueSwitcher(
+                    selectedTab: _selectedTab,
+                    normalCount: normalCount,
+                    masterCount: masterCount,
+                    onChanged: (tab) {
+                      if (_selectedTab == tab) return;
+                      setState(() => _selectedTab = tab);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: _isLoading
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(
+                                  color: cs.primary,
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  'Loading leagues...',
+                                  style: TextStyle(
+                                    color: onSurface.withOpacity(0.55),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : filtered.isEmpty
+                            ? _buildEmptyState(context)
+                            : _buildLeagueGrid(context, filtered, isTablet),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLeagueGrid(
+    BuildContext context,
+    List<League> leagues,
+    bool isTablet,
+  ) {
+    final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
+    final viewerUid = _effectiveUserId.trim();
+    final authUid = _authUidOrEmpty();
+
+    final cardHeight = isTablet ? 250.0 : 250.0;
+    final showWorkspaceAction = _selectedTab == _LeagueViewTab.master;
+    final extraActionHeight = showWorkspaceAction ? 52.0 : 0.0;
+    final mainAxisExtent = cardHeight + extraActionHeight;
+
+    return GridView.builder(
+      shrinkWrap: true,
+      itemCount: leagues.length,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        8,
+        16,
+        16 + MediaQuery.of(context).padding.bottom + kBottomNavigationBarHeight + 80,
+      ),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: isTablet ? 2 : 1,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        mainAxisExtent: mainAxisExtent,
+      ),
+      itemBuilder: (context, index) {
+        final league = leagues[index];
+
+        final bool isOwner = _isOwnerForViewer(
+          league,
+          authUid.isNotEmpty ? authUid : viewerUid,
+        );
+        final bool viewerIsParticipant =
+            _viewerIsParticipantByLeagueId[league.id] ?? false;
+        final bool viewerIsViewerOnly = !isOwner && !viewerIsParticipant;
+
+        final registered = _participantCounts[league.id] ?? 0;
+        final isFull = registered >= league.maxTeams;
+
+        final latestAnn = _latestAnnouncements[league.id];
+        final subtitle = _buildCardSubtitle(
+          context: context,
+          league: league,
+          registered: registered,
+          latestAnn: latestAnn,
+        );
+
+        final removingThis = _removingLeagueId == league.id;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Opacity(
+                opacity: removingThis ? 0.65 : 1,
+                child: Stack(
+                  children: [
+                    GestureDetector(
+                      onLongPress: removingThis
+                          ? null
+                          : () => _showLeagueLongPressMenu(context, league),
+                      child: LeagueFlipCard(
+                        league: league,
+                        leagueId: league.id,
+                        leagueName: league.name,
+                        leagueCode: league.code.isNotEmpty
+                            ? league.code
+                            : (league.id.length >= 8
+                                ? league.id.substring(0, 8)
+                                : league.id),
+                        distribution:
+                            '${l10n.tr(league.format.l10nKey)} • ${league.season}',
+                        subtitle: subtitle,
+                        imageUrl: league.leagueImageUrl,
+                        showMasterBadge: _selectedTab != _LeagueViewTab.master,
+                        isLocked: false,
+                        onPay: null,
+                        isOwner: isOwner,
+                        isViewer: viewerIsViewerOnly,
+                        isFull: isFull,
+                        onDoubleTap: () => context.push('/leagues/${league.id}'),
+                        qrWidget: QrImageView(
+                          data: league.qrPayload,
+                          version: QrVersions.auto,
+                          gapless: true,
+                          eyeStyle: const QrEyeStyle(
+                            eyeShape: QrEyeShape.square,
+                            color: Colors.black,
+                          ),
+                          dataModuleStyle: const QrDataModuleStyle(
+                            dataModuleShape: QrDataModuleShape.square,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (isFull)
+                      PositionedDirectional(
+                        top: 12,
+                        start: 12,
+                        child: _CardBadge(
+                          label: l10n.tr('leagues_badge_full'),
+                          icon: Icons.block_rounded,
+                          color: cs.error,
+                          bg: cs.error.withOpacity(0.14),
+                          border: cs.error.withOpacity(0.40),
+                        ),
+                      ),
+                    PositionedDirectional(
+                      top: 12,
+                      end: 12,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          if (_selectedTab == _LeagueViewTab.master)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: _CardBadge(
+                                label: 'MASTER',
+                                icon: Icons.hub_rounded,
+                                color: _premiumAmber,
+                                bg: _premiumAmber.withOpacity(0.14),
+                                border: _premiumAmber.withOpacity(0.40),
+                              ),
+                            ),
+                          if (isOwner)
+                            _CardBadge(
+                              label: l10n.tr('leagues_badge_owner'),
+                              icon: Icons.admin_panel_settings_rounded,
+                              color: cs.primary,
+                              bg: cs.primary.withOpacity(0.18),
+                              border: cs.primary.withOpacity(0.45),
+                            ),
+                          if (!isOwner && viewerIsViewerOnly)
+                            _CardBadge(
+                              label: l10n.tr('leagues_badge_viewer'),
+                              icon: Icons.visibility_rounded,
+                              color: onSurface.withOpacity(0.70),
+                              bg: onSurface.withOpacity(0.06),
+                              border: onSurface.withOpacity(0.12),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (!isOwner)
+                      PositionedDirectional(
+                        bottom: 14,
+                        start: 14,
+                        child: _CardBadge(
+                          label: 'LONG PRESS',
+                          icon: Icons.touch_app_rounded,
+                          color: onSurface.withOpacity(0.78),
+                          bg: onSurface.withOpacity(0.08),
+                          border: onSurface.withOpacity(0.14),
+                        ),
+                      ),
+                    if (removingThis)
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            color: Colors.black.withOpacity(0.12),
+                          ),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 26,
+                              height: 26,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            if (showWorkspaceAction &&
+                league.masterLeagueId.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          context.push('/master-leagues/${league.masterLeagueId}'),
+                      icon: const Icon(Icons.hub_rounded),
+                      label: const Text(
+                        'Open Workspace',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+    final media = MediaQuery.of(context);
+    final bottomPadding =
+        16.0 + media.padding.bottom + kBottomNavigationBarHeight + 80;
+
+    final bool hasSearch = _searchQuery.trim().isNotEmpty;
+    final bool isMasterTab = _selectedTab == _LeagueViewTab.master;
+
+    return Center(
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsetsDirectional.fromSTEB(
+          24,
+          24,
+          24,
+          bottomPadding,
+        ),
+        child: Glass(
+          borderRadius: 28,
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      cs.primary.withOpacity(0.25),
+                      cs.primary.withOpacity(0.08),
+                    ],
+                  ),
+                ),
+                child: Icon(
+                  hasSearch
+                      ? Icons.search_off_rounded
+                      : (isMasterTab
+                          ? Icons.hub_rounded
+                          : Icons.emoji_events_rounded),
+                  size: 36,
+                  color: cs.primary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                hasSearch
+                    ? 'No leagues match your search'
+                    : (isMasterTab
+                        ? 'No master competitions yet'
+                        : l10n.tr('leagues_empty_title')),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 20,
+                  letterSpacing: -0.3,
+                  color: onSurface,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                hasSearch
+                    ? 'Try another search term for league name, code, region, or announcement.'
+                    : (isMasterTab
+                        ? 'Competitions you joined from a master league container will appear here.'
+                        : l10n.tr('leagues_empty_subtitle')),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: onSurface.withOpacity(0.60),
+                  fontSize: 14,
+                  height: 1.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: hasSearch
+                        ? () => _searchController.clear()
+                        : (_freeLimitReached
+                            ? _openPremiumUpgradeFlow
+                            : () => _showOptions(context)),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        gradient: LinearGradient(
+                          colors: hasSearch
+                              ? [cs.primary, cs.primary.withOpacity(0.75)]
+                              : (_freeLimitReached
+                                  ? [
+                                      _premiumAmber,
+                                      _premiumAmber.withOpacity(0.82),
+                                    ]
+                                  : [
+                                      cs.primary,
+                                      cs.primary.withOpacity(0.75),
+                                    ]),
+                        ),
+                      ),
+                      child: Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              hasSearch
+                                  ? Icons.restart_alt_rounded
+                                  : (_freeLimitReached
+                                      ? Icons.payments_rounded
+                                      : Icons.add_rounded),
+                              color: hasSearch
+                                  ? Colors.white
+                                  : (_freeLimitReached
+                                      ? Colors.black
+                                      : Colors.white),
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              hasSearch
+                                  ? 'Clear Search'
+                                  : (_freeLimitReached
+                                      ? 'Pay Now'
+                                      : l10n.tr('leagues_empty_cta')),
+                              style: TextStyle(
+                                color: hasSearch
+                                    ? Colors.white
+                                    : (_freeLimitReached
+                                        ? Colors.black
+                                        : Colors.white),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (_freeLimitReached && !hasSearch) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _freeLimitMessage('add more'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _premiumAmber,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showOptions(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
@@ -1486,456 +2173,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       controller.dispose();
     }
   }
-
-  Widget _buildEmptyState(BuildContext context) {
-    final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final media = MediaQuery.of(context);
-    final bottomPadding =
-        16.0 + media.padding.bottom + kBottomNavigationBarHeight + 80;
-
-    final bool hasSearch = _searchQuery.trim().isNotEmpty;
-    final bool isMasterTab = _selectedTab == _LeagueViewTab.master;
-
-    return Center(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: EdgeInsetsDirectional.fromSTEB(
-          24,
-          24,
-          24,
-          bottomPadding,
-        ),
-        child: Glass(
-          borderRadius: 28,
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      cs.primary.withOpacity(0.25),
-                      cs.primary.withOpacity(0.08),
-                    ],
-                  ),
-                ),
-                child: Icon(
-                  hasSearch
-                      ? Icons.search_off_rounded
-                      : (isMasterTab
-                          ? Icons.hub_rounded
-                          : Icons.emoji_events_rounded),
-                  size: 36,
-                  color: cs.primary,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                hasSearch
-                    ? 'No leagues match your search'
-                    : (isMasterTab
-                        ? 'No master competitions yet'
-                        : l10n.tr('leagues_empty_title')),
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 20,
-                  letterSpacing: -0.3,
-                  color: onSurface,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                hasSearch
-                    ? 'Try another search term for league name, code, region, or announcement.'
-                    : (isMasterTab
-                        ? 'Competitions you joined from a master league container will appear here.'
-                        : l10n.tr('leagues_empty_subtitle')),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: onSurface.withOpacity(0.60),
-                  fontSize: 14,
-                  height: 1.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 28),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: hasSearch
-                        ? () => _searchController.clear()
-                        : (_freeLimitReached
-                            ? _openPremiumUpgradeFlow
-                            : () => _showOptions(context)),
-                    borderRadius: BorderRadius.circular(16),
-                    child: Ink(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        gradient: LinearGradient(
-                          colors: hasSearch
-                              ? [cs.primary, cs.primary.withOpacity(0.75)]
-                              : (_freeLimitReached
-                                  ? [
-                                      _premiumAmber,
-                                      _premiumAmber.withOpacity(0.82),
-                                    ]
-                                  : [
-                                      cs.primary,
-                                      cs.primary.withOpacity(0.75),
-                                    ]),
-                        ),
-                      ),
-                      child: Center(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              hasSearch
-                                  ? Icons.restart_alt_rounded
-                                  : (_freeLimitReached
-                                      ? Icons.payments_rounded
-                                      : Icons.add_rounded),
-                              color: hasSearch
-                                  ? Colors.white
-                                  : (_freeLimitReached
-                                      ? Colors.black
-                                      : Colors.white),
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              hasSearch
-                                  ? 'Clear Search'
-                                  : (_freeLimitReached
-                                      ? 'Pay Now'
-                                      : l10n.tr('leagues_empty_cta')),
-                              style: TextStyle(
-                                color: hasSearch
-                                    ? Colors.white
-                                    : (_freeLimitReached
-                                        ? Colors.black
-                                        : Colors.white),
-                                fontWeight: FontWeight.w800,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              if (_freeLimitReached && !hasSearch) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _freeLimitMessage('add more'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: _premiumAmber,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-
-    final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-
-    final media = MediaQuery.of(context);
-    final screenWidth = media.size.width;
-    final isTablet = screenWidth >= 600;
-    final fabBottomOffset =
-        kBottomNavigationBarHeight + media.padding.bottom + 16;
-
-    final filtered = _filteredLeagues();
-    final normalCount = _leagues.where((l) => !l.isInsideMasterLeague).length;
-    final masterCount = _leagues.where((l) => l.isInsideMasterLeague).length;
-
-    return GlassScaffold(
-      resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        title: const Text(''),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: false,
-        actions: [
-          IconButton(
-            tooltip: l10n.tr('common_refresh'),
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _refreshLeagues,
-          ),
-        ],
-      ),
-      floatingActionButton: Padding(
-        padding: EdgeInsets.only(bottom: fabBottomOffset),
-        child: FloatingActionButton(
-          onPressed: () => _showOptions(context),
-          backgroundColor: _freeLimitReached ? _premiumAmber : cs.primary,
-          foregroundColor: _freeLimitReached ? Colors.black : cs.onPrimary,
-          child: _upgradingPremium
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.4,
-                    color: Colors.white,
-                  ),
-                )
-              : Icon(
-                  _freeLimitReached
-                      ? Icons.workspace_premium_rounded
-                      : Icons.add_rounded,
-                ),
-        ),
-      ),
-      floatingActionButtonLocation:
-          FloatingActionButtonLocation.endFloat,
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: isTablet ? 900 : 600),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                  child: Glass(
-                    borderRadius: 20,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 14,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 42,
-                              height: 42,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    cs.primary.withOpacity(0.30),
-                                    cs.primary.withOpacity(0.08),
-                                  ],
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.emoji_events_rounded,
-                                color: cs.primary,
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    l10n.tr('leagues_my_leagues_title'),
-                                    style: theme.textTheme.titleMedium
-                                        ?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 18,
-                                      letterSpacing: -0.3,
-                                      color: onSurface,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _isLoading
-                                        ? 'Loading...'
-                                        : '${_leagues.length} league${_leagues.length == 1 ? '' : 's'}',
-                                    style: TextStyle(
-                                      color: onSurface.withOpacity(0.55),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (!_isLoading) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            _isPremiumUser
-                                ? 'Premium active: you can have more than $_freeLeagueListLimit league cards.'
-                                : (_freeLimitReached
-                                    ? 'Free limit reached: you already have $_freeLeagueListLimit league cards. Upgrade to Premium to add more.'
-                                    : 'Free plan: you can have up to $_freeLeagueListLimit league cards total.'),
-                            style: TextStyle(
-                              color: _isPremiumUser
-                                  ? cs.primary
-                                  : (_freeLimitReached
-                                      ? _premiumAmber
-                                      : onSurface.withOpacity(0.62)),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              height: 1.35,
-                            ),
-                          ),
-                          if (!_isPremiumUser) ...[
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: _upgradingPremium
-                                    ? null
-                                    : _openPremiumUpgradeFlow,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: _freeLimitReached
-                                      ? _premiumAmber
-                                      : cs.primary,
-                                  foregroundColor: _freeLimitReached
-                                      ? Colors.black
-                                      : cs.onPrimary,
-                                ),
-                                icon: _upgradingPremium
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.payments_outlined),
-                                label: Text(
-                                  _upgradingPremium
-                                      ? 'Activating...'
-                                      : (_freeLimitReached
-                                          ? 'Pay Now'
-                                          : 'Upgrade to Premium'),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Glass(
-                    borderRadius: 18,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.search_rounded, size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: const InputDecoration(
-                              hintText:
-                                  'Search leagues, codes, announcements...',
-                              border: InputBorder.none,
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                        if (_searchQuery.trim().isNotEmpty)
-                          IconButton(
-                            tooltip: 'Clear',
-                            onPressed: () {
-                              _searchController.clear();
-                            },
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _TopLeagueSwitcher(
-                    selectedTab: _selectedTab,
-                    normalCount: normalCount,
-                    masterCount: masterCount,
-                    onChanged: (tab) {
-                      if (_selectedTab == tab) return;
-                      setState(() => _selectedTab = tab);
-                    },
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 200),
-                    child: _isLoading
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                CircularProgressIndicator(
-                                  color: cs.primary,
-                                ),
-                                const SizedBox(height: 14),
-                                Text(
-                                  'Loading leagues...',
-                                  style: TextStyle(
-                                    color: onSurface.withOpacity(0.55),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : filtered.isEmpty
-                            ? _buildEmptyState(context)
-                            : _buildLeagueGrid(context, filtered, isTablet),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _TopLeagueSwitcher extends StatelessWidget {
@@ -1974,7 +2211,9 @@ class _TopLeagueSwitcher extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
-              color: selected ? cs.primary : Colors.transparent,
+              color: selected
+                  ? cs.primary
+                  : Colors.transparent,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1991,8 +2230,7 @@ class _TopLeagueSwitcher extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelLarge?.copyWith(
-                      color:
-                          selected ? cs.onPrimary : onSurface.withOpacity(0.78),
+                      color: selected ? cs.onPrimary : onSurface.withOpacity(0.78),
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -2073,10 +2311,11 @@ class _OptionTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          color: onSurface,
-                        ),
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: onSurface,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
