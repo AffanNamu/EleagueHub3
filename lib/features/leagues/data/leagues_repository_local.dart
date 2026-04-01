@@ -475,16 +475,6 @@ class LocalLeaguesRepository {
       existingLeagueId: trimmedLeagueId,
     );
 
-    await leagueRef
-        .set(
-          {
-            'memberIds': FieldValue.arrayUnion([authUid]),
-            'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-          },
-          SetOptions(merge: true),
-        )
-        .timeout(const Duration(seconds: 20));
-
     if (mode == LeagueJoinMode.participant) {
       final membershipRef = leagueRef.collection('memberships').doc(authUid);
 
@@ -517,6 +507,16 @@ class LocalLeaguesRepository {
             .timeout(const Duration(seconds: 20));
       }
     }
+
+    await leagueRef
+        .set(
+          {
+            'memberIds': FieldValue.arrayUnion([authUid]),
+            'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+          },
+          SetOptions(merge: true),
+        )
+        .timeout(const Duration(seconds: 20));
   }
 
   Future<League> joinLeagueDirect({

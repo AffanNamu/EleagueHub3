@@ -57,7 +57,8 @@ class LeagueFlipCard extends StatefulWidget {
   State<LeagueFlipCard> createState() => _LeagueFlipCardState();
 }
 
-class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProviderStateMixin {
+class _LeagueFlipCardState extends State<LeagueFlipCard>
+    with SingleTickerProviderStateMixin {
   static const double _outerRadius = 28;
 
   final RewardFirestoreService _rewardsService = RewardFirestoreService();
@@ -67,7 +68,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
   bool _showBack = false;
 
-  final Map<String, Future<String?>> _topRewardFutureCache = <String, Future<String?>>{};
+  final Map<String, Future<String?>> _topRewardFutureCache =
+      <String, Future<String?>>{};
 
   @override
   void initState() {
@@ -159,8 +161,12 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
     final map = _extractMap(widget.league);
 
-    if (map.containsKey('homeAwayEnabled') || map.containsKey('homeAndAwayEnabled')) {
-      return _boolFromAny(map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'], fallback: false);
+    if (map.containsKey('homeAwayEnabled') ||
+        map.containsKey('homeAndAwayEnabled')) {
+      return _boolFromAny(
+        map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'],
+        fallback: false,
+      );
     }
 
     final settings = map['settings'];
@@ -186,7 +192,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
 
     final league = widget.league;
     final map = _extractMap(league);
-    final id = (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '').toString().trim();
+    final id = (map['id'] ?? map['leagueId'] ?? map['docId'] ?? '')
+        .toString()
+        .trim();
     if (id.isNotEmpty) return id;
 
     try {
@@ -302,7 +310,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
             tween: Tween<double>(begin: 0.985, end: 1.0),
             duration: const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
-            builder: (context, s, child) => Transform.scale(scale: s, child: child),
+            builder: (context, s, child) =>
+                Transform.scale(scale: s, child: child),
             child: AnimatedBuilder(
               animation: _anim,
               builder: (context, _) {
@@ -320,15 +329,17 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                 final scale = 1.0 + (0.018 * lift);
 
                 final isBackVisible = t >= 0.5;
-                final face = isBackVisible ? _backFace(context, t) : _frontFace(context, leagueId, t);
+                final face =
+                    isBackVisible ? _backFace(context, t) : _frontFace(context, leagueId, t);
 
                 final shadowOpacity = 0.10 + (0.20 * lift);
                 final shadowColor = isLight
                     ? cs.primary.withValues(alpha: 0.10 + (0.18 * lift))
                     : Colors.black.withValues(alpha: shadowOpacity);
 
-                final effectiveBorderColor =
-                    isLight ? Colors.white.withValues(alpha: 0.22) : Colors.white.withValues(alpha: 0.10);
+                final effectiveBorderColor = isLight
+                    ? Colors.white.withValues(alpha: 0.22)
+                    : Colors.white.withValues(alpha: 0.10);
 
                 return Transform.translate(
                   offset: Offset(0, translateY),
@@ -353,7 +364,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard> with SingleTickerProvid
                           ..rotateY(diagonalTwist),
                         child: Transform(
                           alignment: Alignment.center,
-                          transform: isBackVisible ? (Matrix4.identity()..rotateX(math.pi)) : Matrix4.identity(),
+                          transform: isBackVisible
+                              ? (Matrix4.identity()..rotateX(math.pi))
+                              : Matrix4.identity(),
                           child: Glass(
                             borderRadius: _outerRadius,
                             padding: EdgeInsets.zero,
