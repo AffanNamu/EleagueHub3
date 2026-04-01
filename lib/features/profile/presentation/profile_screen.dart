@@ -781,6 +781,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final faint = onSurface.withOpacity(0.30);
 
     final unlockedAsync = uid.isEmpty ? const AsyncValue<bool>.data(false) : ref.watch(masterLeagueUnlockedProvider);
+    final planAsync = uid.isEmpty ? const AsyncValue<MasterLeaguePlan?>.data(null) : ref.watch(organizerProActivePlanProvider);
 
     final pricingSvc = MasterLeaguePricingService();
     final priceStream = pricingSvc.watchMasterLeaguePriceForLocale(Localizations.maybeLocaleOf(context));
@@ -1082,8 +1083,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
                     builder: (context, planSnap) {
                       final data = planSnap.data?.data() ?? <String, dynamic>{};
-                      final organizerPlan = _readOrganizerPlan(data);
-                      final premiumActive = _readPremiumActive(data);
+                      final organizerPlan = planAsync.valueOrNull?.displayName ?? _readOrganizerPlan(data);
+                      final premiumActive = planAsync.valueOrNull != null || _readPremiumActive(data);
                       final expiryText = _readPlanExpiryText(data);
 
                       return Glass(

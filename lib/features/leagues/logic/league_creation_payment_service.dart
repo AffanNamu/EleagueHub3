@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutterwave_standard/flutterwave.dart';
@@ -140,6 +141,29 @@ class FlutterwaveLeagueCreationPaymentService
     final status = (response.status ?? '').toString().trim().toLowerCase();
     return response.success == true || status == 'successful';
   }
+
+  Future<void> _persistOrganizerPlanToUserDoc({
+    required String userId,
+    required MasterLeaguePlan plan,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty) return;
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final expiryMs = nowMs + const Duration(days: 30).inMilliseconds;
+
+    await FirebaseFirestore.instance.collection('users').doc(uid).set(
+      <String, dynamic>{
+        'isPremium': true,
+        'premiumExpiresAtMs': expiryMs,
+        'organizerPlan': plan.id,
+        'organizerPlanExpiresAtMs': expiryMs,
+        'updatedAt': nowMs,
+      },
+      SetOptions(merge: true),
+    );
+  }
+
 
   @override
   Future<LeagueCreationPaymentResult> collectLeagueCreationFee({
@@ -412,6 +436,13 @@ class FlutterwaveLeagueCreationPaymentService
           transactionId: txId,
           txRef: resolvedTxRef,
         );
+
+        if (premiumUpgrade) {
+          await _persistOrganizerPlanToUserDoc(
+            userId: authUser.uid,
+            plan: chosenPlan,
+          );
+        }
 
         return LeagueCreationPaymentResult.paid(
           receiptId: recorded.receiptId,

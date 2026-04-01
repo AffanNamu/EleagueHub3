@@ -12,10 +12,12 @@ import '../../../core/widgets/section_header.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../leagues/data/league_announcements_firebase.dart';
+import '../../leagues/data/leagues_repository_local.dart';
 import '../../leagues/models/enums.dart';
 import '../../leagues/models/league.dart';
 import '../../leagues/models/league_announcement.dart';
 import '../../leagues/models/league_format.dart';
+import '../../leagues/presentation/widgets/join_league_mode_sheet.dart';
 import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
 import '../logic/master_leagues_providers.dart';
@@ -38,6 +40,7 @@ class _MasterLeagueDetailsScreenState
     extends ConsumerState<MasterLeagueDetailsScreen> {
   bool _busy = false;
   bool _followBusy = false;
+  String? _joiningLeagueId;
 
   final LeagueAnnouncementsFirebase _announcements =
       LeagueAnnouncementsFirebase();
@@ -118,6 +121,65 @@ class _MasterLeagueDetailsScreenState
   Stream<LeagueAnnouncement?> _watchPinnedWorkspaceAnnouncement(
       String masterLeagueId) {
     return _announcements.watchPinnedMasterLeagueAnnouncement(masterLeagueId);
+  }
+
+  Future<Membership?> _membershipForLeague(String leagueId) {
+    final uid = _currentUid.trim();
+    if (uid.isEmpty) return Future<Membership?>.value(null);
+    final repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+    return repo.getMembership(leagueId: leagueId, userId: uid);
+  }
+
+  Future<void> _promptJoinCompetition(League league) async {
+    final uid = _currentUid.trim();
+    if (uid.isEmpty) {
+      _snack('Please sign in and try again.', error: true);
+      return;
+    }
+
+    if (_joiningLeagueId == league.id) return;
+
+    final repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+
+    Membership? existing;
+    try {
+      existing = await repo.getMembership(leagueId: league.id, userId: uid);
+    } catch (_) {}
+
+    if (existing != null) {
+      _snack('You already joined this competition.');
+      return;
+    }
+
+    final selectedMode = await showJoinLeagueModeSheet(
+      context,
+      league: league,
+      title: 'Join Competition',
+    );
+
+    if (selectedMode == null) return;
+
+    if (mounted) setState(() => _joiningLeagueId = league.id);
+
+    try {
+      await repo.joinLeagueDirect(
+        leagueId: league.id,
+        mode: selectedMode,
+      );
+
+      if (!mounted) return;
+
+      _snack(
+        selectedMode == LeagueJoinMode.viewer
+            ? 'Competition added to your list as viewer.'
+            : 'Successfully joined competition.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _snack('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _joiningLeagueId = null);
+    }
   }
 
   Future<void> _showCreateCompetitionSheet(
@@ -1038,20 +1100,84 @@ class _MasterLeagueDetailsScreenState
                               separatorBuilder: (_, __) => const SizedBox(height: 12),
                               itemBuilder: (context, index) {
                                 final l = leagues[index];
-                                return SizedBox(
-                                  height: 230,
-                                  child: LeagueFlipCard(
-                                    league: l,
-                                    leagueId: l.id,
-                                    leagueName: l.name,
-                                    leagueCode: l.code,
-                                    distribution: '${l.format.displayName} • ${l.season}',
-                                    subtitle: l.region,
-                                    imageUrl: l.leagueImageUrl,
-                                    isOwner: _currentUid.isNotEmpty &&
-                                        l.organizerUid.trim() == _currentUid,
-                                    onDoubleTap: () => context.push('/leagues/${l.id}'),
-                                  ),
+                                return FutureBuilder<Membership?>(
+                                  future: _membershipForLeague(l.id),
+                                  builder: (context, membershipSnap) {
+                                    final joined = membershipSnap.data != null;
+                                    final joiningThis = _joiningLeagueId == l.id;
+
+                                    return Glass(
+                                      borderRadius: 22,
+                                      padding: const EdgeInsets.all(12),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          SizedBox(
+                                            height: 230,
+                                            child: LeagueFlipCard(
+                                              league: l,
+                                              leagueId: l.id,
+                                              leagueName: l.name,
+                                              leagueCode: l.code,
+                                              distribution:
+                                                  '${l.format.displayName} • ${l.season}',
+                                              subtitle: l.region,
+                                              imageUrl: l.leagueImageUrl,
+                                              isOwner: _currentUid.isNotEmpty &&
+                                                  l.organizerUid.trim() == _currentUid,
+                                              onDoubleTap: () => context.push('/leagues/${l.id}'),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: OutlinedButton.icon(
+                                                  onPressed: () => context.push('/leagues/${l.id}'),
+                                                  icon: const Icon(Icons.open_in_new_rounded),
+                                                  label: const Text(
+                                                    'Open',
+                                                    style: TextStyle(fontWeight: FontWeight.w900),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: joined
+                                                    ? FilledButton.tonalIcon(
+                                                        onPressed: null,
+                                                        icon: const Icon(Icons.check_circle_outline_rounded),
+                                                        label: const Text(
+                                                          'Joined',
+                                                          style: TextStyle(fontWeight: FontWeight.w900),
+                                                        ),
+                                                      )
+                                                    : FilledButton.icon(
+                                                        onPressed: joiningThis
+                                                            ? null
+                                                            : () => _promptJoinCompetition(l),
+                                                        icon: joiningThis
+                                                            ? const SizedBox(
+                                                                width: 16,
+                                                                height: 16,
+                                                                child: CircularProgressIndicator(
+                                                                  strokeWidth: 2,
+                                                                  color: Colors.white,
+                                                                ),
+                                                              )
+                                                            : const Icon(Icons.login_rounded),
+                                                        label: Text(
+                                                          joiningThis ? 'Joining...' : 'Join',
+                                                          style: const TextStyle(fontWeight: FontWeight.w900),
+                                                        ),
+                                                      ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 );
                               },
                             ),
@@ -1899,55 +2025,98 @@ class _MasterLeagueDetailsScreenState
                 ],
               ],
             )
-          else ...[
-            SizedBox(
-              height: 236,
-              child: LeagueFlipCard(
-                league: preview,
-                leagueId: preview.id,
-                leagueName: preview.name,
-                leagueCode: preview.code,
-                distribution: '${preview.format.displayName} • ${preview.season}',
-                subtitle: preview.region,
-                imageUrl: preview.leagueImageUrl,
-                isOwner: _currentUid.isNotEmpty &&
-                    preview.organizerUid.trim() == _currentUid,
-                onDoubleTap: () => context.push('/leagues/${preview.id}'),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => context.push('/leagues/${preview.id}'),
-                    icon: const Icon(Icons.open_in_new_rounded),
-                    label: const Text(
-                      'Open Competition',
-                      style: TextStyle(fontWeight: FontWeight.w900),
+          else
+            FutureBuilder<Membership?>(
+              future: _membershipForLeague(preview.id),
+              builder: (context, membershipSnap) {
+                final joined = membershipSnap.data != null;
+                final joiningThis = _joiningLeagueId == preview.id;
+
+                return Column(
+                  children: [
+                    SizedBox(
+                      height: 236,
+                      child: LeagueFlipCard(
+                        league: preview,
+                        leagueId: preview.id,
+                        leagueName: preview.name,
+                        leagueCode: preview.code,
+                        distribution: '${preview.format.displayName} • ${preview.season}',
+                        subtitle: preview.region,
+                        imageUrl: preview.leagueImageUrl,
+                        isOwner: _currentUid.isNotEmpty &&
+                            preview.organizerUid.trim() == _currentUid,
+                        onDoubleTap: () => context.push('/leagues/${preview.id}'),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => context.push('/leagues/${preview.id}'),
+                            icon: const Icon(Icons.open_in_new_rounded),
+                            label: const Text(
+                              'Open Competition',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: joined
+                          ? FilledButton.tonalIcon(
+                              onPressed: null,
+                              icon: const Icon(Icons.check_circle_outline_rounded),
+                              label: const Text(
+                                'Already Joined',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            )
+                          : FilledButton.icon(
+                              onPressed: joiningThis
+                                  ? null
+                                  : () => _promptJoinCompetition(preview),
+                              icon: joiningThis
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.login_rounded),
+                              label: Text(
+                                joiningThis ? 'Joining...' : 'Join Competition',
+                                style: const TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                    ),
+                    if (remaining > 0) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.tonalIcon(
+                          onPressed: () =>
+                              _showAllCompetitionsSheet(master, leagues, theme, cs),
+                          icon: const Icon(Icons.view_carousel_outlined),
+                          label: Text(
+                            remaining == 1
+                                ? 'View 1 more competition'
+                                : 'View $remaining more competitions',
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
-            if (remaining > 0) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.tonalIcon(
-                  onPressed: () =>
-                      _showAllCompetitionsSheet(master, leagues, theme, cs),
-                  icon: const Icon(Icons.view_carousel_outlined),
-                  label: Text(
-                    remaining == 1
-                        ? 'View 1 more competition'
-                        : 'View $remaining more competitions',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                ),
-              ),
-            ],
-          ],
         ],
       ),
     );
