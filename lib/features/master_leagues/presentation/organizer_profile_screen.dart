@@ -15,6 +15,7 @@ import '../../leagues/models/league.dart';
 import '../../leagues/models/league_announcement.dart';
 import '../data/organizer_feed_firebase.dart';
 import '../domain/master_league.dart';
+import '../domain/master_league_plan.dart';
 import '../domain/organizer_feed_event.dart';
 import '../logic/master_leagues_providers.dart';
 
