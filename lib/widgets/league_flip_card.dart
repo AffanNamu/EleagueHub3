@@ -242,11 +242,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
   String _subtitle() {
     final legacy = (widget.subtitle ?? '').trim();
     if (legacy.isNotEmpty) return legacy;
-    return _readString(
-      widget.league,
-      const ['subtitle', 'region'],
-      fallback: '',
-    );
+    return _readString(widget.league, const ['subtitle', 'region'], fallback: '');
   }
 
   String _qrPayload() {
@@ -297,10 +293,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final height =
-            (constraints.hasBoundedHeight && constraints.maxHeight > 0)
-                ? constraints.maxHeight
-                : 236.0;
+        final height = (constraints.hasBoundedHeight && constraints.maxHeight > 0)
+            ? constraints.maxHeight
+            : 220.0;
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -325,6 +320,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
                 final t = _anim.value;
                 final angle = t * math.pi;
+
                 final diagonalTwist = 0.16 * math.sin(angle);
                 final lift = math.sin(t * math.pi);
                 final translateY = -3.0 * lift;
@@ -502,7 +498,23 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       ),
                     ),
                   ),
-                  if (insideMasterLeague && widget.showRewardsBadge && topRewardFuture != null)
+                  if (insideMasterLeague)
+                    _MiniPill(
+                      icon: Icons.hub_rounded,
+                      label: 'Master',
+                      gradient: LinearGradient(
+                        colors: [
+                          cs.primary.withOpacity(0.92),
+                          cs.secondary.withOpacity(0.82),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      textColor: Colors.white.withOpacity(0.94),
+                    ),
+                  if (insideMasterLeague &&
+                      widget.showRewardsBadge &&
+                      topRewardFuture != null)
                     const SizedBox(width: 8),
                   if (widget.showRewardsBadge && topRewardFuture != null)
                     FutureBuilder<String?>(
@@ -550,12 +562,12 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     alignment: Alignment.topLeft,
                     child: Text(
                       subtitle,
-                      maxLines: 2,
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: cs.onSurface.withOpacity(0.80),
                         fontWeight: FontWeight.w700,
-                        height: 1.22,
+                        height: 1.25,
                       ),
                     ),
                   ),
@@ -996,15 +1008,10 @@ class _LeagueHeroTile extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(
-    String url, {
-    required int width,
-    required int height,
-  }) {
+  String _cloudinaryOptimizedUrl(String url, {required int width, required int height}) {
     final u = url.trim();
     if (u.isEmpty || u.startsWith('data:image')) return u;
-    final isCloudinary =
-        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1049,8 +1056,7 @@ class _LeagueHeroTile extends StatelessWidget {
         filterQuality: FilterQuality.low,
       );
     } else if (raw.isNotEmpty && _looksLikeHttpUrl(raw)) {
-      final url =
-          _cloudinaryOptimizedUrl(raw, width: _cachePx, height: _cachePx);
+      final url = _cloudinaryOptimizedUrl(raw, width: _cachePx, height: _cachePx);
       inner = Image.network(
         url,
         fit: BoxFit.cover,
