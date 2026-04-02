@@ -63,11 +63,8 @@ class MasterLeagueCard extends StatelessWidget {
     final initialCompetition = masterLeague.initialCompetition;
     final score = _workspaceScore();
 
-    final subtitle = masterLeague.isActive
-        ? (isOwner
-            ? 'Organizer workspace created by you'
-            : 'Organizer workspace you joined')
-        : 'Inactive organizer workspace';
+    final subtitle =
+        masterLeague.isActive ? 'Organizer workspace' : 'Inactive organizer workspace';
 
     final rewardsText = initialCompetition == null
         ? ''
@@ -142,8 +139,9 @@ class MasterLeagueCard extends StatelessWidget {
                                   color: masterLeague.isActive
                                       ? const Color(0xFF22C55E)
                                       : const Color(0xFFF59E0B),
-                                  label:
-                                      masterLeague.isActive ? 'ACTIVE' : 'INACTIVE',
+                                  label: masterLeague.isActive
+                                      ? 'ACTIVE'
+                                      : 'INACTIVE',
                                 ),
                                 _chip(
                                   theme: theme,
@@ -155,7 +153,7 @@ class MasterLeagueCard extends StatelessWidget {
                                   color: isOwner
                                       ? const Color(0xFF3B82F6)
                                       : const Color(0xFF8B5CF6),
-                                  label: isOwner ? 'OWNER' : 'MEMBER',
+                                  label: isOwner ? 'OWNER' : 'VISITOR',
                                 ),
                                 if (masterLeague.isVerifiedOrganizer)
                                   _chip(
@@ -268,17 +266,12 @@ class MasterLeagueCard extends StatelessWidget {
                     children: [
                       _stat(
                         context,
-                        '${masterLeague.analytics.totalTournamentsCreated} tournaments',
-                      ),
-                      _stat(
-                        context,
                         '${masterLeague.analytics.totalParticipantsTeams} teams',
                       ),
                       _stat(
                         context,
-                        '${masterLeague.analytics.totalMatches} matches',
+                        '${masterLeague.followersCount} followers',
                       ),
-                      _stat(context, '${masterLeague.memberIds.length} members'),
                       if (created.isNotEmpty) _stat(context, 'Created $created'),
                     ],
                   ),
