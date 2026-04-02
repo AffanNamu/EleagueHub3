@@ -163,6 +163,23 @@ class MasterLeaguesRepositoryFirebase {
     return _col.doc(masterLeagueId.trim()).collection('competition_templates');
   }
 
+  Future<bool> isFollowingWorkspace(String masterLeagueId) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) return false;
+
+      final snap = await _followersCol(id)
+          .doc(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+
+      return snap.exists;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Stream<List<MasterLeague>> watchMyMasterLeagues() {
     try {
       final uid = _requireAuthUid();
