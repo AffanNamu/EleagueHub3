@@ -12,14 +12,12 @@ import 'package:http/http.dart' as http;
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/routing/league_mode_provider.dart';
 import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../../../core/widgets/league_switcher.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../admin/pricing_quick_editor_sheet.dart';
 import '../../auth/data/auth_service.dart';
@@ -903,7 +901,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
 
     final themeState = ref.watch(themeControllerProvider);
-    ref.watch(leagueModeProvider);
 
     final isPricingAdmin = AppAdminsService.instance.isPricingAdminUid(uid);
 
@@ -1241,8 +1238,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     },
                   ),
                 ),
-                const SizedBox(height: 18),
-                const LeagueSwitcher(),
                 const SizedBox(height: 18),
                 if (isSuperAdmin) ...[
                   SectionHeader('Rewards Fulfillment'),

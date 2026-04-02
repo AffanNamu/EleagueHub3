@@ -12,12 +12,15 @@ import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../leagues/data/leagues_repository_local.dart';
+import '../../master_leagues/data/master_leagues_repository_firebase.dart';
 import '../data/chat_repository.dart';
 import '../models/chat_message.dart';
 import 'widgets/chat_bubble.dart';
@@ -55,6 +58,11 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   bool _workspaceOwnerOrStaff = false;
   bool _workspacePermsResolved = false;
+
+  bool _chatAccessResolved = false;
+  bool _chatAccessAllowed = false;
+  String _chatAccessReason =
+      'Organizer chat is only available if you follow this organizer or joined one of their competitions.';
 
   String _workspaceName = 'Organizer Chat';
   bool _workspaceNameResolved = false;
@@ -105,10 +113,142 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     _resolveIdentity();
     _resolveWorkspacePermissions();
     _resolveWorkspaceName();
+    _resolveChatEligibility();
     _wirePlayer();
     _watchModerationState();
 
-    PushMessagingService.instance.setActiveLeagueChat('organizer:${widget.masterLeagueId}');
+    PushMessagingService.instance
+        .setActiveLeagueChat('organizer:${widget.masterLeagueId}');
+  }
+
+  Future<void> _resolveChatEligibility() async {
+    final uid = _user.uid.trim();
+    if (uid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _chatAccessResolved = true;
+        _chatAccessAllowed = false;
+        _chatAccessReason = 'Please sign in to access organizer chat.';
+      });
+      return;
+    }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('master_leagues')
+          .doc(widget.masterLeagueId)
+          .get();
+
+      final data = doc.data() ?? <String, dynamic>{};
+      final ownerId = (data['ownerId'] as String? ?? '').trim();
+
+      if (ownerId == uid) {
+        if (!mounted) return;
+        setState(() {
+          _chatAccessResolved = true;
+          _chatAccessAllowed = true;
+        });
+        return;
+      }
+
+      final adminIds = (data['adminIds'] as List?)
+              ?.map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+
+      final moderatorIds = (data['moderatorIds'] as List?)
+              ?.map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+
+      final memberIds = (data['memberIds'] as List?)
+              ?.map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+
+      if (adminIds.contains(uid) ||
+          moderatorIds.contains(uid) ||
+          memberIds.contains(uid)) {
+        if (!mounted) return;
+        setState(() {
+          _chatAccessResolved = true;
+          _chatAccessAllowed = true;
+        });
+        return;
+      }
+
+      final repo = MasterLeaguesRepositoryFirebase(
+        firestore: FirebaseFirestore.instance,
+      );
+
+      final isFollowing = await repo.isFollowingWorkspace(widget.masterLeagueId);
+      if (isFollowing) {
+        if (!mounted) return;
+        setState(() {
+          _chatAccessResolved = true;
+          _chatAccessAllowed = true;
+        });
+        return;
+      }
+
+      final prefs = await PreferencesService.create();
+      final localRepo = LocalLeaguesRepository(prefs);
+
+      final memberships = await localRepo.listMemberships();
+      final joinedLeagueIds = memberships
+          .where((m) => m.userId.trim() == uid)
+          .map((m) => m.leagueId.trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
+      if (joinedLeagueIds.isNotEmpty) {
+        final leaguesSnap = await FirebaseFirestore.instance
+            .collection('leagues')
+            .where('masterLeagueId', isEqualTo: widget.masterLeagueId)
+            .get();
+
+        bool hasJoinedCompetition = false;
+        for (final d in leaguesSnap.docs) {
+          if (joinedLeagueIds.contains(d.id.trim())) {
+            hasJoinedCompetition = true;
+            break;
+          }
+          final remoteId = (d.data()['id'] ?? '').toString().trim();
+          if (remoteId.isNotEmpty && joinedLeagueIds.contains(remoteId)) {
+            hasJoinedCompetition = true;
+            break;
+          }
+        }
+
+        if (hasJoinedCompetition) {
+          if (!mounted) return;
+          setState(() {
+            _chatAccessResolved = true;
+            _chatAccessAllowed = true;
+          });
+          return;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _chatAccessResolved = true;
+        _chatAccessAllowed = false;
+        _chatAccessReason =
+            'Organizer chat is only available if you follow this organizer or joined one of their competitions.';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _chatAccessResolved = true;
+        _chatAccessAllowed = false;
+        _chatAccessReason =
+            'Could not verify organizer chat access right now. Please try again.';
+      });
+    }
   }
 
   void _watchModerationState() {
@@ -217,7 +357,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     });
     _stateSub = _player.playerStateStream.listen((s) {
       if (!mounted) return;
-      final isPlaying = s.playing && s.processingState != ProcessingState.completed;
+      final isPlaying =
+          s.playing && s.processingState != ProcessingState.completed;
       setState(() {
         _playing = isPlaying;
         if (s.processingState == ProcessingState.completed) {
@@ -284,8 +425,10 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     );
   }
 
-  void _toastErr(Object e) =>
-      _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
+  void _toastErr(Object e) => _toast(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+        error: true,
+      );
 
   bool _canDeleteMessage(ChatMessage msg) {
     if (_canModerateOrganizer) return true;
@@ -316,8 +459,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
     setState(() => _sending = true);
     try {
-      await ConnectivityService.instance.requireOnline(
-          timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       await _repo.sendOrganizerMessage(
         masterLeagueId: widget.masterLeagueId,
@@ -359,8 +502,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
     setState(() => _sending = true);
     try {
-      await ConnectivityService.instance.requireOnline(
-          timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final pick = await SafeImagePicker.pickImage();
       if (pick.wasCancelled) {
@@ -419,8 +562,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     if (_sending || _isVoiceSending || _isRecording || _isSelecting) return;
 
     try {
-      await ConnectivityService.instance.requireOnline(
-          timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final hasPerm = await _recorder.hasPermission();
       if (!hasPerm) {
@@ -511,8 +654,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
     setState(() => _isVoiceSending = true);
     try {
-      await ConnectivityService.instance.requireOnline(
-          timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final stoppedPath = (await _recorder.stop())?.trim();
       final finalPath =
@@ -650,8 +793,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     }
 
     try {
-      await ConnectivityService.instance.requireOnline(
-          timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       await _repo.softDeleteOrganizerMessage(
         masterLeagueId: widget.masterLeagueId,
         messageId: msg.messageId,
@@ -676,8 +819,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     }
 
     try {
-      await ConnectivityService.instance.requireOnline(
-          timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
       await _repo.pinOrganizerMessage(
         masterLeagueId: widget.masterLeagueId,
         messageId: msg.messageId,
@@ -802,7 +945,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
             actions: [
               IconButton(
                 tooltip: 'Copy',
-                onPressed: selectedMsg == null ? null : () => _copySelected(selectedMsg),
+                onPressed:
+                    selectedMsg == null ? null : () => _copySelected(selectedMsg),
                 icon: const Icon(Icons.copy_rounded),
               ),
               if (selectedMsg != null && _canDeleteMessage(selectedMsg))
@@ -820,6 +964,56 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildAccessDeniedView(ThemeData theme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Glass(
+          padding: const EdgeInsets.all(18),
+          borderRadius: 24,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.lock_outline_rounded,
+                color: theme.colorScheme.primary,
+                size: 34,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Organizer Chat Locked',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _chatAccessReason,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface.withOpacity(0.72),
+                  fontWeight: FontWeight.w700,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: () =>
+                    context.push('/master-leagues/${widget.masterLeagueId}'),
+                icon: const Icon(Icons.arrow_back_rounded),
+                label: const Text(
+                  'Back to Workspace',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -864,304 +1058,339 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
             bottom: false,
             child: Padding(
               padding: const EdgeInsets.only(top: topBodyOffset),
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                    child: Glass(
-                      borderRadius: 18,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white.withOpacity(0.06),
-                              border: Border.all(
-                                color:
-                                    theme.colorScheme.primary.withOpacity(0.35),
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.hub_rounded,
-                              color: theme.colorScheme.primary,
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _workspaceNameResolved
-                                      ? _workspaceName
-                                      : 'Organizer Chat',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'General community chat across this organizer’s competitions',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: theme.colorScheme.onSurface
-                                        .withOpacity(0.62),
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () => context
-                                .push('/master-leagues/${widget.masterLeagueId}'),
-                            icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                            label: const Text(
-                              'Workspace',
-                              style: TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (_moderationResolved && _chatBlocked)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                      child: Glass(
-                        borderRadius: 18,
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
+              child: !_chatAccessResolved
+                  ? const Center(child: CircularProgressIndicator())
+                  : !_chatAccessAllowed
+                      ? _buildAccessDeniedView(theme)
+                      : Column(
                           children: [
-                            Icon(Icons.block_rounded,
-                                color: theme.colorScheme.error),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'You are banned from Organizer Chat. You can no longer send messages here.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.error,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.3,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else if (_moderationResolved && _chatReadOnly)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                      child: Glass(
-                        borderRadius: 18,
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.volume_off_rounded,
-                                color: Color(0xFFF59E0B)),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'You are muted in Organizer Chat. You can read messages but cannot send new ones.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFFF59E0B),
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.3,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  StreamBuilder<ChatMessage?>(
-                    stream: _repo.organizerPinnedMessageStream(widget.masterLeagueId),
-                    builder: (context, snap) {
-                      final pinned = snap.data;
-                      if (pinned == null) return const SizedBox.shrink();
-                      return PinnedMessageBar(
-                        message: pinned,
-                        onTap: () => _scrollToMessage(pinned.messageId),
-                      );
-                    },
-                  ),
-                  Expanded(
-                    child: StreamBuilder<List<ChatMessage>>(
-                      stream: _repo.organizerChatStream(widget.masterLeagueId),
-                      builder: (context, snap) {
-                        if (snap.hasError) {
-                          final msg = UserFriendlyError.toMessage(
-                            snap.error is Object ? snap.error! : Exception('unknown'),
-                          );
-
-                          return Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
                               child: Glass(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
+                                borderRadius: 18,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 10),
+                                child: Row(
                                   children: [
-                                    Icon(Icons.lock_outline,
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Colors.white.withOpacity(0.06),
+                                        border: Border.all(
+                                          color: theme.colorScheme.primary
+                                              .withOpacity(0.35),
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        Icons.hub_rounded,
                                         color: theme.colorScheme.primary,
-                                        size: 34),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      msg,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: theme.colorScheme.onSurface
-                                            .withOpacity(0.75),
-                                        fontWeight: FontWeight.w700,
+                                        size: 20,
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
-                                    FilledButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).maybePop(),
-                                      child: const Text('Back'),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _workspaceNameResolved
+                                                ? _workspaceName
+                                                : 'Organizer Chat',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.titleSmall
+                                                ?.copyWith(
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: -0.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'General community chat across this organizer’s competitions',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: theme.colorScheme.onSurface
+                                                  .withOpacity(0.62),
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: () => context.push(
+                                          '/master-leagues/${widget.masterLeagueId}'),
+                                      icon: const Icon(
+                                          Icons.open_in_new_rounded,
+                                          size: 16),
+                                      label: const Text(
+                                        'Workspace',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w900),
+                                      ),
                                     ),
                                   ],
                                 ),
                               ),
                             ),
-                          );
-                        }
-
-                        final msgs = snap.data ?? const <ChatMessage>[];
-                        if (msgs.isEmpty) {
-                          return Center(
-                            child: Text(
-                              'No messages yet',
-                              style: TextStyle(
-                                color: theme.colorScheme.onSurface
-                                    .withOpacity(0.55),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          );
-                        }
-
-                        _msgById = {for (final m in msgs) m.messageId: m};
-
-                        final ids = msgs.map((e) => e.messageId).toSet();
-                        _messageKeys.removeWhere((k, _) => !ids.contains(k));
-
-                        return ListView.builder(
-                          controller: _scrollCtrl,
-                          reverse: true,
-                          padding:
-                              const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
-                          itemCount: msgs.length,
-                          itemBuilder: (_, i) {
-                            final m = msgs[i];
-                            final isMe =
-                                m.senderId.trim() == _user.uid.trim();
-                            final key = _messageKeys.putIfAbsent(
-                                m.messageId, () => GlobalKey());
-
-                            return ValueListenableBuilder<String?>(
-                              valueListenable: _selectedMessageId,
-                              builder: (context, selectedId, _) {
-                                final selecting =
-                                    (selectedId ?? '').trim().isNotEmpty;
-
-                                return KeyedSubtree(
-                                  key: key,
-                                  child: ChatBubble(
-                                    message: m,
-                                    isMe: isMe,
-                                    selected: selectedId == m.messageId,
-                                    onLongPress: () {
-                                      HapticFeedback.mediumImpact();
-                                      _replyTo.value = null;
-                                      _selectedMessageId.value = m.messageId;
-                                    },
-                                    onTap: () {
-                                      if (!selecting) return;
-                                      _selectedMessageId.value =
-                                          (selectedId == m.messageId)
-                                              ? null
-                                              : m.messageId;
-                                    },
-                                    onSwipeReply:
-                                        selecting ? null : () => _replyTo.value = m,
-                                    onPlayVoice:
-                                        (m.type == ChatMessageType.voice &&
-                                                !selecting)
-                                            ? () => _toggleVoice(m)
-                                            : null,
-                                    isVoicePlaying: _isPlayingFor(m.messageId),
-                                    voiceProgress: _progressFor(m.messageId),
-                                    voicePositionLabel:
-                                        _posLabelFor(m.messageId),
-                                    voiceDurationLabel:
-                                        _durLabelFor(m.messageId),
+                            if (_moderationResolved && _chatBlocked)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                                child: Glass(
+                                  borderRadius: 18,
+                                  padding: const EdgeInsets.all(14),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.block_rounded,
+                                          color: theme.colorScheme.error),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          'You are banned from Organizer Chat. You can no longer send messages here.',
+                                          style:
+                                              theme.textTheme.bodySmall?.copyWith(
+                                            color: theme.colorScheme.error,
+                                            fontWeight: FontWeight.w800,
+                                            height: 1.3,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
+                                ),
+                              )
+                            else if (_moderationResolved && _chatReadOnly)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                                child: Glass(
+                                  borderRadius: 18,
+                                  padding: const EdgeInsets.all(14),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.volume_off_rounded,
+                                          color: Color(0xFFF59E0B)),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          'You are muted in Organizer Chat. You can read messages but cannot send new ones.',
+                                          style:
+                                              theme.textTheme.bodySmall?.copyWith(
+                                            color: const Color(0xFFF59E0B),
+                                            fontWeight: FontWeight.w800,
+                                            height: 1.3,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            StreamBuilder<ChatMessage?>(
+                              stream: _repo.organizerPinnedMessageStream(
+                                  widget.masterLeagueId),
+                              builder: (context, snap) {
+                                final pinned = snap.data;
+                                if (pinned == null) return const SizedBox.shrink();
+                                return PinnedMessageBar(
+                                  message: pinned,
+                                  onTap: () =>
+                                      _scrollToMessage(pinned.messageId),
                                 );
                               },
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  if (_isRecording) _buildRecordingBar(context),
-                  if (!_chatBlocked)
-                    AnimatedBuilder(
-                      animation: Listenable.merge([_selectedMessageId, _replyTo]),
-                      builder: (context, _) {
-                        final selecting =
-                            (_selectedMessageId.value ?? '').trim().isNotEmpty;
-                        final reply = _replyTo.value;
+                            ),
+                            Expanded(
+                              child: StreamBuilder<List<ChatMessage>>(
+                                stream: _repo.organizerChatStream(
+                                    widget.masterLeagueId),
+                                builder: (context, snap) {
+                                  if (snap.hasError) {
+                                    final msg = UserFriendlyError.toMessage(
+                                      snap.error is Object
+                                          ? snap.error!
+                                          : Exception('unknown'),
+                                    );
 
-                        return ChatInputBar(
-                          controller: _textCtrl,
-                          isSending: _sending,
-                          codeMode: _codeMode,
-                          onToggleCodeMode: () =>
-                              setState(() => _codeMode = !_codeMode),
-                          enabled: !_isRecording &&
-                              !selecting &&
-                              !_chatReadOnly &&
-                              !_chatBlocked,
-                          onPickImage: () {
-                            if (_chatReadOnly || _chatBlocked) return;
-                            _pickAndSendImage();
-                          },
-                          onSend: () {
-                            if (_chatReadOnly || _chatBlocked) return;
-                            _sendText();
-                          },
-                          onRecordVoice: (_sending ||
-                                  _isVoiceSending ||
-                                  _isRecording ||
-                                  selecting ||
-                                  _chatReadOnly)
-                              ? null
-                              : _startRecording,
-                          voiceTooltip: _recordingPermissionDenied
-                              ? 'Microphone permission required'
-                              : 'Record voice',
-                          replySenderName: reply?.displaySenderName,
-                          replyPreview: reply?.replyPreview(),
-                          onCancelReply: () => _replyTo.value = null,
-                        );
-                      },
-                    ),
-                ],
-              ),
+                                    return Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(16),
+                                        child: Glass(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.lock_outline,
+                                                  color: theme.colorScheme.primary,
+                                                  size: 34),
+                                              const SizedBox(height: 10),
+                                              Text(
+                                                msg,
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  color: theme
+                                                      .colorScheme.onSurface
+                                                      .withOpacity(0.75),
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 10),
+                                              FilledButton(
+                                                onPressed: () =>
+                                                    Navigator.of(context)
+                                                        .maybePop(),
+                                                child: const Text('Back'),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  final msgs =
+                                      snap.data ?? const <ChatMessage>[];
+                                  if (msgs.isEmpty) {
+                                    return Center(
+                                      child: Text(
+                                        'No messages yet',
+                                        style: TextStyle(
+                                          color: theme.colorScheme.onSurface
+                                              .withOpacity(0.55),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  _msgById = {
+                                    for (final m in msgs) m.messageId: m
+                                  };
+
+                                  final ids =
+                                      msgs.map((e) => e.messageId).toSet();
+                                  _messageKeys.removeWhere(
+                                      (k, _) => !ids.contains(k));
+
+                                  return ListView.builder(
+                                    controller: _scrollCtrl,
+                                    reverse: true,
+                                    padding:
+                                        const EdgeInsetsDirectional.fromSTEB(
+                                            12, 12, 12, 12),
+                                    itemCount: msgs.length,
+                                    itemBuilder: (_, i) {
+                                      final m = msgs[i];
+                                      final isMe = m.senderId.trim() ==
+                                          _user.uid.trim();
+                                      final key = _messageKeys.putIfAbsent(
+                                          m.messageId, () => GlobalKey());
+
+                                      return ValueListenableBuilder<String?>(
+                                        valueListenable: _selectedMessageId,
+                                        builder:
+                                            (context, selectedId, _) {
+                                          final selecting =
+                                              (selectedId ?? '')
+                                                  .trim()
+                                                  .isNotEmpty;
+
+                                          return KeyedSubtree(
+                                            key: key,
+                                            child: ChatBubble(
+                                              message: m,
+                                              isMe: isMe,
+                                              selected:
+                                                  selectedId == m.messageId,
+                                              onLongPress: () {
+                                                HapticFeedback.mediumImpact();
+                                                _replyTo.value = null;
+                                                _selectedMessageId.value =
+                                                    m.messageId;
+                                              },
+                                              onTap: () {
+                                                if (!selecting) return;
+                                                _selectedMessageId.value =
+                                                    (selectedId == m.messageId)
+                                                        ? null
+                                                        : m.messageId;
+                                              },
+                                              onSwipeReply: selecting
+                                                  ? null
+                                                  : () => _replyTo.value = m,
+                                              onPlayVoice: (m.type ==
+                                                          ChatMessageType.voice &&
+                                                      !selecting)
+                                                  ? () => _toggleVoice(m)
+                                                  : null,
+                                              isVoicePlaying:
+                                                  _isPlayingFor(m.messageId),
+                                              voiceProgress:
+                                                  _progressFor(m.messageId),
+                                              voicePositionLabel:
+                                                  _posLabelFor(m.messageId),
+                                              voiceDurationLabel:
+                                                  _durLabelFor(m.messageId),
+                                            ),
+                                          );
+                                        },
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                            if (_isRecording) _buildRecordingBar(context),
+                            if (!_chatBlocked)
+                              AnimatedBuilder(
+                                animation: Listenable.merge(
+                                    [_selectedMessageId, _replyTo]),
+                                builder: (context, _) {
+                                  final selecting =
+                                      (_selectedMessageId.value ?? '')
+                                          .trim()
+                                          .isNotEmpty;
+                                  final reply = _replyTo.value;
+
+                                  return ChatInputBar(
+                                    controller: _textCtrl,
+                                    isSending: _sending,
+                                    codeMode: _codeMode,
+                                    onToggleCodeMode: () => setState(
+                                        () => _codeMode = !_codeMode),
+                                    enabled: !_isRecording &&
+                                        !selecting &&
+                                        !_chatReadOnly &&
+                                        !_chatBlocked,
+                                    onPickImage: () {
+                                      if (_chatReadOnly || _chatBlocked) return;
+                                      _pickAndSendImage();
+                                    },
+                                    onSend: () {
+                                      if (_chatReadOnly || _chatBlocked) return;
+                                      _sendText();
+                                    },
+                                    onRecordVoice: (_sending ||
+                                            _isVoiceSending ||
+                                            _isRecording ||
+                                            selecting ||
+                                            _chatReadOnly)
+                                        ? null
+                                        : _startRecording,
+                                    voiceTooltip: _recordingPermissionDenied
+                                        ? 'Microphone permission required'
+                                        : 'Record voice',
+                                    replySenderName: reply?.displaySenderName,
+                                    replyPreview: reply?.replyPreview(),
+                                    onCancelReply: () => _replyTo.value = null,
+                                  );
+                                },
+                              ),
+                          ],
+                        ),
             ),
           ),
         ),

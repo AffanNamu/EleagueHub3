@@ -145,6 +145,72 @@ class _MasterLeagueDetailsScreenState
     return repo.getMembership(leagueId: leagueId, userId: uid);
   }
 
+  Future<bool> _hasJoinedAnyCompetitionInWorkspace(String masterLeagueId) async {
+    final uid = _currentUid.trim();
+    if (uid.isEmpty) return false;
+
+    try {
+      final repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
+      final memberships = await repo.listMemberships();
+
+      final leagueIds = memberships
+          .where((m) => m.userId == uid)
+          .map((m) => m.leagueId.trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
+      if (leagueIds.isEmpty) return false;
+
+      final leaguesSnap = await FirebaseFirestore.instance
+          .collection('leagues')
+          .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
+          .get();
+
+      for (final d in leaguesSnap.docs) {
+        if (leagueIds.contains(d.id.trim())) return true;
+        final remoteId = (d.data()['id'] ?? '').toString().trim();
+        if (remoteId.isNotEmpty && leagueIds.contains(remoteId)) return true;
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  Future<bool> _canAccessOrganizerChat(MasterLeague master) async {
+    if (_isOwner(master)) return true;
+
+    final uid = _currentUid.trim();
+    if (uid.isEmpty) return false;
+
+    try {
+      final repo = ref.read(masterLeaguesRepositoryProvider);
+      final isFollowing = await repo.isFollowingWorkspace(master.id);
+      if (isFollowing) return true;
+    } catch (_) {}
+
+    return _hasJoinedAnyCompetitionInWorkspace(master.id);
+  }
+
+  Future<void> _openOrganizerChatIfAllowed(MasterLeague master) async {
+    final uid = _currentUid.trim();
+    if (uid.isEmpty) {
+      _snack('Please sign in to access organizer chat.', error: true);
+      return;
+    }
+
+    final allowed = await _canAccessOrganizerChat(master);
+    if (!allowed) {
+      _snack(
+        'Organizer chat is only available if you follow this organizer or joined one of their competitions.',
+        error: true,
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    context.push('/master-leagues/${master.id}/chat');
+  }
+
   Future<void> _promptJoinCompetition(League league) async {
     final uid = _currentUid.trim();
     if (uid.isEmpty) {
@@ -984,7 +1050,6 @@ class _MasterLeagueDetailsScreenState
     final ctrl = TextEditingController();
     String typed = '';
     bool deleting = false;
-    String? errorText;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1095,7 +1160,6 @@ class _MasterLeagueDetailsScreenState
                         onChanged: (value) {
                           setModalState(() {
                             typed = value;
-                            errorText = showMismatch ? 'Name does not match' : null;
                           });
                         },
                         decoration: InputDecoration(
@@ -1711,7 +1775,7 @@ class _MasterLeagueDetailsScreenState
           title: 'Organizer Chat',
           subtitle:
               'General community chat across this organizer’s competitions',
-          onTap: () => context.push('/master-leagues/${master.id}/chat'),
+          onTap: () => _openOrganizerChatIfAllowed(master),
           tint: const Color(0xFF0EA5E9),
         ),
         const SizedBox(height: 12),
@@ -1877,7 +1941,7 @@ class _MasterLeagueDetailsScreenState
           SizedBox(
             width: double.infinity,
             child: FilledButton.tonalIcon(
-              onPressed: () => context.push('/master-leagues/${master.id}/chat'),
+              onPressed: () => _openOrganizerChatIfAllowed(master),
               icon: const Icon(Icons.forum_outlined),
               label: const Text(
                 'Organizer Chat',
@@ -2714,8 +2778,7 @@ class _MasterLeagueDetailsScreenState
       builder: (context, masterSnap) {
         final master = masterSnap.data;
         final isOwner = _isOwner(master);
-        final canSeeProfile =
-            master != null && master.canSeeOrganizerProfile(_currentUid);
+        final canSeeProfile = master != null && _currentUid.isNotEmpty;
 
         return GlassScaffold(
           appBar: AppBar(

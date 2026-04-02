@@ -883,9 +883,8 @@ class _OrganizerProfileScreenState
   Widget _accessDenied() {
     return const Center(
       child: EmptyState(
-        title: 'No access',
-        message:
-            'This page is visible only to the Master League owner, admins, and moderators.',
+        title: 'Sign in required',
+        message: 'Please sign in to view organizer profiles.',
         icon: Icons.lock_outline_rounded,
       ),
     );
@@ -1861,7 +1860,7 @@ class _OrganizerProfileScreenState
           );
         }
 
-        if (!ml.canSeeOrganizerProfile(_uid)) {
+        if (_uid.isEmpty) {
           return GlassScaffold(
             appBar: AppBar(
               title: const Text('Organizer Trust Page'),
