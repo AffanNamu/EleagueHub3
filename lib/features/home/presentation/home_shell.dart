@@ -198,12 +198,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     });
   }
 
-  void _safePush(String route) {
-    try {
-      context.push(route);
-    } catch (_) {}
-  }
-
   void _onDestinationSelected(int i) {
     _selectTab(i);
   }
@@ -338,7 +332,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
                 ),
                 IconButton(
                   tooltip: l10n.homeSettingsTooltip,
-                  onPressed: () => _safePush('/settings'),
+                  onPressed: () => context.push('/settings'),
                   icon: const Icon(Icons.settings_outlined),
                 ),
               ],
@@ -417,8 +411,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           label: l10n.homeTabLeagues,
                         ),
                         const NavigationDestination(
-                          icon: Icon(Icons.travel_explore_outlined),
-                          selectedIcon: Icon(Icons.travel_explore),
+                          icon: Icon(Icons.explore_outlined),
+                          selectedIcon: Icon(Icons.explore),
                           label: 'Discover',
                         ),
                         NavigationDestination(
@@ -461,8 +455,8 @@ class _HomeTab extends StatelessWidget {
     final t = theme.textTheme;
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
-    final secondary = cs.onSurface.withOpacity(0.55);
-    final tertiary = cs.onSurface.withOpacity(0.45);
+    final secondary = cs.onSurface.withOpacity(0.62);
+    final tertiary = cs.onSurface.withOpacity(0.50);
     final faint = cs.onSurface.withOpacity(0.30);
 
     return ListView(
@@ -472,60 +466,92 @@ class _HomeTab extends StatelessWidget {
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
       children: [
         Glass(
-          padding: const EdgeInsets.all(20),
-          child: Row(
+          borderRadius: 28,
+          padding: const EdgeInsets.all(22),
+          child: Stack(
             children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      cs.primary.withOpacity(0.35),
-                      cs.primary.withOpacity(0.10),
-                    ],
+              Positioned(
+                right: -20,
+                top: -20,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: cs.primary.withOpacity(0.08),
                   ),
                 ),
-                child: Icon(
-                  Icons.sports_esports_rounded,
-                  color: cs.primary,
-                  size: 26,
+              ),
+              Positioned(
+                left: -12,
+                bottom: -24,
+                child: Container(
+                  width: 90,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: cs.secondary.withOpacity(0.05),
+                  ),
                 ),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.homeWelcomeBack,
-                      style: t.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 22,
-                        letterSpacing: -0.5,
-                        color: cs.onSurface,
+              Row(
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          cs.primary.withOpacity(0.34),
+                          cs.secondary.withOpacity(0.14),
+                        ],
+                      ),
+                      border: Border.all(
+                        color: cs.primary.withOpacity(0.18),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.homeMvpDescription,
-                      style: TextStyle(
-                        color: secondary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                        height: 1.4,
-                      ),
+                    child: Icon(
+                      Icons.auto_awesome_rounded,
+                      color: cs.primary,
+                      size: 28,
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.homeWelcomeBack,
+                          style: t.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 23,
+                            letterSpacing: -0.5,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Manage leagues, jump into live matches, follow organizers, and explore premium experiences.',
+                          style: TextStyle(
+                            color: secondary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            height: 1.45,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 22),
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -545,7 +571,7 @@ class _HomeTab extends StatelessWidget {
                 title: l10n.homeQuickCreateLeagueTitle,
                 subtitle: l10n.homeQuickCreateLeagueSubtitle,
                 gradient: [
-                  cs.primary.withOpacity(0.20),
+                  cs.primary.withOpacity(0.18),
                   cs.primary.withOpacity(0.05),
                 ],
                 onTap: () => _safePush(context, '/leagues/create'),
@@ -554,14 +580,14 @@ class _HomeTab extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: _QuickActionCard(
-                icon: Icons.travel_explore_rounded,
-                title: 'Organizer Discovery',
-                subtitle: 'Browse verified and active organizers',
+                icon: Icons.live_tv_rounded,
+                title: 'Live Match',
+                subtitle: 'Join or host live match sessions',
                 gradient: [
-                  const Color(0xFF00E676).withOpacity(0.20),
-                  const Color(0xFF00E676).withOpacity(0.05),
+                  const Color(0xFF38BDF8).withOpacity(0.18),
+                  const Color(0xFF38BDF8).withOpacity(0.05),
                 ],
-                onTap: () => _safePush(context, '/organizer-discovery'),
+                onTap: () => _safePush(context, '/live/join'),
               ),
             ),
           ],
@@ -574,14 +600,10 @@ class _HomeTab extends StatelessWidget {
             'home_quick_master_leagues_title',
             'Organizer Workspace',
           ),
-          subtitle: _trOr(
-            l10n,
-            'home_quick_master_leagues_subtitle',
-            'Create trusted organizer hubs with multiple competitions',
-          ),
+          subtitle: 'Create and manage premium competition hubs',
           gradient: [
-            cs.primary.withOpacity(0.22),
-            cs.secondary.withOpacity(0.06),
+            cs.primary.withOpacity(0.20),
+            cs.secondary.withOpacity(0.07),
           ],
           onTap: () => _safePush(context, '/master-leagues'),
           isWide: true,
@@ -602,58 +624,9 @@ class _HomeTab extends StatelessWidget {
           onTap: () => _safePush(context, '/call'),
           isWide: true,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 22),
         _FollowedOrganizerFeedPreview(uid: uid),
-        const SizedBox(height: 20),
-        Glass(
-          borderRadius: 24,
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: cs.primary.withOpacity(0.12),
-                  border: Border.all(color: cs.primary.withOpacity(0.22)),
-                ),
-                child: Icon(Icons.travel_explore_rounded, color: cs.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Organizer Discovery',
-                      style: t.titleSmall?.copyWith(
-                        color: cs.onSurface,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Browse featured, verified, and active organizer workspaces.',
-                      style: t.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.68),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              FilledButton.tonal(
-                onPressed: () => _safePush(context, '/organizer-discovery'),
-                child: const Text(
-                  'Open',
-                  style: TextStyle(fontWeight: FontWeight.w900),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -666,9 +639,19 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
         Glass(
+          borderRadius: 24,
           padding: const EdgeInsets.all(4),
           child: Column(
             children: [
+              _ExploreRow(
+                icon: Icons.travel_explore_rounded,
+                title: 'Organizer Discovery',
+                subtitle: 'Featured, verified, and active organizers',
+                onTap: () => _safePush(context, '/organizer-discovery'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
+              ),
+              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
               _ExploreRow(
                 icon: Icons.hub_rounded,
                 title: _trOr(
@@ -682,15 +665,6 @@ class _HomeTab extends StatelessWidget {
                   'Trusted organizer hubs for multiple competitions',
                 ),
                 onTap: () => _safePush(context, '/master-leagues'),
-                secondaryColor: tertiary,
-                chevronColor: faint,
-              ),
-              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
-              _ExploreRow(
-                icon: Icons.travel_explore_rounded,
-                title: 'Organizer Discovery',
-                subtitle: 'Featured, verified, and active organizers',
-                onTap: () => _safePush(context, '/organizer-discovery'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -813,7 +787,7 @@ class _FollowedOrganizerFeedPreviewState
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _items = items.take(6).toList(growable: false);
+        _items = items.take(4).toList(growable: false);
         _hasError = false;
       });
     } catch (_) {
@@ -1050,7 +1024,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
       duration: const Duration(milliseconds: 100),
       reverseDuration: const Duration(milliseconds: 180),
     );
-    _scale = Tween<double>(begin: 1.0, end: 0.96).animate(
+    _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
     );
   }
@@ -1066,8 +1040,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final secondary = cs.onSurface.withOpacity(0.50);
-    final tertiary = cs.onSurface.withOpacity(0.45);
+    final secondary = cs.onSurface.withOpacity(0.54);
+    final tertiary = cs.onSurface.withOpacity(0.46);
     final faint = cs.onSurface.withOpacity(0.30);
 
     return AnimatedBuilder(
@@ -1083,11 +1057,11 @@ class _QuickActionCardState extends State<_QuickActionCard>
         onTapCancel: () => _ctrl.reverse(),
         child: Glass(
           padding: EdgeInsets.zero,
-          borderRadius: 20,
+          borderRadius: 22,
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(22),
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -1098,8 +1072,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                 ? Row(
                     children: [
                       Container(
-                        width: 44,
-                        height: 44,
+                        width: 46,
+                        height: 46,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: cs.onSurface.withOpacity(0.06),
@@ -1145,8 +1119,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 40,
-                        height: 40,
+                        width: 42,
+                        height: 42,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: cs.onSurface.withOpacity(0.06),
@@ -1212,17 +1186,20 @@ class _ExploreRow extends StatelessWidget {
     final cs = theme.colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         child: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: cs.primary.withOpacity(0.12),
+                border: Border.all(
+                  color: cs.primary.withOpacity(0.12),
+                ),
               ),
               child: Icon(icon, color: cs.primary, size: 20),
             ),
