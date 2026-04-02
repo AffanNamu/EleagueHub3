@@ -89,7 +89,7 @@ const Map<String, Map<String, String>> appLocalizationsPart1 = {
 
     'home_tab_home': 'Home',
     'home_tab_leagues': 'Leagues',
-    'home_tab_live': 'Global',
+    'home_tab_live': 'Discover',
     'home_tab_marketplace': 'Marketplace',
     'home_tab_profile': 'Profile',
     'home_settings_tooltip': 'Settings',
