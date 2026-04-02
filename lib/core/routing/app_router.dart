@@ -40,7 +40,6 @@ import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/leagues/presentation/match_detail_screen.dart';
 import '../../features/leagues/presentation/qr_scanner_screen.dart';
-import '../../features/live/presentation/global_live_leagues_screen.dart';
 import '../../features/live/presentation/join_match_screen.dart';
 import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/marketplace/presentation/admin_marketplace_upload_screen.dart';
@@ -425,10 +424,6 @@ final appRouter = GoRouter(
         GoRoute(
           path: 'marketplace',
           builder: (context, state) => const MarketplaceScreen(),
-        ),
-        GoRoute(
-          path: 'global-live',
-          builder: (context, state) => const GlobalLiveLeaguesScreen(),
         ),
         GoRoute(
           path: 'global-chat',
