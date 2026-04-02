@@ -19,6 +19,17 @@ class RemotePricingPlan {
   final int premiumDurationDays;
   final bool premiumEnabled;
 
+  // Pro plan pricing by duration
+  final double proPlan3moFee;
+  final double proPlan6moFee;
+  final double proPlanYearlyFee;
+
+  // Elite plan pricing by duration
+  final double elitePlan3moFee;
+  final double elitePlan6moFee;
+  final double elitePlanYearlyFee;
+
+  // Legacy single-price fields (kept for backward compat)
   final double masterLeagueBasicFee;
   final double masterLeagueProFee;
   final double masterLeagueEliteFee;
@@ -44,6 +55,12 @@ class RemotePricingPlan {
     required this.premiumFee,
     required this.premiumDurationDays,
     required this.premiumEnabled,
+    required this.proPlan3moFee,
+    required this.proPlan6moFee,
+    required this.proPlanYearlyFee,
+    required this.elitePlan3moFee,
+    required this.elitePlan6moFee,
+    required this.elitePlanYearlyFee,
     required this.masterLeagueBasicFee,
     required this.masterLeagueProFee,
     required this.masterLeagueEliteFee,
@@ -67,6 +84,12 @@ class RemotePricingPlan {
     double? premiumFee,
     int? premiumDurationDays,
     bool? premiumEnabled,
+    double? proPlan3moFee,
+    double? proPlan6moFee,
+    double? proPlanYearlyFee,
+    double? elitePlan3moFee,
+    double? elitePlan6moFee,
+    double? elitePlanYearlyFee,
     double? masterLeagueBasicFee,
     double? masterLeagueProFee,
     double? masterLeagueEliteFee,
@@ -89,6 +112,12 @@ class RemotePricingPlan {
       premiumFee: premiumFee ?? this.premiumFee,
       premiumDurationDays: premiumDurationDays ?? this.premiumDurationDays,
       premiumEnabled: premiumEnabled ?? this.premiumEnabled,
+      proPlan3moFee: proPlan3moFee ?? this.proPlan3moFee,
+      proPlan6moFee: proPlan6moFee ?? this.proPlan6moFee,
+      proPlanYearlyFee: proPlanYearlyFee ?? this.proPlanYearlyFee,
+      elitePlan3moFee: elitePlan3moFee ?? this.elitePlan3moFee,
+      elitePlan6moFee: elitePlan6moFee ?? this.elitePlan6moFee,
+      elitePlanYearlyFee: elitePlanYearlyFee ?? this.elitePlanYearlyFee,
       masterLeagueBasicFee: masterLeagueBasicFee ?? this.masterLeagueBasicFee,
       masterLeagueProFee: masterLeagueProFee ?? this.masterLeagueProFee,
       masterLeagueEliteFee: masterLeagueEliteFee ?? this.masterLeagueEliteFee,
@@ -121,6 +150,12 @@ class RemotePricingPlan {
         premiumFee: 9.99,
         premiumDurationDays: 30,
         premiumEnabled: true,
+        proPlan3moFee: 10.0,
+        proPlan6moFee: 18.0,
+        proPlanYearlyFee: 30.0,
+        elitePlan3moFee: 20.0,
+        elitePlan6moFee: 36.0,
+        elitePlanYearlyFee: 60.0,
         masterLeagueBasicFee: 5.0,
         masterLeagueProFee: 10.0,
         masterLeagueEliteFee: 20.0,
@@ -144,6 +179,12 @@ class RemotePricingPlan {
         premiumFee: 5000.0,
         premiumDurationDays: 30,
         premiumEnabled: true,
+        proPlan3moFee: 5000.0,
+        proPlan6moFee: 9000.0,
+        proPlanYearlyFee: 15000.0,
+        elitePlan3moFee: 10000.0,
+        elitePlan6moFee: 18000.0,
+        elitePlanYearlyFee: 30000.0,
         masterLeagueBasicFee: 1500.0,
         masterLeagueProFee: 3000.0,
         masterLeagueEliteFee: 5000.0,
@@ -261,6 +302,30 @@ class RemotePricingPlan {
       ),
       premiumEnabled:
           _boolFromAny(map['premiumEnabled'], fallback: defaults.premiumEnabled),
+      proPlan3moFee: _numToDouble(
+        map['proPlan3moFee'],
+        fallback: defaults.proPlan3moFee,
+      ),
+      proPlan6moFee: _numToDouble(
+        map['proPlan6moFee'],
+        fallback: defaults.proPlan6moFee,
+      ),
+      proPlanYearlyFee: _numToDouble(
+        map['proPlanYearlyFee'],
+        fallback: defaults.proPlanYearlyFee,
+      ),
+      elitePlan3moFee: _numToDouble(
+        map['elitePlan3moFee'],
+        fallback: defaults.elitePlan3moFee,
+      ),
+      elitePlan6moFee: _numToDouble(
+        map['elitePlan6moFee'],
+        fallback: defaults.elitePlan6moFee,
+      ),
+      elitePlanYearlyFee: _numToDouble(
+        map['elitePlanYearlyFee'],
+        fallback: defaults.elitePlanYearlyFee,
+      ),
       masterLeagueBasicFee:
           _numToDouble(mlBasic, fallback: defaults.masterLeagueBasicFee),
       masterLeagueProFee:
@@ -292,6 +357,31 @@ class RemotePricingPlan {
       flutterwaveEnabled:
           _boolFromAny(flutterwaveEnabled, fallback: defaults.flutterwaveEnabled),
     );
+  }
+
+  /// Get the price for a specific plan + duration combo.
+  double getPlanPrice({
+    required String planId,
+    required String durationId,
+  }) {
+    final p = planId.trim().toLowerCase();
+    final d = durationId.trim().toLowerCase();
+
+    if (p == 'pro') {
+      if (d == '3mo') return proPlan3moFee;
+      if (d == '6mo') return proPlan6moFee;
+      if (d == 'yearly') return proPlanYearlyFee;
+      return proPlan3moFee;
+    }
+
+    if (p == 'elite') {
+      if (d == '3mo') return elitePlan3moFee;
+      if (d == '6mo') return elitePlan6moFee;
+      if (d == 'yearly') return elitePlanYearlyFee;
+      return elitePlan3moFee;
+    }
+
+    return 0;
   }
 }
 

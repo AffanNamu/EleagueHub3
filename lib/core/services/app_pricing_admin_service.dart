@@ -167,6 +167,16 @@ class AppPricingAdminService {
         'premiumDurationDays':
             toInt(src['premiumDurationDays'], dft.premiumDurationDays),
         'premiumEnabled': toBool(src['premiumEnabled'], dft.premiumEnabled),
+
+        // Plan subscription pricing
+        'proPlan3moFee': toDouble(src['proPlan3moFee'], dft.proPlan3moFee),
+        'proPlan6moFee': toDouble(src['proPlan6moFee'], dft.proPlan6moFee),
+        'proPlanYearlyFee': toDouble(src['proPlanYearlyFee'], dft.proPlanYearlyFee),
+        'elitePlan3moFee': toDouble(src['elitePlan3moFee'], dft.elitePlan3moFee),
+        'elitePlan6moFee': toDouble(src['elitePlan6moFee'], dft.elitePlan6moFee),
+        'elitePlanYearlyFee': toDouble(src['elitePlanYearlyFee'], dft.elitePlanYearlyFee),
+
+        // Legacy single-price fields
         'masterLeagueBasicFee': basicFee,
         'masterLeagueProFee': proFee,
         'masterLeagueEliteFee': eliteFee,
@@ -217,6 +227,14 @@ class AppPricingAdminService {
         'premiumFee': p.premiumFee,
         'premiumDurationDays': p.premiumDurationDays,
         'premiumEnabled': p.premiumEnabled,
+
+        'proPlan3moFee': p.proPlan3moFee,
+        'proPlan6moFee': p.proPlan6moFee,
+        'proPlanYearlyFee': p.proPlanYearlyFee,
+        'elitePlan3moFee': p.elitePlan3moFee,
+        'elitePlan6moFee': p.elitePlan6moFee,
+        'elitePlanYearlyFee': p.elitePlanYearlyFee,
+
         'masterLeagueBasicFee': p.masterLeagueBasicFee,
         'masterLeagueProFee': p.masterLeagueProFee,
         'masterLeagueEliteFee': p.masterLeagueEliteFee,

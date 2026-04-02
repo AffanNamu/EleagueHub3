@@ -4,10 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/services/country/country_resolver_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../data/master_leagues_repository_firebase.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
 import '../logic/master_league_pricing_service.dart';
@@ -31,7 +29,9 @@ class _CreateMasterLeagueScreenState
   bool _enableRewards = false;
 
   MasterLeaguePlan _selectedPlan = MasterLeaguePlan.basic;
+  PlanDuration _selectedDuration = PlanDuration.threeMonths;
   MasterLeaguePlan? _activePlan;
+  int _ownedWorkspaceCount = 0;
 
   @override
   void initState() {
@@ -56,20 +56,23 @@ class _CreateMasterLeagueScreenState
   Future<void> _loadEntitlement() async {
     try {
       final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
-      final plan = await entitlementSvc.getActivePlan(forceRefresh: false);
+      final ent = await entitlementSvc.getEntitlement(forceRefresh: false);
+      final count = await entitlementSvc.countOwnedWorkspaces();
       if (!mounted) return;
 
       setState(() {
-        _activePlan = plan;
+        _activePlan = ent.plan;
+        _ownedWorkspaceCount = count;
         _loadingEntitlement = false;
-        if (plan != null && _planOrder(_selectedPlan) < _planOrder(plan)) {
-          _selectedPlan = plan;
+        if (ent.plan != null && _planOrder(_selectedPlan) < _planOrder(ent.plan!)) {
+          _selectedPlan = ent.plan!;
         }
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _activePlan = null;
+        _ownedWorkspaceCount = 0;
         _loadingEntitlement = false;
       });
     }
@@ -80,18 +83,6 @@ class _CreateMasterLeagueScreenState
     _masterLeagueNameCtrl.dispose();
     _competitionNameCtrl.dispose();
     super.dispose();
-  }
-
-  Future<MasterLeaguePrice?> _loadPriceForPlan(MasterLeaguePlan plan) async {
-    try {
-      final svc = MasterLeaguePricingService();
-      return await svc.getMasterLeaguePriceForPlan(
-        plan: plan,
-        locale: Localizations.maybeLocaleOf(context),
-      );
-    } catch (_) {
-      return null;
-    }
   }
 
   void _showMessage(String text, {bool error = false}) {
@@ -124,224 +115,17 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  Future<bool> _showPaymentConfirmDialog({
-    required MasterLeaguePrice? price,
-    required bool preferNgn,
-    required MasterLeaguePlan plan,
-    required String masterLeagueName,
-    required String competitionName,
-    required bool rewardsEnabled,
-  }) async {
-    if (!mounted) return false;
+  bool get _selectedNeedsPayment => _selectedPlan.requiresPayment;
 
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final String priceLine =
-        price != null ? 'Workspace fee: ${price.display}' : 'Workspace fee unavailable';
-    final String planLine = 'Plan: ${plan.displayName}';
-    final String competitionLine =
-        'First competition: $competitionName • Rewards: ${rewardsEnabled ? 'Enabled' : 'Disabled'}';
-
-    final actualCurrency = (price?.currency ?? '').trim().toUpperCase();
-    final String? warning =
-        (preferNgn && actualCurrency.isNotEmpty && actualCurrency != 'NGN')
-            ? 'NGN price is not configured. Falling back to $actualCurrency.'
-            : null;
-
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: !_processing,
-      builder: (ctx) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          child: Glass(
-            borderRadius: 28,
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Proceed to Payment',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Your organizer workspace will only be created after successful and verified payment.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withOpacity(0.72),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'Master League: $masterLeagueName',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  competitionLine,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: cs.onSurface.withOpacity(0.78),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '$planLine\n$priceLine',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (warning != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: cs.error.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: cs.error.withOpacity(0.30)),
-                    ),
-                    child: Text(
-                      warning,
-                      style: TextStyle(
-                        color: cs.error,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        child: const Text(
-                          'Pay Now',
-                          style: TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    return result == true;
-  }
-
-  Future<bool> _showFreeBasicConfirmDialog({
-    required String masterLeagueName,
-    required String competitionName,
-    required bool rewardsEnabled,
-  }) async {
-    if (!mounted) return false;
-
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Glass(
-          borderRadius: 28,
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Create Free Basic Workspace',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  color: cs.onSurface,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Basic plan is now free. Your organizer workspace will be created immediately without payment.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurface.withOpacity(0.72),
-                  fontWeight: FontWeight.w600,
-                  height: 1.35,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'Master League: $masterLeagueName',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'First competition: $competitionName • Rewards: ${rewardsEnabled ? 'Enabled' : 'Disabled'}',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: cs.onSurface.withOpacity(0.78),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Plan: Basic • Price: Free',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: cs.primary,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () => Navigator.of(ctx).pop(true),
-                      child: const Text(
-                        'Create Now',
-                        style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    return result == true;
+  bool get _shouldShowPaymentButton {
+    if (_selectedPlan.isFree) return false;
+    // If user already has this plan active and can still create workspaces, no payment
+    if (_activePlan != null &&
+        _planOrder(_activePlan!) >= _planOrder(_selectedPlan) &&
+        _activePlan!.canCreateWorkspace(_ownedWorkspaceCount)) {
+      return false;
+    }
+    return true;
   }
 
   Future<void> _create() async {
@@ -367,18 +151,20 @@ class _CreateMasterLeagueScreenState
       final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
       final effectivePlan = _activePlan ?? _selectedPlan;
 
-      await repo.checkMasterLeagueLimitOrThrow(effectivePlan);
-
-      if (effectivePlan == MasterLeaguePlan.basic) {
-        final shouldCreate = await _showFreeBasicConfirmDialog(
-          masterLeagueName: masterLeagueName,
-          competitionName: competition.name,
-          rewardsEnabled: _enableRewards,
+      // Check workspace limit
+      if (!effectivePlan.canCreateWorkspace(_ownedWorkspaceCount)) {
+        _showMessage(
+          'You have reached the workspace limit for ${effectivePlan.displayName} plan. Please upgrade.',
+          error: true,
         );
+        setState(() => _processing = false);
+        return;
+      }
 
-        if (!shouldCreate) {
-          if (mounted) setState(() => _processing = false);
-          return;
+      if (effectivePlan.isFree) {
+        // Free basic — activate plan if not yet active, then create
+        if (_activePlan == null) {
+          await entitlementSvc.activateBasicFreePlan();
         }
 
         final created = await repo.create(
@@ -387,102 +173,61 @@ class _CreateMasterLeagueScreenState
         );
 
         if (!mounted) return;
-
         _showMessage('Basic Master League created successfully.');
         context.go('/master-leagues/${created.id}');
         return;
       }
 
-      final price = await _loadPriceForPlan(effectivePlan);
-      final cc = await CountryResolverService.instance.resolveCountryCode(
-        locale: Localizations.maybeLocaleOf(context),
-      );
-      final preferNgn = cc.trim().toUpperCase() == 'NG';
+      // Paid plan — need payment
+      if (_shouldShowPaymentButton) {
+        final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
+        final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
-      final shouldProceed = await _showPaymentConfirmDialog(
-        price: price,
-        preferNgn: preferNgn,
-        plan: effectivePlan,
-        masterLeagueName: masterLeagueName,
-        competitionName: competition.name,
-        rewardsEnabled: _enableRewards,
-      );
-
-      if (!shouldProceed) {
-        if (mounted) setState(() => _processing = false);
-        return;
-      }
-
-      final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
-      final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-
-      final payment = await paymentSvc.payForMasterLeagueCreation(
-        context: context,
-        userId: userId,
-        plan: effectivePlan,
-        masterLeagueName: masterLeagueName,
-        competition: competition,
-      );
-
-      if (!mounted) return;
-
-      if (!payment.success) {
-        _showMessage(
-          payment.errorMessage ?? 'Payment failed. Please try again.',
-          error: true,
+        final payment = await paymentSvc.payForPlanSubscription(
+          context: context,
+          userId: userId,
+          plan: _selectedPlan,
+          duration: _selectedDuration,
         );
-        return;
-      }
 
-      try {
-        if (kDebugMode) {
-          debugPrint('[CreateML] Activating Organizer Pro for plan: ${effectivePlan.id}...');
+        if (!mounted) return;
+
+        if (!payment.success) {
+          _showMessage(
+            payment.errorMessage ?? 'Payment failed. Please try again.',
+            error: true,
+          );
+          setState(() => _processing = false);
+          return;
         }
 
+        // Activate plan on user profile
         await entitlementSvc.activateAfterPayment(
-          plan: effectivePlan,
-          payment: payment,
+          plan: _selectedPlan,
+          duration: _selectedDuration,
+          receiptId: payment.receiptId ?? '',
+          provider: payment.provider,
         );
-
-        if (kDebugMode) {
-          debugPrint('[CreateML] Organizer Pro activated successfully.');
-        }
-
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      } catch (activationError) {
-        if (kDebugMode) {
-          debugPrint('[CreateML] Organizer Pro activation failed: $activationError');
-          debugPrint('[CreateML] Proceeding with Master League creation anyway...');
-        }
-        try {
-          await FirebaseAuth.instance.currentUser?.getIdToken(true);
-        } catch (_) {}
       }
 
+      // Create workspace
       final created = await repo.createAfterVerifiedPayment(
         masterLeagueName: masterLeagueName,
         plan: effectivePlan,
-        attemptId: payment.attemptId,
-        paymentId: payment.paymentId,
-        receiptId: payment.receiptId ?? '',
+        attemptId: '',
+        paymentId: '',
+        receiptId: '',
         competition: competition,
       );
 
       if (!mounted) return;
-
       _showMessage('Master League created successfully.');
       context.go('/master-leagues/${created.id}');
-    } on UserFriendlyException catch (e) {
-      _showMessage(e.message, error: true);
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[CreateML] Create failed: $e');
-      }
+      if (kDebugMode) debugPrint('[CreateML] Create failed: $e');
       _showMessage('$e', error: true);
     } finally {
-      if (mounted) {
-        setState(() => _processing = false);
-      }
+      if (mounted) setState(() => _processing = false);
     }
   }
 
@@ -496,16 +241,8 @@ class _CreateMasterLeagueScreenState
     final isCurrent = _activePlan == plan;
     final lockedLowerPlan = !_canSelectPlan(plan);
 
-    final Color borderColor;
-    final Color bgColor;
-
-    if (isSelected) {
-      borderColor = cs.primary;
-      bgColor = cs.primary.withOpacity(0.08);
-    } else {
-      borderColor = cs.onSurface.withOpacity(0.12);
-      bgColor = Colors.transparent;
-    }
+    final Color borderColor = isSelected ? cs.primary : cs.onSurface.withOpacity(0.12);
+    final Color bgColor = isSelected ? cs.primary.withOpacity(0.08) : Colors.transparent;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -522,33 +259,18 @@ class _CreateMasterLeagueScreenState
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               color: bgColor,
-              border: Border.all(
-                color: borderColor,
-                width: isSelected ? 2 : 1,
-              ),
+              border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
             ),
             child: Row(
               children: [
                 Container(
-                  width: 24,
-                  height: 24,
+                  width: 24, height: 24,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isSelected
-                          ? cs.primary
-                          : cs.onSurface.withOpacity(0.35),
-                      width: 2,
-                    ),
+                    border: Border.all(color: isSelected ? cs.primary : cs.onSurface.withOpacity(0.35), width: 2),
                     color: isSelected ? cs.primary : Colors.transparent,
                   ),
-                  child: isSelected
-                      ? const Icon(
-                          Icons.check,
-                          size: 16,
-                          color: Colors.white,
-                        )
-                      : null,
+                  child: isSelected ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -557,97 +279,31 @@ class _CreateMasterLeagueScreenState
                     children: [
                       Wrap(
                         crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8,
-                        runSpacing: 6,
+                        spacing: 8, runSpacing: 6,
                         children: [
-                          Text(
-                            plan.displayName,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              color: cs.onSurface,
-                            ),
-                          ),
+                          Text(plan.displayName, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900, color: cs.onSurface)),
                           if (plan.isPopular)
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF22C55E).withOpacity(0.14),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color:
-                                      const Color(0xFF22C55E).withOpacity(0.30),
-                                ),
-                              ),
-                              child: const Text(
-                                'MOST POPULAR',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.5,
-                                  color: Color(0xFF22C55E),
-                                ),
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(color: const Color(0xFF22C55E).withOpacity(0.14), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF22C55E).withOpacity(0.30))),
+                              child: const Text('MOST POPULAR', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.5, color: Color(0xFF22C55E))),
                             ),
                           if (isCurrent)
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: cs.primary.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: cs.primary.withOpacity(0.28),
-                                ),
-                              ),
-                              child: Text(
-                                'CURRENT',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.5,
-                                  color: cs.primary,
-                                ),
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(color: cs.primary.withOpacity(0.12), borderRadius: BorderRadius.circular(8), border: Border.all(color: cs.primary.withOpacity(0.28))),
+                              child: Text('CURRENT', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.5, color: cs.primary)),
                             ),
-                          if (plan == MasterLeaguePlan.basic)
+                          if (plan.isFree)
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF22C55E).withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: const Color(0xFF22C55E).withOpacity(0.28),
-                                ),
-                              ),
-                              child: const Text(
-                                'FREE',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.5,
-                                  color: Color(0xFF22C55E),
-                                ),
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(color: const Color(0xFF22C55E).withOpacity(0.12), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF22C55E).withOpacity(0.28))),
+                              child: const Text('FREE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.5, color: Color(0xFF22C55E))),
                             ),
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        plan.description,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.65),
-                          fontWeight: FontWeight.w700,
-                          height: 1.2,
-                        ),
-                      ),
+                      Text(plan.description, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.65), fontWeight: FontWeight.w700, height: 1.2)),
                     ],
                   ),
                 ),
@@ -659,31 +315,52 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  Widget _noteCard(ThemeData theme, ColorScheme cs) {
-    return Glass(
-      borderRadius: 22,
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Note',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: cs.onSurface,
+  Widget _buildDurationSelector(ThemeData theme, ColorScheme cs) {
+    if (!_selectedNeedsPayment) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 14),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 10),
+          child: Text('Choose Duration', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -0.2, color: cs.onSurface)),
+        ),
+        ...PlanDuration.values.map((dur) {
+          final isSelected = _selectedDuration == dur;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: InkWell(
+              onTap: _processing ? null : () => setState(() => _selectedDuration = dur),
+              borderRadius: BorderRadius.circular(16),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: isSelected ? cs.primary.withOpacity(0.08) : Colors.transparent,
+                  border: Border.all(color: isSelected ? cs.primary : cs.onSurface.withOpacity(0.12), width: isSelected ? 2 : 1),
+                ),
+                child: Row(
+                  children: [
+                    Icon(isSelected ? Icons.radio_button_checked : Icons.radio_button_off, color: isSelected ? cs.primary : cs.onSurface.withOpacity(0.5)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(dur.displayName, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w900, color: cs.onSurface)),
+                    ),
+                    if (dur.hasDiscount)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(color: const Color(0xFF22C55E).withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
+                        child: Text(dur.discountLabel, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF22C55E))),
+                      ),
+                  ],
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Basic plan is free and creates your organizer workspace instantly. Pro and Elite continue to use paid workspace activation. If rewards are enabled, you will complete the full reward setup later inside the competition using your built-in rewards system.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.72),
-              fontWeight: FontWeight.w700,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
+          );
+        }),
+      ],
     );
   }
 
@@ -692,14 +369,8 @@ class _CreateMasterLeagueScreenState
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final selectedIsBasic = _selectedPlan == MasterLeaguePlan.basic;
-
     return GlassScaffold(
-      appBar: AppBar(
-        title: const Text('Create Master League'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('Create Master League'), backgroundColor: Colors.transparent, elevation: 0),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -713,147 +384,51 @@ class _CreateMasterLeagueScreenState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: cs.primary.withOpacity(0.12),
-                              border: Border.all(
-                                color: cs.primary.withOpacity(0.25),
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.hub_rounded,
-                              color: cs.primary,
-                              size: 22,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Create New Master League',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.2,
-                                color: cs.onSurface,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      Row(children: [
+                        Container(width: 44, height: 44, decoration: BoxDecoration(shape: BoxShape.circle, color: cs.primary.withOpacity(0.12), border: Border.all(color: cs.primary.withOpacity(0.25))), child: Icon(Icons.hub_rounded, color: cs.primary, size: 22)),
+                        const SizedBox(width: 12),
+                        Expanded(child: Text('Create New Master League', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -0.2, color: cs.onSurface))),
+                      ]),
                       const SizedBox(height: 10),
-                      Text(
-                        'Enter a workspace name and first competition name. Rewards can be enabled here and fully configured later inside your competition reward system.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface.withOpacity(0.70),
-                          fontWeight: FontWeight.w600,
-                          height: 1.35,
-                        ),
-                      ),
+                      Text('Enter a workspace name and first competition name.', style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurface.withOpacity(0.70), fontWeight: FontWeight.w600, height: 1.35)),
                       const SizedBox(height: 12),
                       if (_loadingEntitlement)
-                        Text(
-                          'Checking active plan...',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurface.withOpacity(0.70),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        )
+                        Text('Checking active plan...', style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.70), fontWeight: FontWeight.w800))
                       else if (_activePlan != null)
-                        Text(
-                          'Active plan: ${_activePlan!.displayName}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.primary,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        )
+                        Text('Active plan: ${_activePlan!.displayName} • Workspaces: $_ownedWorkspaceCount / ${_activePlan!.unlimitedMasterLeagues ? '∞' : '${_activePlan!.maxMasterLeagues}'}',
+                          style: theme.textTheme.bodySmall?.copyWith(color: cs.primary, fontWeight: FontWeight.w900))
                       else
-                        Text(
-                          selectedIsBasic
-                              ? 'Basic plan can be created for free without payment.'
-                              : 'No active Organizer Pro claim found. You can still continue to payment for your selected plan.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurface.withOpacity(0.70),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                        Text('No active plan. Select a plan below.', style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.70), fontWeight: FontWeight.w800)),
                       const SizedBox(height: 16),
-                      TextField(
-                        controller: _masterLeagueNameCtrl,
-                        enabled: !_processing,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Master League Name',
-                          prefixIcon: Icon(Icons.edit_outlined),
-                        ),
-                      ),
+                      TextField(controller: _masterLeagueNameCtrl, enabled: !_processing, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Master League Name', prefixIcon: Icon(Icons.edit_outlined))),
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: _competitionNameCtrl,
-                        enabled: !_processing,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _create(),
-                        decoration: const InputDecoration(
-                          labelText: 'Competition Name',
-                          prefixIcon: Icon(Icons.emoji_events_outlined),
-                        ),
-                      ),
+                      TextField(controller: _competitionNameCtrl, enabled: !_processing, textInputAction: TextInputAction.done, onSubmitted: (_) => _create(), decoration: const InputDecoration(labelText: 'Competition Name', prefixIcon: Icon(Icons.emoji_events_outlined))),
                       const SizedBox(height: 14),
                       SwitchListTile.adaptive(
                         value: _enableRewards,
-                        onChanged: _processing
-                            ? null
-                            : (v) => setState(() => _enableRewards = v),
+                        onChanged: _processing ? null : (v) => setState(() => _enableRewards = v),
                         contentPadding: EdgeInsets.zero,
-                        title: const Text(
-                          'Enable rewards for first competition',
-                          style: TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                        subtitle: const Text(
-                          'Full reward details will be configured later inside the competition.',
-                        ),
+                        title: const Text('Enable rewards for first competition', style: TextStyle(fontWeight: FontWeight.w900)),
+                        subtitle: const Text('Full reward details will be configured later.'),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 14),
-                _noteCard(theme, cs),
-                const SizedBox(height: 14),
                 Padding(
                   padding: const EdgeInsets.only(left: 4, bottom: 10),
-                  child: Text(
-                    'Choose Plan',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.2,
-                      color: cs.onSurface,
-                    ),
-                  ),
+                  child: Text('Choose Plan', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, letterSpacing: -0.2, color: cs.onSurface)),
                 ),
-                ...MasterLeaguePlan.values.map(
-                  (plan) => _buildPlanTile(context, plan, theme, cs),
-                ),
+                ...MasterLeaguePlan.values.map((plan) => _buildPlanTile(context, plan, theme, cs)),
+                _buildDurationSelector(theme, cs),
                 const SizedBox(height: 8),
                 FilledButton.icon(
                   onPressed: _processing ? null : _create,
                   icon: _processing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          selectedIsBasic
-                              ? Icons.add_circle_outline_rounded
-                              : Icons.payment_rounded,
-                        ),
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : Icon(_shouldShowPaymentButton ? Icons.payment_rounded : Icons.add_circle_outline_rounded),
                   label: Text(
-                    _processing
-                        ? 'Processing...'
-                        : (selectedIsBasic ? 'Create Free Basic Workspace' : 'Proceed to Payment'),
+                    _processing ? 'Processing...' : (_shouldShowPaymentButton ? 'Proceed to Payment' : 'Create Workspace'),
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
@@ -861,14 +436,10 @@ class _CreateMasterLeagueScreenState
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    selectedIsBasic
-                        ? 'Basic Master League is created instantly without payment.'
-                        : 'Your Master League is created only after workspace payment succeeds and is verified.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.60),
-                      fontWeight: FontWeight.w700,
-                      height: 1.3,
-                    ),
+                    _selectedPlan.isFree
+                        ? 'Basic plan is free. Your workspace will be created instantly.'
+                        : 'Your workspace is created after payment is verified.',
+                    style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.60), fontWeight: FontWeight.w700, height: 1.3),
                   ),
                 ),
               ],

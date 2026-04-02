@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../master_leagues/domain/master_league_plan.dart';
+
 class UserProfile {
   const UserProfile({
     required this.userId,
@@ -18,6 +20,12 @@ class UserProfile {
     required this.verifiedAtMs,
     required this.verificationExpiresAtMs,
     required this.verificationStatus,
+    required this.activePlanId,
+    required this.activePlanDurationId,
+    required this.planPurchasedAtMs,
+    required this.planExpiresAtMs,
+    required this.planReceiptId,
+    required this.planProvider,
   });
 
   final String userId;
@@ -36,6 +44,14 @@ class UserProfile {
   final int verifiedAtMs;
   final int verificationExpiresAtMs;
   final String verificationStatus;
+
+  // Plan subscription fields
+  final String activePlanId;
+  final String activePlanDurationId;
+  final int planPurchasedAtMs;
+  final int planExpiresAtMs;
+  final String planReceiptId;
+  final String planProvider;
 
   String get effectivePhotoUrl {
     if (profileImageUrl.trim().isNotEmpty) return profileImageUrl.trim();
@@ -66,6 +82,65 @@ class UserProfile {
   bool get verificationPending =>
       verificationStatus.trim().toLowerCase() == 'pending';
 
+  // ── Plan helpers ──────────────────────────────────────────────────
+
+  /// Whether the user has any active (non-expired) plan subscription.
+  /// Basic plan (free) is always active once set.
+  /// Pro/Elite require valid expiry.
+  bool get hasPlanActive {
+    if (activePlanId.trim().isEmpty) return false;
+    final plan = MasterLeaguePlan.tryFromString(activePlanId);
+    if (plan == null) return false;
+    // Basic is free and never expires
+    if (plan.isFree) return true;
+    if (planExpiresAtMs <= 0) return false;
+    return planExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+  }
+
+  /// The active plan enum, or null if no active plan.
+  MasterLeaguePlan? get activePlan {
+    if (!hasPlanActive) return null;
+    return MasterLeaguePlan.tryFromString(activePlanId);
+  }
+
+  /// The active plan duration, or null if no active plan.
+  PlanDuration? get activePlanDuration {
+    if (!hasPlanActive) return null;
+    return PlanDuration.fromString(activePlanDurationId);
+  }
+
+  /// Build a UserPlanSubscription from profile fields, or null.
+  UserPlanSubscription? get planSubscription {
+    final plan = activePlan;
+    if (plan == null) return null;
+    return UserPlanSubscription(
+      plan: plan,
+      duration: PlanDuration.fromString(activePlanDurationId),
+      purchasedAtMs: planPurchasedAtMs,
+      expiresAtMs: planExpiresAtMs,
+      receiptId: planReceiptId,
+      provider: planProvider,
+    );
+  }
+
+  int get planDaysRemaining {
+    final sub = planSubscription;
+    if (sub == null) return 0;
+    return sub.daysRemaining;
+  }
+
+  bool get planExpiringSoon {
+    final sub = planSubscription;
+    if (sub == null) return false;
+    return sub.isExpiringSoon;
+  }
+
+  /// Whether the user can create normal leagues or join leagues.
+  bool get canAccessLeagues => hasPlanActive;
+
+  /// Whether the user can create/access master league competitions.
+  bool get canAccessMasterLeagues => hasPlanActive;
+
   String get displayName {
     final name = teamName.trim();
     if (name.isNotEmpty) return name;
@@ -91,6 +166,12 @@ class UserProfile {
     int? verifiedAtMs,
     int? verificationExpiresAtMs,
     String? verificationStatus,
+    String? activePlanId,
+    String? activePlanDurationId,
+    int? planPurchasedAtMs,
+    int? planExpiresAtMs,
+    String? planReceiptId,
+    String? planProvider,
   }) {
     return UserProfile(
       userId: userId ?? this.userId,
@@ -110,6 +191,12 @@ class UserProfile {
       verificationExpiresAtMs:
           verificationExpiresAtMs ?? this.verificationExpiresAtMs,
       verificationStatus: verificationStatus ?? this.verificationStatus,
+      activePlanId: activePlanId ?? this.activePlanId,
+      activePlanDurationId: activePlanDurationId ?? this.activePlanDurationId,
+      planPurchasedAtMs: planPurchasedAtMs ?? this.planPurchasedAtMs,
+      planExpiresAtMs: planExpiresAtMs ?? this.planExpiresAtMs,
+      planReceiptId: planReceiptId ?? this.planReceiptId,
+      planProvider: planProvider ?? this.planProvider,
     );
   }
 
@@ -133,6 +220,12 @@ class UserProfile {
       'verifiedAtMs': verifiedAtMs,
       'verificationExpiresAtMs': verificationExpiresAtMs,
       'verificationStatus': verificationStatus,
+      'activePlanId': activePlanId,
+      'activePlanDurationId': activePlanDurationId,
+      'planPurchasedAtMs': planPurchasedAtMs,
+      'planExpiresAtMs': planExpiresAtMs,
+      'planReceiptId': planReceiptId,
+      'planProvider': planProvider,
     };
   }
 
@@ -171,6 +264,13 @@ class UserProfile {
       ),
       verificationStatus:
           (map['verificationStatus'] as String? ?? '').trim(),
+      activePlanId: (map['activePlanId'] as String? ?? '').trim(),
+      activePlanDurationId:
+          (map['activePlanDurationId'] as String? ?? '').trim(),
+      planPurchasedAtMs: _readMs(map['planPurchasedAtMs']),
+      planExpiresAtMs: _readMs(map['planExpiresAtMs']),
+      planReceiptId: (map['planReceiptId'] as String? ?? '').trim(),
+      planProvider: (map['planProvider'] as String? ?? '').trim(),
     );
   }
 

@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 
+import '../../master_leagues/domain/master_league_plan.dart';
 import '../models/user_profile.dart';
 
 class UserProfileRepositoryException implements Exception {
@@ -351,6 +352,31 @@ class UserProfileRepository {
     }
   }
 
+  /// Watch whether user has any active plan subscription.
+  Stream<bool> watchHasActivePlan(String userId) {
+    try {
+      _requireAuthUid();
+      return watchByUserId(userId).map((profile) {
+        if (profile == null) return false;
+        return profile.hasPlanActive;
+      });
+    } catch (_) {
+      return const Stream<bool>.empty();
+    }
+  }
+
+  /// Watch the user's active plan subscription details.
+  Stream<UserPlanSubscription?> watchPlanSubscription(String userId) {
+    try {
+      _requireAuthUid();
+      return watchByUserId(userId).map((profile) {
+        return profile?.planSubscription;
+      });
+    } catch (_) {
+      return const Stream<UserPlanSubscription?>.empty();
+    }
+  }
+
   Stream<List<String>> watchQuickMessagesCustom(String userId) {
     try {
       _requireAuthUid();
@@ -386,6 +412,36 @@ class UserProfileRepository {
           .doc(authUid)
           .set(payload, SetOptions(merge: true))
           .timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Activate a plan subscription on the user's profile.
+  Future<void> activatePlanSubscription({
+    required MasterLeaguePlan plan,
+    required PlanDuration duration,
+    required String receiptId,
+    required String provider,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final expiresAtMs = duration.expiryMsFromNow();
+
+      await _usersCol.doc(authUid).set(
+        <String, dynamic>{
+          'userId': authUid,
+          'activePlanId': plan.id,
+          'activePlanDurationId': duration.id,
+          'planPurchasedAtMs': now,
+          'planExpiresAtMs': expiresAtMs,
+          'planReceiptId': receiptId,
+          'planProvider': provider,
+          'updatedAt': now,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 20));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -567,6 +623,12 @@ class UserProfileRepository {
           'createdAt': now,
           'updatedAt': now,
           'shareId': UserProfile.deriveShareIdFromUid(targetUid),
+          'activePlanId': '',
+          'activePlanDurationId': '',
+          'planPurchasedAtMs': 0,
+          'planExpiresAtMs': 0,
+          'planReceiptId': '',
+          'planProvider': '',
         },
         SetOptions(merge: false),
       ).timeout(const Duration(seconds: 20));

@@ -1072,10 +1072,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     return GlassScaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        title: const Text(''),
+        title: const Text('Leagues'),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
+        toolbarHeight: 50,
         actions: [
           IconButton(
             tooltip: l10n.tr('common_refresh'),
@@ -1100,6 +1101,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       floatingActionButtonLocation:
           FloatingActionButtonLocation.endFloat,
       body: SafeArea(
+        top: false,
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: isTablet ? 900 : 600),
@@ -1107,28 +1109,29 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
                   child: Glass(
-                    borderRadius: 20,
+                    borderRadius: 18,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 14,
+                      horizontal: 14,
+                      vertical: 12,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             Container(
-                              width: 42,
-                              height: 42,
+                              width: 38,
+                              height: 38,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 gradient: LinearGradient(
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                   colors: [
-                                    cs.primary.withOpacity(0.30),
+                                    cs.primary.withOpacity(0.26),
                                     cs.primary.withOpacity(0.08),
                                   ],
                                 ),
@@ -1136,10 +1139,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               child: Icon(
                                 Icons.emoji_events_rounded,
                                 color: cs.primary,
-                                size: 22,
+                                size: 20,
                               ),
                             ),
-                            const SizedBox(width: 14),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment:
@@ -1150,19 +1153,19 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                     style: theme.textTheme.titleMedium
                                         ?.copyWith(
                                       fontWeight: FontWeight.w900,
-                                      fontSize: 18,
+                                      fontSize: 17,
                                       letterSpacing: -0.3,
                                       color: onSurface,
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
+                                  const SizedBox(height: 1),
                                   Text(
                                     _isLoading
                                         ? 'Loading...'
                                         : '${_leagues.length} league${_leagues.length == 1 ? '' : 's'}',
                                     style: TextStyle(
-                                      color: onSurface.withOpacity(0.55),
-                                      fontSize: 12,
+                                      color: onSurface.withOpacity(0.54),
+                                      fontSize: 11.5,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -1172,7 +1175,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                           ],
                         ),
                         if (!_isLoading) ...[
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 8),
                           Text(
                             _isPremiumUser
                                 ? 'Premium active: you can have more than $_freeLeagueListLimit league cards.'
@@ -1184,16 +1187,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                   ? cs.primary
                                   : (_freeLimitReached
                                       ? _premiumAmber
-                                      : onSurface.withOpacity(0.62)),
-                              fontSize: 12,
+                                      : onSurface.withOpacity(0.60)),
+                              fontSize: 11.5,
                               fontWeight: FontWeight.w800,
-                              height: 1.35,
+                              height: 1.28,
                             ),
                           ),
                           if (!_isPremiumUser) ...[
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
                             SizedBox(
                               width: double.infinity,
+                              height: 42,
                               child: FilledButton.icon(
                                 onPressed: _openPremiumUpgradeFlow,
                                 style: FilledButton.styleFrom(
@@ -1203,8 +1207,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                   foregroundColor: _freeLimitReached
                                       ? Colors.black
                                       : cs.onPrimary,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
                                 ),
-                                icon: const Icon(Icons.payments_outlined),
+                                icon: const Icon(
+                                  Icons.payments_outlined,
+                                  size: 18,
+                                ),
                                 label: Text(
                                   _freeLimitReached
                                       ? 'Pay Now'
@@ -1221,19 +1232,19 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     ),
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Glass(
-                    borderRadius: 18,
+                    borderRadius: 16,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
-                      vertical: 8,
+                      vertical: 6,
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.search_rounded, size: 20),
-                        const SizedBox(width: 10),
+                        const Icon(Icons.search_rounded, size: 19),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             controller: _searchController,
@@ -1248,6 +1259,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         if (_searchQuery.trim().isNotEmpty)
                           IconButton(
                             tooltip: 'Clear',
+                            visualDensity: VisualDensity.compact,
                             onPressed: () {
                               _searchController.clear();
                             },
@@ -1257,7 +1269,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: _TopLeagueSwitcher(
@@ -1270,7 +1282,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     },
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),

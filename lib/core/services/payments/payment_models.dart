@@ -37,6 +37,10 @@ class PaymentAttemptCreate {
   final String productType;
   final String productSubType;
 
+  /// Plan subscription fields
+  final String planId;
+  final String planDurationId;
+
   final Map<String, dynamic> metadata;
 
   const PaymentAttemptCreate({
@@ -52,6 +56,8 @@ class PaymentAttemptCreate {
     this.couponCode = '',
     this.productType = '',
     this.productSubType = '',
+    this.planId = '',
+    this.planDurationId = '',
     this.metadata = const <String, dynamic>{},
   });
 
@@ -72,6 +78,8 @@ class PaymentAttemptCreate {
       'couponCode': couponCode,
       'productType': productType,
       'productSubType': productSubType,
+      'planId': planId,
+      'planDurationId': planDurationId,
       'metadata': metadata,
       'status': 'initiated',
       'createdAtMs': createdAtMs,

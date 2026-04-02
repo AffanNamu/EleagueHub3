@@ -1,5 +1,8 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/data/user_profile_repository.dart';
+import '../../auth/models/user_profile.dart';
 import '../data/master_leagues_repository_firebase.dart';
 import '../data/organizer_feed_firebase.dart';
 import '../domain/competition_template.dart';
@@ -25,6 +28,10 @@ final masterLeaguePaymentServiceProvider =
 final masterLeagueEntitlementServiceProvider =
     Provider<MasterLeagueEntitlementService>((ref) {
   return MasterLeagueEntitlementService();
+});
+
+final userProfileRepositoryProvider = Provider<UserProfileRepository>((ref) {
+  return UserProfileRepository();
 });
 
 final myMasterLeaguesProvider =
@@ -72,16 +79,64 @@ final masterLeagueCompetitionTemplatesProvider =
   return repo.watchCompetitionTemplates(masterLeagueId);
 });
 
+/// The user's current entitlement (plan, expiry, limits).
+final organizerEntitlementProvider =
+    FutureProvider.autoDispose<OrganizerProEntitlement>((ref) async {
+  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  return entitlement.getEntitlement(forceRefresh: false);
+});
+
+/// The active plan or null.
 final organizerProActivePlanProvider =
     FutureProvider.autoDispose<MasterLeaguePlan?>((ref) async {
   final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
   return entitlement.getActivePlan(forceRefresh: false);
 });
 
+/// Whether user has any active plan.
 final masterLeagueUnlockedProvider =
     FutureProvider.autoDispose<bool>((ref) async {
   final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
   return entitlement.isUnlocked(forceRefresh: false);
+});
+
+/// Watch the user's plan subscription from their profile.
+final userPlanSubscriptionProvider =
+    StreamProvider.autoDispose<UserPlanSubscription?>((ref) {
+  final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  if (uid.isEmpty) return Stream.value(null);
+  final repo = ref.watch(userProfileRepositoryProvider);
+  return repo.watchPlanSubscription(uid);
+});
+
+/// Watch whether user has an active plan.
+final userHasActivePlanProvider = StreamProvider.autoDispose<bool>((ref) {
+  final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  if (uid.isEmpty) return Stream.value(false);
+  final repo = ref.watch(userProfileRepositoryProvider);
+  return repo.watchHasActivePlan(uid);
+});
+
+/// How many workspaces the user currently owns.
+final ownedWorkspaceCountProvider = FutureProvider.autoDispose<int>((ref) async {
+  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  return entitlement.countOwnedWorkspaces();
+});
+
+/// Whether user can create another workspace.
+final canCreateWorkspaceProvider = FutureProvider.autoDispose<bool>((ref) async {
+  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  return entitlement.canCreateWorkspace();
+});
+
+/// Whether the payment button should show for workspace creation.
+final shouldShowWorkspacePaymentProvider =
+    FutureProvider.autoDispose<bool>((ref) async {
+  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  final ent = await entitlement.getEntitlement();
+  if (!ent.active || ent.plan == null) return true; // No plan = show payment
+  final count = await entitlement.countOwnedWorkspaces();
+  return ent.plan!.shouldShowPaymentForWorkspace(count);
 });
 
 final featuredOrganizerWorkspacesProvider =

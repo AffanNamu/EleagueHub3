@@ -93,12 +93,11 @@ class MasterLeaguePaymentResult {
 }
 
 abstract class MasterLeaguePaymentService {
-  Future<MasterLeaguePaymentResult> payForMasterLeagueCreation({
+  Future<MasterLeaguePaymentResult> payForPlanSubscription({
     required BuildContext context,
     required String userId,
     required MasterLeaguePlan plan,
-    required String masterLeagueName,
-    required MasterLeagueCompetitionDraft competition,
+    required PlanDuration duration,
   });
 
   Future<MasterLeaguePaymentResult> payForOrganizerVerification({
@@ -205,6 +204,8 @@ class FlutterwaveMasterLeaguePaymentService
     required double amount,
     required String currency,
     required String analyticsKind,
+    String planId = '',
+    String planDurationId = '',
   }) async {
     String attemptId = '';
     final effectiveUserId = _resolveEffectiveUserId(userId);
@@ -252,6 +253,8 @@ class FlutterwaveMasterLeaguePaymentService
           masterLeagueId: leagueId,
           productType: productType,
           productSubType: productSubType,
+          planId: planId,
+          planDurationId: planDurationId,
           metadata: metadata,
           items: items,
         ),
@@ -466,42 +469,13 @@ class FlutterwaveMasterLeaguePaymentService
   }
 
   @override
-  Future<MasterLeaguePaymentResult> payForMasterLeagueCreation({
+  Future<MasterLeaguePaymentResult> payForPlanSubscription({
     required BuildContext context,
     required String userId,
     required MasterLeaguePlan plan,
-    required String masterLeagueName,
-    required MasterLeagueCompetitionDraft competition,
+    required PlanDuration duration,
   }) async {
     try {
-      final trimmedMasterLeagueName = masterLeagueName.trim();
-      final trimmedCompetitionName = competition.name.trim();
-
-      if (trimmedMasterLeagueName.isEmpty) {
-        return MasterLeaguePaymentResult.failed(
-          provider: providerName,
-          errorMessage: 'Please enter a Master League name.',
-        );
-      }
-      if (trimmedCompetitionName.isEmpty) {
-        return MasterLeaguePaymentResult.failed(
-          provider: providerName,
-          errorMessage: 'Please enter a competition name.',
-        );
-      }
-      if (competition.maxParticipants < 2) {
-        return MasterLeaguePaymentResult.failed(
-          provider: providerName,
-          errorMessage: 'Max participants must be at least 2.',
-        );
-      }
-      if (competition.entryFee < 0) {
-        return MasterLeaguePaymentResult.failed(
-          provider: providerName,
-          errorMessage: 'Entry fee cannot be negative.',
-        );
-      }
-
       final remotePlan = await RemotePricingService.instance.getPlanForLocale(
         _effectiveLocale(context),
       );
@@ -524,8 +498,9 @@ class FlutterwaveMasterLeaguePaymentService
       final pricing = MasterLeaguePricingService();
       final loc = _effectiveLocale(context);
 
-      final price = await pricing.getMasterLeaguePriceForPlan(
+      final price = await pricing.getPlanPrice(
         plan: plan,
+        duration: duration,
         locale: loc,
       );
 
@@ -533,46 +508,40 @@ class FlutterwaveMasterLeaguePaymentService
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
           errorMessage:
-              "${plan.displayName} price isn't configured yet. Please try again later.",
+              "${plan.displayName} ${duration.displayName} price isn't configured yet. Please try again later.",
         );
       }
 
       final currencyUsed = price.currency.trim().toUpperCase();
-      final rawAmount = (price.amount is int)
-          ? (price.amount as int).toDouble()
-          : (price.amount as num).toDouble();
 
       return _runPayment(
         context: context,
         userId: userId,
         leagueId: '',
-        leagueName: trimmedMasterLeagueName,
-        productType: 'master_league_creation',
-        productSubType: 'master_league_${plan.id}',
+        leagueName: '${plan.displayName} Plan - ${duration.displayName}',
+        productType: 'plan_subscription',
+        productSubType: 'plan_${plan.id}_${duration.id}',
+        planId: plan.id,
+        planDurationId: duration.id,
         metadata: <String, dynamic>{
-          'masterLeagueName': trimmedMasterLeagueName,
-          'competitionName': trimmedCompetitionName,
-          'competitionEntryFee': competition.entryFee,
-          'competitionMaxParticipants': competition.maxParticipants,
-          'competitionCurrency':
-              competition.currency.trim().toUpperCase().isNotEmpty
-                  ? competition.currency.trim().toUpperCase()
-                  : currencyUsed,
           'plan': plan.id,
+          'duration': duration.id,
+          'durationMonths': duration.months,
         },
         items: <PaymentLineItem>[
           PaymentLineItem(
-            productType: 'master_league_creation',
-            productSubType: 'master_league_${plan.id}',
+            productType: 'plan_subscription',
+            productSubType: 'plan_${plan.id}_${duration.id}',
             quantity: 1,
-            amount: rawAmount,
+            amount: price.amount,
           ),
         ],
-        txRefPrefix: 'EH-ML-${plan.id.toUpperCase()}',
-        description: 'Create $trimmedMasterLeagueName (${plan.displayName})',
-        amount: rawAmount,
+        txRefPrefix: 'EH-PLAN-${plan.id.toUpperCase()}-${duration.id.toUpperCase()}',
+        description:
+            '${plan.displayName} Plan (${duration.displayName}) subscription',
+        amount: price.amount,
         currency: currencyUsed,
-        analyticsKind: 'master_league_creation',
+        analyticsKind: 'plan_subscription',
       );
     } catch (e) {
       return MasterLeaguePaymentResult.failed(

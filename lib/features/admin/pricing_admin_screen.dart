@@ -19,6 +19,7 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
   bool _saving = false;
   String? _error;
 
+  // NGN controllers
   final _ngnCreate = TextEditingController();
   final _ngnAccess = TextEditingController();
   final _ngnCouponUnit = TextEditingController();
@@ -31,6 +32,12 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
   final _ngnMlBasic = TextEditingController();
   final _ngnMlPro = TextEditingController();
   final _ngnMlElite = TextEditingController();
+  final _ngnPro3mo = TextEditingController();
+  final _ngnPro6mo = TextEditingController();
+  final _ngnProYearly = TextEditingController();
+  final _ngnElite3mo = TextEditingController();
+  final _ngnElite6mo = TextEditingController();
+  final _ngnEliteYearly = TextEditingController();
   final _ngnVerificationFee = TextEditingController();
   bool _ngnVerificationEnabled = true;
   final _ngnVerificationRenewalFee = TextEditingController();
@@ -39,6 +46,7 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
   bool _ngnPaymentsEnabled = true;
   bool _ngnFlutterwaveEnabled = true;
 
+  // USD controllers
   final _usdCreate = TextEditingController();
   final _usdAccess = TextEditingController();
   final _usdCouponUnit = TextEditingController();
@@ -51,6 +59,12 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
   final _usdMlBasic = TextEditingController();
   final _usdMlPro = TextEditingController();
   final _usdMlElite = TextEditingController();
+  final _usdPro3mo = TextEditingController();
+  final _usdPro6mo = TextEditingController();
+  final _usdProYearly = TextEditingController();
+  final _usdElite3mo = TextEditingController();
+  final _usdElite6mo = TextEditingController();
+  final _usdEliteYearly = TextEditingController();
   final _usdVerificationFee = TextEditingController();
   bool _usdVerificationEnabled = true;
   final _usdVerificationRenewalFee = TextEditingController();
@@ -67,41 +81,23 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
 
   @override
   void dispose() {
-    _ngnCreate.dispose();
-    _ngnAccess.dispose();
-    _ngnCouponUnit.dispose();
-    _ngnThreshold.dispose();
-    _ngnDiscount.dispose();
-    _ngnPremiumFee.dispose();
-    _ngnPremiumDays.dispose();
-    _ngnMlBasic.dispose();
-    _ngnMlPro.dispose();
-    _ngnMlElite.dispose();
-    _ngnVerificationFee.dispose();
-    _ngnVerificationRenewalFee.dispose();
-    _ngnVerificationDays.dispose();
-
-    _usdCreate.dispose();
-    _usdAccess.dispose();
-    _usdCouponUnit.dispose();
-    _usdThreshold.dispose();
-    _usdDiscount.dispose();
-    _usdPremiumFee.dispose();
-    _usdPremiumDays.dispose();
-    _usdMlBasic.dispose();
-    _usdMlPro.dispose();
-    _usdMlElite.dispose();
-    _usdVerificationFee.dispose();
-    _usdVerificationRenewalFee.dispose();
-    _usdVerificationDays.dispose();
+    for (final c in [
+      _ngnCreate, _ngnAccess, _ngnCouponUnit, _ngnThreshold, _ngnDiscount,
+      _ngnPremiumFee, _ngnPremiumDays, _ngnMlBasic, _ngnMlPro, _ngnMlElite,
+      _ngnPro3mo, _ngnPro6mo, _ngnProYearly, _ngnElite3mo, _ngnElite6mo, _ngnEliteYearly,
+      _ngnVerificationFee, _ngnVerificationRenewalFee, _ngnVerificationDays,
+      _usdCreate, _usdAccess, _usdCouponUnit, _usdThreshold, _usdDiscount,
+      _usdPremiumFee, _usdPremiumDays, _usdMlBasic, _usdMlPro, _usdMlElite,
+      _usdPro3mo, _usdPro6mo, _usdProYearly, _usdElite3mo, _usdElite6mo, _usdEliteYearly,
+      _usdVerificationFee, _usdVerificationRenewalFee, _usdVerificationDays,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() { _loading = true; _error = null; });
 
     try {
       final doc = await _svc.fetch();
@@ -112,99 +108,72 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
         _ngnCreate.text = '${ngn['createFee'] ?? ''}';
         _ngnAccess.text = '${ngn['accessFee'] ?? ''}';
         _ngnCouponUnit.text = '${ngn['couponUnit'] ?? ''}';
-        _ngnThreshold.text =
-            ngn['couponThreshold'] == null ? '' : '${ngn['couponThreshold']}';
+        _ngnThreshold.text = ngn['couponThreshold'] == null ? '' : '${ngn['couponThreshold']}';
         _ngnDiscount.text = '${ngn['couponDiscountPercent'] ?? ''}';
-        _ngnViewers =
-            (ngn['viewersEnabled'] is bool) ? ngn['viewersEnabled'] as bool : false;
+        _ngnViewers = (ngn['viewersEnabled'] is bool) ? ngn['viewersEnabled'] as bool : false;
         _ngnPremiumFee.text = '${ngn['premiumFee'] ?? '5000'}';
         _ngnPremiumDays.text = '${ngn['premiumDurationDays'] ?? '30'}';
-        _ngnPremiumEnabled =
-            (ngn['premiumEnabled'] is bool) ? ngn['premiumEnabled'] as bool : true;
-        _ngnMlBasic.text = '${ngn['masterLeagueBasicFee'] ?? ngn['masterLinkBasicFee'] ?? ''}';
-        _ngnMlPro.text = '${ngn['masterLeagueProFee'] ?? ngn['masterLinkProFee'] ?? ngn['masterLinkFee'] ?? ''}';
-        _ngnMlElite.text = '${ngn['masterLeagueEliteFee'] ?? ngn['masterLinkEliteFee'] ?? ''}';
-        _ngnVerificationFee.text =
-            '${ngn['organizerVerificationFee'] ?? ngn['verificationFee'] ?? ''}';
-        _ngnVerificationEnabled =
-            (ngn['organizerVerificationEnabled'] is bool)
-                ? ngn['organizerVerificationEnabled'] as bool
-                : ((ngn['verificationEnabled'] is bool)
-                    ? ngn['verificationEnabled'] as bool
-                    : true);
-        _ngnVerificationRenewalFee.text =
-            '${ngn['organizerVerificationRenewalFee'] ?? ngn['verificationRenewalFee'] ?? ''}';
-        _ngnVerificationRenewalEnabled =
-            (ngn['organizerVerificationRenewalEnabled'] is bool)
-                ? ngn['organizerVerificationRenewalEnabled'] as bool
-                : ((ngn['verificationRenewalEnabled'] is bool)
-                    ? ngn['verificationRenewalEnabled'] as bool
-                    : true);
-        _ngnVerificationDays.text =
-            '${ngn['organizerVerificationDurationDays'] ?? ngn['verificationDurationDays'] ?? '90'}';
-        _ngnPaymentsEnabled =
-            (ngn['paymentsEnabled'] is bool) ? ngn['paymentsEnabled'] as bool : true;
-        _ngnFlutterwaveEnabled =
-            (ngn['flutterwaveEnabled'] is bool) ? ngn['flutterwaveEnabled'] as bool : true;
+        _ngnPremiumEnabled = (ngn['premiumEnabled'] is bool) ? ngn['premiumEnabled'] as bool : true;
+        _ngnMlBasic.text = '${ngn['masterLeagueBasicFee'] ?? ''}';
+        _ngnMlPro.text = '${ngn['masterLeagueProFee'] ?? ''}';
+        _ngnMlElite.text = '${ngn['masterLeagueEliteFee'] ?? ''}';
+        _ngnPro3mo.text = '${ngn['proPlan3moFee'] ?? '5000'}';
+        _ngnPro6mo.text = '${ngn['proPlan6moFee'] ?? '9000'}';
+        _ngnProYearly.text = '${ngn['proPlanYearlyFee'] ?? '15000'}';
+        _ngnElite3mo.text = '${ngn['elitePlan3moFee'] ?? '10000'}';
+        _ngnElite6mo.text = '${ngn['elitePlan6moFee'] ?? '18000'}';
+        _ngnEliteYearly.text = '${ngn['elitePlanYearlyFee'] ?? '30000'}';
+        _ngnVerificationFee.text = '${ngn['organizerVerificationFee'] ?? ''}';
+        _ngnVerificationEnabled = _readBool(ngn, 'organizerVerificationEnabled', fallbackKey: 'verificationEnabled');
+        _ngnVerificationRenewalFee.text = '${ngn['organizerVerificationRenewalFee'] ?? ''}';
+        _ngnVerificationRenewalEnabled = _readBool(ngn, 'organizerVerificationRenewalEnabled', fallbackKey: 'verificationRenewalEnabled');
+        _ngnVerificationDays.text = '${ngn['organizerVerificationDurationDays'] ?? '90'}';
+        _ngnPaymentsEnabled = (ngn['paymentsEnabled'] is bool) ? ngn['paymentsEnabled'] as bool : true;
+        _ngnFlutterwaveEnabled = (ngn['flutterwaveEnabled'] is bool) ? ngn['flutterwaveEnabled'] as bool : true;
 
         _usdCreate.text = '${usd['createFee'] ?? ''}';
         _usdAccess.text = '${usd['accessFee'] ?? ''}';
         _usdCouponUnit.text = '${usd['couponUnit'] ?? ''}';
-        _usdThreshold.text =
-            usd['couponThreshold'] == null ? '' : '${usd['couponThreshold']}';
+        _usdThreshold.text = usd['couponThreshold'] == null ? '' : '${usd['couponThreshold']}';
         _usdDiscount.text = '${usd['couponDiscountPercent'] ?? ''}';
-        _usdViewers =
-            (usd['viewersEnabled'] is bool) ? usd['viewersEnabled'] as bool : false;
+        _usdViewers = (usd['viewersEnabled'] is bool) ? usd['viewersEnabled'] as bool : false;
         _usdPremiumFee.text = '${usd['premiumFee'] ?? '9.99'}';
         _usdPremiumDays.text = '${usd['premiumDurationDays'] ?? '30'}';
-        _usdPremiumEnabled =
-            (usd['premiumEnabled'] is bool) ? usd['premiumEnabled'] as bool : true;
-        _usdMlBasic.text = '${usd['masterLeagueBasicFee'] ?? usd['masterLinkBasicFee'] ?? ''}';
-        _usdMlPro.text = '${usd['masterLeagueProFee'] ?? usd['masterLinkProFee'] ?? usd['masterLinkFee'] ?? ''}';
-        _usdMlElite.text = '${usd['masterLeagueEliteFee'] ?? usd['masterLinkEliteFee'] ?? ''}';
-        _usdVerificationFee.text =
-            '${usd['organizerVerificationFee'] ?? usd['verificationFee'] ?? ''}';
-        _usdVerificationEnabled =
-            (usd['organizerVerificationEnabled'] is bool)
-                ? usd['organizerVerificationEnabled'] as bool
-                : ((usd['verificationEnabled'] is bool)
-                    ? usd['verificationEnabled'] as bool
-                    : true);
-        _usdVerificationRenewalFee.text =
-            '${usd['organizerVerificationRenewalFee'] ?? usd['verificationRenewalFee'] ?? ''}';
-        _usdVerificationRenewalEnabled =
-            (usd['organizerVerificationRenewalEnabled'] is bool)
-                ? usd['organizerVerificationRenewalEnabled'] as bool
-                : ((usd['verificationRenewalEnabled'] is bool)
-                    ? usd['verificationRenewalEnabled'] as bool
-                    : true);
-        _usdVerificationDays.text =
-            '${usd['organizerVerificationDurationDays'] ?? usd['verificationDurationDays'] ?? '90'}';
-        _usdPaymentsEnabled =
-            (usd['paymentsEnabled'] is bool) ? usd['paymentsEnabled'] as bool : true;
-        _usdFlutterwaveEnabled =
-            (usd['flutterwaveEnabled'] is bool) ? usd['flutterwaveEnabled'] as bool : true;
+        _usdPremiumEnabled = (usd['premiumEnabled'] is bool) ? usd['premiumEnabled'] as bool : true;
+        _usdMlBasic.text = '${usd['masterLeagueBasicFee'] ?? ''}';
+        _usdMlPro.text = '${usd['masterLeagueProFee'] ?? ''}';
+        _usdMlElite.text = '${usd['masterLeagueEliteFee'] ?? ''}';
+        _usdPro3mo.text = '${usd['proPlan3moFee'] ?? '10'}';
+        _usdPro6mo.text = '${usd['proPlan6moFee'] ?? '18'}';
+        _usdProYearly.text = '${usd['proPlanYearlyFee'] ?? '30'}';
+        _usdElite3mo.text = '${usd['elitePlan3moFee'] ?? '20'}';
+        _usdElite6mo.text = '${usd['elitePlan6moFee'] ?? '36'}';
+        _usdEliteYearly.text = '${usd['elitePlanYearlyFee'] ?? '60'}';
+        _usdVerificationFee.text = '${usd['organizerVerificationFee'] ?? ''}';
+        _usdVerificationEnabled = _readBool(usd, 'organizerVerificationEnabled', fallbackKey: 'verificationEnabled');
+        _usdVerificationRenewalFee.text = '${usd['organizerVerificationRenewalFee'] ?? ''}';
+        _usdVerificationRenewalEnabled = _readBool(usd, 'organizerVerificationRenewalEnabled', fallbackKey: 'verificationRenewalEnabled');
+        _usdVerificationDays.text = '${usd['organizerVerificationDurationDays'] ?? '90'}';
+        _usdPaymentsEnabled = (usd['paymentsEnabled'] is bool) ? usd['paymentsEnabled'] as bool : true;
+        _usdFlutterwaveEnabled = (usd['flutterwaveEnabled'] is bool) ? usd['flutterwaveEnabled'] as bool : true;
 
         _loading = false;
       });
     } on FirebaseException catch (e) {
-      setState(() {
-        _loading = false;
-        _error = 'Failed to load pricing: ${e.message ?? e.code}';
-      });
+      setState(() { _loading = false; _error = 'Failed to load pricing: ${e.message ?? e.code}'; });
     } catch (e) {
-      setState(() {
-        _loading = false;
-        _error = 'Failed to load pricing: $e';
-      });
+      setState(() { _loading = false; _error = 'Failed to load pricing: $e'; });
     }
   }
 
+  bool _readBool(Map<String, dynamic> m, String key, {String? fallbackKey}) {
+    if (m[key] is bool) return m[key] as bool;
+    if (fallbackKey != null && m[fallbackKey] is bool) return m[fallbackKey] as bool;
+    return true;
+  }
+
   Future<void> _save() async {
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
+    setState(() { _saving = true; _error = null; });
 
     try {
       Map<String, dynamic> collectNgn() => {
@@ -220,14 +189,17 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
             'masterLeagueBasicFee': _parse(_ngnMlBasic.text),
             'masterLeagueProFee': _parse(_ngnMlPro.text),
             'masterLeagueEliteFee': _parse(_ngnMlElite.text),
+            'proPlan3moFee': _parse(_ngnPro3mo.text),
+            'proPlan6moFee': _parse(_ngnPro6mo.text),
+            'proPlanYearlyFee': _parse(_ngnProYearly.text),
+            'elitePlan3moFee': _parse(_ngnElite3mo.text),
+            'elitePlan6moFee': _parse(_ngnElite6mo.text),
+            'elitePlanYearlyFee': _parse(_ngnEliteYearly.text),
             'organizerVerificationFee': _parse(_ngnVerificationFee.text),
             'organizerVerificationEnabled': _ngnVerificationEnabled,
-            'organizerVerificationRenewalFee':
-                _parse(_ngnVerificationRenewalFee.text),
-            'organizerVerificationRenewalEnabled':
-                _ngnVerificationRenewalEnabled,
-            'organizerVerificationDurationDays':
-                _parseInt(_ngnVerificationDays.text),
+            'organizerVerificationRenewalFee': _parse(_ngnVerificationRenewalFee.text),
+            'organizerVerificationRenewalEnabled': _ngnVerificationRenewalEnabled,
+            'organizerVerificationDurationDays': _parseInt(_ngnVerificationDays.text),
             'paymentsEnabled': _ngnPaymentsEnabled,
             'flutterwaveEnabled': _ngnFlutterwaveEnabled,
           };
@@ -245,14 +217,17 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
             'masterLeagueBasicFee': _parse(_usdMlBasic.text),
             'masterLeagueProFee': _parse(_usdMlPro.text),
             'masterLeagueEliteFee': _parse(_usdMlElite.text),
+            'proPlan3moFee': _parse(_usdPro3mo.text),
+            'proPlan6moFee': _parse(_usdPro6mo.text),
+            'proPlanYearlyFee': _parse(_usdProYearly.text),
+            'elitePlan3moFee': _parse(_usdElite3mo.text),
+            'elitePlan6moFee': _parse(_usdElite6mo.text),
+            'elitePlanYearlyFee': _parse(_usdEliteYearly.text),
             'organizerVerificationFee': _parse(_usdVerificationFee.text),
             'organizerVerificationEnabled': _usdVerificationEnabled,
-            'organizerVerificationRenewalFee':
-                _parse(_usdVerificationRenewalFee.text),
-            'organizerVerificationRenewalEnabled':
-                _usdVerificationRenewalEnabled,
-            'organizerVerificationDurationDays':
-                _parseInt(_usdVerificationDays.text),
+            'organizerVerificationRenewalFee': _parse(_usdVerificationRenewalFee.text),
+            'organizerVerificationRenewalEnabled': _usdVerificationRenewalEnabled,
+            'organizerVerificationDurationDays': _parseInt(_usdVerificationDays.text),
             'paymentsEnabled': _usdPaymentsEnabled,
             'flutterwaveEnabled': _usdFlutterwaveEnabled,
           };
@@ -261,10 +236,7 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Payment control updated'),
-          behavior: SnackBarBehavior.floating,
-        ),
+        const SnackBar(content: Text('Payment control updated'), behavior: SnackBarBehavior.floating),
       );
     } on FirebaseException catch (e) {
       setState(() => _error = 'Failed to save pricing: ${e.message ?? e.code}');
@@ -302,14 +274,7 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
         children: [
           Expanded(child: Divider(color: cs.onSurface.withOpacity(0.12))),
           const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: cs.primary,
-              fontWeight: FontWeight.w900,
-              fontSize: 12,
-            ),
-          ),
+          Text(label, style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12)),
           const SizedBox(width: 8),
           Expanded(child: Divider(color: cs.onSurface.withOpacity(0.12))),
         ],
@@ -343,10 +308,7 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
       child: TextField(
         controller: c,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: const Icon(Icons.numbers),
-        ),
+        decoration: InputDecoration(labelText: label, prefixIcon: const Icon(Icons.numbers)),
       ),
     );
   }
@@ -366,6 +328,25 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
     );
   }
 
+  List<Widget> _planPricingFields(String cur, {
+    required TextEditingController pro3mo,
+    required TextEditingController pro6mo,
+    required TextEditingController proYearly,
+    required TextEditingController elite3mo,
+    required TextEditingController elite6mo,
+    required TextEditingController eliteYearly,
+  }) {
+    return [
+      _sectionDivider('Plan Subscription Pricing'),
+      _rowNum('Pro 3-Month ($cur)', pro3mo),
+      _rowNum('Pro 6-Month ($cur)', pro6mo),
+      _rowNum('Pro Yearly ($cur)', proYearly),
+      _rowNum('Elite 3-Month ($cur)', elite3mo),
+      _rowNum('Elite 6-Month ($cur)', elite6mo),
+      _rowNum('Elite Yearly ($cur)', eliteYearly),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -379,11 +360,7 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
     }
 
     return GlassScaffold(
-      appBar: AppBar(
-        title: const Text('Payment Control Center'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('Payment Control Center'), backgroundColor: Colors.transparent, elevation: 0),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Center(
@@ -403,164 +380,75 @@ class _PricingAdminScreenState extends State<PricingAdminScreen> {
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: cs.error.withOpacity(0.35)),
                       ),
-                      child: Text(
-                        _error!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.error,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
+                      child: Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: cs.error, fontWeight: FontWeight.w900)),
                     ),
                     const SizedBox(height: 12),
                   ],
-                  _currencyCard(
-                    title: 'NGN',
-                    children: [
-                      _rowNum('League create fee (NGN)', _ngnCreate),
-                      _rowNum('League access fee (NGN)', _ngnAccess),
-                      _rowNum('Coupon unit (NGN)', _ngnCouponUnit),
-                      _rowNumAllowNull('Coupon threshold (NGN)', _ngnThreshold),
-                      _rowNum('Threshold discount (%)', _ngnDiscount),
-                      SwitchListTile.adaptive(
-                        value: _ngnViewers,
-                        onChanged: (v) => setState(() => _ngnViewers = v),
-                        title: const Text('Viewers enabled (legacy)'),
-                      ),
-                      _sectionDivider('Premium'),
-                      _rowNum('Premium fee (NGN)', _ngnPremiumFee),
-                      _rowNum('Premium duration (days)', _ngnPremiumDays),
-                      SwitchListTile.adaptive(
-                        value: _ngnPremiumEnabled,
-                        onChanged: (v) => setState(() => _ngnPremiumEnabled = v),
-                        title: const Text('Premium enabled'),
-                      ),
-                      _sectionDivider('Master League'),
-                      _rowNum('Basic fee (NGN)', _ngnMlBasic),
-                      _rowNum('Pro fee (NGN)', _ngnMlPro),
-                      _rowNum('Elite fee (NGN)', _ngnMlElite),
-                      _sectionDivider('Organizer Verification'),
-                      _rowNum('Verification fee (NGN)', _ngnVerificationFee),
-                      SwitchListTile.adaptive(
-                        value: _ngnVerificationEnabled,
-                        onChanged: (v) => setState(() => _ngnVerificationEnabled = v),
-                        title: const Text('Organizer verification enabled'),
-                      ),
-                      _rowNum(
-                        'Verification renewal fee (NGN)',
-                        _ngnVerificationRenewalFee,
-                      ),
-                      SwitchListTile.adaptive(
-                        value: _ngnVerificationRenewalEnabled,
-                        onChanged: (v) => setState(() => _ngnVerificationRenewalEnabled = v),
-                        title: const Text('Verification renewal enabled'),
-                      ),
-                      _rowNum(
-                        'Verification duration (days)',
-                        _ngnVerificationDays,
-                      ),
-                      _sectionDivider('Provider flags'),
-                      SwitchListTile.adaptive(
-                        value: _ngnPaymentsEnabled,
-                        onChanged: (v) => setState(() => _ngnPaymentsEnabled = v),
-                        title: const Text('Payments enabled'),
-                      ),
-                      SwitchListTile.adaptive(
-                        value: _ngnFlutterwaveEnabled,
-                        onChanged: (v) => setState(() => _ngnFlutterwaveEnabled = v),
-                        title: const Text('Flutterwave enabled'),
-                      ),
-                    ],
-                  ),
+                  _currencyCard(title: 'NGN', children: [
+                    _rowNum('League create fee (NGN)', _ngnCreate),
+                    _rowNum('League access fee (NGN)', _ngnAccess),
+                    _rowNum('Coupon unit (NGN)', _ngnCouponUnit),
+                    _rowNumAllowNull('Coupon threshold (NGN)', _ngnThreshold),
+                    _rowNum('Threshold discount (%)', _ngnDiscount),
+                    SwitchListTile.adaptive(value: _ngnViewers, onChanged: (v) => setState(() => _ngnViewers = v), title: const Text('Viewers enabled (legacy)')),
+                    _sectionDivider('Premium'),
+                    _rowNum('Premium fee (NGN)', _ngnPremiumFee),
+                    _rowNum('Premium duration (days)', _ngnPremiumDays),
+                    SwitchListTile.adaptive(value: _ngnPremiumEnabled, onChanged: (v) => setState(() => _ngnPremiumEnabled = v), title: const Text('Premium enabled')),
+                    _sectionDivider('Master League (legacy)'),
+                    _rowNum('Basic fee (NGN)', _ngnMlBasic),
+                    _rowNum('Pro fee (NGN)', _ngnMlPro),
+                    _rowNum('Elite fee (NGN)', _ngnMlElite),
+                    ..._planPricingFields('NGN', pro3mo: _ngnPro3mo, pro6mo: _ngnPro6mo, proYearly: _ngnProYearly, elite3mo: _ngnElite3mo, elite6mo: _ngnElite6mo, eliteYearly: _ngnEliteYearly),
+                    _sectionDivider('Organizer Verification'),
+                    _rowNum('Verification fee (NGN)', _ngnVerificationFee),
+                    SwitchListTile.adaptive(value: _ngnVerificationEnabled, onChanged: (v) => setState(() => _ngnVerificationEnabled = v), title: const Text('Organizer verification enabled')),
+                    _rowNum('Verification renewal fee (NGN)', _ngnVerificationRenewalFee),
+                    SwitchListTile.adaptive(value: _ngnVerificationRenewalEnabled, onChanged: (v) => setState(() => _ngnVerificationRenewalEnabled = v), title: const Text('Verification renewal enabled')),
+                    _rowNum('Verification duration (days)', _ngnVerificationDays),
+                    _sectionDivider('Provider flags'),
+                    SwitchListTile.adaptive(value: _ngnPaymentsEnabled, onChanged: (v) => setState(() => _ngnPaymentsEnabled = v), title: const Text('Payments enabled')),
+                    SwitchListTile.adaptive(value: _ngnFlutterwaveEnabled, onChanged: (v) => setState(() => _ngnFlutterwaveEnabled = v), title: const Text('Flutterwave enabled')),
+                  ]),
                   const SizedBox(height: 12),
-                  _currencyCard(
-                    title: 'USD',
-                    children: [
-                      _rowNum('League create fee (USD)', _usdCreate),
-                      _rowNum('League access fee (USD)', _usdAccess),
-                      _rowNum('Coupon unit (USD)', _usdCouponUnit),
-                      _rowNumAllowNull('Coupon threshold (USD)', _usdThreshold),
-                      _rowNum('Threshold discount (%)', _usdDiscount),
-                      SwitchListTile.adaptive(
-                        value: _usdViewers,
-                        onChanged: (v) => setState(() => _usdViewers = v),
-                        title: const Text('Viewers enabled (legacy)'),
-                      ),
-                      _sectionDivider('Premium'),
-                      _rowNum('Premium fee (USD)', _usdPremiumFee),
-                      _rowNum('Premium duration (days)', _usdPremiumDays),
-                      SwitchListTile.adaptive(
-                        value: _usdPremiumEnabled,
-                        onChanged: (v) => setState(() => _usdPremiumEnabled = v),
-                        title: const Text('Premium enabled'),
-                      ),
-                      _sectionDivider('Master League'),
-                      _rowNum('Basic fee (USD)', _usdMlBasic),
-                      _rowNum('Pro fee (USD)', _usdMlPro),
-                      _rowNum('Elite fee (USD)', _usdMlElite),
-                      _sectionDivider('Organizer Verification'),
-                      _rowNum('Verification fee (USD)', _usdVerificationFee),
-                      SwitchListTile.adaptive(
-                        value: _usdVerificationEnabled,
-                        onChanged: (v) => setState(() => _usdVerificationEnabled = v),
-                        title: const Text('Organizer verification enabled'),
-                      ),
-                      _rowNum(
-                        'Verification renewal fee (USD)',
-                        _usdVerificationRenewalFee,
-                      ),
-                      SwitchListTile.adaptive(
-                        value: _usdVerificationRenewalEnabled,
-                        onChanged: (v) => setState(() => _usdVerificationRenewalEnabled = v),
-                        title: const Text('Verification renewal enabled'),
-                      ),
-                      _rowNum(
-                        'Verification duration (days)',
-                        _usdVerificationDays,
-                      ),
-                      _sectionDivider('Provider flags'),
-                      SwitchListTile.adaptive(
-                        value: _usdPaymentsEnabled,
-                        onChanged: (v) => setState(() => _usdPaymentsEnabled = v),
-                        title: const Text('Payments enabled'),
-                      ),
-                      SwitchListTile.adaptive(
-                        value: _usdFlutterwaveEnabled,
-                        onChanged: (v) => setState(() => _usdFlutterwaveEnabled = v),
-                        title: const Text('Flutterwave enabled'),
-                      ),
-                    ],
-                  ),
+                  _currencyCard(title: 'USD', children: [
+                    _rowNum('League create fee (USD)', _usdCreate),
+                    _rowNum('League access fee (USD)', _usdAccess),
+                    _rowNum('Coupon unit (USD)', _usdCouponUnit),
+                    _rowNumAllowNull('Coupon threshold (USD)', _usdThreshold),
+                    _rowNum('Threshold discount (%)', _usdDiscount),
+                    SwitchListTile.adaptive(value: _usdViewers, onChanged: (v) => setState(() => _usdViewers = v), title: const Text('Viewers enabled (legacy)')),
+                    _sectionDivider('Premium'),
+                    _rowNum('Premium fee (USD)', _usdPremiumFee),
+                    _rowNum('Premium duration (days)', _usdPremiumDays),
+                    SwitchListTile.adaptive(value: _usdPremiumEnabled, onChanged: (v) => setState(() => _usdPremiumEnabled = v), title: const Text('Premium enabled')),
+                    _sectionDivider('Master League (legacy)'),
+                    _rowNum('Basic fee (USD)', _usdMlBasic),
+                    _rowNum('Pro fee (USD)', _usdMlPro),
+                    _rowNum('Elite fee (USD)', _usdMlElite),
+                    ..._planPricingFields('USD', pro3mo: _usdPro3mo, pro6mo: _usdPro6mo, proYearly: _usdProYearly, elite3mo: _usdElite3mo, elite6mo: _usdElite6mo, eliteYearly: _usdEliteYearly),
+                    _sectionDivider('Organizer Verification'),
+                    _rowNum('Verification fee (USD)', _usdVerificationFee),
+                    SwitchListTile.adaptive(value: _usdVerificationEnabled, onChanged: (v) => setState(() => _usdVerificationEnabled = v), title: const Text('Organizer verification enabled')),
+                    _rowNum('Verification renewal fee (USD)', _usdVerificationRenewalFee),
+                    SwitchListTile.adaptive(value: _usdVerificationRenewalEnabled, onChanged: (v) => setState(() => _usdVerificationRenewalEnabled = v), title: const Text('Verification renewal enabled')),
+                    _rowNum('Verification duration (days)', _usdVerificationDays),
+                    _sectionDivider('Provider flags'),
+                    SwitchListTile.adaptive(value: _usdPaymentsEnabled, onChanged: (v) => setState(() => _usdPaymentsEnabled = v), title: const Text('Payments enabled')),
+                    SwitchListTile.adaptive(value: _usdFlutterwaveEnabled, onChanged: (v) => setState(() => _usdFlutterwaveEnabled = v), title: const Text('Flutterwave enabled')),
+                  ]),
                   const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : _load,
-                          child: const Text('Reload'),
-                        ),
+                  Row(children: [
+                    Expanded(child: OutlinedButton(onPressed: _saving ? null : _load, child: const Text('Reload'))),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _saving ? null : _save,
+                        icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.save),
+                        label: const Text('Save', style: TextStyle(fontWeight: FontWeight.w900)),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _saving ? null : _save,
-                          icon: _saving
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.save),
-                          label: const Text(
-                            'Save',
-                            style: TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ]),
                 ],
               ),
             ),
