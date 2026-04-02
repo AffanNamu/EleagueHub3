@@ -29,14 +29,6 @@ class MasterLeagueCard extends StatelessWidget {
     }
   }
 
-  int _workspaceScore() {
-    int score = 0;
-    score += masterLeague.analytics.totalTournamentsCreated;
-    score += masterLeague.analytics.totalParticipantsTeams;
-    score += masterLeague.analytics.totalMatches;
-    return score;
-  }
-
   String _safeNetworkImage(String url) {
     final value = url.trim();
     if (value.startsWith('http://') || value.startsWith('https://')) {
@@ -61,7 +53,6 @@ class MasterLeagueCard extends StatelessWidget {
     final badge = masterLeague.organizerProfile.badge.trim();
     final created = _createdLabel();
     final initialCompetition = masterLeague.initialCompetition;
-    final score = _workspaceScore();
 
     final subtitle =
         masterLeague.isActive ? 'Organizer workspace' : 'Inactive organizer workspace';
@@ -183,37 +174,6 @@ class MasterLeagueCard extends StatelessWidget {
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: cs.onSurface.withOpacity(0.62),
                                 fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          color: cs.onSurface.withOpacity(0.05),
-                          border: Border.all(
-                            color: cs.onSurface.withOpacity(0.10),
-                          ),
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              '$score',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                color: cs.onSurface,
-                              ),
-                            ),
-                            Text(
-                              'score',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: cs.onSurface.withOpacity(0.60),
                               ),
                             ),
                           ],
