@@ -12,10 +12,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
 import '../../live/logic/quick_messages_controller.dart';
-import '../../live/presentation/live_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../../master_leagues/domain/organizer_feed_event.dart';
+import '../../master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
@@ -48,7 +48,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     _tabs = const [
       _HomeTab(),
       LeaguesListScreen(),
-      LiveListScreen(),
+      PublicOrganizerDiscoveryScreen(),
       MarketplaceListScreen(),
       ProfileScreen(),
     ];
@@ -259,7 +259,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     final tabTitles = [
       l10n.homeTabHome,
       l10n.homeTabLeagues,
-      l10n.homeTabLive,
+      'Discover',
       l10n.homeTabMarketplace,
       l10n.homeTabProfile,
     ];
@@ -416,10 +416,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           selectedIcon: const Icon(Icons.emoji_events),
                           label: l10n.homeTabLeagues,
                         ),
-                        NavigationDestination(
-                          icon: const Icon(Icons.live_tv_outlined),
-                          selectedIcon: const Icon(Icons.live_tv),
-                          label: l10n.homeTabLive,
+                        const NavigationDestination(
+                          icon: Icon(Icons.travel_explore_outlined),
+                          selectedIcon: Icon(Icons.travel_explore),
+                          label: 'Discover',
                         ),
                         NavigationDestination(
                           icon: const Icon(Icons.storefront_outlined),
@@ -554,14 +554,14 @@ class _HomeTab extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: _QuickActionCard(
-                icon: Icons.confirmation_number_outlined,
-                title: l10n.homeQuickJoinLiveTitle,
-                subtitle: l10n.homeQuickJoinLiveSubtitle,
+                icon: Icons.travel_explore_rounded,
+                title: 'Organizer Discovery',
+                subtitle: 'Browse verified and active organizers',
                 gradient: [
                   const Color(0xFF00E676).withOpacity(0.20),
                   const Color(0xFF00E676).withOpacity(0.05),
                 ],
-                onTap: () => _safePush(context, '/live/join'),
+                onTap: () => _safePush(context, '/organizer-discovery'),
               ),
             ),
           ],
@@ -713,15 +713,6 @@ class _HomeTab extends StatelessWidget {
                   'Request access & chat in realtime',
                 ),
                 onTap: () => _safePush(context, '/global-chat'),
-                secondaryColor: tertiary,
-                chevronColor: faint,
-              ),
-              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
-              _ExploreRow(
-                icon: Icons.public_rounded,
-                title: 'Organizer Discovery',
-                subtitle: 'Discover organizer workspaces and competitions',
-                onTap: () => _safePush(context, '/organizer-discovery'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
