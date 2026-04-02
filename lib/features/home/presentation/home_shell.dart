@@ -205,16 +205,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
   }
 
   void _onDestinationSelected(int i) {
-    if (i == 2) {
-      if (i != _index) {
-        setState(() {
-          _index = i;
-          _built[i] = true;
-        });
-      }
-      _safePush('/global-live');
-      return;
-    }
     _selectTab(i);
   }
 
@@ -427,8 +417,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           label: l10n.homeTabLeagues,
                         ),
                         NavigationDestination(
-                          icon: const Icon(Icons.public_outlined),
-                          selectedIcon: const Icon(Icons.public),
+                          icon: const Icon(Icons.live_tv_outlined),
+                          selectedIcon: const Icon(Icons.live_tv),
                           label: l10n.homeTabLive,
                         ),
                         NavigationDestination(
@@ -729,17 +719,9 @@ class _HomeTab extends StatelessWidget {
               Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
               _ExploreRow(
                 icon: Icons.public_rounded,
-                title: _trOr(
-                  l10n,
-                  'home_explore_global_leagues',
-                  'Global Leagues',
-                ),
-                subtitle: _trOr(
-                  l10n,
-                  'home_explore_global_leagues_sub',
-                  'Discover & join public leagues',
-                ),
-                onTap: () => _safePush(context, '/global-live'),
+                title: 'Organizer Discovery',
+                subtitle: 'Discover organizer workspaces and competitions',
+                onTap: () => _safePush(context, '/organizer-discovery'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
