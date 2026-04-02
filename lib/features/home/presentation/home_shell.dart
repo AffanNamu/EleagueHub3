@@ -1,17 +1,12 @@
-import 'dart:async';
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/persistence/prefs_service.dart';
-import '../../../core/platform/overlay_platform.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
-import '../../live/logic/quick_messages_controller.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../../master_leagues/domain/organizer_feed_event.dart';
@@ -36,10 +31,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
   late final List<Widget> _tabs;
   late final List<bool> _built;
-  bool _overlayEnabled = false;
-  bool _overlayGranted = false;
-
-  String _lastOverlayQuickHash = '';
 
   @override
   void initState() {
@@ -54,140 +45,12 @@ class _HomeShellState extends ConsumerState<HomeShell>
     ];
     _built = List<bool>.filled(_tabs.length, false);
     _built[_index] = true;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_loadOverlayStateAndMaybeStart());
-    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      unawaited(_loadOverlayStateAndMaybeStart());
-    }
-  }
-
-  Future<void> _loadOverlayStateAndMaybeStart() async {
-    try {
-      final prefs = ref.read(prefsServiceProvider);
-      final enabled = prefs.liveOverlayEnabled();
-      final granted = await OverlayPlatform.isOverlayPermissionGranted();
-      if (!mounted) return;
-      setState(() {
-        _overlayEnabled = enabled;
-        _overlayGranted = granted;
-      });
-      if (enabled && granted) {
-        await OverlayPlatform.startGlobalOverlay();
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _toggleOverlayFromHome() async {
-    final prefs = ref.read(prefsServiceProvider);
-    final l10n = context.l10n;
-
-    if (_overlayEnabled) {
-      final sure = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(
-            _trOr(l10n, 'live_overlay_turn_off_title', 'Turn off overlay?'),
-          ),
-          content: Text(
-            _trOr(
-              l10n,
-              'live_overlay_turn_off_body',
-              'This will hide the floating voice/message controls.',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(_trOr(l10n, 'common_turn_off', 'Turn off')),
-            ),
-          ],
-        ),
-      );
-
-      if (sure != true) return;
-
-      await prefs.setLiveOverlayEnabled(false);
-      await OverlayPlatform.stopGlobalOverlay();
-
-      if (!mounted) return;
-      setState(() => _overlayEnabled = false);
-      return;
-    }
-
-    final proceed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          _trOr(l10n, 'live_overlay_enable_title', 'Enable floating overlay?'),
-        ),
-        content: Text(
-          _trOr(
-            l10n,
-            'live_overlay_enable_body',
-            'This shows a floating voice/message control above other apps. Android will ask for "Appear on top" permission.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(_trOr(l10n, 'common_continue', 'Continue')),
-          ),
-        ],
-      ),
-    );
-
-    if (proceed != true) return;
-
-    await prefs.setLiveOverlayEnabled(true);
-
-    final granted = await OverlayPlatform.isOverlayPermissionGranted();
-    if (!mounted) return;
-
-    setState(() {
-      _overlayEnabled = true;
-      _overlayGranted = granted;
-    });
-
-    if (granted) {
-      await OverlayPlatform.startGlobalOverlay();
-      return;
-    }
-
-    await OverlayPlatform.requestOverlayPermission();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          _trOr(
-            l10n,
-            'live_overlay_permission_snackbar',
-            'Grant the overlay permission, then return to the app.',
-          ),
-        ),
-      ),
-    );
   }
 
   void _selectTab(int i) {
@@ -241,15 +104,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     final brightness = theme.brightness;
     final isLight = brightness == Brightness.light;
 
-    final overlayQuick = ref.watch(overlayQuickMessagesProvider);
-    final quickHash = overlayQuick.join('\u0001');
-    if (quickHash != _lastOverlayQuickHash) {
-      _lastOverlayQuickHash = quickHash;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(OverlayPlatform.setOverlayQuickMessages(overlayQuick));
-      });
-    }
-
     final tabTitles = [
       l10n.homeTabHome,
       l10n.homeTabLeagues,
@@ -257,18 +111,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
       l10n.homeTabMarketplace,
       l10n.homeTabProfile,
     ];
-
-    final overlayIcon = !_overlayEnabled
-        ? Icons.picture_in_picture_alt_outlined
-        : (_overlayGranted
-            ? Icons.picture_in_picture_alt
-            : Icons.warning_amber_rounded);
-
-    final overlayIconColor = !_overlayEnabled
-        ? null
-        : (_overlayGranted
-            ? const Color(0xFF22C55E)
-            : const Color(0xFFF59E0B));
 
     return WillPopScope(
       onWillPop: _handleSystemBack,
@@ -308,34 +150,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
               title: Text(tabTitles[_index]),
               backgroundColor: Colors.transparent,
               elevation: 0,
-              actions: [
-                IconButton(
-                  tooltip: _overlayEnabled
-                      ? (_overlayGranted
-                          ? _trOr(
-                              l10n,
-                              'live_overlay_on_tooltip',
-                              'Overlay is ON',
-                            )
-                          : _trOr(
-                              l10n,
-                              'live_overlay_permission_needed_tooltip',
-                              'Overlay needs permission',
-                            ))
-                      : _trOr(
-                          l10n,
-                          'live_overlay_off_tooltip',
-                          'Overlay is OFF',
-                        ),
-                  onPressed: _toggleOverlayFromHome,
-                  icon: Icon(overlayIcon, color: overlayIconColor),
-                ),
-                IconButton(
-                  tooltip: l10n.homeSettingsTooltip,
-                  onPressed: () => context.push('/settings'),
-                  icon: const Icon(Icons.settings_outlined),
-                ),
-              ],
             ),
             body: SafeArea(
               bottom: false,

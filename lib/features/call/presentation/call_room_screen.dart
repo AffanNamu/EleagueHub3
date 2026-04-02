@@ -5,10 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/persistence/prefs_service.dart';
+import '../../../core/platform/overlay_platform.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../live/logic/quick_messages_controller.dart';
-import '../../live/presentation/widgets/live_floating_quick_message.dart';
 import '../logic/call_session_controller.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
@@ -27,11 +28,140 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
   final TextEditingController _codeCtrl = TextEditingController();
   Timer? _incomingHideTimer;
 
+  bool _overlayEnabled = false;
+  bool _overlayGranted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadOverlayState());
+    });
+  }
+
   @override
   void dispose() {
     _incomingHideTimer?.cancel();
     _codeCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadOverlayState() async {
+    try {
+      final prefs = ref.read(prefsServiceProvider);
+      final enabled = prefs.liveOverlayEnabled();
+      final granted = await OverlayPlatform.isOverlayPermissionGranted();
+      if (!mounted) return;
+      setState(() {
+        _overlayEnabled = enabled;
+        _overlayGranted = granted;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _toggleOverlay() async {
+    final prefs = ref.read(prefsServiceProvider);
+    final l10n = context.l10n;
+
+    if (_overlayEnabled) {
+      final sure = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(
+            _trOr(l10n, 'live_overlay_turn_off_title', 'Turn off overlay?'),
+          ),
+          content: Text(
+            _trOr(
+              l10n,
+              'live_overlay_turn_off_body',
+              'This will hide the floating voice/message controls.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(_trOr(l10n, 'common_turn_off', 'Turn off')),
+            ),
+          ],
+        ),
+      );
+
+      if (sure != true) return;
+
+      await prefs.setLiveOverlayEnabled(false);
+      await OverlayPlatform.stopGlobalOverlay();
+
+      if (!mounted) return;
+      setState(() {
+        _overlayEnabled = false;
+      });
+      return;
+    }
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          _trOr(l10n, 'live_overlay_enable_title', 'Enable floating overlay?'),
+        ),
+        content: Text(
+          _trOr(
+            l10n,
+            'live_overlay_enable_body',
+            'This shows a floating voice/message control above other apps. Android will ask for "Appear on top" permission.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(_trOr(l10n, 'common_continue', 'Continue')),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed != true) return;
+
+    await prefs.setLiveOverlayEnabled(true);
+
+    final granted = await OverlayPlatform.isOverlayPermissionGranted();
+    if (!mounted) return;
+
+    setState(() {
+      _overlayEnabled = true;
+      _overlayGranted = granted;
+    });
+
+    if (granted) {
+      await OverlayPlatform.startGlobalOverlay();
+      return;
+    }
+
+    await OverlayPlatform.requestOverlayPermission();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          _trOr(
+            l10n,
+            'live_overlay_permission_snackbar',
+            'Grant the overlay permission, then return to the app.',
+          ),
+        ),
+      ),
+    );
+
+    await _loadOverlayState();
   }
 
   @override
@@ -40,12 +170,16 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    // Premium, theme-consistent semantic accents (soft, not neon).
     const success = Color(0xFF22C55E);
     const warning = Color(0xFFF59E0B);
 
     final st = ref.watch(callSessionControllerProvider);
     final ctrl = ref.read(callSessionControllerProvider.notifier);
+
+    if (_codeCtrl.text != st.callId && st.callId.isNotEmpty) {
+      _codeCtrl.text = st.callId;
+      _codeCtrl.selection = TextSelection.collapsed(offset: _codeCtrl.text.length);
+    }
 
     if (st.incomingQuickText != null) {
       _incomingHideTimer?.cancel();
@@ -56,13 +190,49 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     }
 
     final quickList = ref.watch(overlayQuickMessagesProvider);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(OverlayPlatform.setOverlayQuickMessages(quickList));
+    });
 
     final showIncoming = st.incomingQuickText != null &&
         (DateTime.now().millisecondsSinceEpoch - st.incomingQuickAtMs) < 3200;
 
+    final overlayIcon = !_overlayEnabled
+        ? Icons.picture_in_picture_alt_outlined
+        : (_overlayGranted
+            ? Icons.picture_in_picture_alt
+            : Icons.warning_amber_rounded);
+
+    final overlayIconColor = !_overlayEnabled
+        ? cs.primary
+        : (_overlayGranted ? cs.primary : warning);
+
     return GlassScaffold(
       appBar: AppBar(
         title: Text(_trOr(l10n, 'call_room_title', 'Voice Room')),
+        actions: [
+          IconButton(
+            tooltip: _overlayEnabled
+                ? (_overlayGranted
+                    ? _trOr(
+                        l10n,
+                        'live_overlay_on_tooltip',
+                        'Overlay is ON',
+                      )
+                    : _trOr(
+                        l10n,
+                        'live_overlay_permission_needed_tooltip',
+                        'Overlay needs permission',
+                      ))
+                : _trOr(
+                    l10n,
+                    'live_overlay_off_tooltip',
+                    'Overlay is OFF',
+                  ),
+            onPressed: _toggleOverlay,
+            icon: Icon(overlayIcon, color: overlayIconColor),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Stack(
@@ -77,22 +247,16 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        _trOr(
-                          l10n,
-                          'call_room_how_title',
-                          'Create or join with 8-digit code',
-                        ),
+                        'Create or join with 8-character code',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _trOr(
-                          l10n,
-                          'call_room_how_body',
-                          'Create a room to get an 8-digit code. Share it with your friend to join. Keep talking using the floating overlay over other apps.',
-                        ),
+                        _overlayEnabled
+                            ? 'Create a room to get an 8-character code. Share it with your friend to join. Keep talking using the floating overlay over other apps.'
+                            : 'Create a room to get an 8-character code. Share it with your friend to join. Enable the floating overlay from the top-right button for premium quick controls.',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: cs.onSurface.withOpacity(0.70),
                           fontWeight: FontWeight.w600,
@@ -179,7 +343,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                       !st.joining &&
                                       !st.reconnecting)
                                   ? () async {
-                                      final code = _codeCtrl.text.trim();
+                                      final code = _codeCtrl.text.trim().toUpperCase();
                                       await ctrl.joinByCode(code);
                                     }
                                   : null,
@@ -196,16 +360,21 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                         controller: _codeCtrl,
                         enabled:
                             !st.connected && !st.joining && !st.reconnecting,
-                        keyboardType: TextInputType.number,
+                        textCapitalization: TextCapitalization.characters,
                         maxLength: 8,
-                        decoration: InputDecoration(
+                        decoration: const InputDecoration(
                           counterText: '',
-                          hintText: _trOr(
-                            l10n,
-                            'call_room_code_hint',
-                            'Enter 8-digit code',
-                          ),
+                          hintText: 'Enter 8-character code',
                         ),
+                        onChanged: (v) {
+                          final next = v.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+                          if (next != v) {
+                            _codeCtrl.value = TextEditingValue(
+                              text: next,
+                              selection: TextSelection.collapsed(offset: next.length),
+                            );
+                          }
+                        },
                       ),
                     ],
                   ),
@@ -242,7 +411,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                           Expanded(
                             child: Text(
                               st.connected
-                                  ? '${_trOr(l10n, 'call_room_connected', 'Connected')} • ${_trOr(l10n, 'call_room_code', 'Code')}: ${st.callId}'
+                                  ? '${_trOr(l10n, 'call_room_connected', 'Connected')} • Code: ${st.callId}'
                                   : st.reconnecting
                                       ? _trOr(l10n, 'call_room_reconnecting',
                                           'Reconnecting...')
@@ -297,10 +466,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: (st.connected &&
-                                      st.micPermissionGranted)
-                                  ? ctrl.toggleMic
-                                  : null,
+                              onPressed:
+                                  (st.connected && st.micPermissionGranted)
+                                      ? ctrl.toggleMic
+                                      : null,
                               icon: Icon(
                                 st.micEnabled ? Icons.mic : Icons.mic_off,
                               ),
@@ -370,14 +539,6 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                   ),
                 ),
               ),
-            LiveFloatingQuickMessage(
-              enabled: st.connected,
-              messages: quickList,
-              onSend: (m) => ref
-                  .read(callSessionControllerProvider.notifier)
-                  .sendQuick(m),
-              icon: Icons.message_rounded,
-            ),
           ],
         ),
       ),

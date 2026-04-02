@@ -34,9 +34,12 @@ class LiveKitTokenResponse {
 }
 
 class LiveKitService {
-  static const String workerUrl = 'https://livekit-token-worker.esportlyic.workers.dev';
+  static const String workerUrl =
+      'https://livekit-token-worker.esportlyic.workers.dev';
 
   static const Duration _requestTimeout = Duration(seconds: 12);
+
+  static final RegExp _callCodeRe = RegExp(r'^[A-Z0-9]{8}$');
 
   static Never _throwFriendlyFrom(Object error) {
     if (error is UserFriendlyException) throw error;
@@ -47,11 +50,14 @@ class LiveKitService {
       );
     }
     if (error is TimeoutException) {
-      throw const UserFriendlyException('Your internet connection seems unstable. Please try again.');
+      throw const UserFriendlyException(
+        'Your internet connection seems unstable. Please try again.',
+      );
     }
 
-    // Default: do not leak technical details.
-    throw const UserFriendlyException("We couldn't connect right now. Please try again.");
+    throw const UserFriendlyException(
+      "We couldn't connect right now. Please try again.",
+    );
   }
 
   static Future<Map<String, dynamic>> _postJson(
@@ -70,15 +76,18 @@ class LiveKitService {
           .timeout(_requestTimeout);
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        // Never surface status/body to UI.
-        throw const UserFriendlyException("We couldn't start Live right now. Please try again.");
+        throw const UserFriendlyException(
+          "We couldn't start Live right now. Please try again.",
+        );
       }
 
       final decoded = jsonDecode(res.body);
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return decoded.cast<String, dynamic>();
 
-      throw const UserFriendlyException("We couldn't start Live right now. Please try again.");
+      throw const UserFriendlyException(
+        "We couldn't start Live right now. Please try again.",
+      );
     } on UserFriendlyException {
       rethrow;
     } catch (e) {
@@ -88,11 +97,17 @@ class LiveKitService {
     }
   }
 
-  static LiveKitTokenResponse _parseTokenResponse(Map<String, dynamic> decoded) {
+  static LiveKitTokenResponse _parseTokenResponse(
+    Map<String, dynamic> decoded,
+  ) {
     try {
       final tok = LiveKitTokenResponse.fromJson(decoded);
-      if (tok.token.trim().isEmpty || tok.url.trim().isEmpty || tok.roomName.trim().isEmpty) {
-        throw const UserFriendlyException("We couldn't start Live right now. Please try again.");
+      if (tok.token.trim().isEmpty ||
+          tok.url.trim().isEmpty ||
+          tok.roomName.trim().isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't start Live right now. Please try again.",
+        );
       }
       return tok;
     } on UserFriendlyException {
@@ -120,8 +135,6 @@ class LiveKitService {
         {
           'leagueId': lid,
           'userId': uid,
-          // Twitter Spaces behavior: listener vs speaker is NOT a different token.
-          // Everyone can publish; "listener" is simply "mic muted".
           'role': isHost ? 'host' : 'participant',
         },
       );
@@ -137,7 +150,7 @@ class LiveKitService {
     required String matchId,
     required String userId,
     required bool isHost,
-    String? side, // optional: "home" | "away" | "unknown"
+    String? side,
   }) async {
     final mid = matchId.trim();
     final uid = userId.trim();
@@ -162,19 +175,23 @@ class LiveKitService {
     }
   }
 
-  /// New behavior (Voice room by 8-digit code): roomName = call_<callId>
+  /// Voice room by 8-character code: roomName = call_<callId>
   static Future<LiveKitTokenResponse> fetchCallToken({
     required String callId,
     required String userId,
     bool isHost = false,
   }) async {
-    final code = callId.trim();
+    final code = callId.trim().toUpperCase();
     final uid = userId.trim();
+
     if (uid.isEmpty) {
       throw const UserFriendlyException('Please sign in and try again.');
     }
-    if (!RegExp(r'^\d{8}$').hasMatch(code)) {
-      throw const UserFriendlyException('Please enter a valid call code.');
+
+    if (!_callCodeRe.hasMatch(code)) {
+      throw const UserFriendlyException(
+        'Please enter a valid 8-character call code.',
+      );
     }
 
     try {

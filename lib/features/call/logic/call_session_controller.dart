@@ -86,7 +86,9 @@ class CallSessionState {
 }
 
 class CallSessionController extends StateNotifier<CallSessionState> {
-  CallSessionController() : super(CallSessionState.initial());
+  CallSessionController() : super(CallSessionState.initial()) {
+    OverlayBridge.ensureInitialized();
+  }
 
   Room? _room;
   EventsListener<RoomEvent>? _listener;
@@ -99,12 +101,14 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  static final RegExp _codeRe = RegExp(r'^\d{8}$');
+  static final RegExp _codeRe = RegExp(r'^[A-Z0-9]{8}$');
 
   static String _friendlyError(Object error) {
     if (error is UserFriendlyException) return error.message;
     final msg = error.toString().toLowerCase();
-    if (msg.contains('socket') || msg.contains('network') || msg.contains('unreachable')) {
+    if (msg.contains('socket') ||
+        msg.contains('network') ||
+        msg.contains('unreachable')) {
       return 'Network issue. Please check your connection.';
     }
     if (msg.contains('timeout')) {
@@ -123,14 +127,14 @@ class CallSessionController extends StateNotifier<CallSessionState> {
   }
 
   Future<String> createAndJoin() async {
-    final code = _generate8DigitCode();
+    final code = _generate8CharCode();
     await joinByCode(code, isHost: true);
     return code;
   }
 
   Future<void> joinByCode(String code, {bool isHost = false}) async {
     final uid = _uid.trim();
-    final callId = code.trim();
+    final callId = code.trim().toUpperCase();
 
     if (uid.isEmpty) {
       state = state.copyWith(error: 'Please sign in to use voice rooms.');
@@ -138,7 +142,9 @@ class CallSessionController extends StateNotifier<CallSessionState> {
     }
 
     if (!_codeRe.hasMatch(callId)) {
-      state = state.copyWith(error: 'Room code must be exactly 8 digits.');
+      state = state.copyWith(
+        error: 'Room code must be exactly 8 letters/numbers.',
+      );
       return;
     }
 
@@ -158,7 +164,12 @@ class CallSessionController extends StateNotifier<CallSessionState> {
       callId: callId,
     );
 
-    await _connectInternal(callId: callId, uid: uid, isHost: isHost, isReconnect: false);
+    await _connectInternal(
+      callId: callId,
+      uid: uid,
+      isHost: isHost,
+      isReconnect: false,
+    );
   }
 
   Future<void> _connectInternal({
@@ -201,7 +212,8 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
       _listener!.on<RoomConnectedEvent>((_) {
         _reconnectAttempts = 0;
-        state = state.copyWith(connected: true, reconnecting: false, error: '');
+        state =
+            state.copyWith(connected: true, reconnecting: false, error: '');
       });
 
       _listener!.on<RoomDisconnectedEvent>((_) {
@@ -274,14 +286,27 @@ class CallSessionController extends StateNotifier<CallSessionState> {
         ),
       );
 
-      state = state.copyWith(joining: false, connected: true, reconnecting: false, error: '');
+      state = state.copyWith(
+        joining: false,
+        connected: true,
+        reconnecting: false,
+        error: '',
+      );
     } catch (e) {
       final friendly = _friendlyError(e is Object ? e : Exception('unknown'));
       if (isReconnect) {
-        state = state.copyWith(reconnecting: true, error: 'Reconnecting... $friendly');
+        state = state.copyWith(
+          reconnecting: true,
+          error: 'Reconnecting... $friendly',
+        );
         _scheduleReconnect();
       } else {
-        state = state.copyWith(joining: false, connected: false, reconnecting: false, error: friendly);
+        state = state.copyWith(
+          joining: false,
+          connected: false,
+          reconnecting: false,
+          error: friendly,
+        );
       }
       unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
     }
@@ -305,7 +330,8 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
     state = state.copyWith(
       reconnecting: true,
-      error: 'Connection lost. Reconnecting (attempt $_reconnectAttempts/$_maxReconnectAttempts)...',
+      error:
+          'Connection lost. Reconnecting (attempt $_reconnectAttempts/$_maxReconnectAttempts)...',
     );
 
     _reconnectTimer = Timer(delay, () {
@@ -358,9 +384,12 @@ class CallSessionController extends StateNotifier<CallSessionState> {
     if (room == null) return;
     if (!state.connected) return;
 
+    final cleaned = label.trim();
+    if (cleaned.isEmpty) return;
+
     final payload = <String, dynamic>{
       'kind': 'quick',
-      'label': label.trim(),
+      'label': cleaned,
       'ts': DateTime.now().millisecondsSinceEpoch,
     };
 
@@ -452,9 +481,12 @@ class CallSessionController extends StateNotifier<CallSessionState> {
     return null;
   }
 
-  static String _generate8DigitCode() {
+  static String _generate8CharCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final rnd = Random.secure();
-    final n = rnd.nextInt(100000000);
-    return n.toString().padLeft(8, '0');
+    return List.generate(
+      8,
+      (_) => chars[rnd.nextInt(chars.length)],
+    ).join();
   }
 }
