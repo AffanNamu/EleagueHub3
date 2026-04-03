@@ -5,6 +5,7 @@ import 'package:flutterwave_standard/flutterwave.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/config/flutterwave_config.dart';
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/services/app_analytics_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
@@ -109,7 +110,18 @@ class FlutterwaveLeagueChargesPaymentService
   final Uuid _uuid = const Uuid();
 
   @override
-  String get providerName => 'flutterwave';
+  String get providerName =>
+      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
+          ? 'google_play_billing'
+          : 'flutterwave';
+
+  LeagueChargesPaymentResult _playBillingNotReady(String flowLabel) {
+    return LeagueChargesPaymentResult.failed(
+      provider: providerName,
+      errorMessage:
+          PaymentPlatformConfig.pendingGooglePlayBillingMessage(flowLabel),
+    );
+  }
 
   String _toFlutterwaveAmount(double v) {
     final rounded = double.parse(v.toStringAsFixed(2));
@@ -183,6 +195,10 @@ class FlutterwaveLeagueChargesPaymentService
     int? couponDiscountPercent,
     String? currencyOverride,
   }) async {
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      return _playBillingNotReady('League access charge payment');
+    }
+
     String currencyUsed = '';
     String totalAmount = '0';
     String attemptId = '';

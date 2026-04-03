@@ -5,6 +5,7 @@ import 'package:flutterwave_standard/flutterwave.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/config/flutterwave_config.dart';
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/services/app_analytics_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
@@ -142,7 +143,18 @@ class FlutterwaveLeagueCreationPaymentService
   final Uuid _uuid = const Uuid();
 
   @override
-  String get providerName => 'flutterwave';
+  String get providerName =>
+      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
+          ? 'google_play_billing'
+          : 'flutterwave';
+
+  LeagueCreationPaymentResult _playBillingNotReady(String flowLabel) {
+    return LeagueCreationPaymentResult.failed(
+      provider: providerName,
+      errorMessage:
+          PaymentPlatformConfig.pendingGooglePlayBillingMessage(flowLabel),
+    );
+  }
 
   String _toFlutterwaveAmount(double v) {
     final rounded = double.parse(v.toStringAsFixed(2));
@@ -199,6 +211,15 @@ class FlutterwaveLeagueCreationPaymentService
     int couponDiscountPercent = 0,
     int couponCount = 0,
   }) async {
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      final flowLabel = premiumUpgrade
+          ? 'Organizer plan upgrade payment'
+          : (addonsOnly
+              ? 'League upgrade payment'
+              : 'League creation payment');
+      return _playBillingNotReady(flowLabel);
+    }
+
     final discountPercent = _sanitizePercent(couponDiscountPercent);
     final safeCouponCount =
         buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
@@ -217,6 +238,9 @@ class FlutterwaveLeagueCreationPaymentService
           selectedPlanId: chosenPlan.id,
         );
       }
+
+      final effectiveUserId =
+          userId.trim().isNotEmpty ? userId.trim() : authUser.uid.trim();
 
       final safeLeagueName = leagueName.trim();
       if (safeLeagueName.isEmpty) {
@@ -385,12 +409,12 @@ class FlutterwaveLeagueCreationPaymentService
         provider: providerName,
         currency: currencyUsed,
         amount: totalAmount,
-        userId: userId,
+        userId: effectiveUserId,
       );
 
       final String email = (authUser.email?.trim().isNotEmpty ?? false)
           ? authUser.email!.trim()
-          : 'user_$userId@eleaguehub.app';
+          : 'user_$effectiveUserId@eleaguehub.app';
       final String phone = (authUser.phoneNumber?.trim().isNotEmpty ?? false)
           ? authUser.phoneNumber!.trim()
           : '0000000000';
@@ -482,7 +506,7 @@ class FlutterwaveLeagueCreationPaymentService
             amount: totalAmount,
             receiptId: null,
             errorMessage: cleanError,
-            userId: userId,
+            userId: effectiveUserId,
           );
 
           return LeagueCreationPaymentResult.failed(
@@ -513,7 +537,7 @@ class FlutterwaveLeagueCreationPaymentService
               : totalAmount,
           receiptId: verification.receiptId,
           errorMessage: null,
-          userId: userId,
+          userId: effectiveUserId,
         );
 
         return LeagueCreationPaymentResult.paid(

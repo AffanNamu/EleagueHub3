@@ -5,6 +5,7 @@ import 'package:flutterwave_standard/flutterwave.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/config/flutterwave_config.dart';
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/services/app_analytics_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
@@ -122,7 +123,18 @@ class FlutterwaveMasterLeaguePaymentService
   final Uuid _uuid = const Uuid();
 
   @override
-  String get providerName => 'flutterwave';
+  String get providerName =>
+      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
+          ? 'google_play_billing'
+          : 'flutterwave';
+
+  MasterLeaguePaymentResult _playBillingNotReady(String flowLabel) {
+    return MasterLeaguePaymentResult.failed(
+      provider: providerName,
+      errorMessage:
+          PaymentPlatformConfig.pendingGooglePlayBillingMessage(flowLabel),
+    );
+  }
 
   Locale _effectiveLocale(BuildContext context) {
     final base = Localizations.maybeLocaleOf(context) ??
@@ -475,6 +487,10 @@ class FlutterwaveMasterLeaguePaymentService
     required MasterLeaguePlan plan,
     required PlanDuration duration,
   }) async {
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      return _playBillingNotReady('Master League plan purchase');
+    }
+
     try {
       final remotePlan = await RemotePricingService.instance.getPlanForLocale(
         _effectiveLocale(context),
@@ -536,7 +552,8 @@ class FlutterwaveMasterLeaguePaymentService
             amount: price.amount,
           ),
         ],
-        txRefPrefix: 'EH-PLAN-${plan.id.toUpperCase()}-${duration.id.toUpperCase()}',
+        txRefPrefix:
+            'EH-PLAN-${plan.id.toUpperCase()}-${duration.id.toUpperCase()}',
         description:
             '${plan.displayName} Plan (${duration.displayName}) subscription',
         amount: price.amount,
@@ -558,6 +575,10 @@ class FlutterwaveMasterLeaguePaymentService
     required String masterLeagueId,
     required String masterLeagueName,
   }) async {
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      return _playBillingNotReady('Organizer verification payment');
+    }
+
     try {
       final safeMasterLeagueId = masterLeagueId.trim();
       final safeMasterLeagueName = masterLeagueName.trim();
@@ -647,6 +668,10 @@ class FlutterwaveMasterLeaguePaymentService
     required String masterLeagueId,
     required String masterLeagueName,
   }) async {
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      return _playBillingNotReady('Organizer verification renewal payment');
+    }
+
     try {
       final safeMasterLeagueId = masterLeagueId.trim();
       final safeMasterLeagueName = masterLeagueName.trim();
