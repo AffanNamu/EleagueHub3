@@ -30,7 +30,12 @@ import '../logic/league_premium_upgrade_helper.dart';
 enum _LeagueViewTab { leagues, master }
 
 class LeaguesListScreen extends ConsumerStatefulWidget {
-  const LeaguesListScreen({super.key});
+  const LeaguesListScreen({
+    super.key,
+    this.showAppBar = true,
+  });
+
+  final bool showAppBar;
 
   @override
   ConsumerState<LeaguesListScreen> createState() => _LeaguesListScreenState();
@@ -58,6 +63,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   bool _checkingPlan = true;
   bool _hasLeagueAccess = false;
   bool _isPremiumUser = false;
+  int _createdLeagueCount = 0;
 
   String? _payingLeagueId;
   String? _removingLeagueId;
@@ -83,10 +89,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   }
 
   bool get _freeLimitReached =>
-      !_isPremiumUser && _leagues.length >= _freeLeagueListLimit;
+      _hasLeagueAccess &&
+      !_isPremiumUser &&
+      _createdLeagueCount >= _freeLeagueListLimit;
 
-  String _freeLimitMessage([String action = 'add more leagues']) {
-    return 'Free users can only have $_freeLeagueListLimit leagues total on the leagues screen. Upgrade to a paid plan to $action.';
+  String _freeLimitMessage([String action = 'create more']) {
+    return 'Basic users can create up to $_freeLeagueListLimit leagues/competitions total. This total is shared across normal leagues and competitions inside Organizer or Master League workspace. Upgrade to a paid plan to $action.';
   }
 
   @override
@@ -160,34 +168,38 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<bool> _detectLeagueAccessFromPlan(String uid) async {
     final trimmed = uid.trim();
-    if (trimmed.isEmpty) return false;
+    return trimmed.isNotEmpty;
+  }
+
+  Future<int> _countCreatedLeaguesAcrossAllFlows(String uid) async {
+    final trimmed = uid.trim();
+    if (trimmed.isEmpty) return 0;
+
+    final ids = <String>{};
 
     try {
-      final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
-      final ent = await entitlementSvc.getEntitlement(forceRefresh: true);
-      return ent.active;
-    } catch (_) {}
-
-    try {
-      final userDoc = await _firestore
-          .collection('users')
-          .doc(trimmed)
+      final snap = await _firestore
+          .collection('leagues')
+          .where('organizerUid', isEqualTo: trimmed)
           .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 20));
 
-      final data = userDoc.data() ?? const <String, dynamic>{};
-      final activePlanId = (data['activePlanId'] as String? ?? '').trim();
-      final planExpiresAtMs =
-          (data['planExpiresAtMs'] is num) ? (data['planExpiresAtMs'] as num).toInt() : 0;
-
-      if (activePlanId == 'basic') return true;
-      if ((activePlanId == 'pro' || activePlanId == 'elite') &&
-          planExpiresAtMs > DateTime.now().millisecondsSinceEpoch) {
-        return true;
-      }
+      ids.addAll(snap.docs.map((d) => d.id));
     } catch (_) {}
 
-    return false;
+    if (_looksLikeFirebaseUid(trimmed)) {
+      try {
+        final snap = await _firestore
+            .collection('leagues')
+            .where('organizerUserId', isEqualTo: trimmed)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 20));
+
+        ids.addAll(snap.docs.map((d) => d.id));
+      } catch (_) {}
+    }
+
+    return ids.length;
   }
 
   void _snack(String message) {
@@ -230,6 +242,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
       final premium = await _detectPremiumUser(effectiveUserId);
       final hasLeagueAccess = await _detectLeagueAccessFromPlan(effectiveUserId);
+      final createdCount =
+          await _countCreatedLeaguesAcrossAllFlows(effectiveUserId);
 
       final leagues =
           await _repo.listLeagues().timeout(const Duration(seconds: 20));
@@ -306,6 +320,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         _effectiveUserId = effectiveUserId;
         _isPremiumUser = premium;
         _hasLeagueAccess = hasLeagueAccess;
+        _createdLeagueCount = createdCount;
         _checkingPlan = false;
         _isLoading = false;
       });
@@ -1012,7 +1027,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<void> _handleCreateLeagueTap(BuildContext context) async {
     if (_checkingPlan) {
-      _snack('Checking your plan. Please wait.');
+      _snack('Checking your access. Please wait.');
       return;
     }
 
@@ -1034,17 +1049,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<void> _handleJoinQrTap(BuildContext context) async {
     if (_checkingPlan) {
-      _snack('Checking your plan. Please wait.');
-      return;
-    }
-
-    if (!_hasLeagueAccess) {
-      await _openInlinePlanChooser();
-      return;
-    }
-
-    if (_freeLimitReached) {
-      await _openInlinePlanChooser();
+      _snack('Checking your access. Please wait.');
       return;
     }
 
@@ -1056,17 +1061,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<void> _handleJoinByIdTap(BuildContext context) async {
     if (_checkingPlan) {
-      _snack('Checking your plan. Please wait.');
-      return;
-    }
-
-    if (!_hasLeagueAccess) {
-      await _openInlinePlanChooser();
-      return;
-    }
-
-    if (_freeLimitReached) {
-      await _openInlinePlanChooser();
+      _snack('Checking your access. Please wait.');
       return;
     }
 
@@ -1150,31 +1145,30 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
     return GlassScaffold(
       resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        title: const Text('Leagues'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: false,
-        toolbarHeight: 50,
-        actions: [
-          IconButton(
-            tooltip: l10n.tr('common_refresh'),
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _refreshLeagues,
-          ),
-        ],
-      ),
+      appBar: widget.showAppBar
+          ? AppBar(
+              title: const Text('Leagues'),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              centerTitle: false,
+              toolbarHeight: 50,
+              actions: [
+                IconButton(
+                  tooltip: l10n.tr('common_refresh'),
+                  icon: const Icon(Icons.refresh_rounded),
+                  onPressed: _refreshLeagues,
+                ),
+              ],
+            )
+          : null,
       floatingActionButton: Padding(
         padding: EdgeInsets.only(bottom: fabBottomOffset),
         child: FloatingActionButton(
           onPressed: () => _showOptions(context),
-          backgroundColor: (!_hasLeagueAccess || _freeLimitReached)
-              ? _premiumAmber
-              : cs.primary,
-          foregroundColor:
-              (!_hasLeagueAccess || _freeLimitReached) ? Colors.black : cs.onPrimary,
+          backgroundColor: _freeLimitReached ? _premiumAmber : cs.primary,
+          foregroundColor: _freeLimitReached ? Colors.black : cs.onPrimary,
           child: Icon(
-            (!_hasLeagueAccess || _freeLimitReached)
+            _freeLimitReached
                 ? Icons.workspace_premium_rounded
                 : Icons.add_rounded,
           ),
@@ -1191,7 +1185,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    widget.showAppBar ? 2 : 8,
+                    16,
+                    0,
+                  ),
                   child: Glass(
                     borderRadius: 18,
                     padding: const EdgeInsets.symmetric(
@@ -1254,13 +1253,20 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 ],
                               ),
                             ),
+                            if (!widget.showAppBar)
+                              IconButton(
+                                tooltip: l10n.tr('common_refresh'),
+                                visualDensity: VisualDensity.compact,
+                                onPressed: _refreshLeagues,
+                                icon: const Icon(Icons.refresh_rounded),
+                              ),
                           ],
                         ),
                         if (!_isLoading) ...[
                           const SizedBox(height: 8),
                           if (_checkingPlan)
                             Text(
-                              'Checking your active plan...',
+                              'Checking your access...',
                               style: TextStyle(
                                 color: onSurface.withOpacity(0.60),
                                 fontSize: 11.5,
@@ -1268,19 +1274,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 height: 1.28,
                               ),
                             )
-                          else if (!_hasLeagueAccess)
-                            Text(
-                              'No active plan found. Choose a plan to create or join leagues.',
-                              style: TextStyle(
-                                color: _premiumAmber,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w800,
-                                height: 1.28,
-                              ),
-                            )
                           else if (_isPremiumUser)
                             Text(
-                              'Premium/paid plan active: you can have more than $_freeLeagueListLimit league cards.',
+                              'Paid plan active: you can create more than $_freeLeagueListLimit leagues/competitions.',
                               style: TextStyle(
                                 color: cs.primary,
                                 fontSize: 11.5,
@@ -1290,7 +1286,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             )
                           else if (_freeLimitReached)
                             Text(
-                              'Basic/free limit reached: you already have $_freeLeagueListLimit league cards. Choose a paid plan to add more.',
+                              'Basic/free creation limit reached: you already created $_createdLeagueCount / $_freeLeagueListLimit leagues or competitions across normal leagues and Organizer workspace.',
                               style: TextStyle(
                                 color: _premiumAmber,
                                 fontSize: 11.5,
@@ -1300,7 +1296,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             )
                           else
                             Text(
-                              'Basic/free plan active: you can have up to $_freeLeagueListLimit league cards total.',
+                              'Basic/free access active: you have used $_createdLeagueCount / $_freeLeagueListLimit shared creation slots across normal leagues and Organizer workspace.',
                               style: TextStyle(
                                 color: onSurface.withOpacity(0.60),
                                 fontSize: 11.5,
@@ -1309,42 +1305,33 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               ),
                             ),
                           const SizedBox(height: 8),
-                          if (!_hasLeagueAccess || !_isPremiumUser)
-                            SizedBox(
-                              width: double.infinity,
-                              height: 42,
-                              child: FilledButton.icon(
-                                onPressed: _openInlinePlanChooser,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor:
-                                      (!_hasLeagueAccess || _freeLimitReached)
-                                          ? _premiumAmber
-                                          : cs.primary,
-                                  foregroundColor:
-                                      (!_hasLeagueAccess || _freeLimitReached)
-                                          ? Colors.black
-                                          : cs.onPrimary,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
-                                  ),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 42,
+                            child: FilledButton.icon(
+                              onPressed: _openInlinePlanChooser,
+                              style: FilledButton.styleFrom(
+                                backgroundColor:
+                                    _freeLimitReached ? _premiumAmber : cs.primary,
+                                foregroundColor:
+                                    _freeLimitReached ? Colors.black : cs.onPrimary,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
                                 ),
-                                icon: const Icon(
-                                  Icons.payments_outlined,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  !_hasLeagueAccess
-                                      ? 'Choose Plan'
-                                      : (_freeLimitReached
-                                          ? 'Pay Now'
-                                          : 'Upgrade Plan'),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                  ),
+                              ),
+                              icon: const Icon(
+                                Icons.payments_outlined,
+                                size: 18,
+                              ),
+                              label: Text(
+                                _freeLimitReached ? 'Upgrade Plan' : 'View Plans',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
                                 ),
                               ),
                             ),
+                          ),
                         ],
                       ],
                     ),
@@ -1740,7 +1727,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                   child: InkWell(
                     onTap: hasSearch
                         ? () => _searchController.clear()
-                        : ((!_hasLeagueAccess || _freeLimitReached)
+                        : (_freeLimitReached
                             ? _openInlinePlanChooser
                             : () => _showOptions(context)),
                     borderRadius: BorderRadius.circular(16),
@@ -1750,7 +1737,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         gradient: LinearGradient(
                           colors: hasSearch
                               ? [cs.primary, cs.primary.withOpacity(0.75)]
-                              : ((!_hasLeagueAccess || _freeLimitReached)
+                              : (_freeLimitReached
                                   ? [
                                       _premiumAmber,
                                       _premiumAmber.withOpacity(0.82),
@@ -1768,12 +1755,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             Icon(
                               hasSearch
                                   ? Icons.restart_alt_rounded
-                                  : ((!_hasLeagueAccess || _freeLimitReached)
+                                  : (_freeLimitReached
                                       ? Icons.payments_rounded
                                       : Icons.add_rounded),
                               color: hasSearch
                                   ? Colors.white
-                                  : ((!_hasLeagueAccess || _freeLimitReached)
+                                  : (_freeLimitReached
                                       ? Colors.black
                                       : Colors.white),
                               size: 20,
@@ -1782,15 +1769,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             Text(
                               hasSearch
                                   ? 'Clear Search'
-                                  : (!_hasLeagueAccess
-                                      ? 'Choose Plan'
-                                      : (_freeLimitReached
-                                          ? 'Pay Now'
-                                          : l10n.tr('leagues_empty_cta'))),
+                                  : (_freeLimitReached
+                                      ? 'Upgrade Plan'
+                                      : l10n.tr('leagues_empty_cta')),
                               style: TextStyle(
                                 color: hasSearch
                                     ? Colors.white
-                                    : ((!_hasLeagueAccess || _freeLimitReached)
+                                    : (_freeLimitReached
                                         ? Colors.black
                                         : Colors.white),
                                 fontWeight: FontWeight.w800,
@@ -1804,12 +1789,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                   ),
                 ),
               ),
-              if ((!_hasLeagueAccess || _freeLimitReached) && !hasSearch) ...[
+              if (_freeLimitReached && !hasSearch) ...[
                 const SizedBox(height: 12),
                 Text(
-                  !_hasLeagueAccess
-                      ? 'Choose a plan to create or join leagues.'
-                      : _freeLimitMessage('add more'),
+                  _freeLimitMessage('create more'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: _premiumAmber,
@@ -1876,10 +1859,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               color: onSurface,
                             ),
                           ),
-                          if (!_hasLeagueAccess) ...[
+                          if (_freeLimitReached) ...[
                             const SizedBox(height: 8),
                             Text(
-                              'Choose a plan first to create or join leagues.',
+                              _freeLimitMessage('create more leagues or competitions'),
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: _premiumAmber,
@@ -1888,15 +1871,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 height: 1.35,
                               ),
                             ),
-                          ] else if (_freeLimitReached) ...[
+                          ] else ...[
                             const SizedBox(height: 8),
                             Text(
-                              _freeLimitMessage('add more leagues'),
+                              'Basic users can create up to $_freeLeagueListLimit total leagues or competitions. Joining leagues remains available.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: _premiumAmber,
+                                color: onSurface.withOpacity(0.60),
                                 fontSize: 12,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 height: 1.35,
                               ),
                             ),
@@ -1906,22 +1889,18 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     ),
                     const SizedBox(height: 14),
                     _OptionTile(
-                      icon: (!_hasLeagueAccess || _freeLimitReached)
+                      icon: _freeLimitReached
                           ? Icons.workspace_premium_rounded
                           : Icons.add_rounded,
-                      iconBg: (!_hasLeagueAccess || _freeLimitReached)
+                      iconBg: _freeLimitReached
                           ? _premiumAmber
                           : cs.primary,
-                      title: !_hasLeagueAccess
-                          ? 'Choose Plan'
-                          : (_freeLimitReached
-                              ? 'Pay Now'
-                              : l10n.tr('leagues_options_create_title')),
-                      subtitle: !_hasLeagueAccess
-                          ? 'Choose a plan to unlock league creation.'
-                          : (_freeLimitReached
-                              ? 'Choose a paid plan to create more leagues.'
-                              : l10n.tr('leagues_options_create_subtitle')),
+                      title: _freeLimitReached
+                          ? 'Upgrade Plan'
+                          : l10n.tr('leagues_options_create_title'),
+                      subtitle: _freeLimitReached
+                          ? 'You used all free creation slots. Upgrade to create more.'
+                          : l10n.tr('leagues_options_create_subtitle'),
                       onTap: () async {
                         context.pop();
                         await _handleCreateLeagueTap(context);
@@ -1934,22 +1913,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       endIndent: 16,
                     ),
                     _OptionTile(
-                      icon: (!_hasLeagueAccess || _freeLimitReached)
-                          ? Icons.workspace_premium_rounded
-                          : Icons.qr_code_scanner_rounded,
-                      iconBg: (!_hasLeagueAccess || _freeLimitReached)
-                          ? _premiumAmber
-                          : Colors.teal,
-                      title: !_hasLeagueAccess
-                          ? 'Choose Plan'
-                          : (_freeLimitReached
-                              ? 'Pay Now'
-                              : l10n.tr('leagues_options_join_qr_title')),
-                      subtitle: !_hasLeagueAccess
-                          ? 'Choose a plan to unlock league joining.'
-                          : (_freeLimitReached
-                              ? 'Choose a paid plan to join more leagues.'
-                              : l10n.tr('leagues_options_join_qr_subtitle')),
+                      icon: Icons.qr_code_scanner_rounded,
+                      iconBg: Colors.teal,
+                      title: l10n.tr('leagues_options_join_qr_title'),
+                      subtitle: l10n.tr('leagues_options_join_qr_subtitle'),
                       onTap: () async {
                         context.pop();
                         await _handleJoinQrTap(context);
@@ -1962,22 +1929,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       endIndent: 16,
                     ),
                     _OptionTile(
-                      icon: (!_hasLeagueAccess || _freeLimitReached)
-                          ? Icons.workspace_premium_rounded
-                          : Icons.key_rounded,
-                      iconBg: (!_hasLeagueAccess || _freeLimitReached)
-                          ? _premiumAmber
-                          : Colors.deepPurple,
-                      title: !_hasLeagueAccess
-                          ? 'Choose Plan'
-                          : (_freeLimitReached
-                              ? 'Pay Now'
-                              : l10n.tr('leagues_options_join_id_title')),
-                      subtitle: !_hasLeagueAccess
-                          ? 'Choose a plan to unlock league joining.'
-                          : (_freeLimitReached
-                              ? 'Choose a paid plan to join more leagues.'
-                              : l10n.tr('leagues_options_join_id_subtitle')),
+                      icon: Icons.key_rounded,
+                      iconBg: Colors.deepPurple,
+                      title: l10n.tr('leagues_options_join_id_title'),
+                      subtitle: l10n.tr('leagues_options_join_id_subtitle'),
                       onTap: () async {
                         context.pop();
                         await _handleJoinByIdTap(context);
@@ -2004,17 +1959,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     }
 
     if (_checkingPlan) {
-      _snack('Checking your plan. Please wait.');
-      return;
-    }
-
-    if (!_hasLeagueAccess) {
-      await _openInlinePlanChooser();
-      return;
-    }
-
-    if (_freeLimitReached) {
-      await _openInlinePlanChooser();
+      _snack('Checking your access. Please wait.');
       return;
     }
 

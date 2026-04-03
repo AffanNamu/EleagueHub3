@@ -38,7 +38,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     WidgetsBinding.instance.addObserver(this);
     _tabs = const [
       _HomeTab(),
-      LeaguesListScreen(),
+      LeaguesListScreen(showAppBar: false),
       PublicOrganizerDiscoveryScreen(),
       MarketplaceListScreen(),
       ProfileScreen(),
