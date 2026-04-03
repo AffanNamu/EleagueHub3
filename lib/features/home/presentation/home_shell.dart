@@ -77,20 +77,84 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
     final shouldExit = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Exit app?'),
-        content: const Text('Are you sure you want to close the app?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+      barrierColor: Colors.black.withOpacity(0.28),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Glass(
+            borderRadius: 28,
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: cs.primary.withOpacity(0.14),
+                    border: Border.all(
+                      color: cs.primary.withOpacity(0.22),
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.exit_to_app_rounded,
+                    color: cs.primary,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Exit app?',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Are you sure you want to close the app?',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurface.withOpacity(0.76),
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text(
+                          'Exit',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Exit'),
-          ),
-        ],
-      ),
+        );
+      },
     );
 
     return shouldExit ?? false;
@@ -148,8 +212,13 @@ class _HomeShellState extends ConsumerState<HomeShell>
             extendBody: true,
             appBar: AppBar(
               title: Text(tabTitles[_index]),
-              backgroundColor: Colors.transparent,
+              backgroundColor: theme.colorScheme.surface.withOpacity(
+                isLight ? 0.82 : 0.68,
+              ),
+              surfaceTintColor: Colors.transparent,
+              shadowColor: Colors.transparent,
               elevation: 0,
+              scrolledUnderElevation: 0,
             ),
             body: SafeArea(
               bottom: false,

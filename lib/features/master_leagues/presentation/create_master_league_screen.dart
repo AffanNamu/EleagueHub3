@@ -526,7 +526,12 @@ class _CreateMasterLeagueScreenState
     return GlassScaffold(
       appBar: AppBar(
         title: const Text('Create Master League'),
-        backgroundColor: Colors.transparent,
+        backgroundColor: theme.colorScheme.surface.withOpacity(
+          theme.brightness == Brightness.light ? 0.82 : 0.68,
+        ),
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         elevation: 0,
       ),
       body: SafeArea(

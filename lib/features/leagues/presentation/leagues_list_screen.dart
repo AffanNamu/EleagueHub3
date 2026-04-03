@@ -1136,6 +1136,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final media = MediaQuery.of(context);
     final screenWidth = media.size.width;
     final isTablet = screenWidth >= 600;
+    final headerTopOffset = widget.showAppBar
+        ? media.padding.top + kToolbarHeight + 8
+        : 8.0;
     final fabBottomOffset =
         kBottomNavigationBarHeight + media.padding.bottom + 16;
 
