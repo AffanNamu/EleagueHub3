@@ -13,6 +13,7 @@ import 'package:eleaguehub3/features/leagues/models/league_announcement.dart';
 import 'package:eleaguehub3/features/leagues/models/league_format.dart';
 import 'package:eleaguehub3/features/leagues/models/league_settings.dart';
 import 'package:eleaguehub3/features/leagues/models/membership.dart';
+import 'package:eleaguehub3/features/master_leagues/logic/master_leagues_providers.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,7 +24,6 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
-import '../../master_leagues/logic/master_league_entitlement_service.dart';
 import '../data/leagues_repository_local.dart';
 import '../logic/league_premium_upgrade_helper.dart';
 
@@ -908,7 +908,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton.icon(
-                                onPressed: busy ? null : () => unlockByPay(setModalState),
+                                onPressed:
+                                    busy ? null : () => unlockByPay(setModalState),
                                 icon: busy
                                     ? const SizedBox(
                                         width: 18,
@@ -1179,7 +1180,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           ),
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.endFloat,
       body: SafeArea(
         top: false,
         child: Center(
@@ -1225,7 +1227,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     l10n.tr('leagues_my_leagues_title'),
@@ -1277,7 +1280,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             )
                           else if (_isPremiumUser)
                             Text(
-                              'Premium active: you can have more than $_freeLeagueListLimit league cards.',
+                              'Premium/paid plan active: you can have more than $_freeLeagueListLimit league cards.',
                               style: TextStyle(
                                 color: cs.primary,
                                 fontSize: 11.5,
@@ -1287,7 +1290,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             )
                           else if (_freeLimitReached)
                             Text(
-                              'Free/basic limit reached: you already have $_freeLeagueListLimit league cards. Choose a paid plan to add more.',
+                              'Basic/free limit reached: you already have $_freeLeagueListLimit league cards. Choose a paid plan to add more.',
                               style: TextStyle(
                                 color: _premiumAmber,
                                 fontSize: 11.5,
@@ -1461,10 +1464,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         16,
         8,
         16,
-        16 +
-            MediaQuery.of(context).padding.bottom +
-            kBottomNavigationBarHeight +
-            80,
+        16 + MediaQuery.of(context).padding.bottom + kBottomNavigationBarHeight + 80,
       ),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: isTablet ? 2 : 1,
@@ -1784,7 +1784,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                   ? 'Clear Search'
                                   : (!_hasLeagueAccess
                                       ? 'Choose Plan'
-                                      : (_freeLimitReached ? 'Pay Now' : l10n.tr('leagues_empty_cta'))),
+                                      : (_freeLimitReached
+                                          ? 'Pay Now'
+                                          : l10n.tr('leagues_empty_cta'))),
                               style: TextStyle(
                                 color: hasSearch
                                     ? Colors.white
@@ -2379,7 +2381,9 @@ class _TopLeagueSwitcher extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
-              color: selected ? cs.primary : Colors.transparent,
+              color: selected
+                  ? cs.primary
+                  : Colors.transparent,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -2387,8 +2391,7 @@ class _TopLeagueSwitcher extends StatelessWidget {
                 Icon(
                   icon,
                   size: 17,
-                  color:
-                      selected ? cs.onPrimary : onSurface.withOpacity(0.70),
+                  color: selected ? cs.onPrimary : onSurface.withOpacity(0.70),
                 ),
                 const SizedBox(width: 8),
                 Flexible(
@@ -2397,9 +2400,7 @@ class _TopLeagueSwitcher extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelLarge?.copyWith(
-                      color: selected
-                          ? cs.onPrimary
-                          : onSurface.withOpacity(0.78),
+                      color: selected ? cs.onPrimary : onSurface.withOpacity(0.78),
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -2480,10 +2481,11 @@ class _OptionTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          color: onSurface,
-                        ),
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: onSurface,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
