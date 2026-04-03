@@ -225,6 +225,14 @@ class FlutterwaveLeagueCreationPaymentService
         buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
     final chosenPlan = selectedPlan ?? MasterLeaguePlan.pro;
 
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      return _playBillingNotReady(
+        addonsOnly: addonsOnly,
+        premiumUpgrade: premiumUpgrade,
+        selectedPlan: chosenPlan,
+      );
+    }
+
     String attemptId = '';
     String totalAmount = '';
     String currencyUsed = '';
