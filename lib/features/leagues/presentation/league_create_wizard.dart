@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -512,7 +513,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                                       );
                                       return;
                                     }
-                                    context.go('/leagues');
+                                    openHomeShellTab(1);
+                                    context.go('/');
                                   },
                                   child: Text(
                                     l10n.tr('league_create_done_upper'),

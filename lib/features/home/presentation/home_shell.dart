@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
@@ -36,6 +37,9 @@ class _HomeShellState extends ConsumerState<HomeShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    _index = homeShellTabIndexNotifier.value.clamp(0, 4);
+
     _tabs = const [
       _HomeTab(),
       LeaguesListScreen(showAppBar: false),
@@ -43,14 +47,28 @@ class _HomeShellState extends ConsumerState<HomeShell>
       MarketplaceListScreen(),
       ProfileScreen(),
     ];
+
     _built = List<bool>.filled(_tabs.length, false);
     _built[_index] = true;
+
+    homeShellTabIndexNotifier.addListener(_handleExternalTabChange);
   }
 
   @override
   void dispose() {
+    homeShellTabIndexNotifier.removeListener(_handleExternalTabChange);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _handleExternalTabChange() {
+    final next = homeShellTabIndexNotifier.value.clamp(0, _tabs.length - 1);
+    if (!mounted || next == _index) return;
+
+    setState(() {
+      _index = next;
+      _built[next] = true;
+    });
   }
 
   void _selectTab(int i) {
@@ -59,6 +77,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
       _index = i;
       _built[i] = true;
     });
+    homeShellTabIndexNotifier.value = i;
   }
 
   void _onDestinationSelected(int i) {
@@ -212,13 +231,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
             extendBody: true,
             appBar: AppBar(
               title: Text(tabTitles[_index]),
-              backgroundColor: theme.colorScheme.surface.withOpacity(
-                isLight ? 0.82 : 0.68,
-              ),
-              surfaceTintColor: Colors.transparent,
-              shadowColor: Colors.transparent,
+              backgroundColor: Colors.transparent,
               elevation: 0,
               scrolledUnderElevation: 0,
+              surfaceTintColor: Colors.transparent,
             ),
             body: SafeArea(
               bottom: false,
@@ -599,7 +615,10 @@ class _HomeTab extends StatelessWidget {
                   'home_explore_my_leagues_sub',
                   'View and manage your leagues',
                 ),
-                onTap: () => _safePush(context, '/leagues'),
+                onTap: () {
+                  openHomeShellTab(1);
+                  context.go('/');
+                },
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
