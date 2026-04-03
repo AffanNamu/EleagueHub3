@@ -163,7 +163,7 @@ class _LeagueCreationDashboardState
   Future<void> _openPlanUpgradeFlow() async {
     final success = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
       context,
-      leagueName: _name.text.trim().isEmpty ? 'Organizer Plan' : _name.text.trim(),
+      leagueName: 'Organizer Plan',
     );
 
     if (!mounted) return;
@@ -649,11 +649,11 @@ class _LeagueCreationDashboardState
           ),
           const SizedBox(height: 12),
           _summaryRow(
-            !_hasLeagueAccess
-                ? Icons.workspace_premium_rounded
-                : (_isPaidPlanUser
+            _hasLeagueAccess
+                ? (_isPaidPlanUser
                     ? Icons.verified_rounded
-                    : Icons.layers_outlined),
+                    : Icons.layers_outlined)
+                : Icons.workspace_premium_rounded,
             'Plan',
             !_hasLeagueAccess
                 ? 'No active plan'
@@ -733,7 +733,7 @@ class _LeagueCreationDashboardState
                     : (_inMasterLeagueMode
                         ? 'Included in Master League'
                         : 'Included')),
-            valueColor: (!_hasLeagueAccess || _freeLimitReachedForNewLeague)
+            valueColor: !_hasLeagueAccess || _freeLimitReachedForNewLeague
                 ? _premiumAmber
                 : cs.primary,
           ),
