@@ -23,6 +23,10 @@ class LeagueChargesPaymentResult {
   final String provider;
   final String? errorMessage;
   final String totalAmount;
+  final String attemptId;
+  final String paymentId;
+  final String transactionId;
+  final String txRef;
 
   const LeagueChargesPaymentResult._({
     required this.success,
@@ -31,6 +35,10 @@ class LeagueChargesPaymentResult {
     required this.provider,
     required this.errorMessage,
     required this.totalAmount,
+    required this.attemptId,
+    required this.paymentId,
+    required this.transactionId,
+    required this.txRef,
   });
 
   factory LeagueChargesPaymentResult.paid({
@@ -38,6 +46,10 @@ class LeagueChargesPaymentResult {
     required int paidAtMs,
     required String provider,
     required String totalAmount,
+    String attemptId = '',
+    String paymentId = '',
+    String transactionId = '',
+    String txRef = '',
   }) {
     return LeagueChargesPaymentResult._(
       success: true,
@@ -46,6 +58,10 @@ class LeagueChargesPaymentResult {
       provider: provider,
       errorMessage: null,
       totalAmount: totalAmount,
+      attemptId: attemptId,
+      paymentId: paymentId,
+      transactionId: transactionId,
+      txRef: txRef,
     );
   }
 
@@ -53,6 +69,10 @@ class LeagueChargesPaymentResult {
     required String provider,
     required String errorMessage,
     String totalAmount = '0',
+    String attemptId = '',
+    String paymentId = '',
+    String transactionId = '',
+    String txRef = '',
   }) {
     return LeagueChargesPaymentResult._(
       success: false,
@@ -61,6 +81,10 @@ class LeagueChargesPaymentResult {
       provider: provider,
       errorMessage: errorMessage,
       totalAmount: totalAmount,
+      attemptId: attemptId,
+      paymentId: paymentId,
+      transactionId: transactionId,
+      txRef: txRef,
     );
   }
 }
@@ -127,6 +151,27 @@ class FlutterwaveLeagueChargesPaymentService
     return response.success == true || status == 'successful';
   }
 
+  String _cleanErrorMessage(Object error) {
+    final raw = error.toString().trim();
+
+    if (raw.contains('Payment verification endpoint was not found (404)')) {
+      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    }
+    if (raw.contains('Payment verification failed (404)')) {
+      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    }
+    if (raw.contains('Bad state:')) {
+      return raw.replaceFirst('Bad state:', '').trim();
+    }
+    if (raw.contains('SocketException')) {
+      return 'Network error while verifying payment. Please check your internet and try again.';
+    }
+    if (raw.contains('timed out')) {
+      return 'Payment verification timed out. Please try again.';
+    }
+    return raw;
+  }
+
   @override
   Future<LeagueChargesPaymentResult> payLeagueCharges({
     required BuildContext context,
@@ -168,8 +213,7 @@ class FlutterwaveLeagueChargesPaymentService
       if (!plan.flutterwaveEnabled) {
         return LeagueChargesPaymentResult.failed(
           provider: providerName,
-          errorMessage:
-              'Flutterwave payments are currently unavailable.',
+          errorMessage: 'Flutterwave payments are currently unavailable.',
         );
       }
 
@@ -256,7 +300,8 @@ class FlutterwaveLeagueChargesPaymentService
         email: email,
       );
 
-      final txRef = 'EH-CHG-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+      final txRef =
+          'EH-CHG-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -290,6 +335,7 @@ class FlutterwaveLeagueChargesPaymentService
             provider: providerName,
             errorMessage: 'Missing transaction id.',
             totalAmount: totalAmount,
+            attemptId: attemptId,
           );
         }
 
@@ -298,30 +344,50 @@ class FlutterwaveLeagueChargesPaymentService
                 ? response.txRef!.trim()
                 : txRef;
 
-        final recorded =
-            await PaymentsService.instance.recordFlutterwaveClientSuccess(
+        final verification =
+            await PaymentsService.instance.verifyFlutterwavePayment(
           attemptId: attemptId,
           transactionId: txId,
           txRef: resolvedTxRef,
         );
+
+        if (!verification.success) {
+          return LeagueChargesPaymentResult.failed(
+            provider: providerName,
+            errorMessage: _cleanErrorMessage(
+              verification.errorMessage ?? 'Payment verification failed.',
+            ),
+            totalAmount: totalAmount,
+            attemptId: attemptId,
+            paymentId: verification.paymentId,
+            transactionId: txId,
+            txRef: resolvedTxRef,
+          );
+        }
 
         try {
           await LeagueChargesStore.online().storeReceipt(
             LeagueChargesReceipt(
               leagueId: leagueId,
               userId: authUser.uid,
-              receiptId: recorded.receiptId,
+              receiptId: verification.receiptId,
               provider: providerName,
-              paidAtMs: recorded.paidAtMs,
+              paidAtMs: verification.paidAtMs,
             ),
           );
         } catch (_) {}
 
         return LeagueChargesPaymentResult.paid(
-          receiptId: recorded.receiptId,
-          paidAtMs: recorded.paidAtMs,
+          receiptId: verification.receiptId,
+          paidAtMs: verification.paidAtMs,
           provider: providerName,
-          totalAmount: totalAmount,
+          totalAmount: verification.amountStr.isNotEmpty
+              ? verification.amountStr
+              : totalAmount,
+          attemptId: attemptId,
+          paymentId: verification.paymentId,
+          transactionId: verification.transactionId,
+          txRef: verification.txRef,
         );
       }
 
@@ -336,6 +402,7 @@ class FlutterwaveLeagueChargesPaymentService
         provider: providerName,
         errorMessage: 'Payment cancelled or not successful',
         totalAmount: totalAmount,
+        attemptId: attemptId,
       );
     } catch (e) {
       if (attemptId.isNotEmpty) {
@@ -349,8 +416,9 @@ class FlutterwaveLeagueChargesPaymentService
 
       return LeagueChargesPaymentResult.failed(
         provider: providerName,
-        errorMessage: e.toString(),
+        errorMessage: _cleanErrorMessage(e),
         totalAmount: totalAmount,
+        attemptId: attemptId,
       );
     }
   }

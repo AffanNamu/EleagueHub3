@@ -45,7 +45,6 @@ class UserProfile {
   final int verificationExpiresAtMs;
   final String verificationStatus;
 
-  // Plan subscription fields
   final String activePlanId;
   final String activePlanDurationId;
   final int planPurchasedAtMs;
@@ -82,44 +81,68 @@ class UserProfile {
   bool get verificationPending =>
       verificationStatus.trim().toLowerCase() == 'pending';
 
-  // ── Plan helpers ──────────────────────────────────────────────────
+  bool get hasStoredPlanId => activePlanId.trim().isNotEmpty;
 
-  /// Whether the user has any active (non-expired) plan subscription.
-  /// Basic plan (free) is always active once set.
-  /// Pro/Elite require valid expiry.
   bool get hasPlanActive {
-    if (activePlanId.trim().isEmpty) return false;
-    final plan = MasterLeaguePlan.tryFromString(activePlanId);
-    if (plan == null) return false;
-    // Basic is free and never expires
-    if (plan.isFree) return true;
-    if (planExpiresAtMs <= 0) return false;
-    return planExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+    final storedPlan = MasterLeaguePlan.tryFromString(activePlanId);
+    if (storedPlan != null) {
+      if (storedPlan.isFree) return true;
+      return planExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+    }
+
+    // backward compatibility: old premium user gets league access
+    if (premiumActive) return true;
+
+    return false;
   }
 
-  /// The active plan enum, or null if no active plan.
   MasterLeaguePlan? get activePlan {
-    if (!hasPlanActive) return null;
-    return MasterLeaguePlan.tryFromString(activePlanId);
+    final storedPlan = MasterLeaguePlan.tryFromString(activePlanId);
+    if (storedPlan != null) {
+      if (storedPlan.isFree) return storedPlan;
+      if (planExpiresAtMs > DateTime.now().millisecondsSinceEpoch) {
+        return storedPlan;
+      }
+    }
+
+    // fallback: old premium users behave like pro until migrated
+    if (premiumActive) return MasterLeaguePlan.pro;
+
+    return null;
   }
 
-  /// The active plan duration, or null if no active plan.
   PlanDuration? get activePlanDuration {
-    if (!hasPlanActive) return null;
-    return PlanDuration.fromString(activePlanDurationId);
-  }
-
-  /// Build a UserPlanSubscription from profile fields, or null.
-  UserPlanSubscription? get planSubscription {
     final plan = activePlan;
     if (plan == null) return null;
+
+    final stored = PlanDuration.fromString(activePlanDurationId);
+    if (activePlanDurationId.trim().isNotEmpty) return stored;
+
+    if (plan.isFree) return PlanDuration.threeMonths;
+
+    return PlanDuration.threeMonths;
+  }
+
+  UserPlanSubscription? get planSubscription {
+    final plan = activePlan;
+    final duration = activePlanDuration;
+    if (plan == null || duration == null) return null;
+
+    final purchasedAt = planPurchasedAtMs > 0
+        ? planPurchasedAtMs
+        : createdAtMs;
+
+    final expiresAt = plan.isFree
+        ? 0
+        : (planExpiresAtMs > 0 ? planExpiresAtMs : premiumExpiresAtMs);
+
     return UserPlanSubscription(
       plan: plan,
-      duration: PlanDuration.fromString(activePlanDurationId),
-      purchasedAtMs: planPurchasedAtMs,
-      expiresAtMs: planExpiresAtMs,
-      receiptId: planReceiptId,
-      provider: planProvider,
+      duration: duration,
+      purchasedAtMs: purchasedAt,
+      expiresAtMs: expiresAt,
+      receiptId: planReceiptId.trim(),
+      provider: planProvider.trim(),
     );
   }
 
@@ -135,10 +158,7 @@ class UserProfile {
     return sub.isExpiringSoon;
   }
 
-  /// Whether the user can create normal leagues or join leagues.
   bool get canAccessLeagues => hasPlanActive;
-
-  /// Whether the user can create/access master league competitions.
   bool get canAccessMasterLeagues => hasPlanActive;
 
   String get displayName {
@@ -241,7 +261,9 @@ class UserProfile {
 
     final bool verifiedFlag = map['isVerified'] == true ||
         map['verifiedBadge'] == true ||
-        (map['verificationStatus'] as String? ?? '').trim().toLowerCase() ==
+        (map['verificationStatus'] as String? ?? '')
+            .trim()
+            .toLowerCase() ==
             'approved';
 
     return UserProfile(

@@ -28,6 +28,10 @@ class PremiumPurchaseResult {
   final String provider;
   final String? errorMessage;
   final int premiumDurationDays;
+  final String attemptId;
+  final String paymentId;
+  final String transactionId;
+  final String txRef;
 
   const PremiumPurchaseResult._({
     required this.success,
@@ -36,6 +40,10 @@ class PremiumPurchaseResult {
     required this.provider,
     required this.errorMessage,
     required this.premiumDurationDays,
+    required this.attemptId,
+    required this.paymentId,
+    required this.transactionId,
+    required this.txRef,
   });
 
   factory PremiumPurchaseResult.paid({
@@ -43,6 +51,10 @@ class PremiumPurchaseResult {
     required int paidAtMs,
     required String provider,
     required int premiumDurationDays,
+    String attemptId = '',
+    String paymentId = '',
+    String transactionId = '',
+    String txRef = '',
   }) =>
       PremiumPurchaseResult._(
         success: true,
@@ -51,11 +63,19 @@ class PremiumPurchaseResult {
         provider: provider,
         errorMessage: null,
         premiumDurationDays: premiumDurationDays,
+        attemptId: attemptId,
+        paymentId: paymentId,
+        transactionId: transactionId,
+        txRef: txRef,
       );
 
   factory PremiumPurchaseResult.failed({
     required String provider,
     required String errorMessage,
+    String attemptId = '',
+    String paymentId = '',
+    String transactionId = '',
+    String txRef = '',
   }) =>
       PremiumPurchaseResult._(
         success: false,
@@ -64,6 +84,10 @@ class PremiumPurchaseResult {
         provider: provider,
         errorMessage: errorMessage,
         premiumDurationDays: 0,
+        attemptId: attemptId,
+        paymentId: paymentId,
+        transactionId: transactionId,
+        txRef: txRef,
       );
 }
 
@@ -91,6 +115,27 @@ class PremiumPaymentService {
   bool _isChargeSuccessful(ChargeResponse response) {
     final status = (response.status ?? '').toString().trim().toLowerCase();
     return response.success == true || status == 'successful';
+  }
+
+  String _cleanErrorMessage(Object error) {
+    final raw = error.toString().trim();
+
+    if (raw.contains('Payment verification endpoint was not found (404)')) {
+      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    }
+    if (raw.contains('Payment verification failed (404)')) {
+      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    }
+    if (raw.contains('Bad state:')) {
+      return raw.replaceFirst('Bad state:', '').trim();
+    }
+    if (raw.contains('SocketException')) {
+      return 'Network error while verifying payment. Please check your internet and try again.';
+    }
+    if (raw.contains('timed out')) {
+      return 'Payment verification timed out. Please try again.';
+    }
+    return raw;
   }
 
   Future<PremiumPurchaseResult> purchasePremium({
@@ -225,6 +270,7 @@ class PremiumPaymentService {
           return PremiumPurchaseResult.failed(
             provider: _providerName,
             errorMessage: 'Missing transaction id.',
+            attemptId: attemptId,
           );
         }
 
@@ -233,18 +279,31 @@ class PremiumPaymentService {
                 ? response.txRef!.trim()
                 : txRef;
 
-        final recorded =
-            await PaymentsService.instance.recordFlutterwaveClientSuccess(
+        final verification =
+            await PaymentsService.instance.verifyFlutterwavePayment(
           attemptId: attemptId,
           transactionId: txId,
           txRef: resolvedTxRef,
         );
 
+        if (!verification.success) {
+          return PremiumPurchaseResult.failed(
+            provider: _providerName,
+            errorMessage: _cleanErrorMessage(
+              verification.errorMessage ?? 'Payment verification failed.',
+            ),
+            attemptId: attemptId,
+            paymentId: verification.paymentId,
+            transactionId: txId,
+            txRef: resolvedTxRef,
+          );
+        }
+
         if (BackendConfig.workerEnabled) {
           try {
             await _activatePremiumViaWorker(
-              receiptId: recorded.receiptId,
-              transactionId: txId,
+              receiptId: verification.receiptId,
+              transactionId: verification.transactionId,
             );
           } catch (e) {
             if (kDebugMode) {
@@ -253,29 +312,37 @@ class PremiumPaymentService {
             return PremiumPurchaseResult.failed(
               provider: _providerName,
               errorMessage:
-                  'Payment received but activation failed. Please contact support with receipt: ${recorded.receiptId}',
+                  'Payment verified but activation failed. Please contact support with receipt: ${verification.receiptId}',
+              attemptId: attemptId,
+              paymentId: verification.paymentId,
+              transactionId: verification.transactionId,
+              txRef: verification.txRef,
             );
           }
         } else {
           if (kDebugMode) {
             debugPrint(
               '[PremiumPayment] WARNING: No worker configured. '
-              'Using insecure client-side premium write.',
+              'Using fallback premium write after verified payment.',
             );
           }
           await _writePremiumToFirestoreFallback(
             userId: userId,
             durationDays: plan.premiumDurationDays,
-            receiptId: recorded.receiptId,
+            receiptId: verification.receiptId,
             provider: _providerName,
           );
         }
 
         return PremiumPurchaseResult.paid(
-          receiptId: recorded.receiptId,
-          paidAtMs: recorded.paidAtMs,
+          receiptId: verification.receiptId,
+          paidAtMs: verification.paidAtMs,
           provider: _providerName,
           premiumDurationDays: plan.premiumDurationDays,
+          attemptId: attemptId,
+          paymentId: verification.paymentId,
+          transactionId: verification.transactionId,
+          txRef: verification.txRef,
         );
       }
 
@@ -289,6 +356,7 @@ class PremiumPaymentService {
       return PremiumPurchaseResult.failed(
         provider: _providerName,
         errorMessage: 'Payment cancelled or not successful',
+        attemptId: attemptId,
       );
     } catch (e) {
       if (attemptId.isNotEmpty) {
@@ -302,7 +370,8 @@ class PremiumPaymentService {
 
       return PremiumPurchaseResult.failed(
         provider: _providerName,
-        errorMessage: e.toString(),
+        errorMessage: _cleanErrorMessage(e),
+        attemptId: attemptId,
       );
     }
   }
@@ -413,10 +482,10 @@ class PremiumPaymentService {
         .add(Duration(days: durationDays))
         .millisecondsSinceEpoch;
 
-    await _firestore.collection('users').doc(userId).update({
+    await _firestore.collection('users').doc(userId).set({
       'isPremium': true,
       'premiumExpiresAtMs': expiresAt,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }).timeout(const Duration(seconds: 20));
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
+    }, SetOptions(merge: true)).timeout(const Duration(seconds: 20));
   }
 }

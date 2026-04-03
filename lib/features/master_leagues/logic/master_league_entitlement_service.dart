@@ -30,21 +30,19 @@ class OrganizerProEntitlement {
     required this.daysRemaining,
   });
 
-  bool get isExpiringSoon => active && plan != null && !plan!.isFree && daysRemaining <= 7;
+  bool get isExpiringSoon =>
+      active && plan != null && !plan!.isFree && daysRemaining <= 7;
 
-  /// Check if user can create another working space given current count.
   bool canCreateWorkspace(int currentCount) {
     if (!active || plan == null) return false;
     return plan!.canCreateWorkspace(currentCount);
   }
 
-  /// Check if user can create another competition given current count.
   bool canCreateCompetition(int currentCount) {
     if (!active || plan == null) return false;
     return plan!.canCreateCompetition(currentCount);
   }
 
-  /// Whether payment button should show for workspace creation.
   bool shouldShowPaymentForWorkspace(int currentCount) {
     if (!active || plan == null) return true;
     return plan!.shouldShowPaymentForWorkspace(currentCount);
@@ -74,7 +72,6 @@ class MasterLeagueEntitlementService {
     return uid;
   }
 
-  /// Read entitlement from user profile doc (source of truth).
   Future<OrganizerProEntitlement> _readFromProfile({
     bool forceRefresh = false,
   }) async {
@@ -117,7 +114,6 @@ class MasterLeagueEntitlementService {
     );
   }
 
-  /// Also check custom claims as fallback (for backward compat with worker).
   Future<OrganizerProEntitlement> _readFromClaims() async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -193,7 +189,6 @@ class MasterLeagueEntitlementService {
     }
   }
 
-  /// Get the current entitlement. Checks profile first, falls back to claims.
   Future<OrganizerProEntitlement> getEntitlement({
     bool forceRefresh = false,
   }) async {
@@ -202,7 +197,6 @@ class MasterLeagueEntitlementService {
     final fromProfile = await _readFromProfile(forceRefresh: forceRefresh);
     if (fromProfile.active) return fromProfile;
 
-    // Fallback: check custom claims (backward compat)
     final fromClaims = await _readFromClaims();
     return fromClaims;
   }
@@ -229,7 +223,6 @@ class MasterLeagueEntitlementService {
     return ent.duration;
   }
 
-  /// Count how many master leagues (working spaces) the user currently owns.
   Future<int> countOwnedWorkspaces() async {
     final uid = _uidOrThrow();
 
@@ -242,7 +235,6 @@ class MasterLeagueEntitlementService {
     return snap.docs.length;
   }
 
-  /// Count competitions inside a specific master league.
   Future<int> countCompetitionsInWorkspace(String masterLeagueId) async {
     _uidOrThrow();
 
@@ -255,7 +247,6 @@ class MasterLeagueEntitlementService {
     return snap.docs.length;
   }
 
-  /// Check if user can create another working space.
   Future<bool> canCreateWorkspace() async {
     final ent = await getEntitlement();
     if (!ent.active || ent.plan == null) return false;
@@ -264,7 +255,6 @@ class MasterLeagueEntitlementService {
     return ent.plan!.canCreateWorkspace(count);
   }
 
-  /// Check if user can create another competition in a workspace.
   Future<bool> canCreateCompetitionInWorkspace(String masterLeagueId) async {
     final ent = await getEntitlement();
     if (!ent.active || ent.plan == null) return false;
@@ -273,7 +263,6 @@ class MasterLeagueEntitlementService {
     return ent.plan!.canCreateCompetition(count);
   }
 
-  /// Activate a plan after successful payment by writing to user profile.
   Future<void> activateAfterPayment({
     required MasterLeaguePlan plan,
     required PlanDuration duration,
@@ -294,7 +283,6 @@ class MasterLeagueEntitlementService {
     );
   }
 
-  /// Activate the free basic plan (no payment needed).
   Future<void> activateBasicFreePlan() async {
     _uidOrThrow();
 

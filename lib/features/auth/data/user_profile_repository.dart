@@ -112,7 +112,8 @@ class UserProfileRepository {
     return 'User';
   }
 
-  String displayNameForProfile(UserProfile? profile, {String fallbackUserId = ''}) {
+  String displayNameForProfile(UserProfile? profile,
+      {String fallbackUserId = ''}) {
     if (profile != null && profile.displayName.trim().isNotEmpty) {
       return profile.displayName.trim();
     }
@@ -138,7 +139,8 @@ class UserProfileRepository {
     }
   }
 
-  Future<Map<String, String>> fetchDisplayNamesByUserIds(List<String> userIds) async {
+  Future<Map<String, String>> fetchDisplayNamesByUserIds(
+      List<String> userIds) async {
     final out = <String, String>{};
     final ids = userIds
         .map((e) => e.trim())
@@ -322,10 +324,11 @@ class UserProfileRepository {
     final currentUid = _auth.currentUser?.uid.trim() ?? '';
     if (currentUid.isNotEmpty && currentUid == uid) {
       final authUser = _auth.currentUser;
-      final hasAnyIdentitySignal = (authUser?.displayName ?? '').trim().isNotEmpty ||
-          (authUser?.email ?? '').trim().isNotEmpty ||
-          (authUser?.photoURL ?? '').trim().isNotEmpty ||
-          (authUser?.providerData.isNotEmpty ?? false);
+      final hasAnyIdentitySignal =
+          (authUser?.displayName ?? '').trim().isNotEmpty ||
+              (authUser?.email ?? '').trim().isNotEmpty ||
+              (authUser?.photoURL ?? '').trim().isNotEmpty ||
+              (authUser?.providerData.isNotEmpty ?? false);
 
       if (hasAnyIdentitySignal) {
         if (kDebugMode) {
@@ -352,7 +355,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Watch whether user has any active plan subscription.
   Stream<bool> watchHasActivePlan(String userId) {
     try {
       _requireAuthUid();
@@ -365,7 +367,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Watch the user's active plan subscription details.
   Stream<UserPlanSubscription?> watchPlanSubscription(String userId) {
     try {
       _requireAuthUid();
@@ -417,7 +418,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Activate a plan subscription on the user's profile.
   Future<void> activatePlanSubscription({
     required MasterLeaguePlan plan,
     required PlanDuration duration,
@@ -427,7 +427,8 @@ class UserProfileRepository {
     try {
       final authUid = _requireAuthUid();
       final now = DateTime.now().millisecondsSinceEpoch;
-      final expiresAtMs = duration.expiryMsFromNow();
+
+      final int expiresAtMs = plan.isFree ? 0 : duration.expiryMsFromNow();
 
       await _usersCol.doc(authUid).set(
         <String, dynamic>{
@@ -439,6 +440,11 @@ class UserProfileRepository {
           'planReceiptId': receiptId,
           'planProvider': provider,
           'updatedAt': now,
+          // backward compatibility with old premium-only screens
+          if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
+            'isPremium': true,
+          if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
+            'premiumExpiresAtMs': expiresAtMs,
         },
         SetOptions(merge: true),
       ).timeout(const Duration(seconds: 20));
