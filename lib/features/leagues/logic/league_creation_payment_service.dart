@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/config/flutterwave_config.dart';
 import '../../../core/config/payment_platform_config.dart';
 import '../../../core/services/app_analytics_service.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
@@ -148,11 +149,20 @@ class FlutterwaveLeagueCreationPaymentService
           ? 'google_play_billing'
           : 'flutterwave';
 
-  LeagueCreationPaymentResult _playBillingNotReady(String flowLabel) {
+  LeagueCreationPaymentResult _playBillingNotReady({
+    required bool addonsOnly,
+    required bool premiumUpgrade,
+    required MasterLeaguePlan selectedPlan,
+  }) {
     return LeagueCreationPaymentResult.failed(
       provider: providerName,
-      errorMessage:
-          PaymentPlatformConfig.pendingGooglePlayBillingMessage(flowLabel),
+      selectedPlanId: selectedPlan.id,
+      errorMessage: GooglePlayBillingService.instance
+          .pendingLeagueCreationMessage(
+        addonsOnly: addonsOnly,
+        premiumUpgrade: premiumUpgrade,
+        selectedPlan: selectedPlan,
+      ),
     );
   }
 
@@ -211,15 +221,6 @@ class FlutterwaveLeagueCreationPaymentService
     int couponDiscountPercent = 0,
     int couponCount = 0,
   }) async {
-    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
-      final flowLabel = premiumUpgrade
-          ? 'Organizer plan upgrade payment'
-          : (addonsOnly
-              ? 'League upgrade payment'
-              : 'League creation payment');
-      return _playBillingNotReady(flowLabel);
-    }
-
     final discountPercent = _sanitizePercent(couponDiscountPercent);
     final safeCouponCount =
         buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
