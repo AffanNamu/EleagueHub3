@@ -65,6 +65,8 @@ class PaymentsService {
             'leagueName': attempt.leagueName,
             'productType': attempt.productType,
             'productSubType': attempt.productSubType,
+            'planId': attempt.planId,
+            'planDurationId': attempt.planDurationId,
           },
         ),
       );

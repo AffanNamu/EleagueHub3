@@ -31,6 +31,7 @@ import '../../features/leagues/presentation/admin_score_mgmt_screen.dart';
 import '../../features/leagues/presentation/fixtures_screen.dart';
 import '../../features/leagues/presentation/knockout_bracket_screen.dart';
 import '../../features/leagues/presentation/league_admin_screen.dart';
+import '../../features/leagues/presentation/league_create_wizard.dart';
 import '../../features/leagues/presentation/league_creation_dashboard.dart';
 import '../../features/leagues/presentation/league_creation_payment_screen.dart';
 import '../../features/leagues/presentation/league_detail_screen.dart';
@@ -506,24 +507,37 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'create',
               builder: (context, state) => const LeagueCreationDashboard(),
-              routes: [
-                GoRoute(
-                  path: 'payment',
-                  builder: (context, state) {
-                    final extra = state.extra;
-                    String leagueName = 'League';
-                    if (extra is Map) {
-                      final map = extra.cast<dynamic, dynamic>();
-                      if (map['leagueName'] is String) {
-                        leagueName = map['leagueName'] as String;
-                      }
-                    }
-                    return LeagueCreationPaymentScreen(leagueName: leagueName);
-                  },
-                ),
-              ],
             ),
             GoRoute(
+              path: 'create-wizard',
+              builder: (context, state) {
+                final extra = state.extra as Map<String, dynamic>? ?? {};
+                final masterLeagueId =
+                    (extra['masterLeagueId'] as String?)?.trim() ?? '';
+                final format = extra['initialFormat'] as LeagueFormat?;
+                return LeagueCreateWizard(
+                  masterLeagueId: masterLeagueId,
+                  initialFormat: format,
+                );
+              },
+            ),
+            GoRoute(
+              // legacy fallback only
+              path: 'payment',
+              builder: (context, state) {
+                final extra = state.extra;
+                String leagueName = 'League';
+                if (extra is Map) {
+                  final map = extra.cast<dynamic, dynamic>();
+                  if (map['leagueName'] is String) {
+                    leagueName = map['leagueName'] as String;
+                  }
+                }
+                return LeagueCreationPaymentScreen(leagueName: leagueName);
+              },
+            ),
+            GoRoute(
+              // legacy fallback only
               path: ':leagueId/upgrade/payment',
               builder: (context, state) {
                 final extra = state.extra;

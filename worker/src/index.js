@@ -94,10 +94,6 @@ function kindFrom(body, roomName) {
 
 let _firebaseCertCache = { keysByKid: new Map(), expiresAtMs: 0 };
 
-// ============================================================
-// Safe base64 decoder — no atob() anywhere
-// ============================================================
-
 const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const B64_LOOKUP = new Uint8Array(256).fill(255);
 for (let i = 0; i < B64_CHARS.length; i++) {
@@ -161,10 +157,6 @@ function _utf8ToB64Url(s) {
   return _uint8ArrayToB64Url(new TextEncoder().encode(String(s || "")));
 }
 
-// ============================================================
-// PEM to DER with proper ASN.1 extraction
-// ============================================================
-
 function _pemToDerBytes(pem) {
   const raw = String(pem || "").trim();
   if (!raw) throw new Error("Empty PEM input");
@@ -182,10 +174,6 @@ function _pemToDerBytes(pem) {
 
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
-
-// ============================================================
-// Strict PKCS8 DER parser — strips trailing bytes
-// ============================================================
 
 function _readAsn1Length(bytes, offset) {
   if (offset >= bytes.length) throw new Error("ASN.1: unexpected end reading length");
@@ -207,7 +195,6 @@ function _readAsn1Length(bytes, offset) {
 function _extractExactPkcs8Der(derBuffer) {
   const bytes = new Uint8Array(derBuffer);
   if (bytes.length < 4) return derBuffer;
-
   if (bytes[0] !== 0x30) return derBuffer;
 
   const { length: seqLen, bytesRead } = _readAsn1Length(bytes, 1);
@@ -215,7 +202,6 @@ function _extractExactPkcs8Der(derBuffer) {
 
   if (totalValidLen >= bytes.length) return derBuffer;
 
-  console.log(`[PKCS8] Stripping ${bytes.length - totalValidLen} trailing bytes (had ${bytes.length}, valid ${totalValidLen})`);
   const clean = bytes.slice(0, totalValidLen);
   return clean.buffer.slice(clean.byteOffset, clean.byteOffset + clean.byteLength);
 }
@@ -747,6 +733,22 @@ function _moneyEqWithinTolerance(expected, actual, currency) {
   return Math.abs(expected - actual) <= 0.02;
 }
 
+function _isValidPlanId(planId) {
+  return ["basic", "pro", "elite"].includes(String(planId || "").trim().toLowerCase());
+}
+
+function _isValidDurationId(durationId) {
+  return ["3mo", "6mo", "yearly"].includes(String(durationId || "").trim().toLowerCase());
+}
+
+function _durationDays(durationId) {
+  const d = String(durationId || "").trim().toLowerCase();
+  if (d === "3mo") return 90;
+  if (d === "6mo") return 180;
+  if (d === "yearly") return 365;
+  return 0;
+}
+
 async function _verifyFlutterwaveTransactionGeneric(env, transactionId) {
   const secret = _requireEnvString(env, "FLUTTERWAVE_SECRET_KEY");
   const txId = String(transactionId || "").trim();
@@ -813,6 +815,12 @@ async function _readPricingConfig(env) {
       premiumFee: 5000,
       premiumDurationDays: 30,
       premiumEnabled: true,
+      proPlan3moFee: 5000,
+      proPlan6moFee: 9000,
+      proPlanYearlyFee: 15000,
+      elitePlan3moFee: 10000,
+      elitePlan6moFee: 18000,
+      elitePlanYearlyFee: 30000,
       masterLeagueBasicFee: 1500,
       masterLeagueProFee: 3000,
       masterLeagueEliteFee: 5000,
@@ -833,6 +841,12 @@ async function _readPricingConfig(env) {
       premiumFee: 9.99,
       premiumDurationDays: 30,
       premiumEnabled: true,
+      proPlan3moFee: 10.0,
+      proPlan6moFee: 18.0,
+      proPlanYearlyFee: 30.0,
+      elitePlan3moFee: 20.0,
+      elitePlan6moFee: 36.0,
+      elitePlanYearlyFee: 60.0,
       masterLeagueBasicFee: 5.0,
       masterLeagueProFee: 10.0,
       masterLeagueEliteFee: 20.0,
@@ -875,6 +889,12 @@ async function _readPricingConfig(env) {
     return {
       ...dft,
       ...raw,
+      proPlan3moFee: raw.proPlan3moFee ?? dft.proPlan3moFee,
+      proPlan6moFee: raw.proPlan6moFee ?? dft.proPlan6moFee,
+      proPlanYearlyFee: raw.proPlanYearlyFee ?? dft.proPlanYearlyFee,
+      elitePlan3moFee: raw.elitePlan3moFee ?? dft.elitePlan3moFee,
+      elitePlan6moFee: raw.elitePlan6moFee ?? dft.elitePlan6moFee,
+      elitePlanYearlyFee: raw.elitePlanYearlyFee ?? dft.elitePlanYearlyFee,
       masterLeagueBasicFee:
         raw.masterLeagueBasicFee ?? raw.masterLinkBasicFee ?? raw.masterLinkFee ?? raw.masterLeagueFee ?? dft.masterLeagueBasicFee,
       masterLeagueProFee:
@@ -926,6 +946,25 @@ function _masterLeagueExpectedFee(planCfg, planId) {
   if (p === "basic") return Number(planCfg.masterLeagueBasicFee || 0);
   if (p === "pro") return Number(planCfg.masterLeagueProFee || 0);
   if (p === "elite") return Number(planCfg.masterLeagueEliteFee || 0);
+  return 0;
+}
+
+function _planSubscriptionExpectedFee(planCfg, planId, durationId) {
+  const p = String(planId || "").trim().toLowerCase();
+  const d = String(durationId || "").trim().toLowerCase();
+
+  if (p === "pro") {
+    if (d === "3mo") return Number(planCfg.proPlan3moFee || 0);
+    if (d === "6mo") return Number(planCfg.proPlan6moFee || 0);
+    if (d === "yearly") return Number(planCfg.proPlanYearlyFee || 0);
+  }
+
+  if (p === "elite") {
+    if (d === "3mo") return Number(planCfg.elitePlan3moFee || 0);
+    if (d === "6mo") return Number(planCfg.elitePlan6moFee || 0);
+    if (d === "yearly") return Number(planCfg.elitePlanYearlyFee || 0);
+  }
+
   return 0;
 }
 
@@ -983,28 +1022,12 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
     return { ok: false, status: 403, error: "Flutterwave is currently disabled." };
   }
 
-  // ============================================================
-  // FIXED: Email mismatch — log for audit, do NOT block payment.
-  //
-  // Security is already enforced by:
-  //   1. Firebase ID token verified (user is authenticated)
-  //   2. payment_attempt.userId === verified.uid (attempt belongs to user)
-  //   3. Amount and currency match exactly
-  //   4. Flutterwave transaction verified as successful
-  //
-  // Users legitimately pay with a different email than their
-  // Firebase login (e.g. Google sign-in vs personal email on
-  // Flutterwave). The payment document is always created under
-  // the correct Firebase UID regardless of Flutterwave email.
-  // ============================================================
   const firebaseEmail = (verified.email || "").trim().toLowerCase();
   const flwEmail = (verify.customerEmail || "").trim().toLowerCase();
   if (firebaseEmail && flwEmail && firebaseEmail !== flwEmail) {
     console.warn(
       `[email-mismatch] firebase=${firebaseEmail} flw=${flwEmail} uid=${verified.uid} attempt=${attemptId} tx=${transactionId}`
     );
-    // Mismatch is logged for audit trail but payment proceeds.
-    // The Firestore document is created for verified.uid (the authenticated Firebase user).
   }
 
   if (txRefFromClient && verify.txRef && txRefFromClient !== verify.txRef) {
@@ -1012,6 +1035,7 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
   }
 
   const attemptProductType = String(attempt.productType || "").trim();
+  const attemptProductSubType = String(attempt.productSubType || "").trim();
   const attemptMeta = attempt.metadata && typeof attempt.metadata === "object" ? attempt.metadata : {};
   const attemptCurrency = String(attempt.currency || "").trim().toUpperCase();
   const attemptAmount = Number(attempt.amount || 0);
@@ -1039,6 +1063,29 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
         ok: false,
         status: 403,
         error: `Master League amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
+      };
+    }
+  }
+
+  if (attemptProductType === "plan_subscription") {
+    const planId = String(attempt.planId || attemptMeta.plan || "").trim().toLowerCase();
+    const durationId = String(attempt.planDurationId || attemptMeta.duration || "").trim().toLowerCase();
+    const expected = _planSubscriptionExpectedFee(cfg, planId, durationId);
+
+    if (!_isValidPlanId(planId) || planId === "basic") {
+      return { ok: false, status: 403, error: "Invalid paid plan." };
+    }
+    if (!_isValidDurationId(durationId)) {
+      return { ok: false, status: 403, error: "Invalid plan duration." };
+    }
+    if (!(expected > 0)) {
+      return { ok: false, status: 403, error: "Plan subscription pricing is not configured." };
+    }
+    if (!_moneyEqWithinTolerance(expected, Number(verify.amount || 0), verify.currency)) {
+      return {
+        ok: false,
+        status: 403,
+        error: `Plan subscription amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
       };
     }
   }
@@ -1122,7 +1169,7 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
     amountStr: String(attempt.amountStr || "").trim(),
     items: Array.isArray(attempt.items) ? attempt.items : [],
     productType: String(attempt.productType || "").trim(),
-    productSubType: String(attempt.productSubType || "").trim(),
+    productSubType: attemptProductSubType,
     metadata: attempt.metadata && typeof attempt.metadata === "object" ? attempt.metadata : {},
     paidAtMs,
     createdAtMs: paidAtMs,
@@ -1167,6 +1214,7 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
 async function _activateOrganizerPro(env, verified, body) {
   const uid = String(verified.uid || "").trim();
   const plan = String(body.plan || "").trim().toLowerCase();
+  const duration = String(body.duration || "").trim().toLowerCase();
   const provider = String(body.provider || "").trim().toLowerCase();
   const receiptId = String(body.receiptId || "").trim();
 
@@ -1174,21 +1222,85 @@ async function _activateOrganizerPro(env, verified, body) {
   if (!["basic", "pro", "elite"].includes(plan)) {
     return { ok: false, status: 400, error: "Invalid plan." };
   }
-  if (provider !== "flutterwave") {
+  if (plan !== "basic" && !_isValidDurationId(duration)) {
+    return { ok: false, status: 400, error: "Invalid duration." };
+  }
+  if (provider !== "flutterwave" && provider !== "free") {
     return { ok: false, status: 400, error: "Unsupported provider." };
   }
-  if (!receiptId) {
+  if (plan !== "basic" && !receiptId) {
     return { ok: false, status: 400, error: "receiptId is required." };
   }
 
-  const txId = receiptId.startsWith("FLW-") ? receiptId.slice(4).trim() : receiptId;
+  let txId = "";
+  let verify = null;
+  let currency = "";
+  let amount = 0;
+
+  if (plan === "basic") {
+    const nowMs = Date.now();
+    const currentClaims = await _lookupExistingCustomClaims(env, uid);
+    const nextClaims = {
+      ...currentClaims,
+      organizerPro: true,
+      organizerProPlan: "basic",
+      organizerProDuration: "3mo",
+      organizerProExpiryMs: 0,
+    };
+
+    await _setFirebaseCustomClaims(env, uid, nextClaims);
+
+    await _firestorePatchDoc(env, `users/${uid}`, {
+      activePlanId: "basic",
+      activePlanDurationId: "3mo",
+      planPurchasedAtMs: nowMs,
+      planExpiresAtMs: 0,
+      planReceiptId: "free_basic",
+      planProvider: "free",
+      updatedAt: nowMs,
+    });
+
+    await _firestorePatchDoc(env, `users/${uid}/entitlements/master_league`, {
+      active: true,
+      plan: "basic",
+      duration: "3mo",
+      provider: "free",
+      receiptId: "free_basic",
+      transactionId: "",
+      currency: "",
+      amount: 0,
+      activatedAtMs: nowMs,
+      expiresAtMs: 0,
+      updatedAtMs: nowMs,
+    });
+
+    return {
+      ok: true,
+      status: 200,
+      success: true,
+      uid,
+      plan: "basic",
+      duration: "3mo",
+      expiryMs: 0,
+      provider: "free",
+      receiptId: "free_basic",
+      transactionId: "",
+      currency: "",
+      amount: 0,
+    };
+  }
+
+  txId = receiptId.startsWith("FLW-") ? receiptId.slice(4).trim() : receiptId;
   if (!txId) {
     return { ok: false, status: 400, error: "Invalid receiptId." };
   }
 
-  const verify = await _verifyFlutterwaveTransaction(env, txId);
+  verify = await _verifyFlutterwaveTransaction(env, txId);
+  currency = verify.currency;
+  amount = Number(verify.amount || 0);
+
   const pricing = await _readPricingConfig(env);
-  const cfg = _pricingForCurrency(pricing, verify.currency);
+  const cfg = _pricingForCurrency(pricing, currency);
 
   if (!cfg.paymentsEnabled) {
     return { ok: false, status: 403, error: "Payments are currently disabled." };
@@ -1197,40 +1309,52 @@ async function _activateOrganizerPro(env, verified, body) {
     return { ok: false, status: 403, error: "Flutterwave is currently disabled." };
   }
 
-  const expected = _masterLeagueExpectedFee(cfg, plan);
+  const expected = _planSubscriptionExpectedFee(cfg, plan, duration);
   if (!(expected > 0)) {
     return { ok: false, status: 403, error: "Organizer Pro pricing is not configured." };
   }
 
-  if (!_moneyEqWithinTolerance(expected, Number(verify.amount || 0), verify.currency)) {
+  if (!_moneyEqWithinTolerance(expected, amount, currency)) {
     return {
       ok: false,
       status: 403,
-      error: `Amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
+      error: `Amount mismatch. Expected ${expected} ${currency}, got ${amount}.`,
     };
   }
 
   const nowMs = Date.now();
-  const expiryMs = nowMs + 365 * 24 * 60 * 60 * 1000;
+  const expiryMs = nowMs + _durationDays(duration) * 24 * 60 * 60 * 1000;
 
   const currentClaims = await _lookupExistingCustomClaims(env, uid);
   const nextClaims = {
     ...currentClaims,
     organizerPro: true,
     organizerProPlan: plan,
+    organizerProDuration: duration,
     organizerProExpiryMs: expiryMs,
   };
 
   await _setFirebaseCustomClaims(env, uid, nextClaims);
 
+  await _firestorePatchDoc(env, `users/${uid}`, {
+    activePlanId: plan,
+    activePlanDurationId: duration,
+    planPurchasedAtMs: nowMs,
+    planExpiresAtMs: expiryMs,
+    planReceiptId: receiptId,
+    planProvider: "flutterwave",
+    updatedAt: nowMs,
+  });
+
   await _firestorePatchDoc(env, `users/${uid}/entitlements/master_league`, {
     active: true,
     plan,
+    duration,
     provider: "flutterwave",
     receiptId,
     transactionId: verify.txId,
-    currency: verify.currency,
-    amount: Number(verify.amount || 0),
+    currency,
+    amount,
     activatedAtMs: nowMs,
     expiresAtMs: expiryMs,
     updatedAtMs: nowMs,
@@ -1242,12 +1366,13 @@ async function _activateOrganizerPro(env, verified, body) {
     success: true,
     uid,
     plan,
+    duration,
     expiryMs,
     provider: "flutterwave",
     receiptId,
     transactionId: verify.txId,
-    currency: verify.currency,
-    amount: Number(verify.amount || 0),
+    currency,
+    amount,
   };
 }
 

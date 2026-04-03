@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../../leagues/logic/league_premium_upgrade_helper.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
 import '../logic/master_leagues_providers.dart';
@@ -32,6 +31,10 @@ class _CreateMasterLeagueScreenState
   PlanDuration _selectedDuration = PlanDuration.threeMonths;
   MasterLeaguePlan? _activePlan;
   int _ownedWorkspaceCount = 0;
+
+  String _lastVerifiedAttemptId = '';
+  String _lastVerifiedPaymentId = '';
+  String _lastVerifiedReceiptId = '';
 
   @override
   void initState() {
@@ -128,18 +131,46 @@ class _CreateMasterLeagueScreenState
     return true;
   }
 
-  Future<void> _openInlineUpgrade() async {
-    final ok = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
-      context,
-      leagueName: _masterLeagueNameCtrl.text.trim().isEmpty
-          ? 'Organizer Plan'
-          : _masterLeagueNameCtrl.text.trim(),
-    );
-    if (!mounted) return;
-    if (ok) {
-      await _loadEntitlement();
-      _showMessage('Plan upgraded successfully.');
+  Future<bool> _openInlineUpgrade() async {
+    final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
+    final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+    if (uid.isEmpty) {
+      _showMessage('Please sign in and try again.', error: true);
+      return false;
     }
+
+    final result = await paymentSvc.payForPlanSubscription(
+      context: context,
+      userId: uid,
+      plan: _selectedPlan,
+      duration: _selectedDuration,
+    );
+
+    if (!mounted) return false;
+
+    if (!result.success) {
+      _showMessage(
+        result.errorMessage ?? 'Payment failed. Please try again.',
+        error: true,
+      );
+      return false;
+    }
+
+    await entitlementSvc.activateAfterPayment(
+      plan: _selectedPlan,
+      duration: _selectedDuration,
+      receiptId: result.receiptId ?? '',
+      provider: result.provider,
+    );
+
+    _lastVerifiedAttemptId = result.attemptId;
+    _lastVerifiedPaymentId = result.paymentId;
+    _lastVerifiedReceiptId = result.receiptId ?? '';
+
+    await _loadEntitlement();
+    return true;
   }
 
   Future<void> _create() async {
@@ -163,25 +194,29 @@ class _CreateMasterLeagueScreenState
     try {
       final repo = ref.read(masterLeaguesRepositoryProvider);
       final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
-      final effectivePlan = _activePlan ?? _selectedPlan;
 
-      if (!effectivePlan.canCreateWorkspace(_ownedWorkspaceCount)) {
+      final currentEnt = await entitlementSvc.getEntitlement(forceRefresh: true);
+      final effectivePlan = currentEnt.plan ?? _selectedPlan;
+      final currentWorkspaceCount = await entitlementSvc.countOwnedWorkspaces();
+
+      if (!effectivePlan.canCreateWorkspace(currentWorkspaceCount)) {
         _showMessage(
           'You have reached the workspace limit for ${effectivePlan.displayName} plan.',
           error: true,
         );
-        setState(() => _processing = false);
+        if (mounted) setState(() => _processing = false);
         return;
       }
 
-      if (effectivePlan.isFree) {
-        if (_activePlan == null) {
+      if (_selectedPlan.isFree) {
+        if (currentEnt.plan == null) {
           await entitlementSvc.activateBasicFreePlan();
         }
 
         final created = await repo.create(
           name: masterLeagueName,
           plan: MasterLeaguePlan.basic,
+          initialCompetition: competition,
         );
 
         if (!mounted) return;
@@ -191,28 +226,36 @@ class _CreateMasterLeagueScreenState
       }
 
       if (_shouldShowPaymentButton) {
-        await _openInlineUpgrade();
-
-        final refreshedEnt =
-            await entitlementSvc.getEntitlement(forceRefresh: true);
+        final upgraded = await _openInlineUpgrade();
         if (!mounted) return;
 
-        if (!refreshedEnt.active || refreshedEnt.plan == null) {
+        if (!upgraded) {
           setState(() => _processing = false);
           return;
         }
-
-        _activePlan = refreshedEnt.plan;
       }
 
-      final refreshedPlan = _activePlan ?? effectivePlan;
+      final refreshedEnt =
+          await entitlementSvc.getEntitlement(forceRefresh: true);
+      final refreshedPlan = refreshedEnt.plan ?? _selectedPlan;
+
+      if (_lastVerifiedAttemptId.trim().isEmpty ||
+          _lastVerifiedPaymentId.trim().isEmpty ||
+          _lastVerifiedReceiptId.trim().isEmpty) {
+        _showMessage(
+          'Verified payment details are missing. Please try again.',
+          error: true,
+        );
+        setState(() => _processing = false);
+        return;
+      }
 
       final created = await repo.createAfterVerifiedPayment(
         masterLeagueName: masterLeagueName,
         plan: refreshedPlan,
-        attemptId: '',
-        paymentId: '',
-        receiptId: '',
+        attemptId: _lastVerifiedAttemptId,
+        paymentId: _lastVerifiedPaymentId,
+        receiptId: _lastVerifiedReceiptId,
         competition: competition,
       );
 
@@ -257,8 +300,10 @@ class _CreateMasterLeagueScreenState
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               color: bgColor,
-              border:
-                  Border.all(color: borderColor, width: isSelected ? 2 : 1),
+              border: Border.all(
+                color: borderColor,
+                width: isSelected ? 2 : 1,
+              ),
             ),
             child: Row(
               children: [
@@ -638,7 +683,7 @@ class _CreateMasterLeagueScreenState
                   child: Text(
                     _selectedPlan.isFree
                         ? 'Basic plan is free. Your workspace will be created instantly.'
-                        : 'If you hit your limit, choose another plan here without leaving this screen.',
+                        : 'If you hit your limit, choose another plan and pay without leaving this screen.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurface.withOpacity(0.60),
                       fontWeight: FontWeight.w700,
