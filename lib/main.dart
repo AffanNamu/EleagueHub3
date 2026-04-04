@@ -21,7 +21,9 @@ import 'web_app/web_app.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  if (!kIsWeb) {
+    await Firebase.initializeApp();
+  }
 }
 
 Future<void> main() async {
@@ -29,25 +31,12 @@ Future<void> main() async {
 
   if (!kIsWeb) {
     OverlayBridge.ensureInitialized();
-  }
-
-  await Firebase.initializeApp();
-
-  try {
+    await Firebase.initializeApp();
     await DesktopPairingService.initializeSupabase();
-  } catch (e, st) {
-    debugPrint('DesktopPairingService.initializeSupabase failed: $e');
-    debugPrintStack(stackTrace: st);
-  }
-
-  if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  }
+    FirebaseFirestore.instance.settings =
+        const Settings(persistenceEnabled: false);
 
-  FirebaseFirestore.instance.settings =
-      const Settings(persistenceEnabled: false);
-
-  if (!kIsWeb) {
     await FirebaseCrashlytics.instance
         .setCrashlyticsCollectionEnabled(!kDebugMode);
 
