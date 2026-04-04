@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
@@ -53,6 +52,7 @@ import '../../features/master_leagues/presentation/organizer_discipline_screen.d
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
+import '../../web_app/presentation/web_pairing_screen.dart';
 import '../services/app_admins_service.dart';
 import '../services/connectivity_service.dart';
 
@@ -185,13 +185,19 @@ class AuthRouterRefresh extends ChangeNotifier {
 
   bool _isNetworkError(Object e) {
     if (e is TimeoutException) return true;
-    if (e is SocketException) return true;
     if (e is FirebaseAuthException) {
       return e.code == 'network-request-failed';
     }
     if (e is FirebaseException) {
       return e.code == 'unavailable' || e.code == 'deadline-exceeded';
     }
+
+    final raw = e.toString().toLowerCase();
+    if (raw.contains('socketexception')) return true;
+    if (raw.contains('network')) return true;
+    if (raw.contains('timed out')) return true;
+    if (raw.contains('failed host lookup')) return true;
+
     return false;
   }
 
@@ -263,6 +269,7 @@ final appRouter = GoRouter(
     final loc = state.matchedLocation;
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
+    final inDesktop = loc == '/desktop';
     final inLogin = loc == '/login';
     final inForgot = loc == '/forgot-password';
     final inReset = loc == '/reset-password';
@@ -286,6 +293,8 @@ final appRouter = GoRouter(
         'hasProfile=${authRouterRefresh.hasProfile}',
       );
     }
+
+    if (inDesktop) return null;
 
     if (!authRouterRefresh.isSignedIn) {
       if (inLogin || inForgot || inReset || inVerifyEmail) return null;
@@ -332,6 +341,10 @@ final appRouter = GoRouter(
     return null;
   },
   routes: [
+    GoRoute(
+      path: '/desktop',
+      builder: (context, state) => const WebPairingScreen(),
+    ),
     GoRoute(
       path: '/bootstrap',
       builder: (context, state) => const BootstrapScreen(),
@@ -522,7 +535,6 @@ final appRouter = GoRouter(
               },
             ),
             GoRoute(
-              // legacy fallback only
               path: 'payment',
               builder: (context, state) {
                 final extra = state.extra;
@@ -537,7 +549,6 @@ final appRouter = GoRouter(
               },
             ),
             GoRoute(
-              // legacy fallback only
               path: ':leagueId/upgrade/payment',
               builder: (context, state) {
                 final extra = state.extra;
