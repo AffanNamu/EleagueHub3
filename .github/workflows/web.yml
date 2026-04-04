@@ -1,13 +1,26 @@
-name: Build and Deploy Flutter Web to Firebase Hosting
+name: Flutter Web Deploy to Firebase Hosting
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: flutter-web-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      FLUTTER_CHANNEL: stable
+      PUB_CACHE: ${{ github.workspace }}/.pub-cache
 
     steps:
       - name: Checkout repository
@@ -16,17 +29,70 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
 
-      - name: Show Flutter version
+      - name: Set up pub cache directory
+        run: mkdir -p "${PUB_CACHE}"
+
+      - name: Cache pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: pub-web-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            pub-web-${{ runner.os }}-
+
+      - name: Flutter version
         run: flutter --version
+
+      - name: Check for web folder
+        run: |
+          set -euo pipefail
+          if [ ! -d "web" ]; then
+            echo "::error::Missing web/ directory. Flutter web build requires a web folder."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build Flutter web
-        run: flutter build web --release
+        env:
+          EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
+          FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
+          FLW_PUBLIC_KEY_LIVE: ${{ secrets.FLW_PUBLIC_KEY_LIVE }}
+        run: |
+          set -euo pipefail
+
+          DART_DEFINES=""
+          DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_CLOUD_NAME=dbw9zpkxi"
+          DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=eSportlyic_unsigned"
+
+          if [ -n "${EH_WORKER_BASE_URL:-}" ]; then
+            DART_DEFINES="${DART_DEFINES} --dart-define=EH_WORKER_BASE_URL=${EH_WORKER_BASE_URL}"
+          fi
+
+          if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=false"
+            echo "Using LIVE Flutterwave key"
+          elif [ -n "${FLW_PUBLIC_KEY_TEST:-}" ]; then
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_TEST=${FLW_PUBLIC_KEY_TEST}"
+            DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=true"
+            echo "Using TEST Flutterwave key"
+          fi
+
+          flutter build web --release ${DART_DEFINES}
+
+      - name: Verify web build output exists
+        run: |
+          set -euo pipefail
+          if [ ! -d "build/web" ]; then
+            echo "::error::build/web was not generated."
+            exit 1
+          fi
+          ls -la build/web
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
