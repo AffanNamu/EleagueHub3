@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:eleaguehub3/core/errors/user_friendly_error.dart';
+import 'package:eleaguehub3/core/services/desktop/desktop_pairing_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/coupon_codes_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_access_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
@@ -69,6 +70,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
   bool _requestingPermission = false;
   bool _scannerStarted = false;
 
+  bool _desktopPairingApproved = false;
+  String? _desktopPairingMessage;
+
   @override
   void initState() {
     super.initState();
@@ -98,7 +102,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_joinedLeague != null) return;
+    if (_joinedLeague != null || _desktopPairingApproved) return;
 
     if (state == AppLifecycleState.resumed) {
       // ignore: discarded_futures
@@ -281,8 +285,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
   }
 
   bool _requiresUnlockForThisJoin(League league) {
-    // Paid formats always require unlock (owner bypass handled separately).
-    // Classic full viewer: allow viewer to unlock via pay/coupon.
     return _requiresPaidLeagueCharges(league) ||
         _isClassicFullViewerUnlockScenario(league);
   }
@@ -726,6 +728,92 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     }
   }
 
+  Future<bool> _tryHandleDesktopPairingPayload(String payload) async {
+    String? sessionId;
+    String? sessionSecret;
+
+    final matched = DesktopPairingService.instance.tryParseDesktopQrPayload(
+      payload,
+      onParsed: (id, secret) {
+        sessionId = id;
+        sessionSecret = secret;
+      },
+    );
+
+    if (!matched) return false;
+
+    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    _authUid = authUid;
+
+    if (authUid.isEmpty) {
+      if (!mounted) return true;
+      setState(() {
+        _joining = false;
+        _error = 'Please sign in first to link this eSportlyic Web session.';
+        _isScanned = false;
+      });
+      await _startScannerSafely();
+      return true;
+    }
+
+    setState(() {
+      _joining = true;
+      _error = null;
+      _desktopPairingApproved = false;
+      _desktopPairingMessage = null;
+      _joinedLeague = null;
+      _joinedMode = null;
+      _unlocked = false;
+      _joinNotice = null;
+      _downgradedToViewerBecauseFull = false;
+    });
+
+    try {
+      final result = await DesktopPairingService.instance.approveSession(
+        sessionId: sessionId!,
+        sessionSecret: sessionSecret!,
+      ).timeout(const Duration(seconds: 20));
+
+      if (!mounted) return true;
+
+      if (!result.success) {
+        setState(() {
+          _joining = false;
+          _error = result.message.trim().isNotEmpty
+              ? result.message.trim()
+              : 'Could not link this desktop session.';
+          _isScanned = false;
+        });
+        await _startScannerSafely();
+        return true;
+      }
+
+      HapticFeedback.mediumImpact();
+
+      setState(() {
+        _joining = false;
+        _error = null;
+        _desktopPairingApproved = true;
+        _desktopPairingMessage = result.message.trim().isNotEmpty
+            ? result.message.trim()
+            : 'Desktop linked successfully. Your eSportlyic Web page should update automatically.';
+      });
+
+      return true;
+    } catch (e) {
+      if (!mounted) return true;
+      setState(() {
+        _joining = false;
+        _error = UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown'),
+        );
+        _isScanned = false;
+      });
+      await _startScannerSafely();
+      return true;
+    }
+  }
+
   void _onDetect(BarcodeCapture capture) {
     if (!_cameraPermissionGranted) return;
     if (_isScanned || _joining) return;
@@ -747,6 +835,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
 
   Future<void> _handleScan(String payload) async {
     if (_joining) return;
+
+    final handledDesktop = await _tryHandleDesktopPairingPayload(payload);
+    if (handledDesktop) return;
 
     final l10n = context.l10n;
 
@@ -784,6 +875,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       _downgradedToViewerBecauseFull = false;
       _unlocked = false;
       _joinedMode = null;
+      _desktopPairingApproved = false;
+      _desktopPairingMessage = null;
     });
 
     final authUid =
@@ -878,7 +971,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         _unlocked = paidReceipt || paidCoupon;
       });
 
-      // Offer unlock if required.
       await _maybeOfferUnlockAfterJoin(
         context,
         joinedLeague: league,
@@ -1094,8 +1186,19 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       _unlocked = false;
       _downgradedToViewerBecauseFull = false;
       _joinNotice = null;
+      _desktopPairingApproved = false;
+      _desktopPairingMessage = null;
     });
     await _ensureCameraPermission(startScannerIfGranted: true);
+  }
+
+  void _finishDesktopPairingFlow() {
+    if (!mounted) return;
+    if (Navigator.of(context).canPop()) {
+      context.pop();
+      return;
+    }
+    context.go('/profile');
   }
 
   @override
@@ -1103,6 +1206,96 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+
+    if (_desktopPairingApproved) {
+      return GlassScaffold(
+        appBar: AppBar(
+          title: const Text('Desktop linked'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: _finishDesktopPairingFlow,
+          ),
+        ),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Glass(
+                  borderRadius: 28,
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 74,
+                        height: 74,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: cs.primary.withOpacity(0.14),
+                          border: Border.all(
+                            color: cs.primary.withOpacity(0.25),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.laptop_mac_rounded,
+                          size: 34,
+                          color: cs.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Desktop linked successfully',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        (_desktopPairingMessage ?? '').trim().isNotEmpty
+                            ? _desktopPairingMessage!.trim()
+                            : 'Your eSportlyic Web session has been approved. The desktop page should continue automatically.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: cs.onSurface.withOpacity(0.72),
+                          height: 1.4,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _scanAgain,
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text('Scan another'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _finishDesktopPairingFlow,
+                              icon: const Icon(Icons.check_circle_outline),
+                              label: const Text('Done'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     if (_joinedLeague != null) {
       final league = _joinedLeague!;
@@ -1268,7 +1461,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       );
     }
 
-    // SCANNER VIEW: camera background is dark; keep top icons visible regardless of theme.
     final topIconColor = Colors.white.withOpacity(0.92);
 
     return Scaffold(
@@ -1516,6 +1708,16 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                         height: 1.3,
                                       ),
                                     ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'This scanner can join leagues or link eSportlyic Web.',
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: cs.onSurface.withOpacity(0.60),
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.3,
+                                      ),
+                                    ),
                                     if (_error != null) ...[
                                       const SizedBox(height: 8),
                                       Text(
@@ -1727,7 +1929,6 @@ class _ScannerOverlayPainter extends CustomPainter {
     final rrect =
         RRect.fromRectAndRadius(cutOutRect, const Radius.circular(28));
 
-    // Proper "hole punch" approach.
     canvas.saveLayer(Offset.zero & size, Paint());
     canvas.drawRect(Offset.zero & size, overlayPaint);
 

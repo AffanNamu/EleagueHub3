@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/glass.dart';
+import '../../core/widgets/glass_scaffold.dart';
 import 'web_desktop_session_store.dart';
 
 class WebDesktopShellScreen extends StatefulWidget {
@@ -20,6 +23,8 @@ class WebDesktopShellScreen extends StatefulWidget {
 }
 
 class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
+  static const Color _accent = AppTheme.navyAccent;
+
   int _selectedIndex = 0;
 
   final List<_DesktopNavItem> _items = const [
@@ -51,9 +56,37 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
     Navigator.of(context).pushNamedAndRemoveUntil('/desktop', (route) => false);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final panels = [
+  void _openLinkedAccountSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Glass(
+                borderRadius: 24,
+                padding: EdgeInsets.zero,
+                fill: Colors.white.withOpacity(0.08),
+                borderColor: Colors.white.withOpacity(0.10),
+                child: _DesktopRightPanel(
+                  pairedUserUid: widget.pairedUserUid,
+                  pairedUserName: widget.pairedUserName,
+                  pairedUserEmail: widget.pairedUserEmail,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildPanels() {
+    return [
       _DesktopHomePanel(
         pairedUserUid: widget.pairedUserUid,
         pairedUserName: widget.pairedUserName,
@@ -65,26 +98,102 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
       const _DesktopDiscoverPanel(),
       const _DesktopMarketplacePanel(),
     ];
+  }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B141A),
-      body: SafeArea(
-        child: Row(
-          children: [
-            Container(
-              width: 300,
-              decoration: BoxDecoration(
-                color: const Color(0xFF111B21),
-                border: Border(
-                  right: BorderSide(color: Colors.white.withOpacity(0.06)),
-                ),
+  @override
+  Widget build(BuildContext context) {
+    final panels = _buildPanels();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+
+        if (width < 760) {
+          return _buildMobileLayout(context, panels);
+        }
+
+        if (width < 1180) {
+          return _buildTabletLayout(context, panels);
+        }
+
+        return _buildDesktopLayout(context, panels);
+      },
+    );
+  }
+
+  Widget _buildMobileLayout(BuildContext context, List<Widget> panels) {
+    final currentItem = _items[_selectedIndex];
+
+    return GlassScaffold(
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) {
+          setState(() => _selectedIndex = index);
+        },
+        destinations: _items
+            .map(
+              (item) => NavigationDestination(
+                icon: Icon(item.icon),
+                selectedIcon: Icon(item.activeIcon),
+                label: item.label,
               ),
+            )
+            .toList(),
+      ),
+      body: SafeArea(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            titleSpacing: 12,
+            title: Row(
+              children: [
+                const _BrandLogo(size: 28),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'eSportlyic Web',
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Linked account',
+                onPressed: _openLinkedAccountSheet,
+                icon: const Icon(Icons.person_outline),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) async {
+                  if (value == 'unlink') {
+                    await _logoutDesktop();
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem<String>(
+                    value: 'unlink',
+                    child: Text('Unlink desktop'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          drawer: Drawer(
+            backgroundColor: const Color(0xFF0E223F),
+            child: SafeArea(
               child: Column(
                 children: [
                   _DesktopSidebarHeader(
                     pairedUserName: widget.pairedUserName,
                     pairedUserEmail: widget.pairedUserEmail,
+                    showBrandName: true,
                   ),
+                  const SizedBox(height: 8),
                   Expanded(
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
@@ -96,7 +205,11 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                         return _DesktopSidebarTile(
                           item: item,
                           selected: selected,
-                          onTap: () => setState(() => _selectedIndex = index),
+                          accent: _accent,
+                          onTap: () {
+                            setState(() => _selectedIndex = index);
+                            Navigator.of(context).pop();
+                          },
                         );
                       },
                     ),
@@ -109,18 +222,173 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                         onPressed: _logoutDesktop,
                         icon: const Icon(Icons.logout),
                         label: const Text('Unlink desktop'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                          side: BorderSide(color: Colors.white.withOpacity(0.10)),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                        ),
                       ),
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+          body: Column(
+            children: [
+              _CompactTopBanner(
+                title: currentItem.label,
+                pairedUserName: widget.pairedUserName,
+              ),
+              Expanded(child: panels[_selectedIndex]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabletLayout(BuildContext context, List<Widget> panels) {
+    final currentItem = _items[_selectedIndex];
+    final showRightPanel = MediaQuery.of(context).size.width >= 960;
+
+    return GlassScaffold(
+      body: SafeArea(
+        child: Row(
+          children: [
+            Glass(
+              borderRadius: 0,
+              padding: EdgeInsets.zero,
+              fill: Colors.white.withOpacity(0.05),
+              border: false,
+              child: SizedBox(
+                width: 96,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 14),
+                    const _BrandLogo(size: 36),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: NavigationRail(
+                        backgroundColor: Colors.transparent,
+                        selectedIndex: _selectedIndex,
+                        labelType: NavigationRailLabelType.all,
+                        groupAlignment: -1,
+                        indicatorColor: _accent.withOpacity(0.16),
+                        selectedIconTheme: const IconThemeData(color: _accent),
+                        selectedLabelTextStyle: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        unselectedIconTheme:
+                            IconThemeData(color: Colors.white.withOpacity(0.72)),
+                        unselectedLabelTextStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.72),
+                          fontWeight: FontWeight.w700,
+                        ),
+                        onDestinationSelected: (index) {
+                          setState(() => _selectedIndex = index);
+                        },
+                        destinations: _items
+                            .map(
+                              (item) => NavigationRailDestination(
+                                icon: Icon(item.icon),
+                                selectedIcon: Icon(item.activeIcon),
+                                label: Text(item.label),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: IconButton(
+                        tooltip: 'Unlink desktop',
+                        onPressed: _logoutDesktop,
+                        icon: const Icon(Icons.logout, color: Colors.white70),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: Column(
+                children: [
+                  _DesktopTopBar(
+                    title: currentItem.label,
+                    pairedUserName: widget.pairedUserName,
+                    onOpenAccount: _openLinkedAccountSheet,
+                  ),
+                  Expanded(child: panels[_selectedIndex]),
+                ],
+              ),
+            ),
+            if (showRightPanel)
+              SizedBox(
+                width: 300,
+                child: Glass(
+                  borderRadius: 0,
+                  padding: EdgeInsets.zero,
+                  fill: Colors.white.withOpacity(0.05),
+                  border: false,
+                  child: _DesktopRightPanel(
+                    pairedUserUid: widget.pairedUserUid,
+                    pairedUserName: widget.pairedUserName,
+                    pairedUserEmail: widget.pairedUserEmail,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout(BuildContext context, List<Widget> panels) {
+    return GlassScaffold(
+      body: SafeArea(
+        child: Row(
+          children: [
+            Glass(
+              borderRadius: 0,
+              padding: EdgeInsets.zero,
+              fill: Colors.white.withOpacity(0.05),
+              border: false,
+              child: SizedBox(
+                width: 308,
+                child: Column(
+                  children: [
+                    _DesktopSidebarHeader(
+                      pairedUserName: widget.pairedUserName,
+                      pairedUserEmail: widget.pairedUserEmail,
+                      showBrandName: true,
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                        itemCount: _items.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 6),
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          final selected = _selectedIndex == index;
+                          return _DesktopSidebarTile(
+                            item: item,
+                            selected: selected,
+                            accent: _accent,
+                            onTap: () => setState(() => _selectedIndex = index),
+                          );
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _logoutDesktop,
+                          icon: const Icon(Icons.logout),
+                          label: const Text('Unlink desktop'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             Expanded(
@@ -129,28 +397,24 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                   _DesktopTopBar(
                     title: _items[_selectedIndex].label,
                     pairedUserName: widget.pairedUserName,
+                    onOpenAccount: _openLinkedAccountSheet,
                   ),
-                  Expanded(
-                    child: Container(
-                      color: const Color(0xFF202C33),
-                      child: panels[_selectedIndex],
-                    ),
-                  ),
+                  Expanded(child: panels[_selectedIndex]),
                 ],
               ),
             ),
-            Container(
+            SizedBox(
               width: 340,
-              decoration: BoxDecoration(
-                color: const Color(0xFF111B21),
-                border: Border(
-                  left: BorderSide(color: Colors.white.withOpacity(0.06)),
+              child: Glass(
+                borderRadius: 0,
+                padding: EdgeInsets.zero,
+                fill: Colors.white.withOpacity(0.05),
+                border: false,
+                child: _DesktopRightPanel(
+                  pairedUserUid: widget.pairedUserUid,
+                  pairedUserName: widget.pairedUserName,
+                  pairedUserEmail: widget.pairedUserEmail,
                 ),
-              ),
-              child: _DesktopRightPanel(
-                pairedUserUid: widget.pairedUserUid,
-                pairedUserName: widget.pairedUserName,
-                pairedUserEmail: widget.pairedUserEmail,
               ),
             ),
           ],
@@ -160,13 +424,71 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
   }
 }
 
+class _CompactTopBanner extends StatelessWidget {
+  final String title;
+  final String pairedUserName;
+
+  const _CompactTopBanner({
+    required this.title,
+    required this.pairedUserName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Glass(
+      borderRadius: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      fill: Colors.white.withOpacity(0.05),
+      border: false,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.link_rounded, color: AppTheme.navyAccent, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  pairedUserName.trim().isEmpty ? 'Linked' : pairedUserName,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.82),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DesktopSidebarHeader extends StatelessWidget {
   final String pairedUserName;
   final String pairedUserEmail;
+  final bool showBrandName;
 
   const _DesktopSidebarHeader({
     required this.pairedUserName,
     required this.pairedUserEmail,
+    this.showBrandName = false,
   });
 
   @override
@@ -175,49 +497,76 @@ class _DesktopSidebarHeader extends StatelessWidget {
         ? pairedUserName.trim().substring(0, 1).toUpperCase()
         : 'E';
 
-    return Container(
+    return Padding(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Colors.white.withOpacity(0.06)),
-        ),
-      ),
-      child: Row(
+      child: Column(
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: const Color(0xFF25D366),
-            child: Text(
-              initials,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          if (showBrandName) ...[
+            Row(
               children: [
-                Text(
-                  pairedUserName.trim().isNotEmpty ? pairedUserName : 'EleagueHub User',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
+                const _BrandLogo(size: 26),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'eSportlyic Web',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  pairedUserEmail.trim().isNotEmpty ? pairedUserEmail : 'Desktop linked',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.62),
-                    fontSize: 12,
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+          Glass(
+            borderRadius: 20,
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+            fill: Colors.white.withOpacity(0.05),
+            borderColor: Colors.white.withOpacity(0.08),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: AppTheme.navyAccent.withOpacity(0.22),
+                  child: Text(
+                    initials,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pairedUserName.trim().isNotEmpty
+                            ? pairedUserName
+                            : 'eSportlyic User',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        pairedUserEmail.trim().isNotEmpty
+                            ? pairedUserEmail
+                            : 'Desktop linked',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.62),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -233,11 +582,13 @@ class _DesktopSidebarTile extends StatelessWidget {
   final _DesktopNavItem item;
   final bool selected;
   final VoidCallback onTap;
+  final Color accent;
 
   const _DesktopSidebarTile({
     required this.item,
     required this.selected,
     required this.onTap,
+    required this.accent,
   });
 
   @override
@@ -245,7 +596,7 @@ class _DesktopSidebarTile extends StatelessWidget {
     final fg = selected ? Colors.white : Colors.white.withOpacity(0.72);
 
     return Material(
-      color: selected ? const Color(0xFF202C33) : Colors.transparent,
+      color: selected ? Colors.white.withOpacity(0.06) : Colors.transparent,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
@@ -256,7 +607,7 @@ class _DesktopSidebarTile extends StatelessWidget {
             children: [
               Icon(
                 selected ? item.activeIcon : item.icon,
-                color: fg,
+                color: selected ? accent : fg,
               ),
               const SizedBox(width: 12),
               Text(
@@ -277,23 +628,21 @@ class _DesktopSidebarTile extends StatelessWidget {
 class _DesktopTopBar extends StatelessWidget {
   final String title;
   final String pairedUserName;
+  final VoidCallback onOpenAccount;
 
   const _DesktopTopBar({
     required this.title,
     required this.pairedUserName,
+    required this.onOpenAccount,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111B21),
-        border: Border(
-          bottom: BorderSide(color: Colors.white.withOpacity(0.06)),
-        ),
-      ),
+    return Glass(
+      borderRadius: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      fill: Colors.white.withOpacity(0.05),
+      border: false,
       child: Row(
         children: [
           Text(
@@ -305,24 +654,28 @@ class _DesktopTopBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.laptop_mac, color: Color(0xFF25D366), size: 18),
-                const SizedBox(width: 8),
-                Text(
-                  'Linked as ${pairedUserName.trim().isEmpty ? 'user' : pairedUserName}',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.82),
-                    fontWeight: FontWeight.w600,
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onOpenAccount,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.laptop_mac, color: AppTheme.navyAccent, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Linked as ${pairedUserName.trim().isEmpty ? 'user' : pairedUserName}',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.82),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -344,7 +697,8 @@ class _DesktopHomePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final userDoc = FirebaseFirestore.instance.collection('users').doc(pairedUserUid);
+    final userDoc =
+        FirebaseFirestore.instance.collection('users').doc(pairedUserUid);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: userDoc.snapshots(),
@@ -363,14 +717,14 @@ class _DesktopHomePanel extends StatelessWidget {
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 28,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w900,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               pairedUserEmail.trim().isNotEmpty
                   ? pairedUserEmail
-                  : 'Your desktop companion session is active.',
+                  : 'Your eSportlyic desktop companion session is active.',
               style: TextStyle(
                 color: Colors.white.withOpacity(0.66),
                 fontSize: 14,
@@ -390,7 +744,7 @@ class _DesktopHomePanel extends StatelessWidget {
                   child: _DesktopStatCard(
                     title: 'Desktop Status',
                     value: 'Linked',
-                    accent: Color(0xFF25D366),
+                    accent: AppTheme.navyAccent,
                     icon: Icons.link,
                   ),
                 ),
@@ -399,7 +753,7 @@ class _DesktopHomePanel extends StatelessWidget {
                   child: _DesktopStatCard(
                     title: 'Session Mode',
                     value: 'Companion',
-                    accent: Color(0xFF00A884),
+                    accent: Color(0xFF38BDF8),
                     icon: Icons.devices,
                   ),
                 ),
@@ -408,7 +762,7 @@ class _DesktopHomePanel extends StatelessWidget {
                   child: _DesktopStatCard(
                     title: 'Web Access',
                     value: 'Active',
-                    accent: Color(0xFF53BDEB),
+                    accent: Color(0xFF22C55E),
                     icon: Icons.public,
                   ),
                 ),
@@ -416,8 +770,9 @@ class _DesktopHomePanel extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             const _DesktopPlaceholderSection(
-              title: 'Real data connected',
-              subtitle: 'Your desktop shell is now connected to live Firestore profile and leagues data. Next we can connect organizer discovery and marketplace content.',
+              title: 'Live account connected',
+              subtitle:
+                  'Your eSportlyic desktop shell is connected to your live Firestore profile and league data.',
             ),
           ],
         );
@@ -443,22 +798,16 @@ class _DesktopProfileCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasPhoto = photoUrl.trim().isNotEmpty;
 
-    return Container(
+    return Glass(
+      borderRadius: 24,
       padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1F2C34), Color(0xFF182229)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
-      ),
+      fill: Colors.white.withOpacity(0.06),
+      borderColor: Colors.white.withOpacity(0.08),
       child: Row(
         children: [
           CircleAvatar(
             radius: 36,
-            backgroundColor: const Color(0xFF25D366).withOpacity(0.18),
+            backgroundColor: AppTheme.navyAccent.withOpacity(0.18),
             backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
             child: hasPhoto
                 ? null
@@ -479,7 +828,7 @@ class _DesktopProfileCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name.trim().isNotEmpty ? name : 'EleagueHub User',
+                  name.trim().isNotEmpty ? name : 'eSportlyic User',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -499,7 +848,7 @@ class _DesktopProfileCard extends StatelessWidget {
                   Text(
                     'Team: $teamName',
                     style: const TextStyle(
-                      color: Color(0xFF25D366),
+                      color: AppTheme.navyAccent,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -528,13 +877,11 @@ class _DesktopStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Glass(
+      borderRadius: 20,
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111B21),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
+      fill: Colors.white.withOpacity(0.06),
+      borderColor: Colors.white.withOpacity(0.08),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -574,13 +921,11 @@ class _DesktopPlaceholderSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Glass(
+      borderRadius: 24,
       padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111B21),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
+      fill: Colors.white.withOpacity(0.06),
+      borderColor: Colors.white.withOpacity(0.08),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -671,7 +1016,7 @@ class _DesktopLeaguesPanel extends StatelessWidget {
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 26,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w900,
               ),
             ),
             const SizedBox(height: 8),
@@ -692,13 +1037,11 @@ class _DesktopLeaguesPanel extends StatelessWidget {
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 14),
-                child: Container(
+                child: Glass(
+                  borderRadius: 20,
                   padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF111B21),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withOpacity(0.05)),
-                  ),
+                  fill: Colors.white.withOpacity(0.06),
+                  borderColor: Colors.white.withOpacity(0.08),
                   child: Row(
                     children: [
                       Container(
@@ -706,11 +1049,11 @@ class _DesktopLeaguesPanel extends StatelessWidget {
                         height: 54,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          color: const Color(0xFF25D366).withOpacity(0.15),
+                          color: AppTheme.navyAccent.withOpacity(0.14),
                         ),
                         child: const Icon(
                           Icons.emoji_events,
-                          color: Color(0xFF25D366),
+                          color: AppTheme.navyAccent,
                         ),
                       ),
                       const SizedBox(width: 14),
@@ -786,7 +1129,8 @@ class _DesktopDiscoverPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stream = FirebaseFirestore.instance.collection('master_leagues').snapshots();
+    final stream =
+        FirebaseFirestore.instance.collection('master_leagues').snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
@@ -805,7 +1149,7 @@ class _DesktopDiscoverPanel extends StatelessWidget {
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 26,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w900,
               ),
             ),
             const SizedBox(height: 8),
@@ -830,13 +1174,11 @@ class _DesktopDiscoverPanel extends StatelessWidget {
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14),
-                  child: Container(
+                  child: Glass(
+                    borderRadius: 20,
                     padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF111B21),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.05)),
-                    ),
+                    fill: Colors.white.withOpacity(0.06),
+                    borderColor: Colors.white.withOpacity(0.08),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -881,8 +1223,9 @@ class _DesktopMarketplacePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stream =
-        FirebaseFirestore.instance.collection('marketplace_products').snapshots();
+    final stream = FirebaseFirestore.instance
+        .collection('marketplace_products')
+        .snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
@@ -901,7 +1244,7 @@ class _DesktopMarketplacePanel extends StatelessWidget {
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 26,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w900,
               ),
             ),
             const SizedBox(height: 8),
@@ -927,13 +1270,11 @@ class _DesktopMarketplacePanel extends StatelessWidget {
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14),
-                  child: Container(
+                  child: Glass(
+                    borderRadius: 20,
                     padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF111B21),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.05)),
-                    ),
+                    fill: Colors.white.withOpacity(0.06),
+                    borderColor: Colors.white.withOpacity(0.08),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -986,13 +1327,11 @@ class _DesktopRightPanel extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(18),
       children: [
-        Container(
+        Glass(
+          borderRadius: 22,
           padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: const Color(0xFF202C33),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
-          ),
+          fill: Colors.white.withOpacity(0.06),
+          borderColor: Colors.white.withOpacity(0.08),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1005,24 +1344,31 @@ class _DesktopRightPanel extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              _InfoRow(label: 'Name', value: pairedUserName.isEmpty ? 'N/A' : pairedUserName),
+              _InfoRow(
+                label: 'Name',
+                value: pairedUserName.isEmpty ? 'N/A' : pairedUserName,
+              ),
               const SizedBox(height: 10),
-              _InfoRow(label: 'Email', value: pairedUserEmail.isEmpty ? 'N/A' : pairedUserEmail),
+              _InfoRow(
+                label: 'Email',
+                value: pairedUserEmail.isEmpty ? 'N/A' : pairedUserEmail,
+              ),
               const SizedBox(height: 10),
-              _InfoRow(label: 'UID', value: pairedUserUid.isEmpty ? 'N/A' : pairedUserUid),
+              _InfoRow(
+                label: 'UID',
+                value: pairedUserUid.isEmpty ? 'N/A' : pairedUserUid,
+              ),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        Container(
+        Glass(
+          borderRadius: 22,
           padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: const Color(0xFF202C33),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
-          ),
+          fill: Colors.white.withOpacity(0.06),
+          borderColor: Colors.white.withOpacity(0.08),
           child: Text(
-            'This panel is now ready for selected item details such as league profile, organizer details, marketplace item info, or activity.',
+            'This panel is ready for selected item details such as league profile, organizer details, marketplace item info, or recent activity.',
             style: TextStyle(
               color: Colors.white.withOpacity(0.72),
               height: 1.5,
@@ -1079,4 +1425,42 @@ class _DesktopNavItem {
     required this.icon,
     required this.activeIcon,
   });
+}
+
+class _BrandLogo extends StatelessWidget {
+  final double size;
+
+  const _BrandLogo({required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size + 12,
+      height: size + 12,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: AppTheme.navyAccent,
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.navyAccent.withOpacity(0.24),
+            blurRadius: 18,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(6),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.asset(
+          'assets/icon.png',
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const Icon(
+            Icons.sports_esports,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+      ),
+    );
+  }
 }

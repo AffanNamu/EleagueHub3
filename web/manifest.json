@@ -1,10 +1,10 @@
 {
-  "name": "eLeagueHub",
-  "short_name": "eLeagueHub",
+  "name": "eSportlyic",
+  "short_name": "eSportlyic",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#0B141A",
-  "theme_color": "#0B141A",
-  "description": "eLeagueHub desktop web experience",
-  "orientation": "landscape-primary"
+  "background_color": "#0A1D37",
+  "theme_color": "#0A1D37",
+  "description": "eSportlyic desktop web experience",
+  "orientation": "any"
 }

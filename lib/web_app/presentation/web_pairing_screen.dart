@@ -5,6 +5,9 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/services/desktop/desktop_pairing_models.dart';
 import '../../core/services/desktop/desktop_pairing_service.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/glass.dart';
+import '../../core/widgets/glass_scaffold.dart';
 import 'web_desktop_session_store.dart';
 import 'web_desktop_shell_screen.dart';
 
@@ -16,6 +19,9 @@ class WebPairingScreen extends StatefulWidget {
 }
 
 class _WebPairingScreenState extends State<WebPairingScreen> {
+  static const Color _accent = AppTheme.navyAccent;
+  static const Color _bg = AppTheme.navyBg;
+
   DesktopPairingSession? _session;
   bool _loading = true;
   String? _error;
@@ -140,125 +146,124 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return _PageScaffold(
-        child: _InfoCard(
-          title: 'Preparing desktop session...',
-          subtitle: 'Please wait while we generate your QR login.',
-          child: const Padding(
-            padding: EdgeInsets.only(top: 18),
-            child: SizedBox(
-              width: 34,
-              height: 34,
-              child: CircularProgressIndicator(strokeWidth: 3),
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (_error != null) {
-      return _PageScaffold(
-        child: _InfoCard(
-          title: 'Could not start desktop pairing',
-          subtitle: _error!,
-          child: Column(
-            children: [
-              const SizedBox(height: 14),
-              FilledButton.icon(
-                onPressed: () async {
-                  await WebDesktopSessionStore.clear();
-                  _boot();
-                },
-                icon: const Icon(Icons.refresh),
-                label: const Text('Try again'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final session = _session;
-    if (session == null) {
-      return _PageScaffold(
-        child: _InfoCard(
-          title: 'No session available',
-          subtitle: 'Tap refresh to create a new QR session.',
-          child: Column(
-            children: [
-              const SizedBox(height: 14),
-              FilledButton.icon(
-                onPressed: _boot,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Refresh'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return _PageScaffold(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final narrow = constraints.maxWidth < 900;
-
-          final leftPanel = _LeftPanel(
-            title: 'Use EleagueHub on your computer',
-            body:
-                '1. Open EleagueHub on your phone\n'
-                '2. Go to the QR scanner\n'
-                '3. Scan this code to link your desktop',
-          );
-
-          final rightPanel = _QrPanel(
-            session: session,
-            onRefresh: _boot,
-          );
-
-          if (narrow) {
-            return Column(
-              children: [
-                leftPanel,
-                const SizedBox(height: 16),
-                rightPanel,
-              ],
-            );
-          }
-
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: 6, child: leftPanel),
-              const SizedBox(width: 16),
-              Expanded(flex: 7, child: rightPanel),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _PageScaffold extends StatelessWidget {
-  final Widget child;
-
-  const _PageScaffold({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF111B21),
+    return GlassScaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1200),
-              child: child,
-            ),
-          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final compact = width < 640;
+            final stacked = width < 980;
+
+            if (_loading) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: _InfoCard(
+                      title: 'Preparing desktop session...',
+                      subtitle:
+                          'Please wait while we generate your eSportlyic Web QR login.',
+                      child: const Padding(
+                        padding: EdgeInsets.only(top: 18),
+                        child: SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: CircularProgressIndicator(strokeWidth: 3),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            if (_error != null) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: _InfoCard(
+                      title: 'Could not start desktop pairing',
+                      subtitle: _error!,
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 14),
+                          FilledButton.icon(
+                            onPressed: () async {
+                              await WebDesktopSessionStore.clear();
+                              _boot();
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Try again'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            final session = _session;
+            if (session == null) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: _InfoCard(
+                      title: 'No session available',
+                      subtitle: 'Tap refresh to create a new QR session.',
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 14),
+                          FilledButton.icon(
+                            onPressed: _boot,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Refresh'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            final introPanel = _IntroPanel(compact: compact);
+            final qrPanel = _QrPanel(
+              session: session,
+              onRefresh: _boot,
+              compact: compact,
+            );
+
+            return Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1220),
+                  child: stacked
+                      ? Column(
+                          children: [
+                            qrPanel,
+                            const SizedBox(height: 16),
+                            introPanel,
+                          ],
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(flex: 6, child: introPanel),
+                            const SizedBox(width: 18),
+                            Expanded(flex: 7, child: qrPanel),
+                          ],
+                        ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -278,14 +283,11 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
+    return Glass(
+      borderRadius: 28,
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202C33),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
+      fill: Colors.white.withOpacity(0.08),
+      borderColor: Colors.white.withOpacity(0.12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -295,7 +297,7 @@ class _InfoCard extends StatelessWidget {
             style: const TextStyle(
               color: Colors.white,
               fontSize: 22,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(height: 10),
@@ -305,6 +307,7 @@ class _InfoCard extends StatelessWidget {
             style: TextStyle(
               color: Colors.white.withOpacity(0.75),
               height: 1.45,
+              fontWeight: FontWeight.w600,
             ),
           ),
           child,
@@ -314,49 +317,34 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
-class _LeftPanel extends StatelessWidget {
-  final String title;
-  final String body;
+class _IntroPanel extends StatelessWidget {
+  final bool compact;
 
-  const _LeftPanel({
-    required this.title,
-    required this.body,
+  const _IntroPanel({
+    required this.compact,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202C33),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
+    return Glass(
+      borderRadius: 28,
+      padding: EdgeInsets.all(compact ? 18 : 24),
+      fill: Colors.white.withOpacity(0.08),
+      borderColor: Colors.white.withOpacity(0.12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF25D366),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.sports_esports,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ),
+              _BrandLogo(size: compact ? 54 : 64),
               const SizedBox(width: 14),
               Expanded(
                 child: Text(
-                  'EleagueHub Web',
+                  'eSportlyic Web',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: Colors.white,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
+                        fontSize: compact ? 28 : 36,
                       ),
                 ),
               ),
@@ -364,36 +352,53 @@ class _LeftPanel extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           Text(
-            title,
+            compact
+                ? 'Open eSportlyic on another device'
+                : 'Use eSportlyic on your computer',
             style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
+                  fontWeight: FontWeight.w900,
+                  height: 1.08,
+                  fontSize: compact ? 28 : 54,
                 ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           Text(
-            body,
+            '1. Open eSportlyic on your phone\n'
+            '2. Go to the QR scanner\n'
+            '3. Scan this code to link your desktop',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white.withOpacity(0.82),
+                  color: Colors.white.withOpacity(0.84),
                   height: 1.5,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
+                  fontSize: compact ? 18 : 22,
                 ),
           ),
           const SizedBox(height: 18),
-          Container(
+          Glass(
+            borderRadius: 22,
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withOpacity(0.08)),
-            ),
-            child: Text(
-              'Your phone stays the primary device. This desktop session is linked securely through your mobile app.',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.72),
-                height: 1.45,
-              ),
+            fill: Colors.white.withOpacity(0.05),
+            borderColor: Colors.white.withOpacity(0.10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.lock_outline_rounded,
+                  color: AppTheme.navyAccent,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Your phone stays the primary device. This desktop session is linked securely through your mobile app.',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.72),
+                      height: 1.45,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -405,33 +410,43 @@ class _LeftPanel extends StatelessWidget {
 class _QrPanel extends StatelessWidget {
   final DesktopPairingSession session;
   final VoidCallback onRefresh;
+  final bool compact;
 
   const _QrPanel({
     required this.session,
     required this.onRefresh,
+    required this.compact,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B141A),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
+    final width = MediaQuery.of(context).size.width;
+    final qrSize = compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);
+
+    return Glass(
+      borderRadius: 28,
+      padding: EdgeInsets.all(compact ? 18 : 24),
+      fill: Colors.white.withOpacity(0.08),
+      borderColor: Colors.white.withOpacity(0.12),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 24,
+                  offset: Offset(0, 10),
+                ),
+              ],
             ),
             child: QrImageView(
               data: session.qrPayload,
               version: QrVersions.auto,
-              size: 260,
+              size: qrSize,
               gapless: true,
               eyeStyle: const QrEyeStyle(
                 eyeShape: QrEyeShape.square,
@@ -444,31 +459,72 @@ class _QrPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 22),
-          const Text(
+          Text(
             'Scan to link this desktop',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
+              fontSize: compact ? 20 : 24,
+              fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(height: 10),
           Text(
-            'Open the EleagueHub mobile app and scan this QR code.',
+            'Open the eSportlyic mobile app and scan this QR code.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withOpacity(0.72),
               height: 1.45,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 18),
-          TextButton.icon(
+          FilledButton.icon(
             onPressed: onRefresh,
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh QR'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _BrandLogo extends StatelessWidget {
+  final double size;
+
+  const _BrandLogo({
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: AppTheme.navyAccent,
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.navyAccent.withOpacity(0.24),
+            blurRadius: 22,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.asset(
+          'assets/icon.png',
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const Icon(
+            Icons.sports_esports,
+            color: Colors.white,
+            size: 28,
+          ),
+        ),
       ),
     );
   }

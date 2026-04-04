@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -824,6 +825,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
+  Future<void> _openDesktopScanner(BuildContext context) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) {
+      if (context.mounted) context.go('/login');
+      return;
+    }
+
+    if (kIsWeb) {
+      if (!context.mounted) return;
+      _snack(
+        context,
+        'Use the mobile app to scan the desktop QR code.',
+      );
+      return;
+    }
+
+    if (!context.mounted) return;
+    context.push('/leagues/join-scanner');
+  }
+
   String _readProfileImageUrl(UserProfile? profile, User? authUser) {
     String url = '';
     try {
@@ -1236,6 +1257,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ],
                       );
                     },
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SectionHeader('Desktop Web'),
+                const SizedBox(height: 12),
+                Glass(
+                  borderRadius: 22,
+                  padding: const EdgeInsets.all(6),
+                  child: _DesktopWebRow(
+                    icon: Icons.qr_code_scanner_rounded,
+                    title: 'Link Desktop Web',
+                    subtitle:
+                        'Open the mobile QR scanner to pair with EleagueHub Web.',
+                    onTap: () => _openDesktopScanner(context),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -2644,6 +2679,76 @@ class _ProfileActionChip extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopWebRow extends StatelessWidget {
+  const _DesktopWebRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+    final isRtl = Directionality.of(context) == TextDirection.rtl;
+    final chevron =
+        isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: cs.primary.withOpacity(0.10),
+              ),
+              child: Icon(icon, color: cs.primary, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: onSurface,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: onSurface.withOpacity(0.60),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(chevron, color: onSurface.withOpacity(0.35), size: 20),
           ],
         ),
       ),
