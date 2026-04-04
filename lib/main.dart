@@ -14,33 +14,30 @@ import 'core/persistence/prefs_service.dart';
 import 'core/platform/overlay_bridge.dart';
 import 'core/routing/deep_link_gate.dart';
 import 'core/services/connectivity_service.dart';
+import 'core/services/desktop/desktop_pairing_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_messaging_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Must initialize Firebase in background isolate.
   await Firebase.initializeApp();
-
-  // No-op: when backend sends a "notification" payload, the OS shows it automatically.
-  // Foreground banners are handled by PushMessagingService + NotificationService.
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Overlay actions from Android (bubble + notification) must be wired early.
   OverlayBridge.ensureInitialized();
 
   await Firebase.initializeApp();
+  await DesktopPairingService.initializeSupabase();
 
-  // Push background handler must be registered early.
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  // ONLINE-ONLY: disable Firestore local persistence/caching.
-  FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: false);
+  FirebaseFirestore.instance.settings =
+      const Settings(persistenceEnabled: false);
 
-  await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(!kDebugMode);
+  await FirebaseCrashlytics.instance
+      .setCrashlyticsCollectionEnabled(!kDebugMode);
 
   FlutterError.onError = (details) {
     FirebaseCrashlytics.instance.recordFlutterFatalError(details);
@@ -54,13 +51,11 @@ Future<void> main() async {
   runZonedGuarded(() async {
     final prefs = await PreferencesService.create();
 
-    // Connectivity is used only for UX (e.g., offline banner) and fail-fast decisions.
     await ConnectivityService.instance.initialize();
 
     try {
       await NotificationService().init();
     } catch (e, st) {
-      // Non-fatal: notifications are optional.
       await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
     }
 
