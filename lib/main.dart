@@ -17,6 +17,7 @@ import 'core/services/connectivity_service.dart';
 import 'core/services/desktop/desktop_pairing_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_messaging_service.dart';
+import 'web_app/web_app.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -26,56 +27,73 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  OverlayBridge.ensureInitialized();
+  if (!kIsWeb) {
+    OverlayBridge.ensureInitialized();
+  }
 
   await Firebase.initializeApp();
   await DesktopPairingService.initializeSupabase();
 
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  if (!kIsWeb) {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  }
 
   FirebaseFirestore.instance.settings =
       const Settings(persistenceEnabled: false);
 
-  await FirebaseCrashlytics.instance
-      .setCrashlyticsCollectionEnabled(!kDebugMode);
+  if (!kIsWeb) {
+    await FirebaseCrashlytics.instance
+        .setCrashlyticsCollectionEnabled(!kDebugMode);
 
-  FlutterError.onError = (details) {
-    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
-  };
+    FlutterError.onError = (details) {
+      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    };
 
-  PlatformDispatcher.instance.onError = (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-    return true;
-  };
+    PlatformDispatcher.instance.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    };
+  }
 
   runZonedGuarded(() async {
     final prefs = await PreferencesService.create();
 
     await ConnectivityService.instance.initialize();
 
-    try {
-      await NotificationService().init();
-    } catch (e, st) {
-      await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+    if (!kIsWeb) {
+      try {
+        await NotificationService().init();
+      } catch (e, st) {
+        await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+      }
+
+      try {
+        await PushMessagingService.instance.init();
+      } catch (e, st) {
+        await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+      }
     }
 
-    try {
-      await PushMessagingService.instance.init();
-    } catch (e, st) {
-      await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
-    }
+    final Widget app = kIsWeb
+        ? const EleagueHubWebApp()
+        : DeepLinkGate(
+            child: const EleagueHubApp(),
+          );
 
     runApp(
       ProviderScope(
         overrides: [
           prefsServiceProvider.overrideWithValue(prefs),
         ],
-        child: DeepLinkGate(
-          child: const EleagueHubApp(),
-        ),
+        child: app,
       ),
     );
-  }, (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  }, (error, stack) async {
+    if (!kIsWeb) {
+      await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    } else {
+      debugPrint('Uncaught zone error: $error');
+      debugPrintStack(stackTrace: stack);
+    }
   });
 }

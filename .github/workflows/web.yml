@@ -16,23 +16,31 @@ permissions:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     env:
       FLUTTER_CHANNEL: stable
+      FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Set up pub cache directory
+      - name: Prepare pub cache
         run: mkdir -p "${PUB_CACHE}"
 
       - name: Cache pub packages
@@ -45,14 +53,6 @@ jobs:
 
       - name: Flutter version
         run: flutter --version
-
-      - name: Check for web folder
-        run: |
-          set -euo pipefail
-          if [ ! -d "web" ]; then
-            echo "::error::Missing web/ directory. Flutter web build requires a web folder."
-            exit 1
-          fi
 
       - name: Install dependencies
         run: flutter pub get
@@ -76,22 +76,17 @@ jobs:
           if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=false"
-            echo "Using LIVE Flutterwave key"
           elif [ -n "${FLW_PUBLIC_KEY_TEST:-}" ]; then
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_TEST=${FLW_PUBLIC_KEY_TEST}"
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=true"
-            echo "Using TEST Flutterwave key"
           fi
 
           flutter build web --release ${DART_DEFINES}
 
-      - name: Verify web build output exists
+      - name: Verify web output
         run: |
           set -euo pipefail
-          if [ ! -d "build/web" ]; then
-            echo "::error::build/web was not generated."
-            exit 1
-          fi
+          test -d build/web
           ls -la build/web
 
       - name: Deploy to Firebase Hosting
