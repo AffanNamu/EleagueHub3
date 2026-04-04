@@ -21,9 +21,9 @@ import 'web_app/web_app.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  if (!kIsWeb) {
+  try {
     await Firebase.initializeApp();
-  }
+  } catch (_) {}
 }
 
 Future<void> main() async {
@@ -31,23 +31,50 @@ Future<void> main() async {
 
   if (!kIsWeb) {
     OverlayBridge.ensureInitialized();
+  }
+
+  try {
     await Firebase.initializeApp();
+  } catch (e, st) {
+    debugPrint('Firebase.initializeApp failed: $e');
+    debugPrintStack(stackTrace: st);
+  }
+
+  try {
     await DesktopPairingService.initializeSupabase();
+  } catch (e, st) {
+    debugPrint('DesktopPairingService.initializeSupabase failed: $e');
+    debugPrintStack(stackTrace: st);
+  }
+
+  if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    FirebaseFirestore.instance.settings =
-        const Settings(persistenceEnabled: false);
+  }
 
-    await FirebaseCrashlytics.instance
-        .setCrashlyticsCollectionEnabled(!kDebugMode);
+  if (!kIsWeb) {
+    try {
+      FirebaseFirestore.instance.settings =
+          const Settings(persistenceEnabled: false);
+    } catch (_) {}
+  }
 
-    FlutterError.onError = (details) {
-      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
-    };
+  if (!kIsWeb) {
+    try {
+      await FirebaseCrashlytics.instance
+          .setCrashlyticsCollectionEnabled(!kDebugMode);
 
-    PlatformDispatcher.instance.onError = (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-      return true;
-    };
+      FlutterError.onError = (details) {
+        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+      };
+
+      PlatformDispatcher.instance.onError = (error, stack) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        return true;
+      };
+    } catch (e, st) {
+      debugPrint('Crashlytics setup failed: $e');
+      debugPrintStack(stackTrace: st);
+    }
   }
 
   runZonedGuarded(() async {
@@ -85,7 +112,9 @@ Future<void> main() async {
     );
   }, (error, stack) async {
     if (!kIsWeb) {
-      await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      try {
+        await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      } catch (_) {}
     } else {
       debugPrint('Uncaught zone error: $error');
       debugPrintStack(stackTrace: stack);
