@@ -1269,7 +1269,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     icon: Icons.qr_code_scanner_rounded,
                     title: 'Link Desktop Web',
                     subtitle:
-                        'Open the mobile QR scanner to pair with EleagueHub Web.',
+                        'Open the mobile QR scanner to pair with eSportlyic Web.',
                     onTap: () => _openDesktopScanner(context),
                   ),
                 ),
