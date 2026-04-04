@@ -32,7 +32,13 @@ Future<void> main() async {
   }
 
   await Firebase.initializeApp();
-  await DesktopPairingService.initializeSupabase();
+
+  try {
+    await DesktopPairingService.initializeSupabase();
+  } catch (e, st) {
+    debugPrint('DesktopPairingService.initializeSupabase failed: $e');
+    debugPrintStack(stackTrace: st);
+  }
 
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
