@@ -8,16 +8,19 @@ class EleagueHubWebApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(
-        backgroundColor: const Color(0xFF0B141A),
-        body: Center(
+        backgroundColor: Colors.black,
+        body: SizedBox.expand(
           child: Container(
-            padding: const EdgeInsets.all(24),
-            child: const Text(
-              'Web app smoke test OK',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
+            color: Colors.red,
+            child: const Center(
+              child: Text(
+                'WEB SMOKE TEST OK',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.yellow,
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ),
