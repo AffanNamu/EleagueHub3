@@ -83,7 +83,9 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
 
         if (!mounted) return;
 
-        if (status.approved || status.status == 'approved' || status.status == 'consumed') {
+        if (status.approved ||
+            status.status == 'approved' ||
+            status.status == 'consumed') {
           _pollTimer?.cancel();
 
           await WebDesktopSessionStore.save(
@@ -106,11 +108,17 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
 
         if (status.status == 'expired' || status.status == 'rejected') {
           _pollTimer?.cancel();
+          if (!mounted) return;
           setState(() {
             _error = 'This desktop session expired. Please refresh and scan again.';
           });
         }
-      } catch (_) {}
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _error = e.toString();
+        });
+      }
     });
   }
 
@@ -132,199 +140,287 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF111B21),
-      body: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              flex: 6,
-              child: Container(
-                color: const Color(0xFF202C33),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: _buildLeftPanel(theme),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Expanded(
-              flex: 7,
-              child: Container(
-                color: const Color(0xFF0B141A),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: _buildRightPanel(theme),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLeftPanel(ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: const Color(0xFF25D366),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(
-                Icons.sports_esports,
-                color: Colors.white,
-                size: 28,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Text(
-              'EleagueHub Web',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 28),
-        Text(
-          'Use EleagueHub on your computer',
-          style: theme.textTheme.headlineMedium?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
-            height: 1.15,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          '1. Open EleagueHub on your phone\n'
-          '2. Go to the QR scanner\n'
-          '3. Scan this code to link your desktop',
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: Colors.white.withOpacity(0.82),
-            height: 1.5,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 26),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.07)),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.lock_outline,
-                color: Colors.white.withOpacity(0.85),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Your phone stays the primary device. This desktop session is linked securely through your mobile app.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withOpacity(0.72),
-                    height: 1.45,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRightPanel(ThemeData theme) {
     if (_loading) {
-      return _buildCard(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
+      return _PageScaffold(
+        child: _InfoCard(
+          title: 'Preparing desktop session...',
+          subtitle: 'Please wait while we generate your QR login.',
+          child: const Padding(
+            padding: EdgeInsets.only(top: 18),
+            child: SizedBox(
               width: 34,
               height: 34,
               child: CircularProgressIndicator(strokeWidth: 3),
             ),
-            const SizedBox(height: 18),
-            Text(
-              'Preparing desktop session...',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+          ),
         ),
       );
     }
 
     if (_error != null) {
-      return _buildCard(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: Colors.redAccent, size: 42),
-            const SizedBox(height: 14),
-            Text(
-              'Could not start desktop pairing',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
+      return _PageScaffold(
+        child: _InfoCard(
+          title: 'Could not start desktop pairing',
+          subtitle: _error!,
+          child: Column(
+            children: [
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: () async {
+                  await WebDesktopSessionStore.clear();
+                  _boot();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try again'),
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _error!,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.white.withOpacity(0.74),
-                height: 1.45,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 18),
-            FilledButton.icon(
-              onPressed: () async {
-                await WebDesktopSessionStore.clear();
-                _boot();
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Try again'),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
 
     final session = _session;
-    if (session == null) return const SizedBox.shrink();
+    if (session == null) {
+      return _PageScaffold(
+        child: _InfoCard(
+          title: 'No session available',
+          subtitle: 'Tap refresh to create a new QR session.',
+          child: Column(
+            children: [
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: _boot,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
-    return _buildCard(
+    return _PageScaffold(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < 900;
+
+          final leftPanel = _LeftPanel(
+            title: 'Use EleagueHub on your computer',
+            body:
+                '1. Open EleagueHub on your phone\n'
+                '2. Go to the QR scanner\n'
+                '3. Scan this code to link your desktop',
+          );
+
+          final rightPanel = _QrPanel(
+            session: session,
+            onRefresh: _boot,
+          );
+
+          if (narrow) {
+            return Column(
+              children: [
+                leftPanel,
+                const SizedBox(height: 16),
+                rightPanel,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 6, child: leftPanel),
+              const SizedBox(width: 16),
+              Expanded(flex: 7, child: rightPanel),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PageScaffold extends StatelessWidget {
+  final Widget child;
+
+  const _PageScaffold({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF111B21),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget child;
+
+  const _InfoCard({
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF202C33),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.75),
+              height: 1.45,
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _LeftPanel extends StatelessWidget {
+  final String title;
+  final String body;
+
+  const _LeftPanel({
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF202C33),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF25D366),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.sports_esports,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  'EleagueHub Web',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
+                ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            body,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Colors.white.withOpacity(0.82),
+                  height: 1.5,
+                  fontWeight: FontWeight.w500,
+                ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Text(
+              'Your phone stays the primary device. This desktop session is linked securely through your mobile app.',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.72),
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QrPanel extends StatelessWidget {
+  final DesktopPairingSession session;
+  final VoidCallback onRefresh;
+
+  const _QrPanel({
+    required this.session,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B141A),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(18),
@@ -348,53 +444,32 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
             ),
           ),
           const SizedBox(height: 22),
-          Text(
+          const Text(
             'Scan to link this desktop',
-            style: theme.textTheme.titleLarge?.copyWith(
+            textAlign: TextAlign.center,
+            style: TextStyle(
               color: Colors.white,
+              fontSize: 22,
               fontWeight: FontWeight.w800,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 10),
           Text(
             'Open the EleagueHub mobile app and scan this QR code.',
-            style: theme.textTheme.bodyMedium?.copyWith(
+            textAlign: TextAlign.center,
+            style: TextStyle(
               color: Colors.white.withOpacity(0.72),
               height: 1.45,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 18),
           TextButton.icon(
-            onPressed: () async {
-              await WebDesktopSessionStore.clear();
-              _boot();
-            },
+            onPressed: onRefresh,
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh QR'),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildCard({required Widget child}) {
-    return Container(
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202C33),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 24,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: child,
     );
   }
 }
