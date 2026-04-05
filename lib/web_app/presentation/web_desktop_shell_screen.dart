@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -52,6 +53,9 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
 
   Future<void> _logoutDesktop() async {
     await WebDesktopSessionStore.clear();
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
     if (!mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/desktop', (route) => false);
   }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -19,9 +20,6 @@ class WebPairingScreen extends StatefulWidget {
 }
 
 class _WebPairingScreenState extends State<WebPairingScreen> {
-  static const Color _accent = AppTheme.navyAccent;
-  static const Color _bg = AppTheme.navyBg;
-
   DesktopPairingSession? _session;
   bool _loading = true;
   String? _error;
@@ -47,13 +45,24 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
 
     try {
       final existing = await WebDesktopSessionStore.load();
-      if (existing != null && mounted) {
-        _openShell(
-          pairedUserUid: existing['pairedUserUid'] ?? '',
-          pairedUserName: existing['pairedUserName'] ?? '',
-          pairedUserEmail: existing['pairedUserEmail'] ?? '',
-        );
-        return;
+
+      if (existing != null) {
+        final pairedUid = (existing['pairedUserUid'] ?? '').trim();
+        final currentUser = FirebaseAuth.instance.currentUser;
+
+        if (currentUser != null &&
+            pairedUid.isNotEmpty &&
+            currentUser.uid.trim() == pairedUid) {
+          if (!mounted) return;
+          _openShell(
+            pairedUserUid: existing['pairedUserUid'] ?? '',
+            pairedUserName: existing['pairedUserName'] ?? '',
+            pairedUserEmail: existing['pairedUserEmail'] ?? '',
+          );
+          return;
+        }
+
+        await WebDesktopSessionStore.clear();
       }
 
       final session = await DesktopPairingService.instance.createSession();
@@ -92,7 +101,23 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
         if (status.approved ||
             status.status == 'approved' ||
             status.status == 'consumed') {
-          _pollTimer?.cancel();
+          final token = status.firebaseCustomToken.trim();
+
+          if (token.isEmpty) {
+            setState(() {
+              _error =
+                  'Desktop approval succeeded, but no secure Firebase sign-in token was returned.';
+            });
+            return;
+          }
+
+          final auth = FirebaseAuth.instance;
+
+          if (auth.currentUser != null) {
+            await auth.signOut();
+          }
+
+          await auth.signInWithCustomToken(token);
 
           await WebDesktopSessionStore.save(
             sessionId: current.sessionId,
@@ -101,6 +126,8 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
             pairedUserName: status.pairedUserName,
             pairedUserEmail: status.pairedUserEmail,
           );
+
+          _pollTimer?.cancel();
 
           if (!mounted) return;
 

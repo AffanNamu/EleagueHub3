@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { SignJWT, importPKCS8 } from 'https://esm.sh/jose@5.9.6';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -24,6 +25,36 @@ function errorResponse(message: string, status = 400, extra: Record<string, unkn
     },
     status,
   );
+}
+
+async function mintFirebaseCustomToken(uid: string): Promise<string> {
+  const clientEmail = (Deno.env.get('FIREBASE_CLIENT_EMAIL') ?? '').trim();
+  const privateKeyRaw = (Deno.env.get('FIREBASE_PRIVATE_KEY') ?? '').trim();
+
+  if (!clientEmail || !privateKeyRaw) {
+    throw new Error('Missing FIREBASE_CLIENT_EMAIL or FIREBASE_PRIVATE_KEY secret');
+  }
+
+  const privateKey = privateKeyRaw.replaceAll('\\n', '\n');
+  const now = Math.floor(Date.now() / 1000);
+
+  const key = await importPKCS8(privateKey, 'RS256');
+
+  return await new SignJWT({
+    uid,
+    claims: {
+      desktopLinked: true,
+    },
+  })
+      .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+      .setIssuer(clientEmail)
+      .setSubject(clientEmail)
+      .setAudience(
+        'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+      )
+      .setIssuedAt(now)
+      .setExpirationTime(now + 60 * 60)
+      .sign(key);
 }
 
 Deno.serve(async (req) => {
@@ -91,16 +122,16 @@ Deno.serve(async (req) => {
     });
   }
 
-  let currentStatus = String(data.status ?? 'pending');
+  let currentStatus = String(data.status ?? 'pending').trim();
   const nowMs = Date.now();
   const expiresAtMs = Number(data.expires_at_ms ?? 0);
 
   if (
     expiresAtMs > 0 &&
     nowMs >= expiresAtMs &&
-    currentStatus !== 'consumed' &&
-    currentStatus !== 'expired' &&
-    currentStatus !== 'rejected'
+    currentStatus != 'expired' &&
+    currentStatus != 'rejected' &&
+    currentStatus != 'consumed'
   ) {
     currentStatus = 'expired';
 
@@ -112,7 +143,34 @@ Deno.serve(async (req) => {
       .eq('session_id', sessionId);
   }
 
-  const approved = currentStatus === 'approved' || currentStatus === 'consumed';
+  let firebaseCustomToken = '';
+
+  if (currentStatus == 'approved') {
+    const pairedUserUid = String(data.paired_user_uid ?? '').trim();
+
+    if (!pairedUserUid) {
+      return errorResponse('Approved desktop session has no paired Firebase user.', 500, {
+        status: 'failed',
+        approved: false,
+      });
+    }
+
+    firebaseCustomToken = await mintFirebaseCustomToken(pairedUserUid);
+
+    const consumedAtMs = nowMs;
+
+    await supabase
+      .from('desktop_sessions')
+      .update({
+        status: 'consumed',
+        consumed_at_ms: consumedAtMs,
+      })
+      .eq('session_id', sessionId);
+
+    currentStatus = 'consumed';
+  }
+
+  const approved = currentStatus == 'approved' || currentStatus == 'consumed';
 
   return jsonResponse({
     success: true,
@@ -126,10 +184,13 @@ Deno.serve(async (req) => {
     pairedUserName: String(data.paired_user_name ?? ''),
     pairedUserEmail: String(data.paired_user_email ?? ''),
 
+    firebaseCustomToken,
+
     session_id: sessionId,
     expires_at_ms: expiresAtMs,
     paired_user_uid: String(data.paired_user_uid ?? ''),
     paired_user_name: String(data.paired_user_name ?? ''),
     paired_user_email: String(data.paired_user_email ?? ''),
+    firebase_custom_token: firebaseCustomToken,
   });
 });

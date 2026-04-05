@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -39,17 +38,6 @@ Future<void> main() async {
   } catch (e, st) {
     debugPrint('Firebase.initializeApp failed: $e');
     debugPrintStack(stackTrace: st);
-  }
-
-  if (kIsWeb) {
-    try {
-      if (FirebaseAuth.instance.currentUser == null) {
-        await FirebaseAuth.instance.signInAnonymously();
-      }
-    } catch (e, st) {
-      debugPrint('Firebase anonymous sign-in failed: $e');
-      debugPrintStack(stackTrace: st);
-    }
   }
 
   try {
