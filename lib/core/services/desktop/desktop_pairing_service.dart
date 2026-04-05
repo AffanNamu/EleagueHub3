@@ -11,14 +11,42 @@ class DesktopPairingService {
 
   SupabaseClient get _client => Supabase.instance.client;
 
-  Future<DesktopPairingSession> createSession() async {
-    final response = await _client.functions.invoke(
-      'create-desktop-session',
-      body: <String, dynamic>{},
-    );
+  String _bestErrorMessage(Object e) {
+    final raw = e.toString().trim();
+    if (raw.isEmpty) {
+      return 'Something went wrong. Please try again.';
+    }
 
-    final data = Map<String, dynamic>.from(response.data as Map);
-    return DesktopPairingSession.fromMap(data);
+    var msg = raw;
+
+    msg = msg.replaceFirst('Exception: ', '');
+    msg = msg.replaceFirst('Bad state: ', '');
+    msg = msg.replaceFirst('StateError: ', '');
+
+    if (msg.contains('FunctionsException')) {
+      return raw;
+    }
+
+    return msg;
+  }
+
+  Future<DesktopPairingSession> createSession() async {
+    try {
+      final response = await _client.functions.invoke(
+        'create-desktop-session',
+        body: <String, dynamic>{},
+      );
+
+      final dataRaw = response.data;
+      if (dataRaw is! Map) {
+        throw StateError('Create session failed: invalid server response.');
+      }
+
+      final data = Map<String, dynamic>.from(dataRaw);
+      return DesktopPairingSession.fromMap(data);
+    } catch (e) {
+      throw StateError(_bestErrorMessage(e));
+    }
   }
 
   Future<DesktopPairingApprovalResult> approveSession({
@@ -43,37 +71,55 @@ class DesktopPairingService {
       );
     }
 
-    final response = await _client.functions.invoke(
-      'approve-desktop-session',
-      headers: <String, String>{
-        'Authorization': 'Bearer $idToken',
-      },
-      body: <String, dynamic>{
-        'session_id': sessionId,
-        'session_secret': sessionSecret,
-        'paired_user_name': (user.displayName ?? '').trim(),
-        'paired_user_email': (user.email ?? '').trim(),
-      },
-    );
+    try {
+      final response = await _client.functions.invoke(
+        'approve-desktop-session',
+        headers: <String, String>{
+          'Authorization': 'Bearer $idToken',
+        },
+        body: <String, dynamic>{
+          'session_id': sessionId,
+          'session_secret': sessionSecret,
+          'paired_user_name': (user.displayName ?? '').trim(),
+          'paired_user_email': (user.email ?? '').trim(),
+        },
+      );
 
-    final data = Map<String, dynamic>.from(response.data as Map);
-    return DesktopPairingApprovalResult.fromMap(data);
+      final dataRaw = response.data;
+      if (dataRaw is! Map) {
+        throw StateError('Desktop approval failed: invalid server response.');
+      }
+
+      final data = Map<String, dynamic>.from(dataRaw);
+      return DesktopPairingApprovalResult.fromMap(data);
+    } catch (e) {
+      throw StateError(_bestErrorMessage(e));
+    }
   }
 
   Future<DesktopPairingStatus> getStatus({
     required String sessionId,
     required String sessionSecret,
   }) async {
-    final response = await _client.functions.invoke(
-      'get-desktop-session-status',
-      body: <String, dynamic>{
-        'session_id': sessionId,
-        'session_secret': sessionSecret,
-      },
-    );
+    try {
+      final response = await _client.functions.invoke(
+        'get-desktop-session-status',
+        body: <String, dynamic>{
+          'session_id': sessionId,
+          'session_secret': sessionSecret,
+        },
+      );
 
-    final data = Map<String, dynamic>.from(response.data as Map);
-    return DesktopPairingStatus.fromMap(data);
+      final dataRaw = response.data;
+      if (dataRaw is! Map) {
+        throw StateError('Status check failed: invalid server response.');
+      }
+
+      final data = Map<String, dynamic>.from(dataRaw);
+      return DesktopPairingStatus.fromMap(data);
+    } catch (e) {
+      throw StateError(_bestErrorMessage(e));
+    }
   }
 
   bool tryParseDesktopQrPayload(

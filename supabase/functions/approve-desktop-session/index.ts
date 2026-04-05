@@ -1,204 +1,254 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import {
-  decodeProtectedHeader,
-  importX509,
-  jwtVerify,
-} from "npm:jose@5.2.4";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Content-Type': 'application/json',
 };
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
+function jsonResponse(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json",
-    },
+    headers: corsHeaders,
   });
 }
 
-function requireEnv(name: string): string {
-  const v = (Deno.env.get(name) ?? "").trim();
-  if (!v) throw new Error(`missing_env:${name}`);
-  return v;
-}
-
-let certCache: { atMs: number; keys: Record<string, string> } | null = null;
-
-async function getFirebaseCerts(): Promise<Record<string, string>> {
-  const now = Date.now();
-  if (certCache && now - certCache.atMs < 60_000) return certCache.keys;
-
-  const resp = await fetch(
-    "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com",
+function errorResponse(message: string, status = 400, extra: Record<string, unknown> = {}) {
+  return jsonResponse(
+    {
+      success: false,
+      message,
+      error: message,
+      ...extra,
+    },
+    status,
   );
-  if (!resp.ok) throw new Error(`certs_fetch_failed:${resp.status}`);
-  const keys = (await resp.json()) as Record<string, string>;
-  certCache = { atMs: now, keys };
-  return keys;
 }
 
 async function verifyFirebaseIdToken(idToken: string) {
-  const projectId = requireEnv("FIREBASE_PROJECT_ID");
-  const issuer = `https://securetoken.google.com/${projectId}`;
+  const apiKey = (Deno.env.get('FIREBASE_WEB_API_KEY') ?? '').trim();
 
-  const header = decodeProtectedHeader(idToken);
-  const kid = (header.kid ?? "").toString().trim();
-  if (!kid) throw new Error("missing_kid");
+  if (!apiKey) {
+    throw new Error('Missing FIREBASE_WEB_API_KEY secret');
+  }
 
-  const certs = await getFirebaseCerts();
-  const cert = certs[kid];
-  if (!cert) throw new Error("kid_not_found");
+  const resp = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        idToken,
+      }),
+    },
+  );
 
-  const key = await importX509(cert, "RS256");
-  const { payload } = await jwtVerify(idToken, key, {
-    issuer,
-    audience: projectId,
-  });
+  const raw = await resp.text();
+  let decoded: Record<string, unknown> = {};
+  try {
+    decoded = JSON.parse(raw);
+  } catch (_) {}
 
-  const uid = (payload.user_id ?? payload.sub ?? "").toString().trim();
-  if (!uid) throw new Error("missing_uid");
+  if (!resp.ok) {
+    const errMap = decoded['error'];
+    if (errMap && typeof errMap === 'object' && 'message' in errMap) {
+      throw new Error(String((errMap as Record<string, unknown>)['message'] ?? 'Invalid Firebase token'));
+    }
+    throw new Error(`Firebase token lookup failed (HTTP ${resp.status})`);
+  }
 
-  const email = (payload.email ?? "").toString().trim();
-  const name = (payload.name ?? payload.display_name ?? "").toString().trim();
+  const users = Array.isArray(decoded['users']) ? decoded['users'] as Array<Record<string, unknown>> : const [];
+  if (users.isEmpty) {
+    throw new Error('Firebase token lookup returned no user.');
+  }
 
-  return { uid, email, name, payload };
+  const user = users.first;
+  const uid = String(user['localId'] ?? '').trim();
+  const email = String(user['email'] ?? '').trim();
+  const name = String(user['displayName'] ?? '').trim();
+
+  if (!uid) {
+    throw new Error('Firebase token lookup returned empty uid.');
+  }
+
+  return {
+    uid,
+    email,
+    name,
+  };
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
   }
 
-  if (req.method !== "POST") {
-    return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== 'POST') {
+    return errorResponse('Method not allowed', 405);
   }
 
-  try {
-    const auth = (req.headers.get("authorization") ?? "").trim();
-    const idToken = auth.toLowerCase().startsWith("bearer ")
-      ? auth.substring(7).trim()
-      : "";
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
-    if (!idToken) {
-      return json({
-        success: false,
-        status: "failed",
-        message: "Missing authorization token.",
-      }, 401);
-    }
-
-    const verified = await verifyFirebaseIdToken(idToken);
-
-    const body = await req.json().catch(() => ({}));
-
-    const sessionId = String(body.session_id ?? "").trim();
-    const sessionSecret = String(body.session_secret ?? "").trim();
-    const pairedUserNameFromBody = String(body.paired_user_name ?? "").trim();
-    const pairedUserEmailFromBody = String(body.paired_user_email ?? "").trim();
-
-    if (!sessionId || !sessionSecret) {
-      return json({
-        success: false,
-        status: "failed",
-        message: "Missing required fields.",
-      }, 400);
-    }
-
-    const supabaseUrl = requireEnv("SUPABASE_URL");
-    const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
-
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-
-    const { data: found, error: findError } = await supabase
-      .from("desktop_sessions")
-      .select("*")
-      .eq("session_id", sessionId)
-      .eq("session_secret", sessionSecret)
-      .maybeSingle();
-
-    if (findError) {
-      return json({
-        success: false,
-        status: "failed",
-        message: findError.message,
-      }, 500);
-    }
-
-    if (!found) {
-      return json({
-        success: false,
-        status: "failed",
-        message: "Desktop session not found.",
-      }, 404);
-    }
-
-    const now = Date.now();
-
-    if (Number(found.expires_at_ms ?? 0) < now) {
-      await supabase
-        .from("desktop_sessions")
-        .update({ status: "expired" })
-        .eq("session_id", sessionId);
-
-      return json({
-        success: false,
-        status: "expired",
-        message: "Desktop session has expired.",
-      }, 410);
-    }
-
-    const currentStatus = String(found.status ?? "").trim();
-
-    if (currentStatus === "approved" || currentStatus === "consumed") {
-      return json({
-        success: true,
-        status: currentStatus,
-        message: "Desktop session already approved.",
-      });
-    }
-
-    const safeName = pairedUserNameFromBody || verified.name;
-    const safeEmail = pairedUserEmailFromBody || verified.email;
-
-    const { error: updateError } = await supabase
-      .from("desktop_sessions")
-      .update({
-        status: "approved",
-        approved_at_ms: now,
-        paired_user_uid: verified.uid,
-        paired_user_name: safeName,
-        paired_user_email: safeEmail,
-      })
-      .eq("session_id", sessionId)
-      .eq("session_secret", sessionSecret);
-
-    if (updateError) {
-      return json({
-        success: false,
-        status: "failed",
-        message: updateError.message,
-      }, 500);
-    }
-
-    return json({
-      success: true,
-      status: "approved",
-      message: "Desktop session approved successfully.",
-      paired_user_uid: verified.uid,
-      paired_user_name: safeName,
-      paired_user_email: safeEmail,
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    return errorResponse('Missing Supabase server environment variables', 500, {
+      status: 'failed',
     });
-  } catch (e) {
-    return json({
-      success: false,
-      status: "failed",
-      message: String((e as Error)?.message ?? e),
-    }, 500);
   }
+
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const bearerPrefix = 'Bearer ';
+  const idToken = authHeader.startsWith(bearerPrefix)
+    ? authHeader.slice(bearerPrefix.length).trim()
+    : '';
+
+  if (!idToken) {
+    return errorResponse('Missing Authorization bearer token', 401, {
+      status: 'failed',
+    });
+  }
+
+  let firebaseUser: { uid: string; name: string; email: string };
+  try {
+    firebaseUser = await verifyFirebaseIdToken(idToken);
+  } catch (e) {
+    return errorResponse(`Invalid Firebase token: ${String(e)}`, 401, {
+      status: 'failed',
+    });
+  }
+
+  const body = await req.json().catch(() => ({}));
+
+  const sessionId = String(body.session_id ?? body.sessionId ?? '').trim();
+  const sessionSecret = String(body.session_secret ?? body.sessionSecret ?? '').trim();
+
+  const pairedUserName = String(
+    body.paired_user_name ??
+      body.pairedUserName ??
+      firebaseUser.name ??
+      '',
+  ).trim();
+
+  const pairedUserEmail = String(
+    body.paired_user_email ??
+      body.pairedUserEmail ??
+      firebaseUser.email ??
+      '',
+  ).trim();
+
+  if (!sessionId || !sessionSecret) {
+    return errorResponse('Missing session_id/session_secret', 400, {
+      status: 'failed',
+    });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  const { data, error } = await supabase
+    .from('desktop_sessions')
+    .select('*')
+    .eq('session_id', sessionId)
+    .maybeSingle();
+
+  if (error) {
+    return errorResponse(`Failed to load session: ${error.message}`, 500, {
+      status: 'failed',
+    });
+  }
+
+  if (!data) {
+    return errorResponse('Desktop session not found', 404, {
+      status: 'failed',
+    });
+  }
+
+  if (String(data.session_secret ?? '') !== sessionSecret) {
+    return errorResponse('Invalid desktop session secret', 401, {
+      status: 'failed',
+    });
+  }
+
+  const expiresAtMs = Number(data.expires_at_ms ?? 0);
+
+  if (expiresAtMs > 0 && Date.now() >= expiresAtMs) {
+    await supabase
+      .from('desktop_sessions')
+      .update({
+        status: 'expired',
+      })
+      .eq('session_id', sessionId);
+
+    return errorResponse('Desktop session expired', 400, {
+      status: 'expired',
+    });
+  }
+
+  const existingStatus = String(data.status ?? 'pending');
+
+  if (existingStatus === 'approved' || existingStatus === 'consumed') {
+    return jsonResponse({
+      success: true,
+      message: 'Desktop session already approved.',
+      status: existingStatus,
+      approved: true,
+
+      pairedUserUid: String(data.paired_user_uid ?? firebaseUser.uid),
+      pairedUserName: String(data.paired_user_name ?? pairedUserName),
+      pairedUserEmail: String(data.paired_user_email ?? pairedUserEmail),
+
+      paired_user_uid: String(data.paired_user_uid ?? firebaseUser.uid),
+      paired_user_name: String(data.paired_user_name ?? pairedUserName),
+      paired_user_email: String(data.paired_user_email ?? pairedUserEmail),
+    });
+  }
+
+  if (existingStatus === 'expired' || existingStatus === 'rejected') {
+    return errorResponse(`Desktop session is ${existingStatus}`, 400, {
+      status: existingStatus,
+    });
+  }
+
+  const approvedAtMs = Date.now();
+
+  const { error: updateError } = await supabase
+    .from('desktop_sessions')
+    .update({
+      status: 'approved',
+      paired_user_uid: firebaseUser.uid,
+      paired_user_name: pairedUserName,
+      paired_user_email: pairedUserEmail,
+      approved_at_ms: approvedAtMs,
+    })
+    .eq('session_id', sessionId);
+
+  if (updateError) {
+    return errorResponse(`Failed to approve session: ${updateError.message}`, 500, {
+      status: 'failed',
+    });
+  }
+
+  return jsonResponse({
+    success: true,
+    message: 'Desktop session approved.',
+    status: 'approved',
+    approved: true,
+
+    pairedUserUid: firebaseUser.uid,
+    pairedUserName,
+    pairedUserEmail,
+    approvedAtMs,
+
+    paired_user_uid: firebaseUser.uid,
+    paired_user_name: pairedUserName,
+    paired_user_email: pairedUserEmail,
+    approved_at_ms: approvedAtMs,
+  });
 });
