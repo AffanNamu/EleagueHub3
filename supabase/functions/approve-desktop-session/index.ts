@@ -14,71 +14,68 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
-function errorResponse(message: string, status = 400, extra: Record<string, unknown> = {}) {
-  return jsonResponse(
-    {
-      success: false,
-      message,
-      error: message,
-      ...extra,
-    },
-    status,
-  );
+function errorResponse(
+  message: string,
+  status = 400,
+  extra: Record<string, unknown> = {},
+) {
+  return jsonResponse({ success: false, message, error: message, ...extra }, status);
 }
 
-async function verifyFirebaseIdToken(idToken: string) {
+async function verifyFirebaseIdToken(idToken: string): Promise<{
+  uid: string;
+  email: string;
+  name: string;
+}> {
   const apiKey = (Deno.env.get('FIREBASE_WEB_API_KEY') ?? '').trim();
 
   if (!apiKey) {
-    throw new Error('Missing FIREBASE_WEB_API_KEY secret');
+    throw new Error('Missing FIREBASE_WEB_API_KEY secret in Supabase');
   }
 
   const resp = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        idToken,
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
     },
   );
 
   const raw = await resp.text();
+
   let decoded: Record<string, unknown> = {};
   try {
-    decoded = JSON.parse(raw);
-  } catch (_) {}
-
-  if (!resp.ok) {
-    const errMap = decoded['error'];
-    if (errMap && typeof errMap === 'object' && 'message' in errMap) {
-      throw new Error(String((errMap as Record<string, unknown>)['message'] ?? 'Invalid Firebase token'));
-    }
-    throw new Error(`Firebase token lookup failed (HTTP ${resp.status})`);
+    decoded = JSON.parse(raw) as Record<string, unknown>;
+  } catch (_) {
+    decoded = {};
   }
 
-  const users = Array.isArray(decoded['users']) ? decoded['users'] as Array<Record<string, unknown>> : const [];
-  if (users.isEmpty) {
+  if (!resp.ok) {
+    const errValue = decoded['error'];
+    if (errValue && typeof errValue === 'object') {
+      const errObj = errValue as Record<string, unknown>;
+      const msg = String(errObj['message'] ?? '').trim();
+      if (msg) throw new Error(`Firebase token error: ${msg}`);
+    }
+    throw new Error(
+      `Firebase token lookup failed (HTTP ${resp.status}): ${raw.slice(0, 200)}`,
+    );
+  }
+
+  const usersValue = decoded['users'];
+  if (!Array.isArray(usersValue) || usersValue.length === 0) {
     throw new Error('Firebase token lookup returned no user.');
   }
 
-  const user = users.first;
+  const user = usersValue[0] as Record<string, unknown>;
   const uid = String(user['localId'] ?? '').trim();
   const email = String(user['email'] ?? '').trim();
   const name = String(user['displayName'] ?? '').trim();
 
-  if (!uid) {
-    throw new Error('Firebase token lookup returned empty uid.');
-  }
+  if (!uid) throw new Error('Firebase token lookup returned empty uid.');
 
-  return {
-    uid,
-    email,
-    name,
-  };
+  return { uid, email, name };
 }
 
 Deno.serve(async (req) => {
@@ -99,59 +96,63 @@ Deno.serve(async (req) => {
     });
   }
 
-  const authHeader = req.headers.get('Authorization') ?? '';
-  const bearerPrefix = 'Bearer ';
-  const idToken = authHeader.startsWith(bearerPrefix)
-    ? authHeader.slice(bearerPrefix.length).trim()
-    : '';
+  // ── parse body ────────────────────────────────────────────────────────────
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch (_) {
+    return errorResponse('Invalid JSON body', 400, { status: 'failed' });
+  }
 
-  if (!idToken) {
-    return errorResponse('Missing Authorization bearer token', 401, {
+  // ── read Firebase ID token from BODY (not Authorization header) ───────────
+  // Supabase rejects non-Supabase JWTs in the Authorization header before
+  // the function runs, so we carry it in the body instead.
+  const firebaseIdToken = String(
+    body['firebase_id_token'] ?? body['firebaseIdToken'] ?? '',
+  ).trim();
+
+  if (!firebaseIdToken) {
+    return errorResponse('Missing firebase_id_token in request body', 401, {
       status: 'failed',
     });
   }
 
+  // ── verify Firebase token ─────────────────────────────────────────────────
   let firebaseUser: { uid: string; name: string; email: string };
   try {
-    firebaseUser = await verifyFirebaseIdToken(idToken);
+    firebaseUser = await verifyFirebaseIdToken(firebaseIdToken);
   } catch (e) {
     return errorResponse(`Invalid Firebase token: ${String(e)}`, 401, {
       status: 'failed',
     });
   }
 
-  const body = await req.json().catch(() => ({}));
-
-  const sessionId = String(body.session_id ?? body.sessionId ?? '').trim();
-  const sessionSecret = String(body.session_secret ?? body.sessionSecret ?? '').trim();
+  // ── read session fields ───────────────────────────────────────────────────
+  const sessionId = String(body['session_id'] ?? body['sessionId'] ?? '').trim();
+  const sessionSecret = String(
+    body['session_secret'] ?? body['sessionSecret'] ?? '',
+  ).trim();
 
   const pairedUserName = String(
-    body.paired_user_name ??
-      body.pairedUserName ??
-      firebaseUser.name ??
-      '',
+    body['paired_user_name'] ?? body['pairedUserName'] ?? firebaseUser.name ?? '',
   ).trim();
 
   const pairedUserEmail = String(
-    body.paired_user_email ??
-      body.pairedUserEmail ??
-      firebaseUser.email ??
-      '',
+    body['paired_user_email'] ?? body['pairedUserEmail'] ?? firebaseUser.email ?? '',
   ).trim();
 
   if (!sessionId || !sessionSecret) {
-    return errorResponse('Missing session_id/session_secret', 400, {
+    return errorResponse('Missing session_id or session_secret', 400, {
       status: 'failed',
     });
   }
 
+  // ── Supabase client ───────────────────────────────────────────────────────
   const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+    auth: { autoRefreshToken: false, persistSession: false },
   });
 
+  // ── load session ──────────────────────────────────────────────────────────
   const { data, error } = await supabase
     .from('desktop_sessions')
     .select('*')
@@ -165,33 +166,29 @@ Deno.serve(async (req) => {
   }
 
   if (!data) {
-    return errorResponse('Desktop session not found', 404, {
-      status: 'failed',
-    });
+    return errorResponse('Desktop session not found', 404, { status: 'failed' });
   }
 
-  if (String(data.session_secret ?? '') !== sessionSecret) {
+  // ── verify secret ─────────────────────────────────────────────────────────
+  if (String(data['session_secret'] ?? '') !== sessionSecret) {
     return errorResponse('Invalid desktop session secret', 401, {
       status: 'failed',
     });
   }
 
-  const expiresAtMs = Number(data.expires_at_ms ?? 0);
-
+  // ── check expiry ──────────────────────────────────────────────────────────
+  const expiresAtMs = Number(data['expires_at_ms'] ?? 0);
   if (expiresAtMs > 0 && Date.now() >= expiresAtMs) {
     await supabase
       .from('desktop_sessions')
-      .update({
-        status: 'expired',
-      })
+      .update({ status: 'expired' })
       .eq('session_id', sessionId);
 
-    return errorResponse('Desktop session expired', 400, {
-      status: 'expired',
-    });
+    return errorResponse('Desktop session expired', 400, { status: 'expired' });
   }
 
-  const existingStatus = String(data.status ?? 'pending');
+  // ── check current status ──────────────────────────────────────────────────
+  const existingStatus = String(data['status'] ?? 'pending');
 
   if (existingStatus === 'approved' || existingStatus === 'consumed') {
     return jsonResponse({
@@ -199,14 +196,12 @@ Deno.serve(async (req) => {
       message: 'Desktop session already approved.',
       status: existingStatus,
       approved: true,
-
-      pairedUserUid: String(data.paired_user_uid ?? firebaseUser.uid),
-      pairedUserName: String(data.paired_user_name ?? pairedUserName),
-      pairedUserEmail: String(data.paired_user_email ?? pairedUserEmail),
-
-      paired_user_uid: String(data.paired_user_uid ?? firebaseUser.uid),
-      paired_user_name: String(data.paired_user_name ?? pairedUserName),
-      paired_user_email: String(data.paired_user_email ?? pairedUserEmail),
+      pairedUserUid: String(data['paired_user_uid'] ?? firebaseUser.uid),
+      pairedUserName: String(data['paired_user_name'] ?? pairedUserName),
+      pairedUserEmail: String(data['paired_user_email'] ?? pairedUserEmail),
+      paired_user_uid: String(data['paired_user_uid'] ?? firebaseUser.uid),
+      paired_user_name: String(data['paired_user_name'] ?? pairedUserName),
+      paired_user_email: String(data['paired_user_email'] ?? pairedUserEmail),
     });
   }
 
@@ -216,6 +211,7 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ── approve ───────────────────────────────────────────────────────────────
   const approvedAtMs = Date.now();
 
   const { error: updateError } = await supabase
@@ -230,9 +226,11 @@ Deno.serve(async (req) => {
     .eq('session_id', sessionId);
 
   if (updateError) {
-    return errorResponse(`Failed to approve session: ${updateError.message}`, 500, {
-      status: 'failed',
-    });
+    return errorResponse(
+      `Failed to approve session: ${updateError.message}`,
+      500,
+      { status: 'failed' },
+    );
   }
 
   return jsonResponse({
@@ -240,12 +238,10 @@ Deno.serve(async (req) => {
     message: 'Desktop session approved.',
     status: 'approved',
     approved: true,
-
     pairedUserUid: firebaseUser.uid,
     pairedUserName,
     pairedUserEmail,
     approvedAtMs,
-
     paired_user_uid: firebaseUser.uid,
     paired_user_name: pairedUserName,
     paired_user_email: pairedUserEmail,

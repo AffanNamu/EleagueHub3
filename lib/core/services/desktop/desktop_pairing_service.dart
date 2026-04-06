@@ -13,20 +13,11 @@ class DesktopPairingService {
 
   String _bestErrorMessage(Object e) {
     final raw = e.toString().trim();
-    if (raw.isEmpty) {
-      return 'Something went wrong. Please try again.';
-    }
-
+    if (raw.isEmpty) return 'Something went wrong. Please try again.';
     var msg = raw;
-
     msg = msg.replaceFirst('Exception: ', '');
     msg = msg.replaceFirst('Bad state: ', '');
     msg = msg.replaceFirst('StateError: ', '');
-
-    if (msg.contains('FunctionsException')) {
-      return raw;
-    }
-
     return msg;
   }
 
@@ -62,22 +53,34 @@ class DesktopPairingService {
       );
     }
 
-    final idToken = await user.getIdToken(true);
-    if ((idToken ?? '').trim().isEmpty) {
+    String idToken = '';
+    try {
+      idToken = (await user.getIdToken(true)) ?? '';
+    } catch (tokenErr) {
+      return DesktopPairingApprovalResult(
+        success: false,
+        message: 'Could not refresh your sign-in token: $tokenErr',
+        status: 'failed',
+      );
+    }
+
+    if (idToken.trim().isEmpty) {
       return const DesktopPairingApprovalResult(
         success: false,
-        message: 'Could not validate your account session.',
+        message:
+            'Firebase returned an empty ID token. Please sign out and sign in again.',
         status: 'failed',
       );
     }
 
     try {
+      // ── KEY FIX: pass firebase_id_token in the BODY, not Authorization ──
+      // Supabase rejects non-Supabase JWTs in the Authorization header with
+      // 401 "Invalid JWT" before the function even runs.
       final response = await _client.functions.invoke(
         'approve-desktop-session',
-        headers: <String, String>{
-          'Authorization': 'Bearer $idToken',
-        },
         body: <String, dynamic>{
+          'firebase_id_token': idToken,
           'session_id': sessionId,
           'session_secret': sessionSecret,
           'paired_user_name': (user.displayName ?? '').trim(),
@@ -137,8 +140,10 @@ class DesktopPairingService {
       if (scheme != 'eleaguehub') return false;
       if (host != 'desktop-link') return false;
 
-      final sessionId = (uri.queryParameters['sessionId'] ?? '').trim();
-      final sessionSecret = (uri.queryParameters['sessionSecret'] ?? '').trim();
+      final sessionId =
+          (uri.queryParameters['sessionId'] ?? '').trim();
+      final sessionSecret =
+          (uri.queryParameters['sessionSecret'] ?? '').trim();
 
       if (sessionId.isEmpty || sessionSecret.isEmpty) return false;
 
