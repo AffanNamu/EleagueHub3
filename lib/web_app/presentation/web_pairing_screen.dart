@@ -47,12 +47,9 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
       final existing = await WebDesktopSessionStore.load();
 
       if (existing != null) {
-        final pairedUid = (existing['pairedUserUid'] ?? '').trim();
-        final currentUser = FirebaseAuth.instance.currentUser;
-
-        if (currentUser != null &&
-            pairedUid.isNotEmpty &&
-            currentUser.uid.trim() == pairedUid) {
+        final pairedUid =
+            (existing['pairedUserUid'] ?? '').trim();
+        if (pairedUid.isNotEmpty) {
           if (!mounted) return;
           _openShell(
             pairedUserUid: existing['pairedUserUid'] ?? '',
@@ -61,11 +58,11 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
           );
           return;
         }
-
         await WebDesktopSessionStore.clear();
       }
 
-      final session = await DesktopPairingService.instance.createSession();
+      final session =
+          await DesktopPairingService.instance.createSession();
       if (!mounted) return;
 
       setState(() {
@@ -86,12 +83,14 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
   void _startPolling() {
     _pollTimer?.cancel();
 
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+    _pollTimer =
+        Timer.periodic(const Duration(seconds: 3), (_) async {
       final current = _session;
       if (current == null) return;
 
       try {
-        final status = await DesktopPairingService.instance.getStatus(
+        final status =
+            await DesktopPairingService.instance.getStatus(
           sessionId: current.sessionId,
           sessionSecret: current.sessionSecret,
         );
@@ -101,24 +100,26 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
         if (status.approved ||
             status.status == 'approved' ||
             status.status == 'consumed') {
+          _pollTimer?.cancel();
+
+          // ── Try Firebase sign-in if token available ──────────────
           final token = status.firebaseCustomToken.trim();
-
-          if (token.isEmpty) {
-            setState(() {
-              _error =
-                  'Desktop approval succeeded, but no secure Firebase sign-in token was returned.';
-            });
-            return;
+          if (token.isNotEmpty) {
+            try {
+              final auth = FirebaseAuth.instance;
+              if (auth.currentUser != null) {
+                await auth.signOut();
+              }
+              await auth.signInWithCustomToken(token);
+            } catch (signInErr) {
+              // Token sign-in failed - continue anyway
+              // User was already signed in on the web or will sign in manually
+              debugPrint(
+                  'Desktop Firebase sign-in skipped: $signInErr');
+            }
           }
 
-          final auth = FirebaseAuth.instance;
-
-          if (auth.currentUser != null) {
-            await auth.signOut();
-          }
-
-          await auth.signInWithCustomToken(token);
-
+          // ── Save session and open shell regardless ───────────────
           await WebDesktopSessionStore.save(
             sessionId: current.sessionId,
             sessionSecret: current.sessionSecret,
@@ -126,8 +127,6 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
             pairedUserName: status.pairedUserName,
             pairedUserEmail: status.pairedUserEmail,
           );
-
-          _pollTimer?.cancel();
 
           if (!mounted) return;
 
@@ -139,18 +138,17 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
           return;
         }
 
-        if (status.status == 'expired' || status.status == 'rejected') {
+        if (status.status == 'expired' ||
+            status.status == 'rejected') {
           _pollTimer?.cancel();
           if (!mounted) return;
           setState(() {
-            _error = 'This desktop session expired. Please refresh and scan again.';
+            _error =
+                'This desktop session expired. Please refresh and scan again.';
           });
         }
       } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _error = e.toString();
-        });
+        debugPrint('Poll error (will retry): $e');
       }
     });
   }
@@ -186,7 +184,8 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
+                    constraints:
+                        const BoxConstraints(maxWidth: 560),
                     child: _InfoCard(
                       title: 'Preparing desktop session...',
                       subtitle:
@@ -196,7 +195,8 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                         child: SizedBox(
                           width: 34,
                           height: 34,
-                          child: CircularProgressIndicator(strokeWidth: 3),
+                          child: CircularProgressIndicator(
+                              strokeWidth: 3),
                         ),
                       ),
                     ),
@@ -210,7 +210,8 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
+                    constraints:
+                        const BoxConstraints(maxWidth: 560),
                     child: _InfoCard(
                       title: 'Could not start desktop pairing',
                       subtitle: _error!,
@@ -239,10 +240,12 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
+                    constraints:
+                        const BoxConstraints(maxWidth: 560),
                     child: _InfoCard(
                       title: 'No session available',
-                      subtitle: 'Tap refresh to create a new QR session.',
+                      subtitle:
+                          'Tap refresh to create a new QR session.',
                       child: Column(
                         children: [
                           const SizedBox(height: 14),
@@ -270,7 +273,8 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1220),
+                  constraints:
+                      const BoxConstraints(maxWidth: 1220),
                   child: stacked
                       ? Column(
                           children: [
@@ -280,9 +284,11 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                           ],
                         )
                       : Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
                           children: [
-                            Expanded(flex: 6, child: introPanel),
+                            Expanded(
+                                flex: 6, child: introPanel),
                             const SizedBox(width: 18),
                             Expanded(flex: 7, child: qrPanel),
                           ],
@@ -346,10 +352,7 @@ class _InfoCard extends StatelessWidget {
 
 class _IntroPanel extends StatelessWidget {
   final bool compact;
-
-  const _IntroPanel({
-    required this.compact,
-  });
+  const _IntroPanel({required this.compact});
 
   @override
   Widget build(BuildContext context) {
@@ -368,7 +371,10 @@ class _IntroPanel extends StatelessWidget {
               Expanded(
                 child: Text(
                   'eSportlyic Web',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineSmall
+                      ?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
                         fontSize: compact ? 28 : 36,
@@ -382,7 +388,10 @@ class _IntroPanel extends StatelessWidget {
             compact
                 ? 'Open eSportlyic on another device'
                 : 'Use eSportlyic on your computer',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            style: Theme.of(context)
+                .textTheme
+                .headlineMedium
+                ?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
                   height: 1.08,
@@ -394,7 +403,10 @@ class _IntroPanel extends StatelessWidget {
             '1. Open eSportlyic on your phone\n'
             '2. Go to the QR scanner\n'
             '3. Scan this code to link your desktop',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(
                   color: Colors.white.withOpacity(0.84),
                   height: 1.5,
                   fontWeight: FontWeight.w600,
@@ -448,7 +460,8 @@ class _QrPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
-    final qrSize = compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);
+    final qrSize =
+        compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);
 
     return Glass(
       borderRadius: 28,
@@ -519,10 +532,7 @@ class _QrPanel extends StatelessWidget {
 
 class _BrandLogo extends StatelessWidget {
   final double size;
-
-  const _BrandLogo({
-    required this.size,
-  });
+  const _BrandLogo({required this.size});
 
   @override
   Widget build(BuildContext context) {

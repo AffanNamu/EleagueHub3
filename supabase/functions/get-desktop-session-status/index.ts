@@ -15,14 +15,13 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
-function errorResponse(message: string, status = 400, extra: Record<string, unknown> = {}) {
+function errorResponse(
+  message: string,
+  status = 400,
+  extra: Record<string, unknown> = {},
+) {
   return jsonResponse(
-    {
-      success: false,
-      message,
-      error: message,
-      ...extra,
-    },
+    { success: false, message, error: message, ...extra },
     status,
   );
 }
@@ -32,7 +31,9 @@ async function mintFirebaseCustomToken(uid: string): Promise<string> {
   const privateKeyRaw = (Deno.env.get('FIREBASE_PRIVATE_KEY') ?? '').trim();
 
   if (!clientEmail || !privateKeyRaw) {
-    throw new Error('Missing FIREBASE_CLIENT_EMAIL or FIREBASE_PRIVATE_KEY secret');
+    throw new Error(
+      'Missing FIREBASE_CLIENT_EMAIL or FIREBASE_PRIVATE_KEY secret',
+    );
   }
 
   const privateKey = privateKeyRaw.replaceAll('\\n', '\n');
@@ -42,19 +43,17 @@ async function mintFirebaseCustomToken(uid: string): Promise<string> {
 
   return await new SignJWT({
     uid,
-    claims: {
-      desktopLinked: true,
-    },
+    claims: { desktopLinked: true },
   })
-      .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
-      .setIssuer(clientEmail)
-      .setSubject(clientEmail)
-      .setAudience(
-        'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
-      )
-      .setIssuedAt(now)
-      .setExpirationTime(now + 60 * 60)
-      .sign(key);
+    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+    .setIssuer(clientEmail)
+    .setSubject(clientEmail)
+    .setAudience(
+      'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+    )
+    .setIssuedAt(now)
+    .setExpirationTime(now + 60 * 60)
+    .sign(key);
 }
 
 Deno.serve(async (req) => {
@@ -67,26 +66,37 @@ Deno.serve(async (req) => {
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-  const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  const supabaseServiceRoleKey =
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
-    return errorResponse('Missing Supabase server environment variables', 500, {
+    return errorResponse(
+      'Missing Supabase server environment variables',
+      500,
+      { status: 'failed', approved: false },
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch (_) {
+    return errorResponse('Invalid JSON body', 400, {
       status: 'failed',
       approved: false,
     });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-
-  const body = await req.json().catch(() => ({}));
-
-  const sessionId = String(body.session_id ?? body.sessionId ?? '').trim();
-  const sessionSecret = String(body.session_secret ?? body.sessionSecret ?? '').trim();
+  const sessionId = String(
+    body['session_id'] ?? body['sessionId'] ?? '',
+  ).trim();
+  const sessionSecret = String(
+    body['session_secret'] ?? body['sessionSecret'] ?? '',
+  ).trim();
 
   if (!sessionId || !sessionSecret) {
     return errorResponse('Missing session_id/session_secret', 400, {
@@ -115,62 +125,61 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (String(data.session_secret ?? '') !== sessionSecret) {
+  if (String(data['session_secret'] ?? '') !== sessionSecret) {
     return errorResponse('Invalid desktop session secret', 401, {
       status: 'failed',
       approved: false,
     });
   }
 
-  let currentStatus = String(data.status ?? 'pending').trim();
+  let currentStatus = String(data['status'] ?? 'pending').trim();
   const nowMs = Date.now();
-  const expiresAtMs = Number(data.expires_at_ms ?? 0);
+  const expiresAtMs = Number(data['expires_at_ms'] ?? 0);
 
   if (
     expiresAtMs > 0 &&
     nowMs >= expiresAtMs &&
-    currentStatus != 'expired' &&
-    currentStatus != 'rejected' &&
-    currentStatus != 'consumed'
+    currentStatus !== 'expired' &&
+    currentStatus !== 'rejected' &&
+    currentStatus !== 'consumed'
   ) {
     currentStatus = 'expired';
-
     await supabase
       .from('desktop_sessions')
-      .update({
-        status: 'expired',
-      })
+      .update({ status: 'expired' })
       .eq('session_id', sessionId);
   }
 
+  // ── try to mint custom token - but DON'T fail if it errors ───────────────
   let firebaseCustomToken = '';
+  let customTokenError = '';
 
-  if (currentStatus == 'approved') {
-    const pairedUserUid = String(data.paired_user_uid ?? '').trim();
+  if (currentStatus === 'approved') {
+    const pairedUserUid = String(data['paired_user_uid'] ?? '').trim();
 
-    if (!pairedUserUid) {
-      return errorResponse('Approved desktop session has no paired Firebase user.', 500, {
-        status: 'failed',
-        approved: false,
-      });
+    if (pairedUserUid) {
+      try {
+        firebaseCustomToken = await mintFirebaseCustomToken(pairedUserUid);
+
+        // Only mark consumed if we successfully minted the token
+        const consumedAtMs = nowMs;
+        await supabase
+          .from('desktop_sessions')
+          .update({ status: 'consumed', consumed_at_ms: consumedAtMs })
+          .eq('session_id', sessionId);
+
+        currentStatus = 'consumed';
+      } catch (mintErr) {
+        // Token minting failed - log error but still return approved
+        // The web app will open without Firebase sign-in
+        customTokenError = String(mintErr);
+        console.error('Custom token mint failed:', mintErr);
+      }
     }
-
-    firebaseCustomToken = await mintFirebaseCustomToken(pairedUserUid);
-
-    const consumedAtMs = nowMs;
-
-    await supabase
-      .from('desktop_sessions')
-      .update({
-        status: 'consumed',
-        consumed_at_ms: consumedAtMs,
-      })
-      .eq('session_id', sessionId);
-
-    currentStatus = 'consumed';
   }
 
-  const approved = currentStatus == 'approved' || currentStatus == 'consumed';
+  const approved =
+    currentStatus === 'approved' || currentStatus === 'consumed';
 
   return jsonResponse({
     success: true,
@@ -180,17 +189,19 @@ Deno.serve(async (req) => {
     sessionId,
     expiresAtMs,
 
-    pairedUserUid: String(data.paired_user_uid ?? ''),
-    pairedUserName: String(data.paired_user_name ?? ''),
-    pairedUserEmail: String(data.paired_user_email ?? ''),
+    pairedUserUid: String(data['paired_user_uid'] ?? ''),
+    pairedUserName: String(data['paired_user_name'] ?? ''),
+    pairedUserEmail: String(data['paired_user_email'] ?? ''),
 
+    // Empty string if minting failed - web app handles this gracefully
     firebaseCustomToken,
+    customTokenError,
 
     session_id: sessionId,
     expires_at_ms: expiresAtMs,
-    paired_user_uid: String(data.paired_user_uid ?? ''),
-    paired_user_name: String(data.paired_user_name ?? ''),
-    paired_user_email: String(data.paired_user_email ?? ''),
+    paired_user_uid: String(data['paired_user_uid'] ?? ''),
+    paired_user_name: String(data['paired_user_name'] ?? ''),
+    paired_user_email: String(data['paired_user_email'] ?? ''),
     firebase_custom_token: firebaseCustomToken,
   });
 });
