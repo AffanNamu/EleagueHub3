@@ -17,12 +17,15 @@ import 'core/services/connectivity_service.dart';
 import 'core/services/desktop/desktop_pairing_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/push_messaging_service.dart';
+import 'firebase_options.dart';
 import 'web_app/web_app.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (_) {}
 }
 
@@ -33,13 +36,17 @@ Future<void> main() async {
     OverlayBridge.ensureInitialized();
   }
 
+  // ── Initialize Firebase with explicit options (required for web) ──────────
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (e, st) {
     debugPrint('Firebase.initializeApp failed: $e');
     debugPrintStack(stackTrace: st);
   }
 
+  // ── Initialize Supabase ───────────────────────────────────────────────────
   try {
     await DesktopPairingService.initializeSupabase();
   } catch (e, st) {
@@ -86,13 +93,15 @@ Future<void> main() async {
       try {
         await NotificationService().init();
       } catch (e, st) {
-        await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+        await FirebaseCrashlytics.instance
+            .recordError(e, st, fatal: false);
       }
 
       try {
         await PushMessagingService.instance.init();
       } catch (e, st) {
-        await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+        await FirebaseCrashlytics.instance
+            .recordError(e, st, fatal: false);
       }
     }
 
@@ -113,7 +122,8 @@ Future<void> main() async {
   }, (error, stack) async {
     if (!kIsWeb) {
       try {
-        await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        await FirebaseCrashlytics.instance
+            .recordError(error, stack, fatal: true);
       } catch (_) {}
     } else {
       debugPrint('Uncaught zone error: $error');

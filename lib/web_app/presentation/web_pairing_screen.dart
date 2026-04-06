@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -44,6 +45,17 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
     });
 
     try {
+      // ── ensure Firebase is initialized before anything else ──────────
+      if (Firebase.apps.isEmpty) {
+        // Firebase not initialized yet - wait a moment and check again
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        if (Firebase.apps.isEmpty) {
+          throw StateError(
+            'Firebase is not initialized. Please refresh the page.',
+          );
+        }
+      }
+
       final existing = await WebDesktopSessionStore.load();
 
       if (existing != null) {
@@ -102,24 +114,25 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
             status.status == 'consumed') {
           _pollTimer?.cancel();
 
-          // ── Try Firebase sign-in if token available ──────────────
+          // ── Try Firebase custom token sign-in ────────────────────
           final token = status.firebaseCustomToken.trim();
           if (token.isNotEmpty) {
             try {
-              final auth = FirebaseAuth.instance;
-              if (auth.currentUser != null) {
-                await auth.signOut();
+              // Only use FirebaseAuth if Firebase is initialized
+              if (Firebase.apps.isNotEmpty) {
+                final auth = FirebaseAuth.instance;
+                if (auth.currentUser != null) {
+                  await auth.signOut();
+                }
+                await auth.signInWithCustomToken(token);
               }
-              await auth.signInWithCustomToken(token);
             } catch (signInErr) {
-              // Token sign-in failed - continue anyway
-              // User was already signed in on the web or will sign in manually
-              debugPrint(
-                  'Desktop Firebase sign-in skipped: $signInErr');
+              // Silent - continue to shell anyway
+              debugPrint('Custom token sign-in skipped: $signInErr');
             }
           }
 
-          // ── Save session and open shell regardless ───────────────
+          // ── Save and open shell ──────────────────────────────────
           await WebDesktopSessionStore.save(
             sessionId: current.sessionId,
             sessionSecret: current.sessionSecret,
