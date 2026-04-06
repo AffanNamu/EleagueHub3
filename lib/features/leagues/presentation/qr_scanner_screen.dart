@@ -51,18 +51,14 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
   bool _torchOn = false;
   CameraFacing _facing = CameraFacing.back;
 
-  /// Firebase Auth UID (required by Firestore rules for memberships/coupons).
   String _authUid = '';
 
-  /// True when user has unlocked access (receipt or coupon).
   bool _unlocked = false;
 
   LeagueJoinMode? _joinedMode;
 
-  /// True when user tried to join as participant but got joined as viewer (league was full).
   bool _downgradedToViewerBecauseFull = false;
 
-  /// Friendly join message.
   String? _joinNotice;
 
   bool _permissionChecked = false;
@@ -179,7 +175,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       _scannerStarted = true;
     } catch (_) {
       _scannerStarted = false;
-      _setError('We couldn’t access your camera. Please try again.');
+      _setError('We couldn\'t access your camera. Please try again.');
     }
   }
 
@@ -577,8 +573,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     : const Icon(Icons.payments_outlined),
                                 label: Text(
                                   busy ? 'Processing…' : 'Pay to unlock',
-                                  style:
-                                      const TextStyle(fontWeight: FontWeight.w900),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w900),
                                 ),
                               ),
                             ),
@@ -607,22 +603,19 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 filled: true,
                                 fillColor: on.withOpacity(0.06),
                                 border: OutlineInputBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(14),
-                                  borderSide:
-                                      BorderSide(color: on.withOpacity(0.12)),
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(
+                                      color: on.withOpacity(0.12)),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(14),
-                                  borderSide:
-                                      BorderSide(color: on.withOpacity(0.12)),
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(
+                                      color: on.withOpacity(0.12)),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(14),
-                                  borderSide:
-                                      BorderSide(color: cs.primary.withOpacity(0.55)),
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(
+                                      color: cs.primary.withOpacity(0.55)),
                                 ),
                               ),
                               onSubmitted: (_) => doCoupon(setSheet),
@@ -636,7 +629,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 icon: const Icon(Icons.verified_outlined),
                                 label: const Text(
                                   'Apply coupon',
-                                  style: TextStyle(fontWeight: FontWeight.w900),
+                                  style:
+                                      TextStyle(fontWeight: FontWeight.w900),
                                 ),
                               ),
                             ),
@@ -700,8 +694,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     });
 
     try {
-      final ok =
-          await _showUnlockSheet(context: context, league: league, authUid: authUid);
+      final ok = await _showUnlockSheet(
+          context: context, league: league, authUid: authUid);
       if (!mounted) return;
 
       if (!ok) {
@@ -723,10 +717,13 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       if (!mounted) return;
       setState(() {
         _joining = false;
-        _error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+        _error = UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown'));
       });
     }
   }
+
+  // ─── DESKTOP PAIRING ──────────────────────────────────────────────────────
 
   Future<bool> _tryHandleDesktopPairingPayload(String payload) async {
     String? sessionId;
@@ -742,20 +739,24 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
 
     if (!matched) return false;
 
-    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    // ── auth check ────────────────────────────────────────────────────────
+    final user = FirebaseAuth.instance.currentUser;
+    final authUid = (user?.uid ?? '').trim();
     _authUid = authUid;
 
     if (authUid.isEmpty) {
       if (!mounted) return true;
       setState(() {
         _joining = false;
-        _error = 'Please sign in first to link this eSportlyic Web session.';
+        _error =
+            'Please sign in first to link this eSportlyic Web session.';
         _isScanned = false;
       });
       await _startScannerSafely();
       return true;
     }
 
+    // ── show progress ─────────────────────────────────────────────────────
     setState(() {
       _joining = true;
       _error = null;
@@ -769,10 +770,39 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     });
 
     try {
-      final result = await DesktopPairingService.instance.approveSession(
-        sessionId: sessionId!,
-        sessionSecret: sessionSecret!,
-      ).timeout(const Duration(seconds: 20));
+      // ── get fresh ID token ────────────────────────────────────────────
+      String idToken = '';
+      try {
+        idToken = (await user!.getIdToken(true)) ?? '';
+      } catch (tokenErr) {
+        if (!mounted) return true;
+        setState(() {
+          _joining = false;
+          _error = 'Could not refresh your sign-in token: $tokenErr';
+          _isScanned = false;
+        });
+        await _startScannerSafely();
+        return true;
+      }
+
+      if (idToken.trim().isEmpty) {
+        if (!mounted) return true;
+        setState(() {
+          _joining = false;
+          _error = 'Firebase returned an empty ID token. Please sign out and sign in again.';
+          _isScanned = false;
+        });
+        await _startScannerSafely();
+        return true;
+      }
+
+      // ── call approve ──────────────────────────────────────────────────
+      final result = await DesktopPairingService.instance
+          .approveSession(
+            sessionId: sessionId!,
+            sessionSecret: sessionSecret!,
+          )
+          .timeout(const Duration(seconds: 25));
 
       if (!mounted) return true;
 
@@ -781,7 +811,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           _joining = false;
           _error = result.message.trim().isNotEmpty
               ? result.message.trim()
-              : 'Could not link this desktop session.';
+              : 'Could not link this desktop session. Please try again.';
           _isScanned = false;
         });
         await _startScannerSafely();
@@ -800,19 +830,31 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       });
 
       return true;
-    } catch (e) {
+    } on TimeoutException {
       if (!mounted) return true;
       setState(() {
         _joining = false;
-        _error = UserFriendlyError.toMessage(
-          e is Object ? e : Exception('unknown'),
-        );
+        _error =
+            'Desktop link timed out (25 s). Check your internet and try again.';
+        _isScanned = false;
+      });
+      await _startScannerSafely();
+      return true;
+    } catch (e) {
+      if (!mounted) return true;
+      // ── show the FULL raw error so we can diagnose ────────────────────
+      final raw = e.toString().trim();
+      setState(() {
+        _joining = false;
+        _error = raw.isNotEmpty ? raw : 'Unknown error during desktop link.';
         _isScanned = false;
       });
       await _startScannerSafely();
       return true;
     }
   }
+
+  // ─── SCANNER CALLBACKS ────────────────────────────────────────────────────
 
   void _onDetect(BarcodeCapture capture) {
     if (!_cameraPermissionGranted) return;
@@ -855,8 +897,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
 
     final joinCode = parsed.code;
 
-    final selectedMode =
-        await _promptJoinMode(context, joinCode: joinCode);
+    final selectedMode = await _promptJoinMode(context, joinCode: joinCode);
     if (selectedMode == null) {
       if (!mounted) return;
       setState(() {
@@ -916,8 +957,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                 organizerUserId: '',
                 code: joinCode,
                 qrPayloadOverride: '',
-                settings: LeagueSettings.defaultsFor(LeagueFormat.classic)
-                    .copyWith(lastPulledAtMs: now),
+                settings:
+                    LeagueSettings.defaultsFor(LeagueFormat.classic)
+                        .copyWith(lastPulledAtMs: now),
                 updatedAtMs: now,
                 version: 1,
               );
@@ -929,36 +971,41 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           .getMembership(leagueId: league.id, userId: authUid)
           .timeout(const Duration(seconds: 15));
 
-      final effectiveMode =
-          (membership != null) ? LeagueJoinMode.participant : LeagueJoinMode.viewer;
+      final effectiveMode = (membership != null)
+          ? LeagueJoinMode.participant
+          : LeagueJoinMode.viewer;
 
       final downgradedDueToFull =
           selectedMode == LeagueJoinMode.participant &&
               effectiveMode == LeagueJoinMode.viewer;
 
       String? notice;
-      final bool adminAlreadyAdded =
-          membership != null && (membership.teamId?.trim().isNotEmpty == true);
+      final bool adminAlreadyAdded = membership != null &&
+          (membership.teamId?.trim().isNotEmpty == true);
 
       if (adminAlreadyAdded) {
         notice = (selectedMode == LeagueJoinMode.viewer)
-            ? l10n.tr('qr_scanner_notice_viewer_but_already_added_team_assigned')
+            ? l10n.tr(
+                'qr_scanner_notice_viewer_but_already_added_team_assigned')
             : l10n.tr('qr_scanner_notice_already_added_team_assigned');
       } else if (membership != null) {
         notice = (selectedMode == LeagueJoinMode.viewer)
-            ? l10n.tr('qr_scanner_notice_viewer_but_already_registered_participant')
+            ? l10n.tr(
+                'qr_scanner_notice_viewer_but_already_registered_participant')
             : l10n.tr('qr_scanner_notice_already_registered');
       } else if (downgradedDueToFull) {
-        notice = l10n.tr('qr_scanner_notice_league_full_joined_viewer_only');
+        notice =
+            l10n.tr('qr_scanner_notice_league_full_joined_viewer_only');
       } else if (selectedMode == LeagueJoinMode.viewer) {
         notice = l10n.tr('qr_scanner_notice_joined_viewer_only');
       }
 
-      final paidReceipt =
-          await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
+      final paidReceipt = await _hasPaidChargesRemote(
+          userId: authUid, leagueId: league.id);
       final paidCoupon = paidReceipt
           ? false
-          : await _hasPaidCouponRemote(userId: authUid, leagueId: league.id);
+          : await _hasPaidCouponRemote(
+              userId: authUid, leagueId: league.id);
 
       if (!mounted) return;
 
@@ -980,7 +1027,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       if (!mounted) return;
       setState(() {
         _joining = false;
-        _error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+        _error = UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown'));
         _isScanned = false;
       });
       await _startScannerSafely();
@@ -1001,11 +1049,12 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
 
     if (_unlocked) return;
 
-    final alreadyPaid =
-        await _hasPaidChargesRemote(userId: authUid, leagueId: joinedLeague.id);
+    final alreadyPaid = await _hasPaidChargesRemote(
+        userId: authUid, leagueId: joinedLeague.id);
     final alreadyCoupon = alreadyPaid
         ? false
-        : await _hasPaidCouponRemote(userId: authUid, leagueId: joinedLeague.id);
+        : await _hasPaidCouponRemote(
+            userId: authUid, leagueId: joinedLeague.id);
     if (alreadyPaid || alreadyCoupon) {
       if (!mounted) return;
       setState(() => _unlocked = true);
@@ -1022,7 +1071,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           backgroundColor: dialogCs.surface,
           title: Text(
             l10n.tr('qr_scanner_unlock_dialog_title'),
-            style: TextStyle(color: dialogCs.onSurface, fontWeight: FontWeight.w900),
+            style: TextStyle(
+                color: dialogCs.onSurface, fontWeight: FontWeight.w900),
           ),
           content: Text(
             '${l10n.tr('qr_scanner_unlock_dialog_content_prefix')}${joinedLeague.name}${l10n.tr('qr_scanner_unlock_dialog_content_suffix')}',
@@ -1116,14 +1166,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 icon: Icon(Icons.content_paste,
                                     color: cs.primary),
                                 onPressed: () async {
-                                  final data =
-                                      await Clipboard.getData('text/plain');
+                                  final data = await Clipboard.getData(
+                                      'text/plain');
                                   final text = data?.text ?? '';
                                   if (text.trim().isEmpty) return;
                                   controller.text = text.trim();
                                   controller.selection =
                                       TextSelection.fromPosition(
-                                    TextPosition(offset: controller.text.length),
+                                    TextPosition(
+                                        offset: controller.text.length),
                                   );
                                 },
                               ),
@@ -1145,7 +1196,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                   onPressed: () => Navigator.of(ctx)
                                       .pop(controller.text.trim()),
                                   icon: const Icon(Icons.login),
-                                  label: Text(l10n.tr('common_continue')),
+                                  label:
+                                      Text(l10n.tr('common_continue')),
                                 ),
                               ),
                             ],
@@ -1201,12 +1253,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     context.go('/profile');
   }
 
+  // ─── BUILD ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
+    // ── desktop pairing success screen ────────────────────────────────────
     if (_desktopPairingApproved) {
       return GlassScaffold(
         appBar: AppBar(
@@ -1221,7 +1276,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
@@ -1281,7 +1337,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                           Expanded(
                             child: FilledButton.icon(
                               onPressed: _finishDesktopPairingFlow,
-                              icon: const Icon(Icons.check_circle_outline),
+                              icon:
+                                  const Icon(Icons.check_circle_outline),
                               label: const Text('Done'),
                             ),
                           ),
@@ -1297,6 +1354,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       );
     }
 
+    // ── joined league screen ──────────────────────────────────────────────
     if (_joinedLeague != null) {
       final league = _joinedLeague!;
       final screenWidth = MediaQuery.of(context).size.width;
@@ -1324,9 +1382,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 24),
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: isWide ? 600 : 450),
+                constraints:
+                    BoxConstraints(maxWidth: isWide ? 600 : 450),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1337,7 +1397,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                           '${context.l10n.tr(league.format.l10nKey)} • ${league.season}',
                       subtitle:
                           '0 / ${league.maxTeams} ${l10n.tr('qr_scanner_teams_suffix')}',
-                      onDoubleTap: () => context.push('/leagues/${league.id}'),
+                      onDoubleTap: () =>
+                          context.push('/leagues/${league.id}'),
                       qrWidget: QrImageView(
                         data: league.qrPayload,
                         version: QrVersions.auto,
@@ -1381,8 +1442,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                           const SizedBox(height: 10),
                           Text(
                             showUnlock
-                                ? l10n.tr('qr_scanner_requires_charges_message')
-                                : l10n.tr('qr_scanner_can_open_league_message'),
+                                ? l10n.tr(
+                                    'qr_scanner_requires_charges_message')
+                                : l10n.tr(
+                                    'qr_scanner_can_open_league_message'),
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: cs.onSurface.withOpacity(0.72),
@@ -1412,7 +1475,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                       )
                                     : const Icon(Icons.lock_open),
                                 label: Text(
-                                  l10n.tr('qr_scanner_unlock_now').toUpperCase(),
+                                  l10n
+                                      .tr('qr_scanner_unlock_now')
+                                      .toUpperCase(),
                                 ),
                               ),
                             ),
@@ -1422,18 +1487,21 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             children: [
                               Expanded(
                                 child: FilledButton(
-                                  onPressed: () => context.go('/leagues'),
-                                  child:
-                                      Text(l10n.tr('common_done').toUpperCase()),
+                                  onPressed: () =>
+                                      context.go('/leagues'),
+                                  child: Text(l10n
+                                      .tr('common_done')
+                                      .toUpperCase()),
                                 ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () =>
-                                      context.push('/leagues/${league.id}'),
-                                  child:
-                                      Text(l10n.tr('common_open').toUpperCase()),
+                                  onPressed: () => context
+                                      .push('/leagues/${league.id}'),
+                                  child: Text(l10n
+                                      .tr('common_open')
+                                      .toUpperCase()),
                                 ),
                               ),
                             ],
@@ -1461,6 +1529,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       );
     }
 
+    // ── scanner screen ────────────────────────────────────────────────────
     final topIconColor = Colors.white.withOpacity(0.92);
 
     return Scaffold(
@@ -1485,11 +1554,14 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.camera_alt_outlined,
-                              color: cs.onSurface.withOpacity(0.72), size: 34),
+                              color: cs.onSurface.withOpacity(0.72),
+                              size: 34),
                           const SizedBox(height: 10),
                           Text(
-                            context.l10n.tr('qr_scanner_camera_not_available'),
-                            style: theme.textTheme.titleMedium?.copyWith(
+                            context.l10n
+                                .tr('qr_scanner_camera_not_available'),
+                            style:
+                                theme.textTheme.titleMedium?.copyWith(
                               color: cs.onSurface,
                               fontWeight: FontWeight.w900,
                             ),
@@ -1517,21 +1589,24 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     await _ensureCameraPermission(
                                         startScannerIfGranted: true);
                                   },
-                                  child: Text(context.l10n.tr('common_retry')),
+                                  child: Text(context.l10n
+                                      .tr('common_retry')),
                                 ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed:
-                                      _joining ? null : _showManualEntrySheet,
+                                  onPressed: _joining
+                                      ? null
+                                      : _showManualEntrySheet,
                                   style: OutlinedButton.styleFrom(
                                     side: BorderSide(
-                                        color: cs.onSurface.withOpacity(0.18)),
+                                        color: cs.onSurface
+                                            .withOpacity(0.18)),
                                     foregroundColor: cs.primary,
                                   ),
-                                  child: Text(context.l10n
-                                      .tr('qr_scanner_enter_code_instead')),
+                                  child: Text(context.l10n.tr(
+                                      'qr_scanner_enter_code_instead')),
                                 ),
                               ),
                             ],
@@ -1547,7 +1622,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
-                painter: _ScannerOverlayPainter(accent: cs.primary),
+                painter:
+                    _ScannerOverlayPainter(accent: cs.primary),
               ),
             ),
           ),
@@ -1555,12 +1631,13 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
             child: Column(
               children: [
                 Padding(
-                  padding:
-                      const EdgeInsetsDirectional.fromSTEB(12, 10, 12, 0),
+                  padding: const EdgeInsetsDirectional.fromSTEB(
+                      12, 10, 12, 0),
                   child: Row(
                     children: [
                       IconButton(
-                        icon: Icon(Icons.close, color: topIconColor, size: 26),
+                        icon: Icon(Icons.close,
+                            color: topIconColor, size: 26),
                         onPressed: () => context.pop(),
                       ),
                       const Spacer(),
@@ -1578,16 +1655,19 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                 ),
                 const Spacer(),
                 Padding(
-                  padding:
-                      const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 12),
+                  padding: const EdgeInsetsDirectional.fromSTEB(
+                      12, 0, 12, 12),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 560),
+                      constraints:
+                          const BoxConstraints(maxWidth: 560),
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 250),
-                        child: (!_cameraPermissionGranted && _permissionChecked)
+                        child: (!_cameraPermissionGranted &&
+                                _permissionChecked)
                             ? Glass(
-                                key: const ValueKey('permission_card'),
+                                key: const ValueKey(
+                                    'permission_card'),
                                 padding: const EdgeInsets.all(14),
                                 borderRadius: 24,
                                 child: Column(
@@ -1596,8 +1676,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     Text(
                                       l10n.tr(
                                           'qr_scanner_allow_camera_access_title'),
-                                      style:
-                                          theme.textTheme.titleSmall?.copyWith(
+                                      style: theme.textTheme
+                                          .titleSmall
+                                          ?.copyWith(
                                         color: cs.onSurface,
                                         fontWeight: FontWeight.w900,
                                       ),
@@ -1608,9 +1689,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                       l10n.tr(
                                           'qr_scanner_allow_camera_access_description'),
                                       textAlign: TextAlign.center,
-                                      style:
-                                          theme.textTheme.bodyMedium?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.72),
+                                      style: theme.textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                        color: cs.onSurface
+                                            .withOpacity(0.72),
                                         height: 1.35,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -1620,27 +1703,32 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                       children: [
                                         Expanded(
                                           child: OutlinedButton(
-                                            onPressed: _requestingPermission
-                                                ? null
-                                                : () => openAppSettings(),
-                                            style: OutlinedButton.styleFrom(
+                                            onPressed:
+                                                _requestingPermission
+                                                    ? null
+                                                    : () =>
+                                                        openAppSettings(),
+                                            style:
+                                                OutlinedButton.styleFrom(
                                               side: BorderSide(
                                                 color: cs.onSurface
                                                     .withOpacity(0.18),
                                               ),
-                                              foregroundColor: cs.onSurface
+                                              foregroundColor: cs
+                                                  .onSurface
                                                   .withOpacity(0.80),
                                             ),
-                                            child: Text(
-                                                l10n.tr('qr_scanner_open_settings')),
+                                            child: Text(l10n.tr(
+                                                'qr_scanner_open_settings')),
                                           ),
                                         ),
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: FilledButton(
-                                            onPressed: _requestingPermission
-                                                ? null
-                                                : _requestCameraPermission,
+                                            onPressed:
+                                                _requestingPermission
+                                                    ? null
+                                                    : _requestCameraPermission,
                                             child: _requestingPermission
                                                 ? const SizedBox(
                                                     width: 18,
@@ -1666,12 +1754,14 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                             : _showManualEntrySheet,
                                         style: OutlinedButton.styleFrom(
                                           side: BorderSide(
-                                              color: cs.onSurface.withOpacity(0.18)),
+                                              color: cs.onSurface
+                                                  .withOpacity(0.18)),
                                           foregroundColor: cs.primary,
                                         ),
                                         child: Text(
                                           l10n
-                                              .tr('qr_scanner_enter_code_instead')
+                                              .tr(
+                                                  'qr_scanner_enter_code_instead')
                                               .toUpperCase(),
                                         ),
                                       ),
@@ -1698,11 +1788,14 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      l10n.tr('qr_scanner_center_qr_instruction'),
+                                      l10n.tr(
+                                          'qr_scanner_center_qr_instruction'),
                                       textAlign: TextAlign.center,
-                                      style:
-                                          theme.textTheme.bodyMedium?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.72),
+                                      style: theme.textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                        color: cs.onSurface
+                                            .withOpacity(0.72),
                                         fontSize: 13,
                                         fontWeight: FontWeight.w700,
                                         height: 1.3,
@@ -1712,20 +1805,38 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     Text(
                                       'This scanner can join leagues or link eSportlyic Web.',
                                       textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.60),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                        color: cs.onSurface
+                                            .withOpacity(0.60),
                                         fontWeight: FontWeight.w600,
                                         height: 1.3,
                                       ),
                                     ),
+                                    // ── error box shows FULL detail ──
                                     if (_error != null) ...[
                                       const SizedBox(height: 8),
-                                      Text(
-                                        _error!,
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: cs.error,
-                                          fontWeight: FontWeight.w900,
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              cs.error.withOpacity(0.12),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: cs.error
+                                                  .withOpacity(0.30)),
+                                        ),
+                                        child: SelectableText(
+                                          _error!,
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: cs.error,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 12,
+                                            height: 1.4,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -1746,16 +1857,19 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: OutlinedButton(
-                                            onPressed:
-                                                _joining ? null : _scanAgain,
-                                            style: OutlinedButton.styleFrom(
+                                            onPressed: _joining
+                                                ? null
+                                                : _scanAgain,
+                                            style:
+                                                OutlinedButton.styleFrom(
                                               side: BorderSide(
                                                   color: cs.onSurface
                                                       .withOpacity(0.18)),
                                               foregroundColor: cs.primary,
                                             ),
                                             child: Text(l10n
-                                                .tr('qr_scanner_scan_again')
+                                                .tr(
+                                                    'qr_scanner_scan_again')
                                                 .toUpperCase()),
                                           ),
                                         ),
@@ -1763,7 +1877,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     ),
                                     const SizedBox(height: 10),
                                     Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
                                         IconButton(
                                           tooltip: _torchOn
@@ -1777,15 +1892,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                                 : Icons.flash_off,
                                             color: cs.onSurface,
                                           ),
-                                          onPressed:
-                                              !_cameraPermissionGranted || _joining
-                                                  ? null
-                                                  : () async {
-                                                      await _scannerController
-                                                          .toggleTorch();
-                                                      setState(() =>
-                                                          _torchOn = !_torchOn);
-                                                    },
+                                          onPressed: !_cameraPermissionGranted ||
+                                                  _joining
+                                              ? null
+                                              : () async {
+                                                  await _scannerController
+                                                      .toggleTorch();
+                                                  setState(() => _torchOn =
+                                                      !_torchOn);
+                                                },
                                         ),
                                         const SizedBox(width: 8),
                                         IconButton(
@@ -1793,20 +1908,19 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                               'qr_scanner_switch_camera_tooltip'),
                                           icon: Icon(Icons.cameraswitch,
                                               color: cs.onSurface),
-                                          onPressed:
-                                              !_cameraPermissionGranted || _joining
-                                                  ? null
-                                                  : () async {
-                                                      final newFacing =
-                                                          _facing ==
-                                                                  CameraFacing.back
-                                                              ? CameraFacing.front
-                                                              : CameraFacing.back;
-                                                      await _scannerController
-                                                          .switchCamera();
-                                                      setState(() =>
-                                                          _facing = newFacing);
-                                                    },
+                                          onPressed: !_cameraPermissionGranted ||
+                                                  _joining
+                                              ? null
+                                              : () async {
+                                                  final newFacing = _facing ==
+                                                          CameraFacing.back
+                                                      ? CameraFacing.front
+                                                      : CameraFacing.back;
+                                                  await _scannerController
+                                                      .switchCamera();
+                                                  setState(() =>
+                                                      _facing = newFacing);
+                                                },
                                         ),
                                       ],
                                     ),
@@ -1911,13 +2025,12 @@ class _JoinModeTile extends StatelessWidget {
 class _ScannerOverlayPainter extends CustomPainter {
   final Color accent;
 
-  const _ScannerOverlayPainter({
-    required this.accent,
-  });
+  const _ScannerOverlayPainter({required this.accent});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final overlayPaint = Paint()..color = Colors.black.withOpacity(0.55);
+    final overlayPaint = Paint()
+      ..color = Colors.black.withOpacity(0.55);
 
     final cutOutSize = size.shortestSide * 0.62;
     final cutOutRect = Rect.fromCenter(
