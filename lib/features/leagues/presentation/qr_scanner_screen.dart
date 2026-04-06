@@ -402,8 +402,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
             if (!result.success) {
               setSheet(() {
                 busy = false;
-                error = result.message?.trim().isNotEmpty == true
-                    ? result.message
+                error = result.errorMessage?.trim().isNotEmpty == true
+                    ? result.errorMessage
                     : 'Payment not successful.';
               });
               return;
@@ -699,10 +699,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
 
     try {
       final ok = await _showUnlockSheet(
-        context: context,
-        league: league,
-        authUid: authUid,
-      );
+          context: context, league: league, authUid: authUid);
       if (!mounted) return;
 
       if (!ok) {
@@ -710,8 +707,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         return;
       }
 
-      final paidReceipt = await _hasPaidChargesRemote(
-          userId: authUid, leagueId: league.id);
+      final paidReceipt =
+          await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
       final paidCoupon = paidReceipt
           ? false
           : await _hasPaidCouponRemote(
@@ -726,8 +723,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       setState(() {
         _joining = false;
         _error = UserFriendlyError.toMessage(
-          e is Object ? e : Exception('unknown'),
-        );
+            e is Object ? e : Exception('unknown'));
       });
     }
   }
@@ -849,9 +845,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       final raw = e.toString().trim();
       setState(() {
         _joining = false;
-        _error = raw.isNotEmpty
-            ? raw
-            : 'Unknown error during desktop link.';
+        _error =
+            raw.isNotEmpty ? raw : 'Unknown error during desktop link.';
         _isScanned = false;
       });
       await _startScannerSafely();
@@ -921,7 +916,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       _desktopPairingMessage = null;
     });
 
-    final authUid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    final authUid =
+        (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     _authUid = authUid;
 
     if (authUid.isEmpty) {
@@ -1163,9 +1159,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             controller: controller,
                             autofocus: true,
                             style: TextStyle(
-                              color: AppTheme.primaryText(brightness),
-                              fontWeight: FontWeight.w800,
-                            ),
+                                color: AppTheme.primaryText(brightness),
+                                fontWeight: FontWeight.w800),
                             textCapitalization:
                                 TextCapitalization.characters,
                             decoration: InputDecoration(
@@ -1184,8 +1179,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                   controller.selection =
                                       TextSelection.fromPosition(
                                     TextPosition(
-                                      offset: controller.text.length,
-                                    ),
+                                        offset: controller.text.length),
                                   );
                                 },
                               ),
@@ -1287,8 +1281,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 24),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
@@ -1631,8 +1625,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                       : _showManualEntrySheet,
                                   style: OutlinedButton.styleFrom(
                                     side: BorderSide(
-                                      color: AppTheme.cardBorder(brightness),
-                                    ),
+                                        color: AppTheme.cardBorder(brightness)),
                                     foregroundColor:
                                         AppTheme.limeAccentDark,
                                   ),
@@ -1653,9 +1646,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
-                painter: _ScannerOverlayPainter(
-                  accent: AppTheme.limeAccentDark,
-                ),
+                painter:
+                    _ScannerOverlayPainter(accent: AppTheme.limeAccentDark),
               ),
             ),
           ),
@@ -1674,7 +1666,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                       ),
                       const Spacer(),
                       if (_joining)
-                        SizedBox(
+                        const SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
@@ -1794,9 +1786,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                             : _showManualEntrySheet,
                                         style: OutlinedButton.styleFrom(
                                           side: BorderSide(
-                                            color: AppTheme.cardBorder(
-                                                brightness),
-                                          ),
+                                              color: AppTheme.cardBorder(
+                                                  brightness)),
                                           foregroundColor:
                                               AppTheme.limeAccentDark,
                                         ),
@@ -1948,8 +1939,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                             _torchOn
                                                 ? Icons.flash_on
                                                 : Icons.flash_off,
-                                            color:
-                                                AppTheme.primaryText(brightness),
+                                            color: AppTheme.primaryText(
+                                                brightness),
                                           ),
                                           onPressed: !_cameraPermissionGranted ||
                                                   _joining
@@ -1967,8 +1958,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                               'qr_scanner_switch_camera_tooltip'),
                                           icon: Icon(
                                             Icons.cameraswitch,
-                                            color:
-                                                AppTheme.primaryText(brightness),
+                                            color: AppTheme.primaryText(
+                                                brightness),
                                           ),
                                           onPressed: !_cameraPermissionGranted ||
                                                   _joining
